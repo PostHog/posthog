@@ -225,6 +225,13 @@ export const cohortsModel = kea<cohortsModelType>([
             }
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
+        loadAllCohortsSuccess: async ({ allCohorts }: { allCohorts: CountedPaginatedResponse<CohortType> }) => {
+            const is_calculating = allCohorts.results.filter((cohort) => cohort.is_calculating).length > 0
+            if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
+                return
+            }
+            actions.setPollTimeout(window.setTimeout(actions.loadAllCohorts, POLL_TIMEOUT))
+        },
         exportCohortPersons: async ({ id, columns }) => {
             const exportCommand = {
                 export_format: ExporterFormat.CSV,
