@@ -109,14 +109,12 @@ fn filter_by_team_id(
         .map(|e| {
             let Ok(e) = e else { return e };
 
-            let res = match (mode, team_ids.contains(&e.team_id)) {
+            match (mode, team_ids.contains(&e.team_id)) {
                 (FilterMode::In, true) | (FilterMode::Out, false) => Ok(e),
                 (FilterMode::In, false) | (FilterMode::Out, true) => {
                     Err(EventError::FilteredByTeamId)
                 }
-            };
-
-            res
+            }
         })
         .collect()
 }
