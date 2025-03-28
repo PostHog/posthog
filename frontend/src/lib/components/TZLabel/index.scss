@@ -1,6 +1,9 @@
 .TZLabelPopover {
+    margin: -0.25rem;
+
     .TZLabelPopover__row {
         display: flex;
+        align-items: center;
         margin-top: 0.5rem;
 
         > :nth-child(1) {

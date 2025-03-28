@@ -1,8 +1,8 @@
 import { IconChevronRight, IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { Button } from 'lib/ui/Button/Button'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -11,9 +11,6 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
-import { cn } from 'lib/utils/css-classes'
-import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -32,120 +29,91 @@ export function OrganizationDropdownMenu(): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
 
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-
     return (
-        <DropdownMenu
-            onOpenChange={(open) => {
-                setIsDropdownOpen(open)
-            }}
-        >
+        <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <LemonButton
-                    icon={
-                        currentOrganization ? (
+                <Button.Root>
+                    <Button.Icon>
+                        {currentOrganization ? (
                             <UploadedLogo
+                                size="xsmall"
                                 name={currentOrganization.name}
                                 entityId={currentOrganization.id}
                                 mediaId={currentOrganization.logo_media_id}
                             />
                         ) : (
-                            <IconWrapper>
-                                <IconPlusSmall />
-                            </IconWrapper>
-                        )
-                    }
-                    type="tertiary"
-                    size="small"
-                    className="w-fit"
-                    tooltip="Open organization dropdown"
-                    sideIcon={
-                        <IconWrapper size="sm">
-                            <IconChevronRight
-                                className={cn(
-                                    'transition-transform duration-200 prefers-reduced-motion:transition-none',
-                                    isDropdownOpen ? 'rotate-270' : 'rotate-90'
-                                )}
-                            />
-                        </IconWrapper>
-                    }
-                >
-                    <span>{currentOrganization ? currentOrganization.name : 'Select organization'}</span>
-                </LemonButton>
+                            <IconPlusSmall />
+                        )}
+                    </Button.Icon>
+                    <Button.Label>
+                        {currentOrganization ? currentOrganization.name : 'Select organization'}
+                    </Button.Label>
+                    <Button.Icon size="sm">
+                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                    </Button.Icon>
+                </Button.Root>
             </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="start">
+            <DropdownMenuContent loop align="start" className="w-fit max-w-[400px]">
                 <DropdownMenuLabel>Organizations</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <div className="flex flex-col gap-px">
-                    {currentOrganization && (
-                        <DropdownMenuItem asChild>
-                            <LemonButton
-                                icon={
-                                    <UploadedLogo
-                                        name={currentOrganization.name}
-                                        entityId={currentOrganization.id}
-                                        mediaId={currentOrganization.logo_media_id}
-                                    />
-                                }
-                                title={`Switch to organization ${currentOrganization.name}`}
-                                active
-                                fullWidth
-                                size="small"
-                            >
-                                <span>{currentOrganization.name}</span>
-                                <AccessLevelIndicator organization={currentOrganization} />
-                            </LemonButton>
-                        </DropdownMenuItem>
-                    )}
-                    {otherOrganizations.map((otherOrganization) => (
-                        <DropdownMenuItem key={otherOrganization.id} asChild>
-                            <LemonButton
-                                onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                icon={
-                                    <UploadedLogo
-                                        name={otherOrganization.name}
-                                        entityId={otherOrganization.id}
-                                        mediaId={otherOrganization.logo_media_id}
-                                    />
-                                }
-                                title={`Switch to organization ${otherOrganization.name}`}
-                                fullWidth
-                                size="small"
-                            >
-                                <span>{otherOrganization.name}</span>
+                {currentOrganization && (
+                    <DropdownMenuItem asChild>
+                        <Button.Root menuItem active>
+                            <Button.Icon>
+                                <UploadedLogo
+                                    size="xsmall"
+                                    name={currentOrganization.name}
+                                    entityId={currentOrganization.id}
+                                    mediaId={currentOrganization.logo_media_id}
+                                />
+                            </Button.Icon>
+                            <Button.Label>{currentOrganization.name}</Button.Label>
+                            <AccessLevelIndicator organization={currentOrganization} />
+                        </Button.Root>
+                    </DropdownMenuItem>
+                )}
+                {otherOrganizations.map((otherOrganization) => (
+                    <DropdownMenuItem key={otherOrganization.id} asChild>
+                        <Button.Root menuItem onClick={() => updateCurrentOrganization(otherOrganization.id)}>
+                            <Button.Icon>
+                                <UploadedLogo
+                                    name={otherOrganization.name}
+                                    entityId={otherOrganization.id}
+                                    mediaId={otherOrganization.logo_media_id}
+                                />
+                            </Button.Icon>
+                            <Button.Label>{otherOrganization.name}</Button.Label>
+                            <Button.Icon>
                                 <AccessLevelIndicator organization={otherOrganization} />
-                            </LemonButton>
-                        </DropdownMenuItem>
-                    ))}
-                    {preflight?.can_create_org && (
-                        <DropdownMenuItem asChild>
-                            <LemonButton
-                                icon={
-                                    <IconWrapper>
-                                        <IconPlusSmall />
-                                    </IconWrapper>
-                                }
-                                onClick={() =>
-                                    guardAvailableFeature(
-                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                        () => {
-                                            closeAccountPopover()
-                                            showCreateOrganizationModal()
-                                        },
-                                        {
-                                            guardOnCloud: false,
-                                        }
-                                    )
-                                }
-                                fullWidth
-                                size="small"
-                                data-attr="new-organization-button"
-                            >
-                                New organization
-                            </LemonButton>
-                        </DropdownMenuItem>
-                    )}
-                </div>
+                            </Button.Icon>
+                        </Button.Root>
+                    </DropdownMenuItem>
+                ))}
+                {preflight?.can_create_org && (
+                    <DropdownMenuItem asChild>
+                        <Button.Root
+                            menuItem
+                            data-attr="new-organization-button"
+                            onClick={() =>
+                                guardAvailableFeature(
+                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                    () => {
+                                        closeAccountPopover()
+                                        showCreateOrganizationModal()
+                                    },
+                                    {
+                                        guardOnCloud: false,
+                                    }
+                                )
+                            }
+                        >
+                            <Button.Icon>
+                                <IconPlusSmall />
+                            </Button.Icon>
+                            <Button.Label menuItem>New organization</Button.Label>
+                        </Button.Root>
+                    </DropdownMenuItem>
+                )}
             </DropdownMenuContent>
         </DropdownMenu>
     )
