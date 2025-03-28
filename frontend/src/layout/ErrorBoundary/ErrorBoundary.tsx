@@ -5,6 +5,7 @@ import type { Primitive } from '@sentry/types'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface ErrorBoundaryProps {
@@ -19,7 +20,8 @@ export function ErrorBoundary({ children, tags = {} }: ErrorBoundaryProps): JSX.
 
     return (
         <SentryErrorBoundary
-            beforeCapture={(scope) => {
+            beforeCapture={(scope, err) => {
+                posthog.captureException(err)
                 if (currentTeamId !== undefined) {
                     scope.setTag('team_id', currentTeamId)
                 }

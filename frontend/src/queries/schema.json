@@ -15298,6 +15298,9 @@
         "RevenueTrackingDataWarehouseTable": {
             "additionalProperties": false,
             "properties": {
+                "distinctIdColumn": {
+                    "type": "string"
+                },
                 "revenueColumn": {
                     "type": "string"
                 },
@@ -15314,7 +15317,7 @@
                     "type": "string"
                 }
             },
-            "required": ["tableName", "timestampColumn", "revenueColumn", "revenueCurrencyColumn"],
+            "required": ["tableName", "distinctIdColumn", "timestampColumn", "revenueColumn", "revenueCurrencyColumn"],
             "type": "object"
         },
         "RevenueTrackingEventItem": {

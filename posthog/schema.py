@@ -1684,6 +1684,7 @@ class RevenueTrackingDataWarehouseTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinctIdColumn: str
     revenueColumn: str
     revenueCurrencyColumn: Optional[RevenueCurrencyPropertyConfig] = Field(
         default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
