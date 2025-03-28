@@ -116,7 +116,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 return [
                     {
                         value: 'custom',
-                        label: customLabel || 'Custom',
+                        label: customLabel,
                     },
                     {
                         value: 'day',

@@ -1,6 +1,6 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { generateSparklineLabels, mergeIssues, resolveDate, resolveDateRange } from './utils'
+import { generateDateRangeLabel, generateSparklineLabels, mergeIssues, resolveDate, resolveDateRange } from './utils'
 
 describe('mergeIssues', () => {
     it('arbitrary values', async () => {
@@ -137,5 +137,56 @@ describe('generate sparkline labels', () => {
     it('test date resolution', async () => {
         const resolvedDate = resolveDate('yStart')
         expect(resolvedDate.toISOString()).toEqual('2023-01-01T00:00:00.000Z')
+    })
+
+    it('test date range label generation', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-7d',
+        })
+        expect(rangeLabel).toEqual('7d')
+    })
+})
+
+describe('date range label generation', () => {
+    it('-7d', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-7d',
+        })
+        expect(rangeLabel).toEqual('7d')
+    })
+
+    it('-24h', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-24h',
+        })
+        expect(rangeLabel).toEqual('24h')
+    })
+
+    it('-3h', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-3h',
+        })
+        expect(rangeLabel).toEqual('3h')
+    })
+
+    it('01-01-2025', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '01-01-2025',
+        })
+        expect(rangeLabel).toEqual('Custom')
+    })
+
+    it('yStart', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: 'yStart',
+        })
+        expect(rangeLabel).toEqual('Year')
+    })
+
+    it('mStart', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: 'mStart',
+        })
+        expect(rangeLabel).toEqual('Month')
     })
 })

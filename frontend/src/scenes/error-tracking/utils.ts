@@ -180,26 +180,23 @@ export function resolveDate(date?: string | null): Dayjs {
 
 const customOptions: Record<string, string> = {
     dStart: 'Today', // today
-    '-24h': '24h',
     mStart: 'Month',
     yStart: 'Year',
     all: 'All',
 }
-
-const isRelative = /-\d+[hdmy]/
 
 export function generateDateRangeLabel(dateRange: DateRange): string | undefined {
     const dateFrom = dateRange.date_from
     if (!dateFrom) {
         return undefined
     }
-    const isDateRelative = isRelative.test(dateFrom)
+    const isDateRelative = isStringDateRegex.test(dateFrom)
     if (dateFrom in customOptions) {
         return customOptions[dateFrom]
     } else if (isDateRelative) {
         return dateFrom?.replace('-', '')
     }
-    return undefined
+    return 'Custom'
 }
 
 export function datetimeStringToDayJs(date: string | null): Dayjs | null {
