@@ -186,7 +186,7 @@
                                                                  GROUP BY person.id
                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -694,7 +694,7 @@
                                                                  GROUP BY person.id
                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -1186,7 +1186,7 @@
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
   GROUP BY name,
            prop
-  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), ifNull(notIn((prop).1, []), 0))
+  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), not(has([], (prop).1)))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -1291,7 +1291,7 @@
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
   GROUP BY name,
            prop
-  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), ifNull(notIn((prop).1, []), 0))
+  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), not(has([], (prop).1)))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -2584,7 +2584,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -2977,7 +2977,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -3090,7 +3090,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -3483,7 +3483,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -3596,7 +3596,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -3989,7 +3989,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -4102,7 +4102,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -4495,7 +4495,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -4608,7 +4608,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -5001,7 +5001,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING not(has([], (aggregation_target_with_props.prop).1))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
