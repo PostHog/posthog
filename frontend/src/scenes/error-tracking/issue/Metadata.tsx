@@ -71,7 +71,9 @@ function renderTime(label: string, time: Dayjs | null | undefined, loading: bool
     return (
         <div>
             <div className="text-muted text-xs">{label}</div>
-            {!loading && time ? <TZLabel time={time} className="border-dotted border-b" /> : <LemonSkeleton />}
+            {loading && <LemonSkeleton />}
+            {!loading && time && <TZLabel time={time} className="border-dotted border-b" />}
+            {!loading && !time && <>-</>}
         </div>
     )
 }

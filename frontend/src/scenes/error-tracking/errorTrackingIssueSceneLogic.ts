@@ -1,4 +1,3 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -71,8 +70,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     selectors({
         breadcrumbs: [
             (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue): Breadcrumb[] => {
-                const exceptionType: string = issue.name || 'Unknown Type'
+            (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
+                const exceptionType: string = issue?.name || 'Issue'
                 return [
                     {
                         key: Scene.ErrorTracking,
@@ -176,8 +175,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
-                } else {
-                    lemonToast.error('Failed to load issue')
                 }
             },
             updateStatus: async ({ status }) => {
