@@ -2,16 +2,33 @@ use crate::types::Exception;
 use sha2::{Digest, Sha512};
 
 // Given resolved Frames vector and the original Exception, we can now generate a fingerprint for it
-pub fn generate_fingerprint(exception: &[Exception]) -> String {
-    let mut hasher = Sha512::new();
+pub fn generate_fingerprint(exception: &[Exception]) -> Fingerprint {
+    let mut fingerprint = Fingerprint::default();
 
     for exc in exception {
-        exc.include_in_fingerprint(&mut hasher);
+        exc.include_in_fingerprint(&mut fingerprint);
     }
 
-    let result = hasher.finalize();
+    fingerprint
+}
 
-    format!("{:x}", result)
+#[derive(Debug, Clone, Default)]
+pub struct Fingerprint {
+    pub components: Vec<String>,
+    pub hasher: Sha512,
+}
+
+impl Fingerprint {
+    pub fn update(&mut self, data: impl AsRef<[u8]>, description: impl ToString) {
+        self.hasher.update(data);
+        self.components.push(description.to_string());
+    }
+
+    pub fn finalize(self) -> (String, Vec<String>) {
+        let result = self.hasher.finalize();
+        let components = self.components;
+        (format!("{:x}", result), components)
+    }
 }
 
 #[cfg(test)]
@@ -82,14 +99,16 @@ mod test {
             frames: resolved_frames.clone(),
         });
 
-        let fingerprint_with_all_resolved = super::generate_fingerprint(&[exception.clone()]);
+        let fingerprint_with_all_resolved = super::generate_fingerprint(&[exception.clone()])
+            .finalize()
+            .0;
 
         resolved_frames.push(unresolved_frame);
         exception.stack = Some(Stacktrace::Resolved {
             frames: resolved_frames,
         });
 
-        let mixed_fingerprint = super::generate_fingerprint(&[exception]);
+        let mixed_fingerprint = super::generate_fingerprint(&[exception]).finalize().0;
 
         // In cases where there are SOME resolved frames, the fingerprint should be identical
         // to the case where all frames are resolved (unresolved frames should be ignored)
@@ -152,13 +171,15 @@ mod test {
             },
         ];
 
-        let no_stack_fingerprint = super::generate_fingerprint(&[exception.clone()]);
+        let no_stack_fingerprint = super::generate_fingerprint(&[exception.clone()])
+            .finalize()
+            .0;
 
         exception.stack = Some(Stacktrace::Resolved {
             frames: resolved_frames,
         });
 
-        let with_stack_fingerprint = super::generate_fingerprint(&[exception]);
+        let with_stack_fingerprint = super::generate_fingerprint(&[exception]).finalize().0;
 
         // If there are NO resolved frames, fingerprinting should account for the unresolved frames
         assert_ne!(no_stack_fingerprint, with_stack_fingerprint);
@@ -209,14 +230,16 @@ mod test {
             frames: resolved_frames.clone(),
         });
 
-        let fingerprint_1 = super::generate_fingerprint(&[exception.clone()]);
+        let fingerprint_1 = super::generate_fingerprint(&[exception.clone()])
+            .finalize()
+            .0;
 
         resolved_frames.push(non_app_frame);
         exception.stack = Some(Stacktrace::Resolved {
             frames: resolved_frames,
         });
 
-        let fingerprint_2 = super::generate_fingerprint(&[exception]);
+        let fingerprint_2 = super::generate_fingerprint(&[exception]).finalize().0;
 
         // Fingerprinting should ignore non-in-app frames
         assert_eq!(fingerprint_1, fingerprint_2);

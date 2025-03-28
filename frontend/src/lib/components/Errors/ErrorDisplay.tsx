@@ -17,6 +17,8 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         getExceptionAttributes(eventProperties)
 
     const exceptionWithStack = hasStacktrace(exceptionList)
+    const fingerprintComponents: string[] = eventProperties.$exception_fingerprint_components || []
+    const hasFingerprintComponents = fingerprintComponents.length > 0
 
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
@@ -59,6 +61,22 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 </>
             )}
             {exceptionWithStack && <StackTrace exceptionList={exceptionList} />}
+            {hasFingerprintComponents && <FingerprintComponents components={fingerprintComponents} />}
+        </div>
+    )
+}
+
+const FingerprintComponents = ({ components }: { components: string[] }): JSX.Element => {
+    return (
+        <div className="flex mb-4 items-center gap-2">
+            <span className="font-semibold">Fingerprinted by:</span>
+            <div className="flex flex-wrap gap-1">
+                {components.map((component, index) => (
+                    <span key={index} className="px-2 py-1 bg-bg-light rounded text-sm">
+                        {component}
+                    </span>
+                ))}
+            </div>
         </div>
     )
 }
