@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0691_action_embedding_version"),
+        ("posthog", "0694_fix_revenue_tracking_config"),
     ]
 
     operations = [
