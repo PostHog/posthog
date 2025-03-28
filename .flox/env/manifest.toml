@@ -12,10 +12,7 @@ version = 1
 # Python
 python3 = { pkg-path = "python3", version = "3.11.9", pkg-group = "python" } # Same as in Dockerfile
 libtool = { pkg-path = "libtool", pkg-group = "python" }
-# uv (separate group to avoid commong deps with Python forcing an old version of uv)
-uv = { pkg-path = "uv", pkg-group = "uv", version = "0.6.9" }
-# setuptools (we must enforce a version before 77, as 77+ breaks installation of this docx2txt requirement)
-setuptools = { pkg-path = "python311Packages.setuptools", pkg-group = "setuptools", version = "75.1.1" }
+uv = { pkg-path = "uv", pkg-group = "uv" }
 # Node
 nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs", version = "18.19.1" } # Same as in Dockerfile
 corepack = { pkg-path = "corepack_18", pkg-group = "nodejs" }
@@ -52,6 +49,8 @@ freetds = { pkg-path = "freetds" }
 
 # PostgreSQL
 postgresql = { pkg-path = "postgresql_14" }
+sqlx-cli.pkg-path = "sqlx-cli"
+sqlx-cli.version = "0.8.3"
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first
@@ -106,7 +105,7 @@ uv pip install -q --no-binary=pymssql -r requirements.txt -r requirements-dev.tx
 # This also sets up pre-commit hooks via Husky
 if [ ! -d "node_modules" ]; then
   echo "Installing Node dependencies..."
-  pnpm install -s
+  pnpm install --silent
   echo "Node dependencies installed"
 fi
 

@@ -535,6 +535,7 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
                 onClick={isExpanded || items.length > 0 ? () => toggleListItemAccordion(keyString) : undefined}
             >
                 <IconChevronRight />
+                {category.icon && <div className="SidebarListItemAccordion__icon">{category.icon}</div>}
                 <h4>
                     {capitalizeFirstLetter(pluralizeCategory(category.noun))}
                     {isEmpty && (

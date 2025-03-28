@@ -53,6 +53,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
             "recordings": {"limit": None, "usage": 0},
             "rows_synced": {"limit": None, "usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0},
+            "api_queries_read_bytes": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
         available_product_features=[],
@@ -149,6 +150,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
             "recordings": {"limit": None, "usage": 0},
             "rows_synced": {"limit": None, "usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0},
+            "api_queries_read_bytes": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
     )
@@ -441,6 +443,7 @@ class TestBillingAPI(APILicensedTest):
                 "recordings": {"limit": None, "usage": 0},
                 "rows_synced": {"limit": None, "usage": 0},
                 "feature_flag_requests": {"limit": None, "usage": 0},
+                "api_queries_read_bytes": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
         }
@@ -565,6 +568,7 @@ class TestBillingAPI(APILicensedTest):
                 "recordings": {"limit": None, "usage": 0},
                 "rows_synced": {"limit": None, "usage": 0},
                 "feature_flag_requests": {"limit": None, "usage": 0},
+                "api_queries_read_bytes": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
@@ -745,6 +749,11 @@ class TestBillingAPI(APILicensedTest):
                     "todays_usage": 0,
                     "usage": 0,
                 },
+                "api_queries_read_bytes": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
                 "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
             },
         )
@@ -822,6 +831,7 @@ class TestBillingAPI(APILicensedTest):
             "recordings": {"limit": None, "usage": 0, "todays_usage": 0},
             "rows_synced": {"limit": None, "usage": 0, "todays_usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0, "todays_usage": 0},
+            "api_queries_read_bytes": {"limit": None, "usage": 0, "todays_usage": 0},
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
 
@@ -846,11 +856,13 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         self.organization.customer_id = None
+        # For key values check: TRUST_SCORE_KEYS
         self.organization.customer_trust_scores = {
             "recordings": 0,
             "events": 0,
             "rows_synced": 0,
             "feature_flags": 0,
+            "api_queries_read_bytes": 17,
         }
         self.organization.save()
 
@@ -863,6 +875,7 @@ class TestBillingAPI(APILicensedTest):
             "events": 15,
             "rows_synced": 0,
             "feature_flags": 0,
+            "api_queries_read_bytes": 17,
         }
 
     @patch("ee.api.billing.requests.get")

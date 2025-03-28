@@ -237,6 +237,7 @@ export function PropertiesTable({
                 // if this is a posthog property we want to sort by its label
                 const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
                     [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
+                    [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
                     [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
                     [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
                     [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
