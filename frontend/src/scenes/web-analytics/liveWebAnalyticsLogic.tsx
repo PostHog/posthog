@@ -84,6 +84,9 @@ export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
         },
         setIsHovering: ({ isHovering }) => {
             if (isHovering) {
+                if (cache.nowInterval) {
+                    clearInterval(cache.nowInterval)
+                }
                 actions.setNow({ now: new Date() })
                 cache.nowInterval = setInterval(() => {
                     actions.setNow({ now: new Date() })
