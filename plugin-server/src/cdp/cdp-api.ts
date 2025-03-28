@@ -184,7 +184,7 @@ export class CdpApi {
                     metrics: filterMetrics,
                 } = this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
 
-                if (configuration?.type === 'broadcast') {
+                if (compoundConfiguration?.type === 'broadcast') {
                     // Preload any import-able functions for the team
                     await this.hogFunctionManager.loadProviderFunctionsForTeam(parseInt(team_id))
                 }
