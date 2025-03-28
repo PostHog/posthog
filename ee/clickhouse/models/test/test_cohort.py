@@ -4,6 +4,7 @@ from typing import Optional
 
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
@@ -1563,22 +1564,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = self._get_cohortpeople(cohort)
         self.assertEqual(len(results), 2)
 
-    def test_recalculate_cohort_with_behavioral_or_filter(self):
-        # Create test persons
-        p1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
-
-        # Create events
-        _create_event(
-            event="aim_purchase",
-            team=self.team,
-            distinct_id="person1",
-            properties={},
-            timestamp=datetime.now() - timedelta(days=1),
-        )
-
-        flush_persons_and_events()
-
+    def test_recalculate_cohort_with_missing_filter(self):
         # Create a cohort with the specified OR filter structure
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1604,10 +1590,5 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        # Calculate cohort people
-        self.calculate_cohort_hogql_test_harness(cohort, 0)
-
-        # Verify results
-        results = self._get_cohortpeople(cohort)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0], p1.uuid)
+        with self.assertRaises(ValidationError):
+            self.calculate_cohort_hogql_test_harness(cohort, 0)
