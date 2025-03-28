@@ -21,6 +21,7 @@ import { ActivityScope, Breadcrumb } from '~/types'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
+import { resolveDateRange } from './utils'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -103,7 +104,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     issueId,
                     filterTestAccounts: filterTestAccounts,
                     filterGroup: filterGroup,
-                    dateRange,
+                    dateRange: resolveDateRange(dateRange).toDateRange(),
                 }),
         ],
 

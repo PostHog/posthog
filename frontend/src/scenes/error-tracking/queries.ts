@@ -90,11 +90,13 @@ export const errorTrackingIssueEventsQuery = ({
     if (!issueId) {
         return null
     }
+    if (!dateRange.date_from) {
+        throw new Error('date_from is required')
+    }
 
     // const select = ['person', 'timestamp', 'recording_button(properties.$session_id)']
     // row expansion only works when you fetch the entire event with '*'
     const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
-
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = group.values as AnyPropertyFilter[]
     const where = [`'${issueId}' == issue_id`]
@@ -106,7 +108,7 @@ export const errorTrackingIssueEventsQuery = ({
         where,
         properties,
         filterTestAccounts: filterTestAccounts,
-        after: dateRange.date_from || '-7d',
+        after: dateRange.date_from,
         before: dateRange.date_to || undefined,
     }
 
