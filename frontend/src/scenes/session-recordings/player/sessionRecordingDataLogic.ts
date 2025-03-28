@@ -53,6 +53,7 @@ import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicT
 import { stripChromeExtensionData } from './snapshot-processing/chrome-extension-stripping'
 import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
 import { decompressEvent } from './snapshot-processing/decompress'
+import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
 import {
     getHrefFromSnapshot,
     patchMetaEventIntoWebData,
