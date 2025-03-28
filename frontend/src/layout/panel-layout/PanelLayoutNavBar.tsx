@@ -285,6 +285,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 {item.sideAction &&
                                                                     item.identifier === 'SavedInsights' && (
                                                                         <Button.Icon
+                                                                            isTriggerRight
                                                                             isTrigger
                                                                             onClick={(e) => {
                                                                                 e.preventDefault()
