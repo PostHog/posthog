@@ -38,6 +38,7 @@ pub async fn insert_new_team_in_redis(
         api_token: token,
         cookieless_server_hash_mode: 0,
         timezone: "UTC".to_string(),
+        ..Default::default()
     };
 
     let serialized_team = serde_json::to_string(&team)?;
@@ -207,6 +208,7 @@ pub async fn insert_new_team_in_pg(
         api_token: token.clone(),
         cookieless_server_hash_mode: 0,
         timezone: "UTC".to_string(),
+        ..Default::default()
     };
     let uuid = Uuid::now_v7();
 
