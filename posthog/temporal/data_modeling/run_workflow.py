@@ -283,12 +283,11 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
     job = None
 
     async def handle_error(error: Exception, error_message: str):
-        await logger.aexception(error_message, model.label, str(error))
-
         if job:
             job.status = DataModelingJob.Status.FAILED
             job.error = str(error)
             await database_sync_to_async(job.save)()
+            await logger.aexception(error_message, model.label, str(error))
         else:
             await logger.aexception("No job found for model %s", model.label)
 
