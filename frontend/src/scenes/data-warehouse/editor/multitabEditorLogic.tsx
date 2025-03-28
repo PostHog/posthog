@@ -436,8 +436,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         onClick: () => actions._deleteTab(tabToRemove),
                     },
                 })
-            } else if (values.activeModelUri?.insight && values.queryInput !== values.sourceQuery.source.query) {
-                // TODO: Check for data viz differences too, e.g. chart settings
+            } else if (values.updateInsightButtonEnabled) {
                 LemonDialog.open({
                     title: 'Close insight',
                     description: 'Are you sure you want to close this tab? There are unsaved changes.',
