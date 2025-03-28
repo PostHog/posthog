@@ -18,33 +18,28 @@ use crate::{
     types::{EventDefinition, EventProperty, GroupType, PropertyDefinition, Update},
 };
 
-pub const V2_WRITE_BATCH_SIZE: usize = 100;
 const V2_BATCH_MAX_RETRY_ATTEMPTS: u64 = 3;
 const V2_BATCH_RETRY_DELAY_MS: u64 = 50;
 
 // Derived hash since these are keyed on all fields in the DB
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventPropertiesBatch {
+    batch_size: usize,
     pub team_ids: Vec<i32>,
     pub project_ids: Vec<i64>,
     pub event_names: Vec<String>,
     pub property_names: Vec<String>,
 }
 
-impl Default for EventPropertiesBatch {
-    fn default() -> Self {
-        Self {
-            team_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            project_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            event_names: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            property_names: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-        }
-    }
-}
-
 impl EventPropertiesBatch {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(batch_size: usize) -> Self {
+        Self {
+            batch_size,
+            team_ids: Vec::with_capacity(batch_size),
+            project_ids: Vec::with_capacity(batch_size),
+            event_names: Vec::with_capacity(batch_size),
+            property_names: Vec::with_capacity(batch_size),
+        }
     }
 
     pub fn append(&mut self, ep: EventProperty) {
@@ -55,7 +50,7 @@ impl EventPropertiesBatch {
     }
 
     pub fn should_flush_batch(&self) -> bool {
-        self.team_ids.len() >= V2_WRITE_BATCH_SIZE
+        self.team_ids.len() >= self.batch_size
     }
 
     pub fn is_empty(&self) -> bool {
@@ -65,6 +60,7 @@ impl EventPropertiesBatch {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventDefinitionsBatch {
+    batch_size: usize,
     pub ids: Vec<Uuid>,
     pub names: Vec<String>,
     pub team_ids: Vec<i32>,
@@ -72,21 +68,16 @@ pub struct EventDefinitionsBatch {
     pub last_seen_ats: Vec<DateTime<Utc>>,
 }
 
-impl Default for EventDefinitionsBatch {
-    fn default() -> Self {
-        Self {
-            ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            names: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            team_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            project_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            last_seen_ats: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-        }
-    }
-}
-
 impl EventDefinitionsBatch {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(batch_size: usize) -> Self {
+        Self {
+            batch_size,
+            ids: Vec::with_capacity(batch_size),
+            names: Vec::with_capacity(batch_size),
+            team_ids: Vec::with_capacity(batch_size),
+            project_ids: Vec::with_capacity(batch_size),
+            last_seen_ats: Vec::with_capacity(batch_size),
+        }
     }
 
     pub fn append(&mut self, ed: EventDefinition) {
@@ -98,7 +89,7 @@ impl EventDefinitionsBatch {
     }
 
     pub fn should_flush_batch(&self) -> bool {
-        self.ids.len() >= V2_WRITE_BATCH_SIZE
+        self.ids.len() >= self.batch_size
     }
 
     pub fn is_empty(&self) -> bool {
@@ -108,6 +99,7 @@ impl EventDefinitionsBatch {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PropertyDefinitionsBatch {
+    batch_size: usize,
     pub ids: Vec<Uuid>,
     pub team_ids: Vec<i32>,
     pub project_ids: Vec<i64>,
@@ -119,24 +111,19 @@ pub struct PropertyDefinitionsBatch {
     // note: I left off deprecated fields we null out on writes
 }
 
-impl Default for PropertyDefinitionsBatch {
-    fn default() -> Self {
-        Self {
-            ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            team_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            project_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            names: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            are_numerical: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            property_types: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            event_types: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-            group_type_indices: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
-        }
-    }
-}
-
 impl PropertyDefinitionsBatch {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(batch_size: usize) -> Self {
+        Self {
+            batch_size,
+            ids: Vec::with_capacity(batch_size),
+            team_ids: Vec::with_capacity(batch_size),
+            project_ids: Vec::with_capacity(batch_size),
+            names: Vec::with_capacity(batch_size),
+            are_numerical: Vec::with_capacity(batch_size),
+            property_types: Vec::with_capacity(batch_size),
+            event_types: Vec::with_capacity(batch_size),
+            group_type_indices: Vec::with_capacity(batch_size),
+        }
     }
 
     pub fn append(&mut self, pd: PropertyDefinition) {
@@ -160,7 +147,7 @@ impl PropertyDefinitionsBatch {
     }
 
     pub fn should_flush_batch(&self) -> bool {
-        self.ids.len() >= V2_WRITE_BATCH_SIZE
+        self.ids.len() >= self.batch_size
     }
 
     pub fn is_empty(&self) -> bool {
@@ -181,9 +168,9 @@ pub async fn process_batch_v2(
     // TODO(eli): implement v1-style delay while cache is warming?
 
     // prep reshaped, isolated data batch bufffers and async join handles
-    let mut event_defs = EventDefinitionsBatch::new();
-    let mut event_props = EventPropertiesBatch::new();
-    let mut prop_defs = PropertyDefinitionsBatch::new();
+    let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
+    let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
+    let mut prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
     let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
 
     // loop on the Update batch, splitting into smaller vectorized PG write batches
@@ -201,7 +188,7 @@ pub async fn process_batch_v2(
                     handles.push(tokio::spawn(async move {
                         write_event_definitions_batch(event_defs, &pool).await
                     }));
-                    event_defs = EventDefinitionsBatch::new();
+                    event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
             }
             Update::EventProperty(ep) => {
@@ -211,7 +198,7 @@ pub async fn process_batch_v2(
                     handles.push(tokio::spawn(async move {
                         write_event_properties_batch(event_props, &pool).await
                     }));
-                    event_props = EventPropertiesBatch::new();
+                    event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
                 }
             }
             Update::Property(pd) => {
@@ -221,7 +208,7 @@ pub async fn process_batch_v2(
                     handles.push(tokio::spawn(async move {
                         write_property_definitions_batch(prop_defs, &pool).await
                     }));
-                    prop_defs = PropertyDefinitionsBatch::new();
+                    prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
             }
         }
