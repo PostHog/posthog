@@ -60,7 +60,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                     <PopoverReferenceContext.Provider value={null}>
                         <LemonButton
                             size="xsmall"
-                            icon={<IconX />}
+                            icon={<IconX className="w-3 h-3" />}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 onClose()
