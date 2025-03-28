@@ -109,11 +109,6 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
-    ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
-    ExperimentFunnelMetricConfig = 'ExperimentFunnelMetricConfig',
-    ExperimentFunnelStepConfig = 'ExperimentFunnelStepConfig',
-    ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
-    ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
 
