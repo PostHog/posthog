@@ -251,11 +251,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.FEATURE_FLAG,
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
-    [Scene.FeatureManagement]: {
-        projectBased: true,
-        name: 'Features',
-        defaultDocsPath: '/docs/feature-flags',
-    },
     [Scene.Surveys]: {
         projectBased: true,
         name: 'Surveys',
@@ -600,8 +595,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
-    [urls.featureManagement()]: [Scene.FeatureManagement, 'featureManagement'],
-    [urls.featureManagement(':id')]: [Scene.FeatureManagement, 'featureManagementWithId'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
