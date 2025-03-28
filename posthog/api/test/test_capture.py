@@ -2067,17 +2067,17 @@ class TestCapture(BaseTest):
 
         replace_limited_team_tokens(
             QuotaResource.RECORDINGS,
-            {self.team.api_token: timezone.now().timestamp() + 10000},
+            {self.team.api_token: int(timezone.now().timestamp() + 10000)},
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         replace_limited_team_tokens(
             QuotaResource.EVENTS,
-            {self.team.api_token: timezone.now().timestamp() + 10000},
+            {self.team.api_token: int(timezone.now().timestamp() + 10000)},
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         replace_limited_team_tokens(
             QuotaResource.EXCEPTIONS,
-            {self.team.api_token: timezone.now().timestamp() + 10000},
+            {self.team.api_token: int(timezone.now().timestamp() + 10000)},
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         self._send_august_2023_version_session_recording_event()
