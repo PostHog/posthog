@@ -8,7 +8,7 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonInput, LemonInputProps } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useMemo, useRef } from 'react'
 
@@ -71,8 +71,8 @@ export function TaxonomicFilter({
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
-    const { searchQuery, searchPlaceholder, activeTab } = useValues(logic)
-    const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(logic)
+    const { searchQuery, activeTab } = useValues(logic)
+    const { setSearchQuery } = useActions(logic)
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -102,56 +102,11 @@ export function TaxonomicFilter({
             >
                 {activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1 ? (
                     <div className="relative">
-                        <LemonInput
-                            data-attr="taxonomic-filter-searchfield"
-                            type="search"
-                            fullWidth
-                            placeholder={`Search ${searchPlaceholder}`}
+                        <TaxonomicFilterSearchInput
                             value={searchQuery}
-                            suffix={
-                                <Tooltip
-                                    title={
-                                        <>
-                                            You can easily navigate between tabs with your keyboard.{' '}
-                                            <div>
-                                                Use <b>tab</b> to move to the next tab.
-                                            </div>
-                                            <div>
-                                                Use <b>shift + tab</b> to move to the previous tab.
-                                            </div>
-                                        </>
-                                    }
-                                >
-                                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
-                                </Tooltip>
-                            }
-                            onKeyDown={(e) => {
-                                let shouldPreventDefault = true
-                                switch (e.key) {
-                                    case 'ArrowUp':
-                                        moveUp()
-                                        break
-                                    case 'ArrowDown':
-                                        moveDown()
-                                        break
-                                    case 'Tab':
-                                        e.shiftKey ? tabLeft() : tabRight()
-                                        break
-                                    case 'Enter':
-                                        selectSelected()
-                                        break
-                                    case 'Escape':
-                                        onClose?.()
-                                        break
-                                    default:
-                                        shouldPreventDefault = false
-                                }
-                                if (shouldPreventDefault) {
-                                    e.preventDefault()
-                                }
-                            }}
-                            inputRef={searchInputRef}
-                            onChange={(newValue) => setSearchQuery(newValue)}
+                            onChange={setSearchQuery}
+                            searchInputRef={searchInputRef}
+                            onClose={onClose}
                         />
                     </div>
                 ) : null}
@@ -163,5 +118,76 @@ export function TaxonomicFilter({
                 />
             </div>
         </BindLogic>
+    )
+}
+
+export const TaxonomicFilterSearchInput = ({
+    searchInputRef,
+    onClose,
+    value,
+    onChange,
+    ...props
+}: {
+    searchInputRef: React.MutableRefObject<HTMLInputElement | null>
+    onClose: TaxonomicFilterProps['onClose']
+    value: string
+    onChange: (value: string) => void
+} & Pick<LemonInputProps, 'onClick' | 'size' | 'onPressEnter' | 'prefix' | 'fullWidth'>): JSX.Element => {
+    const { searchPlaceholder } = useValues(taxonomicFilterLogic)
+    const { moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(taxonomicFilterLogic)
+
+    return (
+        <LemonInput
+            {...props}
+            data-attr="taxonomic-filter-searchfield"
+            type="search"
+            fullWidth
+            placeholder={`Search ${searchPlaceholder}`}
+            value={value}
+            suffix={
+                <Tooltip
+                    title={
+                        <>
+                            You can easily navigate between tabs with your keyboard.{' '}
+                            <div>
+                                Use <b>tab</b> to move to the next tab.
+                            </div>
+                            <div>
+                                Use <b>shift + tab</b> to move to the previous tab.
+                            </div>
+                        </>
+                    }
+                >
+                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
+                </Tooltip>
+            }
+            onKeyDown={(e) => {
+                let shouldPreventDefault = true
+                switch (e.key) {
+                    case 'ArrowUp':
+                        moveUp()
+                        break
+                    case 'ArrowDown':
+                        moveDown()
+                        break
+                    case 'Tab':
+                        e.shiftKey ? tabLeft() : tabRight()
+                        break
+                    case 'Enter':
+                        selectSelected()
+                        break
+                    case 'Escape':
+                        onClose?.()
+                        break
+                    default:
+                        shouldPreventDefault = false
+                }
+                if (shouldPreventDefault) {
+                    e.preventDefault()
+                }
+            }}
+            inputRef={searchInputRef}
+            onChange={(newValue) => onChange(newValue)}
+        />
     )
 }
