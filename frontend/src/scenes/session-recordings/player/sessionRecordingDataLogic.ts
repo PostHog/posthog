@@ -82,6 +82,10 @@ function throttleCapture(key: string, fn: () => void): void {
         THROTTLE_CAPTURE_KEY.add(key)
     }
 }
+// only for testing
+export function clearThrottle(): void {
+    THROTTLE_CAPTURE_KEY.clear()
+}
 
 export function patchMetaEventIntoWebData(
     snapshots: RecordingSnapshot[],

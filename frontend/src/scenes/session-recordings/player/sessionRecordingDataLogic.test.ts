@@ -7,6 +7,7 @@ import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
     chunkMutationSnapshot,
+    clearThrottle,
     deduplicateSnapshots,
     MUTATION_CHUNK_SIZE,
     parseEncodedSnapshots,
@@ -617,6 +618,8 @@ describe('patchMetaEventIntoWebData', () => {
     })
 
     it('does not logs error twice for the same session', () => {
+        clearThrottle()
+
         const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
         const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
 
