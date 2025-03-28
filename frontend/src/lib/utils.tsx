@@ -468,22 +468,6 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
-/** Format currency from string with commas and a number of decimal places (defaults to 2). */
-export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
-    if (!d) {
-        d = '0.00'
-    }
-
-    let number: number
-    if (typeof d === 'string') {
-        number = parseFloat(d)
-    } else {
-        number = d
-    }
-
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
-}
-
 export function humanFriendlyLargeNumber(d: number): string {
     if (isNaN(d)) {
         return 'NaN'
@@ -517,6 +501,22 @@ export function humanFriendlyLargeNumber(d: number): string {
         return `${prefix}${(d / thousand).toString()}K`
     }
     return `${prefix}${d}`
+}
+
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
