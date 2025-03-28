@@ -16,8 +16,14 @@ declare module '*.mp3' {
     export default content
 }
 
-// This fixes TS errors when importing an .lottie file
+// This fixes TS errors when importing a .lottie file
 declare module '*.lottie' {
+    const content: any
+    export default content
+}
+
+// This fixes TS errors when importing n .glb file
+declare module '*.glb' {
     const content: any
     export default content
 }

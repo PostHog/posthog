@@ -16,6 +16,7 @@ import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
+import { CrtDashboard } from 'scenes/web-analytics/CrtDashboard/CrtDashboard'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
@@ -419,6 +420,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
+                <CrtDashboard />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <div
                         className={clsx(

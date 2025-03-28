@@ -14,8 +14,8 @@ import fse from 'fs-extra'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
-import ts from 'typescript'
 import { cloneNode } from "ts-clone-node";
+import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -168,6 +168,7 @@ export const commonConfig = {
         '.woff2': 'file',
         '.mp3': 'file',
         '.lottie': 'file',
+        '.glb': 'file',
     },
     metafile: true,
 }
