@@ -98,7 +98,7 @@ export function InsightsTable({
         }
     }
 
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const hasCheckboxes =
@@ -154,7 +154,12 @@ export function InsightsTable({
 
     if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts?.results, formatPropertyValueForDisplay)
+            formatBreakdownLabel(
+                item.breakdown_value,
+                breakdownFilter,
+                allCohorts?.results,
+                formatPropertyValueForDisplay
+            )
 
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
