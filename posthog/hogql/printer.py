@@ -923,6 +923,8 @@ class _Printer(Visitor):
                 return op
             if isinstance(node.right, ast.Array | ast.Tuple):
                 if isinstance(node.right, ast.Array):
+                    # Using "arrayExists" here instead of "has" because of a clickhouse typing bug on enums
+                    # See test_action_to_expr in test_property.py
                     has = f"arrayExists(y -> y = {left}, {right})"
                 elif isinstance(node.right, ast.Tuple):
                     right_array = self.visit(ast.Array(exprs=node.right.exprs))
