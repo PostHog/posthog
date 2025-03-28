@@ -165,13 +165,15 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
 
     const testResultsRef = useRef<HTMLDivElement>(null)
 
+    const inactive = !expanded && configurable
+
     return (
         <Form logic={hogFunctionTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
             <div
                 ref={testResultsRef}
                 className={clsx(
                     'border rounded p-3 deprecated-space-y-2',
-                    expanded ? 'bg-surface-secondary' : 'bg-surface-primary',
+                    expanded || !configurable ? 'bg-surface-primary' : 'bg-surface-secondary',
                     expanded && configurable ? 'min-h-120' : ''
                 )}
             >
@@ -181,10 +183,10 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                             <span>Testing</span>
                             {sampleGlobalsLoading && !fetchCancelled ? <Spinner /> : null}
                         </h2>
-                        {!expanded && <p>Click here to test your function with an example event</p>}
+                        {inactive ? <p>Click here to test your function with an example event</p> : null}
                     </div>
 
-                    {!expanded ? (
+                    {inactive ? (
                         <LemonButton
                             data-attr="expand-hog-testing"
                             type="secondary"
@@ -314,17 +316,19 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                                 </>
                             )}
 
-                            <LemonButton
-                                data-attr="hide-hog-testing"
-                                icon={<IconX />}
-                                onClick={() => toggleExpanded()}
-                                tooltip="Hide testing"
-                            />
+                            {expanded && (
+                                <LemonButton
+                                    data-attr="hide-hog-testing"
+                                    icon={<IconX />}
+                                    onClick={() => toggleExpanded()}
+                                    tooltip="Hide testing"
+                                />
+                            )}
                         </>
                     )}
                 </div>
 
-                {expanded && (
+                {expanded || !configurable ? (
                     <>
                         {testResult ? (
                             <div className="deprecated-space-y-2" data-attr="test-results">
@@ -485,7 +489,7 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                             </div>
                         ) : null}
                     </>
-                )}
+                ) : null}
             </div>
 
             {jsonError && <LemonBanner type="error">JSON Error: {jsonError}</LemonBanner>}
