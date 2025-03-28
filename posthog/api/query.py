@@ -289,6 +289,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user if not isinstance(request.user, AnonymousUser) else None,
+                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             )
         )
 
