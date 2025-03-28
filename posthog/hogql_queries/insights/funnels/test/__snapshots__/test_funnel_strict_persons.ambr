@@ -113,7 +113,7 @@
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE has([1, 2, 3], steps)
+     WHERE arrayExists(y -> y = steps, [1, 2, 3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -257,7 +257,7 @@
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE has([2, 3], steps)
+     WHERE arrayExists(y -> y = steps, [2, 3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
