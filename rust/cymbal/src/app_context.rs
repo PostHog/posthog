@@ -158,6 +158,7 @@ impl AppContext {
         let filtered_teams = config
             .filtered_teams
             .split(",")
+            .filter(|s| !s.is_empty())
             .map(|tid| tid.parse().expect("Filtered team id's must be i32s"))
             .collect();
         let filter_mode = match config.filter_mode.to_lowercase().as_str() {
