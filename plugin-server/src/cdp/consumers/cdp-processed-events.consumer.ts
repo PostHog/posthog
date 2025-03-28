@@ -28,7 +28,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
     protected topic = KAFKA_EVENTS_JSON
     protected groupId = 'cdp-processed-events-consumer'
-    protected hogTypes: HogFunctionTypeType[] = ['destination']
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'campaign']
 
     private cyclotronManager?: CyclotronManager
 

@@ -438,9 +438,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Messaging Broadcasts',
     },
-    [Scene.MessagingAutomations]: {
+    [Scene.MessagingCampaigns]: {
         projectBased: true,
-        name: 'Messaging Automations',
+        name: 'Messaging Campaigns',
     },
     [Scene.MessagingLibrary]: {
         projectBased: true,

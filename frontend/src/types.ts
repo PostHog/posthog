@@ -4896,7 +4896,7 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
-    | 'automation'
+    | 'campaign'
 
 export type HogFunctionType = {
     id: string

@@ -286,6 +286,7 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
+    | 'campaign'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]

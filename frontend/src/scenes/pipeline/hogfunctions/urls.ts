@@ -17,6 +17,8 @@ export function hogFunctionUrl(type: HogFunctionTypeType | PipelineStage, id?: s
         return id ? urls.messagingProvider(id) : urls.messagingProviders()
     } else if (type === 'broadcast') {
         return id ? urls.messagingBroadcast(id) : urls.messagingBroadcasts()
+    } else if (type === 'campaign') {
+        return id ? urls.messagingCampaign(id) : urls.messagingCampaigns()
     } else if (type === 'internal_destination' && template?.includes('error-tracking')) {
         return id ? urls.errorTrackingAlert(id) : urls.errorTrackingConfiguration()
     }
