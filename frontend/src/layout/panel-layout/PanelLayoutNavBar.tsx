@@ -25,14 +25,19 @@ import { Button } from 'lib/ui/Button/Button'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
+import { SidePanelTab } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
+import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const panelStyles = cva({
@@ -59,6 +64,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
+    const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (!isLayoutPanelVisible) {
@@ -176,7 +183,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <Button.Root size="base" onClick={() => toggleSearchBar()}>
+                        <Button.Root size="base" onClick={() => toggleSearchBar()} data-attr="search-button">
                             <Button.Icon>
                                 <IconSearch className="text-secondary" />
                             </Button.Icon>
@@ -206,6 +213,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             <Button.Root
                                                 menuItem
                                                 active={item.id === 'Project' && isLayoutPanelVisible}
+                                                data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                             >
                                                 <Button.Icon className="text-tertiary">{item.icon}</Button.Icon>
                                                 <Button.Label menuItem>{item.id}</Button.Label>
@@ -260,6 +268,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <Button.Root
                                                                 menuItem
                                                                 to={'to' in item ? item.to : undefined}
+                                                                data-attr={`menu-item-${item.identifier
+                                                                    .toString()
+                                                                    .toLowerCase()}`}
                                                             >
                                                                 <Button.Icon className="text-tertiary">
                                                                     {item.icon}
@@ -311,14 +322,30 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         <div className="border-b border-primary h-px " />
 
                         <div className="pt-1 px-1 pb-2 flex flex-col gap-px">
-                            <Button.Root menuItem to={urls.toolbarLaunch()}>
+                            {visibleTabs.includes(SidePanelTab.Activation) && (
+                                <Button.Root
+                                    menuItem
+                                    onClick={() =>
+                                        sidePanelOpen && selectedTab === SidePanelTab.Activation
+                                            ? closeSidePanel()
+                                            : openSidePanel(SidePanelTab.Activation)
+                                    }
+                                    data-attr="activation-button"
+                                >
+                                    <Button.Icon>
+                                        <SidePanelActivationIcon size={16} />
+                                    </Button.Icon>
+                                    <Button.Label menuItem>Quick start</Button.Label>
+                                </Button.Root>
+                            )}
+                            <Button.Root menuItem to={urls.toolbarLaunch()} data-attr={Scene.ToolbarLaunch}>
                                 <Button.Icon>
                                     <IconToolbar />
                                 </Button.Icon>
                                 <Button.Label menuItem>Toolbar</Button.Label>
                             </Button.Root>
 
-                            <Button.Root menuItem to={urls.settings('project')}>
+                            <Button.Root menuItem to={urls.settings('project')} data-attr={Scene.Settings}>
                                 <Button.Icon>
                                     <IconGear />
                                 </Button.Icon>
