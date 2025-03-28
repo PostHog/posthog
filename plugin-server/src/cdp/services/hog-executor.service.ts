@@ -415,7 +415,7 @@ export class HogExecutorService {
                                     id: '',
                                     teamId: invocation.teamId,
                                     hogFunction: provider,
-                                    globals: {} as any,
+                                    globals,
                                     queue: 'hog',
                                     timings: [],
                                     priority: 0,
