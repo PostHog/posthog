@@ -18,7 +18,7 @@ use crate::{
     types::{EventDefinition, EventProperty, GroupType, PropertyDefinition, Update},
 };
 
-pub const WRITE_BATCH_SIZE: usize = 100;
+pub const V2_WRITE_BATCH_SIZE: usize = 100;
 const V2_BATCH_MAX_RETRY_ATTEMPTS: u64 = 3;
 const V2_BATCH_RETRY_DELAY_MS: u64 = 50;
 
@@ -34,10 +34,10 @@ pub struct EventPropertiesBatch {
 impl Default for EventPropertiesBatch {
     fn default() -> Self {
         Self {
-            team_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            project_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            event_names: Vec::with_capacity(WRITE_BATCH_SIZE),
-            property_names: Vec::with_capacity(WRITE_BATCH_SIZE),
+            team_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            project_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            event_names: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            property_names: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
         }
     }
 }
@@ -53,7 +53,7 @@ impl EventPropertiesBatch {
         self.event_names.push(ep.event);
         self.property_names.push(ep.property);
 
-        self.team_ids.len() >= WRITE_BATCH_SIZE
+        self.team_ids.len() >= V2_WRITE_BATCH_SIZE
     }
 
     pub fn is_empty(&self) -> bool {
@@ -73,11 +73,11 @@ pub struct EventDefinitionsBatch {
 impl Default for EventDefinitionsBatch {
     fn default() -> Self {
         Self {
-            ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            names: Vec::with_capacity(WRITE_BATCH_SIZE),
-            team_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            project_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            last_seen_ats: Vec::with_capacity(WRITE_BATCH_SIZE),
+            ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            names: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            team_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            project_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            last_seen_ats: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
         }
     }
 }
@@ -94,7 +94,7 @@ impl EventDefinitionsBatch {
         self.project_ids.push(ed.project_id);
         self.last_seen_ats.push(ed.last_seen_at);
 
-        self.ids.len() >= WRITE_BATCH_SIZE
+        self.ids.len() >= V2_WRITE_BATCH_SIZE
     }
 
     pub fn is_empty(&self) -> bool {
@@ -118,14 +118,14 @@ pub struct PropertyDefinitionsBatch {
 impl Default for PropertyDefinitionsBatch {
     fn default() -> Self {
         Self {
-            ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            team_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            project_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            names: Vec::with_capacity(WRITE_BATCH_SIZE),
-            are_numerical: Vec::with_capacity(WRITE_BATCH_SIZE),
-            property_types: Vec::with_capacity(WRITE_BATCH_SIZE),
-            event_types: Vec::with_capacity(WRITE_BATCH_SIZE),
-            group_type_indices: Vec::with_capacity(WRITE_BATCH_SIZE),
+            ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            team_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            project_ids: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            names: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            are_numerical: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            property_types: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            event_types: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
+            group_type_indices: Vec::with_capacity(V2_WRITE_BATCH_SIZE),
         }
     }
 }
@@ -154,7 +154,7 @@ impl PropertyDefinitionsBatch {
         self.event_types.push(pd.event_type as i16);
         self.group_type_indices.push(group_type_index);
 
-        self.ids.len() >= WRITE_BATCH_SIZE
+        self.ids.len() >= V2_WRITE_BATCH_SIZE
     }
 
     pub fn is_empty(&self) -> bool {
