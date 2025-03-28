@@ -68,10 +68,12 @@ export function TaxonomicFilter({
         showNumericalPropsOnly,
         dataWarehousePopoverFields,
         useVerticalLayout,
+        autoSelectItem: true,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { activeTab } = useValues(logic)
+    const { selectSelected } = useActions(logic)
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -101,7 +103,11 @@ export function TaxonomicFilter({
             >
                 {activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1 ? (
                     <div className="relative">
-                        <TaxonomicFilterSearchInput searchInputRef={searchInputRef} onClose={onClose} />
+                        <TaxonomicFilterSearchInput
+                            searchInputRef={searchInputRef}
+                            onClose={onClose}
+                            onEnter={selectSelected}
+                        />
                     </div>
                 ) : null}
                 <InfiniteSelectResults
@@ -119,13 +125,12 @@ export const TaxonomicFilterSearchInput = forwardRef<
     HTMLInputElement,
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
-        closeOnEnter?: boolean
         onClose: TaxonomicFilterProps['onClose']
-        onPressEnter?: (query: string) => void
+        onEnter: (value?: string) => void
     } & Pick<LemonInputProps, 'onClick' | 'size' | 'prefix' | 'fullWidth'>
->(function UniversalSearchInput({ searchInputRef, onClose, onPressEnter, ...props }, ref): JSX.Element {
+>(function UniversalSearchInput({ searchInputRef, onClose, onEnter, ...props }, ref): JSX.Element {
     const { searchQuery, searchPlaceholder } = useValues(taxonomicFilterLogic)
-    const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(taxonomicFilterLogic)
+    const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight } = useActions(taxonomicFilterLogic)
 
     return (
         <LemonInput
@@ -166,9 +171,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
                         e.shiftKey ? tabLeft() : tabRight()
                         break
                     case 'Enter':
-                        onPressEnter ? onPressEnter(searchQuery) : selectSelected()
+                        onEnter(searchQuery)
                         break
                     case 'Escape':
+                        setSearchQuery('')
                         onClose?.()
                         break
                     default:

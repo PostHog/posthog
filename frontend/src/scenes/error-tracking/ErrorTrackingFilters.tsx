@@ -70,6 +70,7 @@ const UniversalSearch = (): JSX.Element => {
             addGroupFilter(taxonomicGroup, value, item, originalQuery)
             setVisible(false)
         },
+        autoSelectItem: false,
     }
 
     const onClose = (value?: string): void => {
@@ -93,10 +94,11 @@ const UniversalSearch = (): JSX.Element => {
                 visible={visible}
                 closeOnClickInside={false}
                 floatingRef={floatingRef}
+                onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
                     prefix={<RecordingsUniversalFilterGroup />}
-                    onPressEnter={onClose}
+                    onEnter={onClose}
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={onClose}

@@ -115,7 +115,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     actions(() => ({
         moveUp: true,
         moveDown: true,
-        selectSelected: (onComplete?: () => void) => ({ onComplete }),
+        selectSelected: true,
         enableMouseInteractions: true,
         tabLeft: true,
         tabRight: true,

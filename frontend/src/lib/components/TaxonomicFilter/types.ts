@@ -37,6 +37,7 @@ export interface TaxonomicFilterProps {
     width?: number
     popoverEnabled?: boolean
     selectFirstItem?: boolean
+    autoSelectItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
