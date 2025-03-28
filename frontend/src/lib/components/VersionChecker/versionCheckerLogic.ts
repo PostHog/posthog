@@ -49,6 +49,146 @@ export interface VersionCheckerLogicProps {
     teamId: number | null
 }
 
+export interface LibraryInfo {
+    lib: string
+    tagsUrl?: string
+    deprecationUrl?: string
+}
+
+// Known lib versions that have been seen in the wild
+//
+// 'web',
+//     'posthog-python',
+//     '',
+//     'js',
+//     'posthog-node',
+//     'posthog-react-native',
+//     'posthog-ruby',
+//     'posthog-ios',
+//     'posthog-android',
+//     'Segment',
+//     'posthog-go',
+//     'analytics-node',
+//     'RudderLabs JavaScript SDK',
+//     'mobile',
+//     'posthog-php',
+//     'zapier',
+//     'Webflow',
+//     'posthog-flutter',
+//     'com.rudderstack.android.sdk.core',
+//     'rudder-analytics-python',
+//     'rudder-ios-library',
+//     'rudder-analytics-php',
+//     'macos',
+//     'service_data',
+//     'flow',
+//     'PROD',
+//     'unknown',
+//     'api',
+//     'unbounce',
+//     'backend',
+//     'analytics-python',
+//     'windows',
+//     'cf-analytics-go',
+//     'server',
+//     'core',
+//     'Marketing',
+//     'Product',
+//     'com.rudderstack.android.sdk',
+//     'net-gibraltar',
+//     'posthog-java',
+//     'rudderanalytics-ruby',
+//     'GSHEETS_AIRBYTE',
+//     'posthog-plugin-server',
+//     'DotPostHog',
+//     'analytics-go',
+//     'serverless',
+//     'wordpress',
+//     'hog_function',
+//     'http',
+//     'desktop',
+//     'elixir',
+//     'DEV',
+//     'RudderAnalytics.NET',
+//     'PR',
+//     'railway',
+//     'HTTP',
+//     'extension',
+//     'cyclotron-testing',
+//     'RudderStack Shopify Cloud',
+//     'GSHEETS_MONITOR',
+//     'Rudder',
+//     'API',
+//     'rudder-sdk-ruby-sync',
+//     'curl',
+
+const libraries: LibraryInfo[] = [
+    {
+        lib: 'web',
+        tagsUrl: 'https://api.github.com/repos/posthog/posthog-js/tags',
+        deprecationUrl: 'https://raw.githubusercontent.com/PostHog/posthog-js/main/deprecation.json',
+    },
+    {
+        lib: 'posthog-python',
+        tagsUrl: 'https://api.github.com/repos/posthog/posthog-python/tags',
+    },
+    {
+        lib: 'posthog-react-native',
+        // TODO handle the tags url being shared between a few different JS SDKs
+        // tagsUrl: 'https://api.github.com/repos/posthog/posthog-js-lite/tags',
+    },
+    {
+        lib: 'posthog-node',
+        // TODO handle the tags url being shared between a few different JS SDKs
+        // tagsUrl: 'https://api.github.com/repos/posthog/posthog-js-lite/tags',
+    },
+    {
+        lib: 'js', // lite
+        // TODO handle the tags url being shared between a few different JS SDKs
+        // tagsUrl: 'https://api.github.com/repos/posthog/posthog-js-lite/tags',
+    },
+    {
+        lib: 'posthog-ruby',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-ruby/tags',
+    },
+    {
+        lib: 'posthog-ios',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-ios/tags',
+    },
+    {
+        lib: 'posthog-android',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-android/tags',
+    },
+    {
+        lib: 'posthog-go',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-go/tags',
+    },
+    {
+        lib: 'posthog-php',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-php/tags',
+    },
+    {
+        lib: 'posthog-flutter',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-flutter/tags',
+    },
+    {
+        lib: 'posthog-java',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-java/tags',
+    },
+    {
+        lib: 'posthog-rs',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-rs/tags',
+    },
+    {
+        lib: 'posthog-dotnet',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-dotnet/tags',
+    },
+    {
+        lib: 'posthog-elixir',
+        tagsUrl: 'https://api.github.com/repos/PostHog/posthog-elixir/tags',
+    },
+]
+
 export const versionCheckerLogic = kea<versionCheckerLogicType>([
     props({ teamId: null } as VersionCheckerLogicProps),
     key(({ teamId }) => teamId || 'no-team-id'),
