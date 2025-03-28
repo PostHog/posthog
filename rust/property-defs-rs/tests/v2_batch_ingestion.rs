@@ -9,8 +9,8 @@ use sqlx::PgPool;
 
 use property_defs_rs::{
     config::Config,
-    process_batch_v2,
     types::{Event, PropertyParentType, Update},
+    v2_batch_ingestion::process_batch_v2,
 };
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

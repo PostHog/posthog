@@ -8,18 +8,15 @@ use metrics_consts::{
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
     RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED,
     UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
-    UPDATE_PRODUCER_OFFSET, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_ROWS_AFFECTED,
-    V2_EVENT_DEFS_BATCH_TIME, V2_EVENT_PROPS_BATCH_ATTEMPT, V2_EVENT_PROPS_BATCH_ROWS_AFFECTED,
-    V2_EVENT_PROPS_BATCH_TIME, V2_PROP_DEFS_BATCH_ATTEMPT, V2_PROP_DEFS_BATCH_ROWS_AFFECTED,
-    V2_PROP_DEFS_BATCH_TIME, WORKER_BLOCKED,
+    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
-use types::{Event, EventDefinitionsBatch, EventPropertiesBatch, PropertyDefinitionsBatch, Update};
+use types::{Event, Update};
+use v2_batch_ingestion::process_batch_v2;
 
 use ahash::AHashSet;
 use quick_cache::sync::Cache;
-use sqlx::PgPool;
+
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tokio::task::JoinHandle;
 use tracing::{error, warn};
 
 pub mod api;
@@ -27,10 +24,10 @@ pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;
+pub mod v2_batch_ingestion;
 
 const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 2;
 const UPDATE_RETRY_DELAY_MS: u64 = 50;
-const MAX_V2_BATCH_RETRY_ATTEMPTS: u64 = 3;
 
 pub async fn update_consumer_loop(
     config: Config,
@@ -89,263 +86,6 @@ pub async fn update_consumer_loop(
             process_batch_v2(&config, cache.clone(), &context.pool, batch).await;
         } else {
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
-        }
-    }
-}
-
-// HACK: making this public so the test suite file can live under "../tests/" dir
-pub async fn process_batch_v2(
-    config: &Config,
-    cache: Arc<Cache<Update, ()>>,
-    pool: &PgPool,
-    batch: Vec<Update>,
-) {
-    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
-    metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
-
-    // prep reshaped, isolated data batch bufffers and async join handles
-    let mut event_defs = EventDefinitionsBatch::new();
-    let mut event_props = EventPropertiesBatch::new();
-    let mut prop_defs = PropertyDefinitionsBatch::new();
-    let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
-
-    // loop on the Update batch, splitting into smaller vectorized PG write batches
-    // and submitted async. note for testing and simplicity, we don't work with
-    // the AppContext in process_batch_v2, just it's PgPool. We clone that all over
-    // the place to pass into `tokio::spawn()` which is fine b/c it's designed for
-    // this and manages concurrent access internaly. Some details here:
-    // https://github.com/launchbadge/sqlx/blob/main/sqlx-core/src/pool/mod.rs#L109-L111
-    for update in batch {
-        match update {
-            Update::Event(ed) => {
-                if event_defs.append(ed) {
-                    let pool = pool.clone();
-                    handles.push(tokio::spawn(async move {
-                        write_event_definitions_batch(event_defs, &pool).await
-                    }));
-                    event_defs = EventDefinitionsBatch::new();
-                }
-            }
-            Update::EventProperty(ep) => {
-                if event_props.append(ep) {
-                    let pool = pool.clone();
-                    handles.push(tokio::spawn(async move {
-                        write_event_properties_batch(event_props, &pool).await
-                    }));
-                    event_props = EventPropertiesBatch::new();
-                }
-            }
-            Update::Property(pd) => {
-                if prop_defs.append(pd) {
-                    let pool = pool.clone();
-                    handles.push(tokio::spawn(async move {
-                        write_property_definitions_batch(prop_defs, &pool).await
-                    }));
-                    prop_defs = PropertyDefinitionsBatch::new();
-                }
-            }
-        }
-    }
-
-    // ensure partial batches are flushed to Postgres too
-    if !event_defs.is_empty() {
-        let pool = pool.clone();
-        handles.push(tokio::spawn(async move {
-            write_event_definitions_batch(event_defs, &pool).await
-        }));
-    }
-    if !prop_defs.is_empty() {
-        let pool = pool.clone();
-        handles.push(tokio::spawn(async move {
-            write_property_definitions_batch(prop_defs, &pool).await
-        }));
-    }
-    if !event_props.is_empty() {
-        let pool = pool.clone();
-        handles.push(tokio::spawn(async move {
-            write_event_properties_batch(event_props, &pool).await
-        }));
-    }
-
-    for handle in handles {
-        match handle.await {
-            Ok(result) => match result {
-                Ok(_) => continue,
-                Err(db_err) => {
-                    warn!("Batch write exhausted retries: {:?}", db_err);
-                }
-            },
-            Err(join_err) => {
-                warn!("Batch query JoinError: {:?}", join_err);
-            }
-        }
-    }
-}
-
-async fn write_event_properties_batch(
-    batch: EventPropertiesBatch,
-    pool: &PgPool,
-) -> Result<(), sqlx::Error> {
-    let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_TIME, &[]);
-    let mut tries = 1;
-
-    loop {
-        let result = sqlx::query(
-            r#"
-            INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
-                (SELECT * FROM UNNEST(
-                    $1::text[],
-                    $2::text[],
-                    $3::int[],
-                    $4::bigint[])) ON CONFLICT DO NOTHING"#,
-        )
-        .bind(&batch.event_names)
-        .bind(&batch.property_names)
-        .bind(&batch.team_ids)
-        .bind(&batch.project_ids)
-        .execute(pool)
-        .await;
-
-        match result {
-            Err(e) => {
-                if tries == MAX_V2_BATCH_RETRY_ATTEMPTS {
-                    metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")]);
-                    total_time.fin();
-                    return Err(e);
-                }
-
-                metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "retry")]);
-                let jitter = rand::random::<u64>() % 50;
-                let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                tokio::time::sleep(Duration::from_millis(delay)).await;
-                tries += 1;
-            }
-
-            Ok(pgq_result) => {
-                let count = pgq_result.rows_affected();
-                metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "success")]);
-                common_metrics::inc(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, &[], count);
-                total_time.fin();
-                return Ok(());
-            }
-        }
-    }
-}
-
-async fn write_property_definitions_batch(
-    batch: PropertyDefinitionsBatch,
-    pool: &PgPool,
-) -> Result<(), sqlx::Error> {
-    let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_TIME, &[]);
-    let mut tries: u64 = 1;
-
-    loop {
-        // what if we just ditch properties without a property_type set? why update on conflict at all?
-        let result = sqlx::query(r#"
-            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
-                (SELECT * FROM UNNEST(
-                    $1::uuid[],
-                    $2::varchar[],
-                    $3::smallint[],
-                    $4::smallint[],
-                    $5::boolean[],
-                    $6::int[],
-                    $7::bigint[],
-                    $8::varchar[]))
-                ON CONFLICT (
-                    COALESCE(project_id, team_id::bigint), name, type,
-                    COALESCE(group_type_index, -1))
-                DO UPDATE SET property_type=EXCLUDED.property_type
-                WHERE posthog_propertydefinition.property_type IS NULL"#,
-            )
-            .bind(&batch.ids)
-            .bind(&batch.names)
-            .bind(&batch.event_types)
-            .bind(&batch.group_type_indices)
-            .bind(&batch.are_numerical)
-            .bind(&batch.team_ids)
-            .bind(&batch.project_ids)
-            .bind(&batch.property_types)
-            .execute(pool).await;
-
-        match result {
-            Err(e) => {
-                if tries == MAX_V2_BATCH_RETRY_ATTEMPTS {
-                    metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")]);
-                    total_time.fin();
-                    return Err(e);
-                }
-
-                metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "retry")]);
-                let jitter = rand::random::<u64>() % 50;
-                let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                tokio::time::sleep(Duration::from_millis(delay)).await;
-                tries += 1;
-            }
-
-            Ok(pgq_result) => {
-                let count = pgq_result.rows_affected();
-                metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
-                common_metrics::inc(V2_PROP_DEFS_BATCH_ROWS_AFFECTED, &[], count);
-                total_time.fin();
-                return Ok(());
-            }
-        }
-    }
-}
-
-async fn write_event_definitions_batch(
-    batch: EventDefinitionsBatch,
-    pool: &PgPool,
-) -> Result<(), sqlx::Error> {
-    let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_TIME, &[]);
-    let mut tries: u64 = 1;
-
-    loop {
-        // TODO: is last_seen_at critical to the product UX? "ON CONFLICT DO NOTHING" may be much cheaper...
-        let result = sqlx::query(
-            r#"
-            INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
-                (SELECT * FROM UNNEST (
-                    $1::uuid[],
-                    $2::varchar[],
-                    $3::int[],
-                    $4::bigint[],
-                    $5::timestamptz[],
-                    $5::timestamptz[]))
-                ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE
-                    SET last_seen_at=EXCLUDED.last_seen_at
-                    WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at"#,
-        )
-        .bind(&batch.ids)
-        .bind(&batch.names)
-        .bind(&batch.team_ids)
-        .bind(&batch.project_ids)
-        .bind(&batch.last_seen_ats)
-        .execute(pool)
-        .await;
-
-        match result {
-            Err(e) => {
-                if tries == MAX_V2_BATCH_RETRY_ATTEMPTS {
-                    metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")]);
-                    total_time.fin();
-                    return Err(e);
-                }
-
-                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "retry")]);
-                let jitter = rand::random::<u64>() % 50;
-                let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                tokio::time::sleep(Duration::from_millis(delay)).await;
-                tries += 1;
-            }
-            Ok(pgq_result) => {
-                let count = pgq_result.rows_affected();
-                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
-                common_metrics::inc(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, &[], count);
-                total_time.fin();
-                return Ok(());
-            }
         }
     }
 }

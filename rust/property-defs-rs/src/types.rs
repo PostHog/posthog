@@ -13,8 +13,6 @@ use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
 // We skip updates for events we generate
 pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
 
-pub const WRITE_BATCH_SIZE: usize = 100;
-
 pub const SIX_MONTHS_AGO_SECS: u64 = 15768000;
 // These properties have special meaning, and are ignored
 pub const SKIP_PROPERTIES: [&str; 9] = [
@@ -122,113 +120,12 @@ pub struct PropertyDefinition {
     pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PropertyDefinitionsBatch {
-    pub ids: Vec<Uuid>,
-    pub team_ids: Vec<i32>,
-    pub project_ids: Vec<i64>,
-    pub names: Vec<String>,
-    pub are_numerical: Vec<bool>,
-    pub event_types: Vec<i16>,
-    pub property_types: Vec<Option<i16>>,
-    pub group_type_indices: Vec<Option<i16>>,
-    // note: I left off deprecated fields we null out on writes
-}
-
-impl Default for PropertyDefinitionsBatch {
-    fn default() -> Self {
-        Self {
-            ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            team_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            project_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            names: Vec::with_capacity(WRITE_BATCH_SIZE),
-            are_numerical: Vec::with_capacity(WRITE_BATCH_SIZE),
-            property_types: Vec::with_capacity(WRITE_BATCH_SIZE),
-            event_types: Vec::with_capacity(WRITE_BATCH_SIZE),
-            group_type_indices: Vec::with_capacity(WRITE_BATCH_SIZE),
-        }
-    }
-}
-
-impl PropertyDefinitionsBatch {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn append(&mut self, pd: PropertyDefinition) -> bool {
-        let group_type_index: Option<i16> = match &pd.group_type_index {
-            Some(gt) => match gt {
-                GroupType::Resolved(_, gti) => Some(*gti as i16),
-                GroupType::Unresolved(_) => Some(-1_i16),
-            },
-            _ => Some(-1_i16),
-        };
-        let property_type: Option<i16> = pd.property_type.map(|pt| pt as i16);
-
-        self.ids.push(Uuid::now_v7());
-        self.team_ids.push(pd.team_id);
-        self.project_ids.push(pd.project_id);
-        self.names.push(pd.name);
-        self.are_numerical.push(pd.is_numerical);
-        self.property_types.push(property_type);
-        self.event_types.push(pd.event_type as i16);
-        self.group_type_indices.push(group_type_index);
-
-        self.ids.len() >= WRITE_BATCH_SIZE
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.ids.len() == 0
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct EventDefinition {
     pub name: String,
     pub team_id: i32,
     pub project_id: i64,
     pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EventDefinitionsBatch {
-    pub ids: Vec<Uuid>,
-    pub names: Vec<String>,
-    pub team_ids: Vec<i32>,
-    pub project_ids: Vec<i64>,
-    pub last_seen_ats: Vec<DateTime<Utc>>,
-}
-
-impl Default for EventDefinitionsBatch {
-    fn default() -> Self {
-        Self {
-            ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            names: Vec::with_capacity(WRITE_BATCH_SIZE),
-            team_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            project_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            last_seen_ats: Vec::with_capacity(WRITE_BATCH_SIZE),
-        }
-    }
-}
-
-impl EventDefinitionsBatch {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn append(&mut self, ed: EventDefinition) -> bool {
-        self.ids.push(Uuid::now_v7());
-        self.names.push(ed.name);
-        self.team_ids.push(ed.team_id);
-        self.project_ids.push(ed.project_id);
-        self.last_seen_ats.push(ed.last_seen_at);
-
-        self.ids.len() >= WRITE_BATCH_SIZE
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.ids.len() == 0
-    }
 }
 
 // Derived hash since these are keyed on all fields in the DB
@@ -238,45 +135,6 @@ pub struct EventProperty {
     pub project_id: i64,
     pub event: String,
     pub property: String,
-}
-
-// Derived hash since these are keyed on all fields in the DB
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EventPropertiesBatch {
-    pub team_ids: Vec<i32>,
-    pub project_ids: Vec<i64>,
-    pub event_names: Vec<String>,
-    pub property_names: Vec<String>,
-}
-
-impl Default for EventPropertiesBatch {
-    fn default() -> Self {
-        Self {
-            team_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            project_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
-            event_names: Vec::with_capacity(WRITE_BATCH_SIZE),
-            property_names: Vec::with_capacity(WRITE_BATCH_SIZE),
-        }
-    }
-}
-
-impl EventPropertiesBatch {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn append(&mut self, ep: EventProperty) -> bool {
-        self.team_ids.push(ep.team_id);
-        self.project_ids.push(ep.project_id);
-        self.event_names.push(ep.event);
-        self.property_names.push(ep.property);
-
-        self.team_ids.len() >= WRITE_BATCH_SIZE
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.team_ids.len() == 0
-    }
 }
 
 // Represents a generic update, but comparable, allowing us to dedupe and cache updates
