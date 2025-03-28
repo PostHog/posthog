@@ -841,7 +841,7 @@ mod tests {
         assert_eq!(duration, None);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../hook-common/migrations")]
     async fn test_wait_for_job(db: PgPool) {
         let worker_id = worker_id();
         let queue_name = "test_wait_for_job".to_string();
@@ -913,7 +913,7 @@ mod tests {
         assert!(registry.get_status().healthy)
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../hook-common/migrations")]
     async fn test_hoghook_sends_kafka_payload_for_success(db: PgPool) {
         use httpmock::prelude::*;
         use rdkafka::consumer::{Consumer, StreamConsumer};
@@ -1029,7 +1029,7 @@ mod tests {
         );
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../hook-common/migrations")]
     async fn test_hoghook_sends_kafka_payload_for_bad_response(db: PgPool) {
         use httpmock::prelude::*;
         use rdkafka::consumer::{Consumer, StreamConsumer};
@@ -1145,7 +1145,7 @@ mod tests {
         );
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../hook-common/migrations")]
     async fn test_hoghook_drops_large_payloads(db: PgPool) {
         use httpmock::prelude::*;
 
