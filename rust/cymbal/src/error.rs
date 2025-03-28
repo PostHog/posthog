@@ -123,7 +123,7 @@ pub enum JsResolveErr {
     NoSourcemapUploaded(String),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
