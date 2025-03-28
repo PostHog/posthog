@@ -95,7 +95,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
         )
 
         return RevenueExampleDataWarehouseTablesQueryResponse(
-            columns=["table_name", "original_revenue", "original_currency", "revenue", "currency"],
+            columns=["table_name", "distinct_id", "original_revenue", "original_currency", "revenue", "currency"],
             results=response.results,
             timings=response.timings,
             types=response.types,

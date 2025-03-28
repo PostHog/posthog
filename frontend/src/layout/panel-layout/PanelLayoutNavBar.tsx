@@ -8,42 +8,40 @@ import {
     IconHome,
     IconNotebook,
     IconPeople,
-    IconPinFilled,
     IconSearch,
     IconToolbar,
 } from '@posthog/icons'
-import { cva } from 'class-variance-authority'
 import clsx from 'clsx'
+import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
+import { Button } from 'lib/ui/Button/Button'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { SidePanelTab } from '~/types'
 
-import { breadcrumbsLogic } from '../navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
+import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
-const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
+const panelStyles = cva({
+    base: 'z-[var(--z-project-panel-layout)] h-screen left-0',
     variants: {
         isLayoutPanelVisible: {
             true: 'block',
@@ -63,12 +61,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { navbarItems } = useValues(navigation3000Logic)
-    const { activeScene } = useValues(sceneLogic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
-    const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
-    const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (!isLayoutPanelVisible) {
@@ -135,33 +132,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.dashboards(), true)
             },
-            sideAction:
-                pinnedDashboards.length > 0
-                    ? {
-                          identifier: 'pinned-dashboards-dropdown',
-                          dropdown: {
-                              overlay: (
-                                  <LemonMenuOverlay
-                                      items={[
-                                          {
-                                              title: 'Pinned dashboards',
-                                              items: pinnedDashboards.map((dashboard) => ({
-                                                  label: dashboard.name,
-                                                  to: urls.dashboard(dashboard.id),
-                                              })),
-                                              footer: dashboardsLoading && (
-                                                  <div className="px-2 py-1 text-tertiary">
-                                                      <Spinner /> Loading…
-                                                  </div>
-                                              ),
-                                          },
-                                      ]}
-                                  />
-                              ),
-                              placement: 'bottom-end' as const,
-                          },
-                      }
-                    : undefined,
         },
         {
             identifier: 'Notebooks',
@@ -213,17 +183,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <LemonButton
-                            size="small"
-                            type="tertiary"
-                            tooltip="Search"
-                            onClick={() => toggleSearchBar()}
-                            icon={
-                                <IconWrapper>
-                                    <IconSearch />
-                                </IconWrapper>
-                            }
-                        />
+                        <Button.Root size="base" onClick={() => toggleSearchBar()} data-attr="search-button">
+                            <Button.Icon>
+                                <IconSearch className="text-secondary" />
+                            </Button.Icon>
+                        </Button.Root>
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
@@ -246,41 +210,30 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 }
                                             }}
                                         >
-                                            <LemonButton
-                                                className={cn(
-                                                    activePanelIdentifier === item.identifier &&
-                                                        'bg-fill-button-tertiary-active'
-                                                )}
-                                                icon={<IconWrapper>{item.icon}</IconWrapper>}
-                                                fullWidth
-                                                size="small"
-                                                to={item.to}
+                                            <Button.Root
+                                                menuItem
+                                                active={item.id === 'Project' && isLayoutPanelVisible}
+                                                data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                             >
-                                                <span>{item.id}</span>
-                                                <span className="ml-auto">
-                                                    {item.id === 'Project' && (
-                                                        <span className="flex items-center gap-px">
-                                                            {isLayoutPanelPinned && isLayoutPanelVisible && (
-                                                                <IconWrapper size="sm">
-                                                                    <IconPinFilled />
-                                                                </IconWrapper>
-                                                            )}
-                                                            <IconWrapper size="sm">
-                                                                <IconChevronRight />
-                                                            </IconWrapper>
-                                                        </span>
-                                                    )}
-                                                </span>
-                                            </LemonButton>
+                                                <Button.Icon className="text-tertiary">{item.icon}</Button.Icon>
+                                                <Button.Label menuItem>{item.id}</Button.Label>
+                                                {item.id === 'Project' && (
+                                                    <span className="flex items-center gap-px">
+                                                        <Button.Icon customIconSize>
+                                                            <IconChevronRight className="size-3 text-secondary" />
+                                                        </Button.Icon>
+                                                    </span>
+                                                )}
+                                            </Button.Root>
                                         </ListBox.Item>
                                     ))}
                                 </div>
 
-                                <div className="border-b border-secondary h-px my-1" />
+                                <div className="border-b border-primary h-px my-1" />
 
                                 <div className="pt-1 px-1">
                                     <div className="flex justify-between items-center pl-2 pr-0 pb-2">
-                                        <span className="text-xs font-bold text-tertiary">Products</span>
+                                        <span className="text-xs font-semibold text-quaternary">Products</span>
                                     </div>
                                     <div className="flex flex-col gap-px">
                                         {navbarItems.map((section, index) => (
@@ -312,26 +265,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 }
                                                             }}
                                                         >
-                                                            <LemonButton
-                                                                key={item.identifier}
-                                                                icon={<IconWrapper>{item.icon}</IconWrapper>}
-                                                                fullWidth
-                                                                size="small"
-                                                                // This makes it a link if it has a to
-                                                                // we handle routing in the handleStaticNavbarItemClick function
+                                                            <Button.Root
+                                                                menuItem
                                                                 to={'to' in item ? item.to : undefined}
-                                                                // Target the svg inside the side action
-                                                                className="[&+div_svg]:text-secondary"
-                                                                // Only show side action for SavedInsights (PA)
-                                                                {...(item.sideAction &&
-                                                                    item.identifier === 'SavedInsights' && {
-                                                                        sideAction: {
-                                                                            ...item.sideAction,
-                                                                            'data-attr': `menu-item-${item.sideAction.identifier.toLowerCase()}`,
-                                                                        },
-                                                                    })}
+                                                                data-attr={`menu-item-${item.identifier
+                                                                    .toString()
+                                                                    .toLowerCase()}`}
                                                             >
-                                                                {item.label}{' '}
+                                                                <Button.Icon className="text-tertiary">
+                                                                    {item.icon}
+                                                                </Button.Icon>
+                                                                <Button.Label menuItem>{item.label}</Button.Label>
+
                                                                 {item.tag && (
                                                                     <LemonTag
                                                                         type={
@@ -347,7 +292,23 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         {item.tag.toUpperCase()}
                                                                     </LemonTag>
                                                                 )}
-                                                            </LemonButton>
+
+                                                                {item.sideAction &&
+                                                                    item.identifier === 'SavedInsights' && (
+                                                                        <Button.Icon
+                                                                            isTriggerRight
+                                                                            isTrigger
+                                                                            onClick={(e) => {
+                                                                                e.preventDefault()
+                                                                                e.stopPropagation()
+                                                                                e.nativeEvent.stopImmediatePropagation()
+                                                                                router.actions.push(urls.insightNew())
+                                                                            }}
+                                                                        >
+                                                                            {item.sideAction.icon}
+                                                                        </Button.Icon>
+                                                                    )}
+                                                            </Button.Root>
                                                         </ListBox.Item>
                                                     )
                                                 })}
@@ -358,64 +319,38 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        <div className="border-b border-secondary h-px " />
+                        <div className="border-b border-primary h-px " />
 
                         <div className="pt-1 px-1 pb-2 flex flex-col gap-px">
-                            <LemonButton
-                                className={cn(
-                                    (activeScene === Scene.ToolbarLaunch ||
-                                        sceneBreadcrumbKeys.includes(Scene.ToolbarLaunch)) &&
-                                        'bg-fill-button-tertiary-active'
-                                )}
-                                icon={
-                                    <IconWrapper>
-                                        <IconToolbar />
-                                    </IconWrapper>
-                                }
-                                fullWidth
-                                size="small"
-                                to={urls.toolbarLaunch()}
-                                onClick={() => {
-                                    handleStaticNavbarItemClick(urls.toolbarLaunch(), false)
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
+                            {visibleTabs.includes(SidePanelTab.Activation) && (
+                                <Button.Root
+                                    menuItem
+                                    onClick={() =>
+                                        sidePanelOpen && selectedTab === SidePanelTab.Activation
+                                            ? closeSidePanel()
+                                            : openSidePanel(SidePanelTab.Activation)
                                     }
-                                }}
-                                active={
-                                    activeScene === Scene.ToolbarLaunch ||
-                                    sceneBreadcrumbKeys.includes(Scene.ToolbarLaunch)
-                                }
-                            >
-                                Toolbar
-                            </LemonButton>
+                                    data-attr="activation-button"
+                                >
+                                    <Button.Icon>
+                                        <SidePanelActivationIcon size={16} />
+                                    </Button.Icon>
+                                    <Button.Label menuItem>Quick start</Button.Label>
+                                </Button.Root>
+                            )}
+                            <Button.Root menuItem to={urls.toolbarLaunch()} data-attr={Scene.ToolbarLaunch}>
+                                <Button.Icon>
+                                    <IconToolbar />
+                                </Button.Icon>
+                                <Button.Label menuItem>Toolbar</Button.Label>
+                            </Button.Root>
 
-                            <LemonButton
-                                className={cn(
-                                    (activeScene === Scene.Settings || sceneBreadcrumbKeys.includes(Scene.Settings)) &&
-                                        'bg-fill-button-tertiary-active'
-                                )}
-                                icon={
-                                    <IconWrapper>
-                                        <IconGear />
-                                    </IconWrapper>
-                                }
-                                to={urls.settings('project')}
-                                onClick={() => {
-                                    handleStaticNavbarItemClick(urls.settings('project'), false)
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        handleStaticNavbarItemClick(urls.settings('project'), true)
-                                    }
-                                }}
-                                fullWidth
-                                size="small"
-                                active={activeScene === Scene.Settings || sceneBreadcrumbKeys.includes(Scene.Settings)}
-                            >
-                                Settings
-                            </LemonButton>
+                            <Button.Root menuItem to={urls.settings('project')} data-attr={Scene.Settings}>
+                                <Button.Icon>
+                                    <IconGear />
+                                </Button.Icon>
+                                <Button.Label menuItem>Settings</Button.Label>
+                            </Button.Root>
 
                             <Popover
                                 overlay={<AccountPopoverOverlay />}
@@ -424,21 +359,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 placement="right-end"
                                 className="min-w-70"
                             >
-                                <LemonButton
-                                    className={cn(isAccountPopoverOpen && 'bg-fill-button-tertiary-active')}
-                                    fullWidth
-                                    size="small"
-                                    sideIcon={
-                                        <IconWrapper size="sm">
-                                            <IconChevronRight />
-                                        </IconWrapper>
-                                    }
-                                    icon={<ProfilePicture user={user} size="sm" className="mr-1" />}
-                                    title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
-                                    onClick={toggleAccountPopover}
-                                >
-                                    {user?.first_name ? <span>{user?.first_name}</span> : <span>{user?.email}</span>}
-                                </LemonButton>
+                                <Button.Root menuItem active={isAccountPopoverOpen} onClick={toggleAccountPopover}>
+                                    <Button.Icon>
+                                        <ProfilePicture user={user} size="sm" className="mr-1" />
+                                    </Button.Icon>
+                                    <Button.Label menuItem>
+                                        {user?.first_name ? (
+                                            <span>{user?.first_name}</span>
+                                        ) : (
+                                            <span>{user?.email}</span>
+                                        )}
+                                    </Button.Label>
+                                    <Button.Icon customIconSize>
+                                        <IconChevronRight className="size-3 text-secondary" />
+                                    </Button.Icon>
+                                </Button.Root>
                             </Popover>
                         </div>
                     </div>

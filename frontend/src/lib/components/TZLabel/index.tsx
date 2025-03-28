@@ -1,7 +1,7 @@
 import './index.scss'
 
 import { IconGear, IconHome, IconLaptop } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
@@ -43,23 +43,18 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
 
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
-            <div className="flex justify-between items-center">
-                <h3 className="mb-0">Timezone conversion</h3>
-                <span>
-                    <LemonButton icon={<IconGear />} size="small" to={urls.settings('project', 'date-and-time')} />
-                </span>
+            <div className="flex justify-between items-center border-b-1 p-1">
+                <h4 className="mb-0 px-1">Timezone conversion</h4>
+                <LemonButton icon={<IconGear />} size="xsmall" to={urls.settings('project', 'date-and-time')} />
             </div>
-
-            <LemonDivider />
-
-            <div className="deprecated-space-y-2">
+            <div className="space-y-2 p-2">
                 <div className="TZLabelPopover__row">
                     <div>
                         <IconLaptop />
                     </div>
                     <div>Your device</div>
-                    <div>{shortTimeZone(undefined, time.toDate())}</div>
-                    <div>{time.format(DATE_OUTPUT_FORMAT)}</div>
+                    <div className="text-xs">{shortTimeZone(undefined, time.toDate())}</div>
+                    <div className="text-muted text-xs">{time.format(DATE_OUTPUT_FORMAT)}</div>
                 </div>
                 {currentTeam && (
                     <div className="TZLabelPopover__row TZLabelPopover__row--muted">
@@ -67,8 +62,10 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                             <IconHome />
                         </div>
                         <div>Project</div>
-                        <div>{shortTimeZone(currentTeam.timezone, time.toDate())}</div>
-                        <div>{time.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}</div>
+                        <div className="text-xs">{shortTimeZone(currentTeam.timezone, time.toDate())}</div>
+                        <div className="text-muted text-xs">
+                            {time.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
+                        </div>
                     </div>
                 )}
                 {currentTeam?.timezone !== 'UTC' && (
@@ -77,8 +74,8 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                             <IconWeb />
                         </div>
                         <div />
-                        <div>UTC</div>
-                        <div>{time.tz('UTC').format(DATE_OUTPUT_FORMAT)}</div>
+                        <div className="text-xs">UTC</div>
+                        <div className="text-muted text-xs">{time.tz('UTC').format(DATE_OUTPUT_FORMAT)}</div>
                     </div>
                 )}
             </div>
