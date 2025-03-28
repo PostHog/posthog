@@ -453,16 +453,20 @@ def property_to_expr(
             elif len(value) == 1:
                 value = value[0]
             else:
-                if operator in (PropertyOperator.EXACT, PropertyOperator.IS_NOT, PropertyOperator.IN_, PropertyOperator.NOT_IN):
+                if operator in (
+                    PropertyOperator.EXACT,
+                    PropertyOperator.IS_NOT,
+                    PropertyOperator.IN_,
+                    PropertyOperator.NOT_IN,
+                ):
                     op = (
                         ast.CompareOperationOp.In
                         if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
                         else ast.CompareOperationOp.NotIn
                     )
                     return ast.CompareOperation(
-                        op=op,
-                        left=field,
-                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]))
+                        op=op, left=field, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+                    )
                 exprs = [
                     property_to_expr(
                         Property(
