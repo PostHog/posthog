@@ -72,7 +72,16 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
 
-const SESSION_HAS_HAD_EXCEPTION = new Set<string>()
+// when we capture in a loop, we don't want to capture the same error twice
+// since we loop over large datasets we risk capturing the same error multiple times
+// so we use a set to throttle the errors
+const THROTTLE_CAPTURE_KEY = new Set<string>()
+function throttleCapture(key: string, fn: () => void): void {
+    if (!THROTTLE_CAPTURE_KEY.has(key)) {
+        fn()
+        THROTTLE_CAPTURE_KEY.add(key)
+    }
+}
 
 export function patchMetaEventIntoWebData(
     snapshots: RecordingSnapshot[],
@@ -95,12 +104,11 @@ export function patchMetaEventIntoWebData(
         const viewport = viewportForTimestamp(snapshot.timestamp)
         const thereIsNoViewport = !viewport || !viewport.width || !viewport.height
         if (thereIsNoViewport) {
-            if (!SESSION_HAS_HAD_EXCEPTION.has(`${sessionRecordingId}-no-viewport-found`)) {
+            throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
                 posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
                     snapshot,
                 })
-                SESSION_HAS_HAD_EXCEPTION.add(`${sessionRecordingId}-no-viewport-found`)
-            }
+            })
         } else {
             snapshots.splice(i, 0, {
                 type: EventType.Meta,
@@ -154,13 +162,12 @@ function patchMetaEventIntoMobileData(
             parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
         }
     } catch (e) {
-        if (!SESSION_HAS_HAD_EXCEPTION.has(`${sessionRecordingId}-missing-mobile-meta-patching`)) {
+        throttleCapture(`${sessionRecordingId}-missing-mobile-meta-patching`, () => {
             posthog.captureException(e, {
                 tags: { feature: 'session-recording-missing-mobile-meta-patching' },
                 extra: { fullSnapshotIndex, metaIndex },
             })
-            SESSION_HAS_HAD_EXCEPTION.add(`${sessionRecordingId}-missing-mobile-meta-patching`)
-        }
+        })
     }
 
     return parsedLines
@@ -234,27 +241,25 @@ function decompressEvent(ev: unknown, sessionRecordingId: string): unknown {
                     }
                 }
             } else {
-                if (!SESSION_HAS_HAD_EXCEPTION.has(`${sessionRecordingId}-unknown-compressed-event-version`)) {
+                throttleCapture(`${sessionRecordingId}-unknown-compressed-event-version`, () => {
                     posthog.captureException(new Error('Unknown compressed event version'), {
                         feature: 'session-recording-compressed-event-decompression',
                         compressedEvent: ev,
                         compressionVersion: ev.cv,
                     })
-                    SESSION_HAS_HAD_EXCEPTION.add(`${sessionRecordingId}-unknown-compressed-event-version`)
-                }
+                })
                 // probably unplayable but we don't know how to decompress it
                 return ev
             }
         }
         return ev
     } catch (e) {
-        if (!SESSION_HAS_HAD_EXCEPTION.has(`${sessionRecordingId}-unknown-compressed-event-version`)) {
+        throttleCapture(`${sessionRecordingId}-unknown-compressed-event-version`, () => {
             posthog.captureException((e as Error) || new Error('Could not decompress event'), {
                 feature: 'session-recording-compressed-event-decompression',
                 compressedEvent: ev,
             })
-            SESSION_HAS_HAD_EXCEPTION.add(`${sessionRecordingId}-unknown-compressed-event-version`)
-        }
+        })
         return ev
     }
 }
@@ -396,13 +401,12 @@ export const parseEncodedSnapshots = async (
             unparseableLinesCount: unparseableLines.length,
             exampleLines: unparseableLines.slice(0, 3),
         }
-        if (!SESSION_HAS_HAD_EXCEPTION.has(`${sessionId}-unparseable-lines`)) {
+        throttleCapture(`${sessionId}-unparseable-lines`, () => {
             posthog.capture('session recording had unparseable lines', {
                 ...extra,
                 feature: 'session-recording-snapshot-processing',
             })
-            SESSION_HAS_HAD_EXCEPTION.add(`${sessionId}-unparseable-lines`)
-        }
+        })
     }
 
     return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines, sessionId) : parsedLines
