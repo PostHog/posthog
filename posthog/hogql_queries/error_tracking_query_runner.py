@@ -116,6 +116,35 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return exprs
 
     def select_sparkline_array(self, alias: str, opts: VolumeOptions):
+        """
+        This function partitions a given time range into segments (or "buckets") based on the specified resolution and then computes the number of events occurring in each segment.
+        The resolution determines the total number of segments in the time range.
+        Accordingly, the duration of each segment is dictated by the total time range and the resolution.
+
+        The equivalent SQL would look like:
+            WITH
+                toDateTime('2025-03-01 00:00:00') AS date_from,
+                toDateTime('2025-03-20 00:00:00') AS date_to,
+                10 AS resolution,
+            SELECT
+                sumForEach(
+                    arrayMap(
+                        bin ->
+                            IF(
+                                timestamp > bin AND dateDiff('seconds', bin, timestamp) < dateDiff('seconds', date_from, date_to) / resolution,
+                                1,
+                                0
+                            ), ## If we are inside the right bucket, return 1, otherwise 0
+                        arrayMap(
+                            i -> dateAdd(
+                                start_time,
+                                toIntervalSecond(i * dateDiff('seconds', date_from, date_to) / resolution)
+                            ),
+                            range(0, resolution)
+                        ) ## Generate an array of len resolution containing the start times of each segment
+                    )
+                ) AS counts
+        """
         start_time = ast.Call(
             name="toDateTime",
             args=[
