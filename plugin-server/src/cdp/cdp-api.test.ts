@@ -230,10 +230,17 @@ describe('CDP API', () => {
     })
 
     it('can invoke an imported function via the API', async () => {
+        await insertHogFunction({
+            ...HOG_EXAMPLES.export_send_email,
+            ...HOG_INPUTS_EXAMPLES.none,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'email',
+        })
         hogFunction = await insertHogFunction({
             ...HOG_EXAMPLES.import_send_email,
             ...HOG_INPUTS_EXAMPLES.import_send_email,
             ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'broadcast',
         })
 
         const res = await supertest(app)

@@ -204,6 +204,13 @@ return {'sendEmail': sendEmail}
     inputs_schema=[
         input_api_key,
         input_secret_key,
+        {
+            "key": "from_email",
+            "type": "string",
+            "label": "Email to send from",
+            "secret": False,
+            "required": True,
+        },
     ],
     filters=common_filters,
 )

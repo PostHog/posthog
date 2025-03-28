@@ -37,7 +37,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ExperimentsSharedMetric]: () => import('./experiments/SharedMetrics/SharedMetric'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
-    [Scene.FeatureManagement]: () => import('./feature-flags/FeatureManagement'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.ErrorTracking]: () => import('./error-tracking/ErrorTrackingScene'),
     [Scene.ErrorTrackingConfiguration]: () => import('./error-tracking/configuration/ErrorTrackingConfigurationScene'),
