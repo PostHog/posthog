@@ -39,7 +39,7 @@ class Notebook(FileSystemSyncMixin, UUIDModel):
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Notebook"]:
         base_qs = cls.objects.filter(team__project_id=team.project_id, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="short_id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -47,9 +47,9 @@ class Notebook(FileSystemSyncMixin, UUIDModel):
             team_id=self.team_id,
             base_folder="Unfiled/Notebooks",
             type="notebook",
-            ref=str(self.id),
+            ref=str(self.short_id),
             name=self.title or "Untitled",
-            href=f"/notebooks/{self.id}",
+            href=f"/notebooks/{self.short_id}",
             meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
             should_delete=self.deleted,
         )
