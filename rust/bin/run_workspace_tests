@@ -16,4 +16,4 @@ $SCRIPT_DIR/migrate_tests
 
 # run the *full workspace test suite* using limited # of threads
 # so as not to overwhelm the posthog (repo root) Docker Compose rig
-cargo test -- --test-threads=2
+cargo test -- --test-threads=4
