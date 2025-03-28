@@ -42,7 +42,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         ? [
                               {
                                   key: 'edit-broadcast',
-                                  name: 'Edit broadcast',
+                                  name: 'Manage broadcast',
                                   path: urls.messagingBroadcast(broadcastId),
                               },
                           ]
