@@ -137,7 +137,8 @@ export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, editorKey, editingInsight } = useValues(multitabEditorLogic)
+    const { sourceQuery, exportContext, editorKey, editingInsight, updateInsightButtonEnabled } =
+        useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
@@ -292,7 +293,11 @@ export function OutputPane(): JSX.Element {
                                             tooltip="Visualization settings"
                                         />
                                         {editingInsight && (
-                                            <LemonButton type="primary" onClick={() => updateInsight()}>
+                                            <LemonButton
+                                                disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
+                                                type="primary"
+                                                onClick={() => updateInsight()}
+                                            >
                                                 Save insight
                                             </LemonButton>
                                         )}

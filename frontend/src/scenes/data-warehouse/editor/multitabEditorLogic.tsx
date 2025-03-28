@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
+import isEqual from 'lodash.isequal'
 import { editor, Uri } from 'monaco-editor'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -31,7 +32,7 @@ import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
 
-export const dataNodeKey = insightVizDataNodeKey({
+const dataNodeKey = insightVizDataNodeKey({
     dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
     cachedInsight: null,
     doNotLoad: true,
@@ -48,6 +49,20 @@ export const activeModelStateKey = (key: string | number): string => `${key}/act
 export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
 
 export const NEW_QUERY = 'Untitled'
+
+const removeUndefinedAndNull = (obj: object): object => {
+    if (Array.isArray(obj)) {
+        return obj.map(removeUndefinedAndNull)
+    } else if (obj && typeof obj === 'object') {
+        return Object.entries(obj).reduce((acc, [key, value]) => {
+            if (value !== undefined && value !== null) {
+                acc[key] = removeUndefinedAndNull(value)
+            }
+            return acc
+        }, {} as Record<string, any>)
+    }
+    return obj
+}
 
 const getNextUntitledNumber = (tabs: QueryTab[]): number => {
     const untitledNumbers = tabs
@@ -99,7 +114,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     }),
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
-        updateState: true,
+        updateState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({
             queryOverride,
             switchTab,
@@ -133,7 +148,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setMetadataLoading: (loading: boolean) => ({ loading }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
-        updateQueryTabState: true,
+        updateQueryTabState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
@@ -241,6 +256,17 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     return state.filter((tab) => tab.uri.toString() !== tabToRemove.uri.toString())
                 },
                 setTabs: (_, { tabs }) => tabs,
+                updateTab: (state, { tab }) => {
+                    return state.map((stateTab) => {
+                        if (stateTab.uri.path === tab.uri.path) {
+                            return {
+                                ...stateTab,
+                                ...tab,
+                            }
+                        }
+                        return stateTab
+                    })
+                },
             },
         ],
         error: [
@@ -398,17 +424,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 ...values.activeModelUri,
                 sourceQuery,
             })
-            actions.setTabs(
-                values.allTabs.map((tab) => {
-                    if (tab.uri.path === values.activeModelUri?.uri.path) {
-                        return {
-                            ...tab,
-                            sourceQuery,
-                        }
-                    }
-                    return tab
-                })
-            )
         },
         deleteTab: ({ tab: tabToRemove }) => {
             if (values.activeModelUri?.view && values.queryInput !== values.sourceQuery.source.query) {
@@ -562,8 +577,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setQueryInput: () => {
             actions.updateState()
         },
-        updateState: async (_, breakpoint) => {
-            await breakpoint(100)
+        updateState: async ({ skipBreakpoint }, breakpoint) => {
+            if (skipBreakpoint !== true) {
+                await breakpoint(100)
+            }
+
             const queries = values.allTabs.map((model) => {
                 return {
                     query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
@@ -574,7 +592,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
             })
             actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
-            actions.updateQueryTabState()
+            actions.updateQueryTabState(skipBreakpoint)
         },
         runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
@@ -598,12 +616,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 source: newSource,
             })
             dataNodeLogic({
-                key: values.currentDataLogicKey,
+                key: values.dataLogicKey,
                 query: newSource,
             }).mount()
 
             dataNodeLogic({
-                key: values.currentDataLogicKey,
+                key: values.dataLogicKey,
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
         },
@@ -649,7 +667,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             const logic = dataNodeLogic({
-                key: values.currentDataLogicKey,
+                key: values.dataLogicKey,
                 query: queryToSave,
             })
 
@@ -707,8 +725,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
 
+            if (values.activeModelUri) {
+                actions.updateTab({
+                    ...values.activeModelUri,
+                    insight: savedInsight,
+                })
+                actions.updateState(true)
+            }
+
             lemonToast.info(`You're now viewing ${savedInsight.name || savedInsight.derived_name || name}`)
-            router.actions.push(urls.insightView(savedInsight.short_id))
+            router.actions.push(urls.insightView(savedInsight.short_id, undefined, undefined))
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             // keep tab views up to date
@@ -742,8 +768,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateDataWarehouseSavedQuerySuccess: () => {
             lemonToast.success('View updated')
         },
-        updateQueryTabState: async (_, breakpoint) => {
-            await breakpoint(1000)
+        updateQueryTabState: async ({ skipBreakpoint }, breakpoint) => {
+            if (skipBreakpoint !== true) {
+                await breakpoint(1000)
+            }
+
             if (!values.queryTabState) {
                 return
             }
@@ -813,16 +842,35 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return !!editingView?.status
             },
         ],
-        currentDataLogicKey: [
-            (s) => [s.activeModelUri],
-            (activeModelUri) => {
-                return activeModelUri?.uri.path ?? dataNodeKey
-            },
-        ],
         isSourceQueryLastRun: [
             (s) => [s.queryInput, s.lastRunQuery],
             (queryInput, lastRunQuery) => {
                 return queryInput === lastRunQuery?.source.query
+            },
+        ],
+        updateInsightButtonEnabled: [
+            (s) => [s.sourceQuery, s.activeModelUri],
+            (sourceQuery, activeModelUri) => {
+                if (!activeModelUri?.insight?.query || !activeModelUri.sourceQuery) {
+                    return false
+                }
+
+                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
+
+                return !isEqual(
+                    sourceQueryWithoutUndefinedAndNullKeys,
+                    removeUndefinedAndNull(activeModelUri.insight.query)
+                )
+            },
+        ],
+        dataLogicKey: [
+            (s) => [s.activeModelUri, s.editingInsight],
+            (activeModelUri, editingInsight) => {
+                if (editingInsight) {
+                    return `InsightViz.${editingInsight.short_id}`
+                }
+
+                return activeModelUri?.uri.path ?? dataNodeKey
             },
         ],
     }),
