@@ -14,16 +14,8 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const {
-        treeData,
-        lastViewedId,
-        viableItems,
-        pendingActions,
-        pendingLoaderLoading,
-        expandedFolders,
-        expandedSearchFolders,
-        searchTerm,
-    } = useValues(projectTreeLogic)
+    const { treeData, lastViewedId, viableItems, pendingActions, expandedFolders, expandedSearchFolders, searchTerm } =
+        useValues(projectTreeLogic)
 
     const {
         createFolder,
