@@ -29,13 +29,13 @@ export function ExperimentDates(): JSX.Element {
     return (
         <>
             <ExperimentDate
-                label="Start date"
+                label="Start Date"
                 date={start_date}
                 data-attr="experiment-start-date"
                 onChange={changeExperimentStartDate}
             />
             <ExperimentDate
-                label="End date"
+                label="End Date"
                 date={end_date}
                 data-attr="experiment-end-date"
                 selectionLimitDate={start_date}

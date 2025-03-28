@@ -51,7 +51,7 @@ const ExperimentDate = ({
                     <>
                         <TZLabel time={date} />
                         <LemonButton
-                            title="Move start date"
+                            title={`Move ${label}`}
                             data-attr={`move-${dataAttr}`}
                             icon={<IconPencil />}
                             size="small"
