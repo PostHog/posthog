@@ -6476,6 +6476,71 @@
             "required": ["table_name", "timestamp_field", "distinct_id_field", "id_field"],
             "type": "object"
         },
+        "DataWarehouseExperimentNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "data_warehouse_join_key": {
+                    "type": "string"
+                },
+                "events_join_key": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "ExperimentDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                }
+            },
+            "required": ["data_warehouse_join_key", "events_join_key", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "DataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
@@ -7838,52 +7903,6 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
-        "ExperimentActionMetricSource": {
-            "additionalProperties": false,
-            "properties": {
-                "action": {
-                    "type": "number"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "type": {
-                    "const": "action",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "action"],
-            "type": "object"
-        },
-        "ExperimentDataWarehouseMetricSource": {
-            "additionalProperties": false,
-            "properties": {
-                "data_warehouse_join_key": {
-                    "type": "string"
-                },
-                "events_join_key": {
-                    "type": "string"
-                },
-                "table_name": {
-                    "type": "string"
-                },
-                "timestamp_field": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "data_warehouse",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
-            "type": "object"
-        },
         "ExperimentEventExposureConfig": {
             "additionalProperties": false,
             "properties": {
@@ -7902,26 +7921,6 @@
                 }
             },
             "required": ["kind", "event", "properties"],
-            "type": "object"
-        },
-        "ExperimentEventMetricSource": {
-            "additionalProperties": false,
-            "properties": {
-                "event": {
-                    "type": "string"
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "type": {
-                    "const": "event",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "event"],
             "type": "object"
         },
         "ExperimentExposureCriteria": {
@@ -8019,40 +8018,28 @@
                 "name": {
                     "type": "string"
                 },
-                "steps": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentFunnelMetricStep"
-                    },
-                    "type": "array"
+                "series": {
+                    "$ref": "#/definitions/ExperimentFunnelMetricStep"
                 },
                 "time_window_hours": {
                     "type": "number"
                 }
             },
-            "required": ["kind", "metric_type", "steps"],
+            "required": ["kind", "metric_type", "series"],
             "type": "object"
         },
         "ExperimentFunnelMetricStep": {
-            "additionalProperties": false,
-            "properties": {
-                "event": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "order": {
-                    "$ref": "#/definitions/integer"
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+            "items": {
+                "anyOf": [
+                    {
+                        "$ref": "#/definitions/EventsNode"
                     },
-                    "type": "array"
-                }
+                    {
+                        "$ref": "#/definitions/ActionsNode"
+                    }
+                ]
             },
-            "required": ["event", "order"],
-            "type": "object"
+            "type": "array"
         },
         "ExperimentFunnelMetricTypeProps": {
             "additionalProperties": false,
@@ -8061,14 +8048,11 @@
                     "const": "funnel",
                     "type": "string"
                 },
-                "steps": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentFunnelMetricStep"
-                    },
-                    "type": "array"
+                "series": {
+                    "$ref": "#/definitions/ExperimentFunnelMetricStep"
                 }
             },
-            "required": ["metric_type", "steps"],
+            "required": ["metric_type", "series"],
             "type": "object"
         },
         "ExperimentFunnelsQuery": {
@@ -8172,15 +8156,6 @@
                     "const": "ExperimentMetric",
                     "type": "string"
                 },
-                "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
-                },
-                "math_hogql": {
-                    "type": "string"
-                },
-                "math_property": {
-                    "type": "string"
-                },
                 "metric_type": {
                     "const": "mean",
                     "type": "string"
@@ -8201,15 +8176,6 @@
         "ExperimentMeanMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
-                "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
-                },
-                "math_hogql": {
-                    "type": "string"
-                },
-                "math_property": {
-                    "type": "string"
-                },
                 "metric_type": {
                     "const": "mean",
                     "type": "string"
@@ -8248,21 +8214,6 @@
             "required": ["kind"],
             "type": "object"
         },
-        "ExperimentMetricMathProperties": {
-            "additionalProperties": false,
-            "properties": {
-                "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
-                },
-                "math_hogql": {
-                    "type": "string"
-                },
-                "math_property": {
-                    "type": "string"
-                }
-            },
-            "type": "object"
-        },
         "ExperimentMetricMathType": {
             "enum": ["total", "sum"],
             "type": "string"
@@ -8270,13 +8221,13 @@
         "ExperimentMetricSource": {
             "anyOf": [
                 {
-                    "$ref": "#/definitions/ExperimentEventMetricSource"
+                    "$ref": "#/definitions/EventsNode"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentActionMetricSource"
+                    "$ref": "#/definitions/ActionsNode"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentDataWarehouseMetricSource"
+                    "$ref": "#/definitions/DataWarehouseExperimentNode"
                 }
             ]
         },
@@ -11305,13 +11256,9 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
-                "ExperimentEventMetricConfig",
-                "ExperimentFunnelMetricConfig",
-                "ExperimentFunnelStepConfig",
-                "ExperimentActionMetricConfig",
-                "ExperimentDataWarehouseMetricConfig",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
+                "ExperimentDataWarehouseNode",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",

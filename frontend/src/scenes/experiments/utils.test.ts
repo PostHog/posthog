@@ -7,10 +7,8 @@ import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_met
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
 import {
     ExperimentEventExposureConfig,
-    ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
     ExperimentFunnelsQuery,
-    ExperimentMeanMetric,
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentTrendsQuery,
@@ -308,10 +306,10 @@ describe('getViewRecordingFilters', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                type: 'event',
+                kind: NodeKind.EventsNode,
                 event: 'storybook-click',
             },
-        } as ExperimentMeanMetric
+        }
 
         const filters = getViewRecordingFilters(mockMetric, featureFlagKey, 'control')
         expect(filters).toEqual([
@@ -641,12 +639,19 @@ describe('metricToFilter', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                type: 'event',
+                kind: NodeKind.EventsNode,
                 event: '$pageview',
-                properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
+                properties: [
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+                math: ExperimentMetricMathType.TotalCount,
             },
-            math: 'total',
-        } as ExperimentMeanMetric
+        }
 
         const filter = metricToFilter(metric)
         expect(filter).toEqual({
@@ -671,12 +676,19 @@ describe('metricToFilter', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                type: 'action',
-                action: 8,
-                properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+                kind: NodeKind.ActionsNode,
+                id: 8,
+                properties: [
+                    {
+                        key: '$lib',
+                        type: PropertyFilterType.Event,
+                        value: ['python'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+                math: ExperimentMetricMathType.TotalCount,
             },
-            math: 'total',
-        } as ExperimentMeanMetric
+        }
 
         const filter = metricToFilter(metric)
         expect(filter).toEqual({
@@ -701,14 +713,13 @@ describe('metricToFilter', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                type: 'data_warehouse',
+                kind: NodeKind.ExperimentDataWarehouseNode,
                 table_name: 'mysql_payments',
                 timestamp_field: 'timestamp',
                 events_join_key: 'person.properties.email',
                 data_warehouse_join_key: 'customer.email',
             },
-            math: ExperimentMetricMathType.TotalCount,
-        } as ExperimentMeanMetric
+        }
 
         const filter = metricToFilter(metric)
         expect(filter).toEqual({
@@ -716,10 +727,8 @@ describe('metricToFilter', () => {
             actions: [],
             data_warehouse: [
                 {
-                    kind: NodeKind.EventsNode,
-                    id: 'mysql_payments',
-                    name: 'mysql_payments',
-                    type: 'data_warehouse',
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    table_name: 'mysql_payments',
                     timestamp_field: 'timestamp',
                     events_join_key: 'person.properties.email',
                     data_warehouse_join_key: 'customer.email',
@@ -833,13 +842,14 @@ describe('metricToQuery', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.FUNNEL,
-            steps: [
+            series: [
                 {
+                    kind: NodeKind.EventsNode,
                     event: 'purchase',
                     order: 0,
                 } as ExperimentFunnelMetricStep,
             ],
-        } as ExperimentFunnelMetric
+        }
 
         const query = metricToQuery(metric, false)
         expect(query).toEqual({
@@ -874,10 +884,10 @@ describe('metricToQuery', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                type: 'event',
+                kind: NodeKind.EventsNode,
                 event: '$pageview',
             },
-        } as ExperimentMeanMetric
+        }
 
         const query = metricToQuery(metric, false)
         expect(query).toEqual({
@@ -907,12 +917,12 @@ describe('metricToQuery', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                type: 'event',
+                kind: NodeKind.EventsNode,
                 event: '$pageview',
+                math: ExperimentMetricMathType.Sum,
+                math_property: 'property_value',
             },
-            math: ExperimentMetricMathType.Sum,
-            math_property: 'property_value',
-        } as ExperimentMeanMetric
+        }
 
         const query = metricToQuery(metric, true)
         expect(query).toEqual({
@@ -940,11 +950,11 @@ describe('metricToQuery', () => {
     })
 
     it('returns undefined for unsupported metric types', () => {
-        const metric: ExperimentMetric = {
+        const metric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: 'unsupported_type' as ExperimentMetricType,
+            metric_type: 'unsupported_type',
             source: {
-                type: 'event',
+                kind: NodeKind.EventsNode,
                 event: '$pageview',
             },
         } as any
