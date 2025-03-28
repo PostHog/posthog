@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta
 import re
 from typing import Optional
@@ -1563,6 +1564,62 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         # Should still only have 2 people since person 3 has no events
         results = self._get_cohortpeople(cohort)
         self.assertEqual(len(results), 2)
+
+    def test_recalculate_cohort_with_property_list(self):
+        # Create a cohort with the specific filter structure provided
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="property list cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "organization_id",
+                                    "type": "person",
+                                    "value": [
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                    ],
+                                    "negation": False,
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Capture the SQL insert statements when the cohort is calculated
+        with self.capture_queries_startswith(("INSERT INTO cohortpeople", "insert into cohortpeople")) as queries:
+            self.calculate_cohort_hogql_test_harness(cohort, 0)
+
+        # Assert at least one query was captured
+        self.assertTrue(len(queries) > 0, "No queries were captured during cohort calculation")
+
+        # Check that we don't have an excessive number of replaceRegexpAll and JSONExtractRaw functions
+        for query in queries:
+            # Count instances of replaceRegexpAll and JSONExtractRaw
+            replace_regexp_count = query.lower().count("replaceregexpall")
+            json_extract_raw_count = query.lower().count("jsonextractraw")
+
+            # Ensure we don't have 11 or more instances of either function
+            self.assertLess(replace_regexp_count, 11, "Too many replaceRegexpAll instances found in query")
+            self.assertLess(json_extract_raw_count, 11, "Too many JSONExtractRaw instances found in query")
 
     def test_recalculate_cohort_with_missing_filter(self):
         # Create a cohort with the specified OR filter structure
