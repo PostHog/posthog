@@ -268,7 +268,17 @@ def revenue_expression_for_data_warehouse(
                     ast.Call(
                         name="_toDate",
                         args=[
-                            ast.Field(chain=[data_warehouse_config.tableName, data_warehouse_config.timestampColumn])
+                            # Because we can have nullable timestamp columns, we need to handle that case
+                            # by converting to a default value of 0
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Field(
+                                        chain=[data_warehouse_config.tableName, data_warehouse_config.timestampColumn]
+                                    ),
+                                    ast.Call(name="toDateTime", args=[ast.Constant(value=0)]),
+                                ],
+                            )
                         ],
                     ),
                 ),
