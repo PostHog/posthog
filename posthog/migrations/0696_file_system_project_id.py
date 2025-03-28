@@ -12,10 +12,33 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="filesystem",
-            name="project",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.project"),
+        # Add "project_id" to the filesystem. Splitting state and database operations to add the index concurrently
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="filesystem",
+                    name="project",
+                    field=models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.project"
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_filesystem" ADD COLUMN "project_id" bigint NULL CONSTRAINT "posthog_filesystem_project_id_767c1359_fk_posthog_p" REFERENCES "posthog_project"("id") DEFERRABLE INITIALLY DEFERRED;
+                    SET CONSTRAINTS "posthog_filesystem_project_id_767c1359_fk_posthog_p" IMMEDIATE;""",
+                    reverse_sql="""
+                        ALTER TABLE "posthog_filesystem" DROP COLUMN IF EXISTS "project_id";""",
+                ),
+                # We add CONCURRENTLY to the create command
+                migrations.RunSQL(
+                    """
+                    CREATE INDEX CONCURRENTLY "posthog_filesystem_project_id_767c1359_239c0515" ON "posthog_filesystem" ("project_id");""",
+                    reverse_sql="""
+                        DROP INDEX IF EXISTS "posthog_filesystem_project_id_767c1359_239c0515";""",
+                ),
+            ],
         ),
         AddIndexConcurrently(
             model_name="filesystem",
