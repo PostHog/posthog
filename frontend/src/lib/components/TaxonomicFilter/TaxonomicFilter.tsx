@@ -10,7 +10,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonInput, LemonInputProps } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useEffect, useMemo, useRef } from 'react'
+import { forwardRef, useEffect, useMemo, useRef } from 'react'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -71,8 +71,7 @@ export function TaxonomicFilter({
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
-    const { searchQuery, activeTab } = useValues(logic)
-    const { setSearchQuery } = useActions(logic)
+    const { activeTab } = useValues(logic)
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -102,12 +101,7 @@ export function TaxonomicFilter({
             >
                 {activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1 ? (
                     <div className="relative">
-                        <TaxonomicFilterSearchInput
-                            value={searchQuery}
-                            onChange={setSearchQuery}
-                            searchInputRef={searchInputRef}
-                            onClose={onClose}
-                        />
+                        <TaxonomicFilterSearchInput searchInputRef={searchInputRef} onClose={onClose} />
                     </div>
                 ) : null}
                 <InfiniteSelectResults
@@ -121,29 +115,27 @@ export function TaxonomicFilter({
     )
 }
 
-export const TaxonomicFilterSearchInput = ({
-    searchInputRef,
-    onClose,
-    value,
-    onChange,
-    ...props
-}: {
-    searchInputRef: React.MutableRefObject<HTMLInputElement | null>
-    onClose: TaxonomicFilterProps['onClose']
-    value: string
-    onChange: (value: string) => void
-} & Pick<LemonInputProps, 'onClick' | 'size' | 'onPressEnter' | 'prefix' | 'fullWidth'>): JSX.Element => {
-    const { searchPlaceholder } = useValues(taxonomicFilterLogic)
-    const { moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(taxonomicFilterLogic)
+export const TaxonomicFilterSearchInput = forwardRef<
+    HTMLInputElement,
+    {
+        searchInputRef: React.Ref<HTMLInputElement> | null
+        closeOnEnter?: boolean
+        onClose: TaxonomicFilterProps['onClose']
+        onPressEnter?: (query: string) => void
+    } & Pick<LemonInputProps, 'onClick' | 'size' | 'prefix' | 'fullWidth'>
+>(function UniversalSearchInput({ searchInputRef, onClose, onPressEnter, ...props }, ref): JSX.Element {
+    const { searchQuery, searchPlaceholder } = useValues(taxonomicFilterLogic)
+    const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(taxonomicFilterLogic)
 
     return (
         <LemonInput
             {...props}
+            ref={ref}
             data-attr="taxonomic-filter-searchfield"
             type="search"
             fullWidth
             placeholder={`Search ${searchPlaceholder}`}
-            value={value}
+            value={searchQuery}
             suffix={
                 <Tooltip
                     title={
@@ -174,7 +166,7 @@ export const TaxonomicFilterSearchInput = ({
                         e.shiftKey ? tabLeft() : tabRight()
                         break
                     case 'Enter':
-                        selectSelected()
+                        onPressEnter ? onPressEnter(searchQuery) : selectSelected()
                         break
                     case 'Escape':
                         onClose?.()
@@ -187,7 +179,7 @@ export const TaxonomicFilterSearchInput = ({
                 }
             }}
             inputRef={searchInputRef}
-            onChange={(newValue) => onChange(newValue)}
+            onChange={setSearchQuery}
         />
     )
-}
+})

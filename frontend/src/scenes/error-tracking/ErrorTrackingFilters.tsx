@@ -52,7 +52,11 @@ const FilterGroup = (): JSX.Element => {
 
 const UniversalSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
+    const { setSearchQuery } = useActions(errorTrackingLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
+
+    const searchInputRef = useRef<HTMLInputElement | null>(null)
+    const floatingRef = useRef<HTMLDivElement | null>(null)
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey: 'error-tracking',
@@ -68,62 +72,39 @@ const UniversalSearch = (): JSX.Element => {
         },
     }
 
-    const searchInputRef = useRef<HTMLInputElement | null>(null)
-    const focusInput = (): void => searchInputRef.current?.focus()
+    const onClose = (value?: string): void => {
+        searchInputRef.current?.blur()
+        setSearchQuery(value ?? '')
+        setVisible(false)
+    }
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <LemonDropdown
                 overlay={
                     <InfiniteSelectResults
-                        focusInput={focusInput}
+                        focusInput={() => searchInputRef.current?.focus()}
                         taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                        popupAnchorElement={searchInputRef.current}
+                        popupAnchorElement={floatingRef.current}
+                        useVerticalLayout={true}
                     />
                 }
                 matchWidth
                 visible={visible}
-                onClickInside={() => console.log('Clicked inside')}
-                onClickOutside={() => setVisible(false)}
                 closeOnClickInside={false}
-                // referenceRef={inputRef}
-                // // visible={visible}
-                // placement="right-start"
-                // fallbackPlacements={['left-end', 'bottom']}
-                // onClickOutside={() => setVisible(false)}
+                floatingRef={floatingRef}
             >
-                <UniversalSearchInput searchInputRef={searchInputRef} setVisible={setVisible} />
+                <TaxonomicFilterSearchInput
+                    prefix={<RecordingsUniversalFilterGroup />}
+                    onPressEnter={onClose}
+                    onClick={() => setVisible(true)}
+                    searchInputRef={searchInputRef}
+                    onClose={onClose}
+                    size="small"
+                    fullWidth
+                />
             </LemonDropdown>
         </BindLogic>
-    )
-}
-
-const UniversalSearchInput = ({
-    searchInputRef,
-    setVisible,
-}: {
-    searchInputRef: any
-    setVisible: any
-}): JSX.Element => {
-    const { searchQuery } = useValues(errorTrackingLogic)
-    const { setSearchQuery: setErrorTrackingSearchQuery } = useActions(errorTrackingLogic)
-    const { setSearchQuery: setTaxonomicFilterSearchQuery } = useActions(taxonomicFilterLogic)
-
-    return (
-        <TaxonomicFilterSearchInput
-            value={searchQuery}
-            onChange={(value) => {
-                setErrorTrackingSearchQuery(value)
-                setTaxonomicFilterSearchQuery(value)
-            }}
-            searchInputRef={searchInputRef}
-            onClose={() => setVisible(false)}
-            size="small"
-            onClick={() => setVisible(true)}
-            prefix={<RecordingsUniversalFilterGroup />}
-            onPressEnter={() => setVisible(false)}
-            fullWidth
-        />
     )
 }
 
