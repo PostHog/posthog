@@ -408,7 +408,7 @@ class HogQLCohortQuery:
             prop: Optional[Union[PropertyGroup, Property]],
         ) -> tuple[ast.SelectQuery | ast.SelectSetQuery, bool]:
             if not prop:
-                raise ValidationError("Cohort has a null property", prop)
+                raise ValidationError("Cohort has a null property", str(prop))
 
             if isinstance(prop, PropertyGroup):
                 queries = []
@@ -418,7 +418,7 @@ class HogQLCohortQuery:
                         queries.append((query, negation))
 
                 if len(queries) == 0:
-                    raise ValidationError("Cohort has a property group with no condition", prop)
+                    raise ValidationError("Cohort has a property group with no condition", str(prop))
 
                 all_negated = all(x[1] for x in queries)
                 all_not_negated = all(not x[1] for x in queries)
