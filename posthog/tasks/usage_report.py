@@ -590,7 +590,7 @@ def get_teams_with_api_queries_metrics(
         AND is_initial_query
         AND event_time between %(begin)s AND %(end)s
         AND team_id > 0
-        AND JSONExtractBool(log_comment, 'qaas')
+        AND JSONExtractBool(log_comment, 'chargeable')
         GROUP BY team_id
     """
     with tags_context(usage_report="get_teams_with_api_queries_metrics"):
