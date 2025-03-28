@@ -71,7 +71,7 @@
                     steps
            HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                          and isNull(max(max_steps))))
-        WHERE ifNull(in(steps, [2]), 0)
+        WHERE has([2], steps)
         ORDER BY aggregation_target ASC) AS source
      INNER JOIN
        (SELECT person.id AS id,
