@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -euxo pipefail
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+
+# this is the *test suite database* we're bootstrapping. local dev tables should either:
+# 1. already be bootstrapped by posthog (Django app) `bin/migrate` (run this if you haven't)
+# 2. can be bootstrapped manually into isolated DBs (non-Django owned tables)
+#    using `rust/bin/migrate` for local dev outside of unit test scope
+
+# pick up "default" test DB URL and namespace from posthog/rust/.env file.
+# NOTE: cargo and sqlx honor the .env file by default when developing locally
+source "$SCRIPT_DIR/../.env"
+
+sqlx database create -D "$DATABASE_URL"
+
+# these have matching tables in prod (and top-level dev Docker Compose)
+# already, so we only want to replicate the tables we need in sqlx::test
+# unit tests, under their own database namespaces. Add more package-level
+# migrations here as we add new services and test suites that touch the DB
+sqlx migrate run -D "$DATABASE_URL" --source "$SCRIPT_DIR/../cyclotron-core/migrations"
+sqlx migrate run -D "$DATABASE_URL" --source "$SCRIPT_DIR/../cymbal/tests/test_migrations"
+sqlx migrate run -D "$DATABASE_URL" --source "$SCRIPT_DIR/../property-defs-rs/tests/test_migrations"
+
+# update the sqlx query cache for the workspace. This requires:
+# 1. A live PG instance at $DATABASE_URL, including a created database on the PG instance
+#
+# 2. All the tables referenced in *all queries in all Rust packages in the workspace* defined
+#    using `sqlx::query*` macros exist on the PG instance that $DATABASE_URL points to
+#
+# NOTE: it is easiest to run `cargo sqlx prepare --workspace` when $DATABASE_URL points to
+#       the shared test DB we define here (see `posthog/rust/.env`) since all the tables
+#       will be created on the same DB, and $DATABASE_URL can only point to one DB at a time.
+#
+#       To emulate production in local dev, some of the tables the Rust services use are owned
+#       by the Django app, and some (cyclotron, propdefs) are isolated on their own DB instances
+
+pushd "$SCRIPT_DIR/.."
+cargo sqlx prepare -D "$DATABASE_URL" --workspace -- --all-targets --all-features
+popd
