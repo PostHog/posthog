@@ -26,7 +26,6 @@ import {
     HogQLFilters,
     HogQLVariable,
     Node,
-    NodeKind,
 } from '~/queries/schema/schema-general'
 
 import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
