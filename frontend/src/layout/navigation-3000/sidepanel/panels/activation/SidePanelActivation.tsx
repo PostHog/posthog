@@ -87,14 +87,20 @@ export const SidePanelActivation = (): JSX.Element | null => {
     )
 }
 
-export const SidePanelActivationIcon = ({ className }: { className?: LemonIconProps['className'] }): JSX.Element => {
+export const SidePanelActivationIcon = ({
+    className,
+    size = 20,
+}: {
+    className?: LemonIconProps['className']
+    size?: number
+}): JSX.Element => {
     const { activeTasks, completionPercent } = useValues(activationLogic)
 
     return (
         <LemonProgressCircle
             progress={completionPercent / 100}
             strokePercentage={0.15}
-            size={20}
+            size={size}
             className={clsx(activeTasks.length > 0 ? 'text-accent' : 'text-muted-alt', className)}
         >
             <span className="text-xs font-semibold">{activeTasks.length}</span>

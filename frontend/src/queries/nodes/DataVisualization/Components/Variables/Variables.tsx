@@ -248,8 +248,8 @@ const VariableInput = ({
                         <LemonButton
                             icon={<IconCopy />}
                             size="xsmall"
-                            onClick={() => void copyToClipboard(variableAsHogQL, 'variable HogQL')}
-                            tooltip="Copy HogQL"
+                            onClick={() => void copyToClipboard(variableAsHogQL, 'variable SQL')}
+                            tooltip="Copy SQL"
                         />
                         {onRemove && (
                             <LemonButton

@@ -2,6 +2,7 @@ import { IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Button } from 'lib/ui/Button/Button'
 import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { useRef } from 'react'
 
@@ -30,32 +31,24 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
             >
                 <div className="flex justify-between p-1 bg-surface-tertiary">
                     <ProjectDropdownMenu />
+
                     <div className="flex gap-px items-center justify-end">
                         {!isMobileLayout && (
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
-                                onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
-                                className="shrink-0"
-                                icon={
-                                    isLayoutPanelPinned ? (
-                                        <IconWrapper size="sm">
-                                            <IconPinFilled />
-                                        </IconWrapper>
+                            <Button.Root onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}>
+                                <Button.Icon customIconSize>
+                                    {isLayoutPanelPinned ? (
+                                        <IconPinFilled className="size-3 text-tertiary" />
                                     ) : (
-                                        <IconWrapper size="sm">
-                                            <IconPin />
-                                        </IconWrapper>
-                                    )
-                                }
-                            />
+                                        <IconPin className="size-3 text-tertiary" />
+                                    )}
+                                </Button.Icon>
+                            </Button.Root>
                         )}
 
                         {panelActions ?? null}
                     </div>
                 </div>
-                <div className="border-b border-secondary h-px" />
+                <div className="border-b border-primary h-px" />
                 <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
                     <div className="flex gap-1 p-1 items-center justify-between">
                         <LemonInput

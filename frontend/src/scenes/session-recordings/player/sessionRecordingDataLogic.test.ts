@@ -7,6 +7,7 @@ import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
     chunkMutationSnapshot,
+    clearThrottle,
     deduplicateSnapshots,
     MUTATION_CHUNK_SIZE,
     parseEncodedSnapshots,
@@ -563,7 +564,7 @@ describe('patchMetaEventIntoWebData', () => {
     it('adds meta event before full snapshot when none exists', () => {
         const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
 
         expect(result).toEqual([createMeta(1024, 768), createFullSnapshot()])
     })
@@ -571,7 +572,7 @@ describe('patchMetaEventIntoWebData', () => {
     it('does not add meta event if one already exists before full snapshot', () => {
         const snapshots: RecordingSnapshot[] = [createMeta(800, 600, 'http://test'), createFullSnapshot()]
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
 
         expect(result).toHaveLength(2)
         expect(result[0]).toBe(snapshots[0])
@@ -590,7 +591,7 @@ describe('patchMetaEventIntoWebData', () => {
             createFullSnapshot(),
         ]
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
 
         expect(result).toHaveLength(5)
         expect(result[0].type).toBe(EventType.Meta)
@@ -606,7 +607,7 @@ describe('patchMetaEventIntoWebData', () => {
 
         jest.spyOn(posthog, 'captureException')
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData)
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
 
         expect(posthog.captureException).toHaveBeenCalledWith(
             new Error('No event viewport or meta snapshot found for full snapshot'),
@@ -614,5 +615,22 @@ describe('patchMetaEventIntoWebData', () => {
         )
         expect(result).toHaveLength(1)
         expect(result[0]).toBe(snapshots[0])
+    })
+
+    it('does not logs error twice for the same session', () => {
+        clearThrottle()
+
+        const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
+        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
+
+        jest.spyOn(posthog, 'captureException')
+
+        expect(posthog.captureException).toHaveBeenCalledTimes(0)
+        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '54321')
+        expect(posthog.captureException).toHaveBeenCalledTimes(2)
     })
 })

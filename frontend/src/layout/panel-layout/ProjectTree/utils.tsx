@@ -12,7 +12,8 @@ import { FolderState } from './types'
 export function convertFileSystemEntryToTreeDataItem(
     imports: (FileSystemImport | FileSystemEntry)[],
     folderStates: Record<string, FolderState>,
-    root = 'project'
+    root = 'project',
+    searchTerm = ''
 ): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
@@ -24,6 +25,7 @@ export function convertFileSystemEntryToTreeDataItem(
             folderNode = {
                 id: `${root}/${fullPath}`,
                 name: folderName,
+                displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm} />,
                 record: { type: 'folder', id: `${root}/${fullPath}`, path: fullPath },
                 children: [],
             }
@@ -62,8 +64,9 @@ export function convertFileSystemEntryToTreeDataItem(
 
         // Create the actual item node.
         const node: TreeDataItem = {
-            id: `${root}/${item.id || item.path}`,
+            id: `${root}/${item.type === 'folder' ? item.path : item.id || item.path}`,
             name: itemName,
+            displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm} />,
             icon: ('icon' in item && item.icon) || iconForType(item.type),
             record: item,
             onClick: () => {
@@ -116,46 +119,6 @@ export function convertFileSystemEntryToTreeDataItem(
     return rootNodes
 }
 
-export function convertFileSystemEntryToFlatTreeDataItem(
-    imports: (FileSystemImport | FileSystemEntry)[],
-    root = 'project',
-    searchTerm = ''
-): TreeDataItem[] {
-    // The top-level nodes for our project tree
-    const rootNodes: TreeDataItem[] = []
-
-    for (const item of imports) {
-        const pathSplit = splitPath(item.path)
-        const itemName = pathSplit.pop()!
-        const folderPath = joinPath(pathSplit)
-
-        // Create the actual item node.
-        const node: TreeDataItem = {
-            id: `${root}/${item.id || item.path}`,
-            name: itemName,
-            displayName: (
-                <div className="flex flex-col gap-1">
-                    <SearchHighlightMultiple string={itemName} substring={searchTerm} />
-                    <div className="text-xxs font-normal">
-                        <SearchHighlightMultiple string={folderPath} substring={searchTerm} />
-                    </div>
-                </div>
-            ),
-            icon: ('icon' in item && item.icon) || iconForType(item.type),
-            record: item,
-            onClick: () => {
-                if (item.href) {
-                    router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)
-                }
-            },
-        }
-        // Place the item in the current (deepest) folder.
-        rootNodes.push(node)
-    }
-
-    return rootNodes
-}
-
 /**
  * Splits `path` by unescaped "/" delimiters.
  *   - splitPath("a/b")            => ["a", "b"]
@@ -199,21 +162,6 @@ export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): 
         }
         if (node.children) {
             const found = findInProjectTree(itemId, node.children)
-            if (found) {
-                return found
-            }
-        }
-    }
-    return undefined
-}
-
-export function findInProjectTreeByPath(path: string, projectTree: TreeDataItem[]): TreeDataItem | undefined {
-    for (const node of projectTree) {
-        if (node.record?.path === path) {
-            return node
-        }
-        if (node.children) {
-            const found = findInProjectTreeByPath(path, node.children)
             if (found) {
                 return found
             }
