@@ -4,6 +4,7 @@ import { GeoIp, GeoIPService } from '~/src/utils/geoip'
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
+import { HogFunctionManagerService } from '../../services/hog-function-manager.service'
 import {
     HogFunctionInputType,
     HogFunctionInvocation,
@@ -26,6 +27,7 @@ export class TemplateTester {
     public template: HogFunctionTemplateCompiled
     private executor: HogExecutorService
     private mockHub: Hub
+    private mockHogFunctionManager: HogFunctionManagerService
 
     private geoipService?: GeoIPService
     public geoIp?: GeoIp
@@ -39,8 +41,9 @@ export class TemplateTester {
         }
 
         this.mockHub = {} as any
+        this.mockHogFunctionManager = {} as any
 
-        this.executor = new HogExecutorService(this.mockHub)
+        this.executor = new HogExecutorService(this.mockHub, this.mockHogFunctionManager)
     }
 
     /*
@@ -62,8 +65,9 @@ export class TemplateTester {
         }
 
         this.mockHub = { mmdb: undefined } as any
+        this.mockHogFunctionManager = {} as any
 
-        this.executor = new HogExecutorService(this.mockHub)
+        this.executor = new HogExecutorService(this.mockHub, this.mockHogFunctionManager)
     }
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {

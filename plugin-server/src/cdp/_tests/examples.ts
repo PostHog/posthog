@@ -342,6 +342,31 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             35,
         ],
     },
+    imported_function_error: {
+        type: 'broadcast',
+        hog: "import('provider/non-existent-provider-function').doThing(inputs.stuff)",
+        bytecode: [
+            '_H',
+            1,
+            32,
+            'stuff',
+            32,
+            'inputs',
+            1,
+            2,
+            32,
+            'provider/non-existent-provider-function',
+            2,
+            'import',
+            1,
+            32,
+            'doThing',
+            45,
+            54,
+            1,
+            35,
+        ],
+    },
 }
 
 export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' | 'inputs_schema'>> = {

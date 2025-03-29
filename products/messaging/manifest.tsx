@@ -8,7 +8,7 @@ export const manifest: ProductManifest = {
     scenes: {
         MessagingAutomations: {
             import: () => import('./frontend/Automations'),
-            name: 'Automations',
+            name: 'Messaging',
             projectBased: true,
         },
         MessagingBroadcasts: {
@@ -23,7 +23,7 @@ export const manifest: ProductManifest = {
         },
         MessagingLibrary: {
             import: () => import('./frontend/Library'),
-            name: 'Library',
+            name: 'Messaging',
             projectBased: true,
         },
     },

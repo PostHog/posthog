@@ -5,7 +5,7 @@ import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { buildIntegerMatcher } from '../../config/config'
-import { PluginsServerConfig, ValueMatcher } from '../../types'
+import { Hub, ValueMatcher } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -24,6 +24,7 @@ import {
 } from '../types'
 import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
+import { HogFunctionManagerService } from './hog-function-manager.service'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -134,7 +135,7 @@ export const buildGlobalsWithInputs = (
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
 
-    constructor(private config: PluginsServerConfig) {
+    constructor(private config: Hub, private hogFunctionManager: HogFunctionManagerService) {
         this.telemetryMatcher = buildIntegerMatcher(this.config.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
@@ -401,6 +402,35 @@ export class HogExecutorService {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
                     },
+                    importBytecode: (module: string) => {
+                        if (module === 'provider/email') {
+                            const provider = this.hogFunctionManager?.getTeamHogEmailProvider(invocation.teamId)
+
+                            if (!provider) {
+                                throw new Error('No email provider configured')
+                            }
+
+                            try {
+                                const providerGlobals = this.buildHogFunctionGlobals({
+                                    id: '',
+                                    teamId: invocation.teamId,
+                                    hogFunction: provider,
+                                    globals,
+                                    queue: 'hog',
+                                    timings: [],
+                                    priority: 0,
+                                } satisfies HogFunctionInvocation)
+
+                                return {
+                                    bytecode: provider.bytecode,
+                                    globals: providerGlobals,
+                                }
+                            } catch (e) {
+                                throw new Error(`Error building globals for email provider`, { cause: e })
+                            }
+                        }
+                        throw new Error(`Can't import unknown module: ${module}`)
+                    },
                     functions: {
                         print: (...args) => {
                             hogLogs++
@@ -582,6 +612,41 @@ export class HogExecutorService {
         }
 
         return result
+    }
+
+    buildHogFunctionGlobals(invocation: HogFunctionInvocation): HogFunctionInvocationGlobalsWithInputs {
+        const builtInputs: Record<string, any> = {}
+
+        Object.entries(invocation.hogFunction.inputs ?? {}).forEach(([key, item]) => {
+            builtInputs[key] = item?.value
+
+            if (item?.bytecode) {
+                // Use the bytecode to compile the field
+                try {
+                    builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
+                } catch (e) {
+                    throw new Error(`Error formatting input for key ${key}`, { cause: e })
+                }
+            }
+        })
+
+        Object.entries(invocation.hogFunction.encrypted_inputs ?? {}).forEach(([key, item]) => {
+            builtInputs[key] = item.value
+
+            if (item.bytecode) {
+                // Use the bytecode to compile the field
+                try {
+                    builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
+                } catch (e) {
+                    throw new Error(`Error formatting input for key ${key}`, { cause: e })
+                }
+            }
+        })
+
+        return {
+            ...invocation.globals,
+            inputs: builtInputs,
+        }
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
