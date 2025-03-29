@@ -1,5 +1,7 @@
 import { IconClock, IconEllipsis, IconHourglass, IconMouse, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { IconHeatmap } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { humanFriendlyDuration } from 'lib/utils'
 import {
@@ -115,6 +117,7 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
     const {
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
+    const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
     const { showMouseTail, skipInactivitySetting, timestampFormat } = useValues(playerSettingsLogic)
     const { setShowMouseTail, setSkipInactivitySetting, setTimestampFormat } = useActions(playerSettingsLogic)
     const isSmall = size === 'small'
@@ -184,6 +187,16 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                     />
                 </div>
                 <div className="flex flex-row gap-0.5">
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconHeatmap />}
+                        onClick={() => {
+                            setPause()
+                            openHeatmap()
+                        }}
+                    >
+                        View heatmap
+                    </LemonButton>
                     {noInspector ? null : <InspectDOM />}
                     <PlayerInspectorButton />
                 </div>

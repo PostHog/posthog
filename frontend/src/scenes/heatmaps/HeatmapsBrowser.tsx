@@ -1,16 +1,15 @@
-import { IconCollapse, IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconGear, IconRevert } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonInputSelect, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { DetectiveHog } from 'lib/components/hedgehogs'
-import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import React, { useEffect, useRef } from 'react'
+import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
+import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
@@ -20,31 +19,46 @@ import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrlSearchOptions, browserUrl, isBrowserUrlValid } = useValues(logic)
-    const { setBrowserSearch, setBrowserUrl } = useActions(logic)
+    const { browserUrlSearchOptions, browserUrl, isBrowserUrlValid, replayIframeData, hasValidReplayIframeData } =
+        useValues(logic)
+    const { setBrowserSearch, setBrowserUrl, setReplayIframeData, setReplayIframeDataURL } = useActions(logic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
         <div className="bg-surface-primary p-2 border-b flex items-center gap-2">
             <span className="flex-1">
-                <LemonInputSelect
-                    mode="single"
-                    allowCustomValues
-                    placeholder={`e.g. ${placeholderUrl}`}
-                    onInputChange={(e) => setBrowserSearch(e)}
-                    value={browserUrl ? [browserUrl] : undefined}
-                    onChange={(v) => setBrowserUrl(v[0] ?? null)}
-                    options={
-                        browserUrlSearchOptions?.map((x) => ({
-                            label: x,
-                            key: x,
-                        })) ?? []
-                    }
-                    className={!isBrowserUrlValid ? 'border-red-500' : undefined}
-                />
+                {hasValidReplayIframeData ? (
+                    <LemonInput value={replayIframeData?.url} onChange={(s) => setReplayIframeDataURL(s)} />
+                ) : (
+                    <LemonInputSelect
+                        mode="single"
+                        allowCustomValues
+                        placeholder={`e.g. ${placeholderUrl}`}
+                        onInputChange={(e) => setBrowserSearch(e)}
+                        value={browserUrl ? [browserUrl] : undefined}
+                        onChange={(v) => setBrowserUrl(v[0] ?? null)}
+                        options={
+                            browserUrlSearchOptions?.map((x) => ({
+                                label: x,
+                                key: x,
+                            })) ?? []
+                        }
+                        className={!isBrowserUrlValid ? 'border-red-500' : undefined}
+                    />
+                )}
             </span>
-
+            {hasValidReplayIframeData ? (
+                <LemonButton
+                    icon={<IconRevert />}
+                    onClick={() => {
+                        setReplayIframeData(null)
+                        setBrowserUrl(null)
+                    }}
+                >
+                    Reset
+                </LemonButton>
+            ) : null}
             <LemonButton
                 type="secondary"
                 sideIcon={<IconOpenInNew />}
@@ -142,70 +156,6 @@ function InvalidURL(): JSX.Element {
     )
 }
 
-function FilterPanel(): JSX.Element {
-    const logic = heatmapsBrowserLogic()
-
-    const {
-        heatmapFilters,
-        heatmapColorPalette,
-        heatmapFixedPositionMode,
-        viewportRange,
-        commonFilters,
-        filterPanelCollapsed,
-    } = useValues(logic)
-    const {
-        patchHeatmapFilters,
-        setHeatmapColorPalette,
-        setHeatmapFixedPositionMode,
-        setCommonFilters,
-        toggleFilterPanelCollapsed,
-    } = useActions(logic)
-
-    return (
-        <div className={clsx('flex flex-col gap-y-2 px-2 py-1 border-r', !filterPanelCollapsed && 'w-100')}>
-            {filterPanelCollapsed ? (
-                <Tooltip title="Expand heatmap settings">
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronRight />}
-                        onClick={() => toggleFilterPanelCollapsed()}
-                    />
-                </Tooltip>
-            ) : (
-                <>
-                    <div className="flex flex-row items-center">
-                        <Tooltip title="Collapse heatmap settings">
-                            <LemonButton
-                                size="small"
-                                icon={<IconCollapse className="rotate-90" />}
-                                onClick={() => toggleFilterPanelCollapsed()}
-                            />
-                        </Tooltip>
-                        <h2 className="flex-1 mb-0 px-2">Heatmap settings</h2>
-                    </div>
-                    <DateFilter
-                        dateFrom={commonFilters.date_from}
-                        dateTo={commonFilters.date_to}
-                        onChange={(fromDate, toDate) => {
-                            setCommonFilters({ date_from: fromDate, date_to: toDate })
-                        }}
-                        dateOptions={heatmapDateOptions}
-                    />
-                    <HeatmapsSettings
-                        heatmapFilters={heatmapFilters}
-                        patchHeatmapFilters={patchHeatmapFilters}
-                        viewportRange={viewportRange}
-                        heatmapColorPalette={heatmapColorPalette}
-                        setHeatmapColorPalette={setHeatmapColorPalette}
-                        heatmapFixedPositionMode={heatmapFixedPositionMode}
-                        setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
-                    />
-                </>
-            )}
-        </div>
-    )
-}
-
 function IframeErrorOverlay(): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
     const { iframeBanner } = useValues(logic)
@@ -298,8 +248,41 @@ function EmbeddedHeatmapBrowser({
     const logic = heatmapsBrowserLogic()
     const [widthOverride, setWidthOverride] = React.useState<number | null>(null)
 
-    const { browserUrl, loading, iframeBanner } = useValues(logic)
-    const { onIframeLoad, setIframeWidth } = useActions(logic)
+    const {
+        browserUrl,
+        loading,
+        iframeBanner,
+        heatmapFilters,
+        heatmapColorPalette,
+        heatmapFixedPositionMode,
+        viewportRange,
+        commonFilters,
+        filterPanelCollapsed,
+    } = useValues(logic)
+    const {
+        onIframeLoad,
+        setIframeWidth,
+        patchHeatmapFilters,
+        setHeatmapColorPalette,
+        setHeatmapFixedPositionMode,
+        setCommonFilters,
+        toggleFilterPanelCollapsed,
+    } = useActions(logic)
+
+    const embeddedFilterPanelProps = {
+        heatmapFilters,
+        heatmapColorPalette,
+        heatmapFixedPositionMode,
+        viewportRange,
+        commonFilters,
+        filterPanelCollapsed,
+        loading,
+        patchHeatmapFilters,
+        setHeatmapColorPalette,
+        setHeatmapFixedPositionMode,
+        setCommonFilters,
+        toggleFilterPanelCollapsed,
+    }
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
     useEffect(() => {
@@ -309,8 +292,8 @@ function EmbeddedHeatmapBrowser({
     }, [iframeWidth, setIframeWidth, widthOverride])
 
     return browserUrl ? (
-        <div className="flex flex-row w-full">
-            <FilterPanel />
+        <div className="flex flex-row gap-x-2 w-full">
+            <FilterPanel {...embeddedFilterPanelProps} />
             <div className="relative flex-1 w-full h-full">
                 {loading ? <LoadingOverlay /> : null}
                 {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
@@ -367,7 +350,7 @@ export function HeatmapsBrowser(): JSX.Element {
 
     const logic = heatmapsBrowserLogic({ iframeRef })
 
-    const { browserUrl, isBrowserUrlAuthorized, isBrowserUrlValid } = useValues(logic)
+    const { browserUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -377,7 +360,9 @@ export function HeatmapsBrowser(): JSX.Element {
                     <UrlSearchHeader />
 
                     <div className="relative flex flex-1 bg-surface-primary overflow-hidden">
-                        {browserUrl ? (
+                        {hasValidReplayIframeData ? (
+                            <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
+                        ) : browserUrl ? (
                             <>
                                 {!isBrowserUrlAuthorized ? (
                                     <ForbiddenURL />
