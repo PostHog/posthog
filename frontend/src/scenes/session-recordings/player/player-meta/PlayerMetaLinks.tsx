@@ -70,11 +70,12 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                             <MenuActions size={size} />
                         </div>
                     )}
-                                        <LemonButton
+                    <LemonButton
                         type="secondary"
+                        size="xsmall"
                         icon={<IconHeatmap />}
-                        {...commonProps}
                         onClick={() => {
+                            setPause()
                             openHeatmap()
                         }}
                     >
