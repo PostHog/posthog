@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -euxo pipefail
 
 #
 # This boostraps the databases and tables that are *not* explicitly owned
@@ -20,7 +20,10 @@ SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 # the *test migration script* to update SQLX query caches and prime the
 # `cargo test` suites (see posthog/rust README for details)
 DB_URL="postgres://posthog:posthog@localhost:5432"
-CYCLOTRON_DB="$DB_URL/cyclotron"
+
+CYCLOTRON_DB_NAME="${CYCLOTRON_DATABASE_NAME:-cyclotron}"
+CYCLOTRON_DB="$DB_URL/${CYCLOTRON_DB_NAME}"
+
 PROPDEFS_DB="$DB_URL/propdefs"
 
 # cyclotron points to it's own DB instance in production, and therefore has its own
