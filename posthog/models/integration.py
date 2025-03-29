@@ -408,22 +408,32 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_channels(self, authed_user) -> list[dict]:
+    def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel", authed_user)
-        private_channels = self._list_channels_by_type("private_channel", authed_user)
+        public_channels = self._list_channels_by_type("public_channel")
+        private_channels = self._list_channels_by_type("private_channel", should_include_private_channels, authed_user)
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def get_channel_by_id(self, channel_id: str) -> Optional[dict]:
+    def get_channel_by_id(
+        self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
+    ) -> Optional[dict]:
         try:
-            response = self.client.conversations_info(channel=channel_id)
+            response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
+            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
+            isMember = authed_user in members_response["members"]
+
+            if not isMember:
+                return None
+
             return {
                 "id": channel["id"],
-                "name": channel["name"],
+                "name": channel["name"]
+                if channel["is_private"] and should_include_private_channels
+                else f"PRIVATE_CHANNEL_WITHOUT_ACCESS",
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
@@ -433,7 +443,12 @@ class SlackIntegration:
                 return None
             raise
 
-    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
+    def _list_channels_by_type(
+        self,
+        type: Literal["public_channel", "private_channel"],
+        should_include_private_channels: bool = False,
+        authed_user: str | None = None,
+    ) -> list[dict]:
         max_page = 50
         channels = []
         cursor = None
@@ -446,6 +461,11 @@ class SlackIntegration:
                 res = self.client.users_conversations(
                     exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
                 )
+
+                if not should_include_private_channels:
+                    for channel in res["channels"]:
+                        if channel["is_private"]:
+                            channel["name"] = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]
