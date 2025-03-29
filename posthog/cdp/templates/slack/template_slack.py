@@ -237,7 +237,8 @@ if (res.status != 200 or res.body.ok == false) {
                                 }
                             ],
                         },
-                    ]
+                    ],
+                    "hidden": True,
                 },
                 "text": {
                     "default": "New issue created: {event.properties.name}",
@@ -275,7 +276,8 @@ if (res.status != 200 or res.body.ok == false) {
                                 }
                             ],
                         },
-                    ]
+                    ],
+                    "hidden": True,
                 },
                 "text": {
                     "default": "Issue reopened: {event.properties.name}",

@@ -109,6 +109,7 @@ if (res.status >= 400) {
             input_schema_overrides={
                 "text": {
                     "default": "**🔴 {event.properties.name} created:** {event.properties.description} (View in [Posthog]({project.url}/error_tracking/{event.distinct_id}))",
+                    "hidden": True,
                 }
             },
         ),
@@ -121,6 +122,7 @@ if (res.status >= 400) {
             input_schema_overrides={
                 "text": {
                     "default": "**🔄 {event.properties.name} reopened:** {event.properties.description}",
+                    "hidden": True,
                 }
             },
         ),
