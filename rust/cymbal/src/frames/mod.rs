@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha512};
 
 use crate::{
     error::UnhandledError,
+    fingerprinting::Fingerprint,
     langs::{js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
@@ -121,30 +121,30 @@ pub struct ContextLine {
 }
 
 impl Frame {
-    pub fn include_in_fingerprint(&self, h: &mut Sha512) {
+    pub fn include_in_fingerprint(&self, fp: &mut Fingerprint) {
         if let Some(resolved) = &self.resolved_name {
-            h.update(resolved.as_bytes());
+            fp.update(resolved.as_bytes(), "Resolved function name");
             if let Some(s) = self.source.as_ref() {
-                h.update(s.as_bytes())
+                fp.update(s.as_bytes(), "Source file name");
             }
             return;
         }
 
-        h.update(self.mangled_name.as_bytes());
+        fp.update(self.mangled_name.as_bytes(), "Mangled function name");
 
         if let Some(source) = &self.source {
-            h.update(source.as_bytes());
+            fp.update(source.as_bytes(), "Source file name");
         }
 
         if let Some(line) = self.line {
-            h.update(line.to_string().as_bytes());
+            fp.update(line.to_string().as_bytes(), "Line number");
         }
 
         if let Some(column) = self.column {
-            h.update(column.to_string().as_bytes());
+            fp.update(column.to_string().as_bytes(), "Column number");
         }
 
-        h.update(self.lang.as_bytes());
+        fp.update(self.lang.as_bytes(), "Language");
     }
 
     pub fn add_junk<T>(&mut self, key: impl ToString, val: T) -> Result<(), serde_json::Error>
