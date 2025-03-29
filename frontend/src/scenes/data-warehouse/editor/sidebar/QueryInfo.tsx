@@ -68,7 +68,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
     return (
-        <div className="overflow-scroll">
+        <div className="overflow-auto">
             <div className="flex flex-col flex-1 p-4 gap-4 ">
                 <div>
                     <div className="flex flex-row items-center gap-2">
