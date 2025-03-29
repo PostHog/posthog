@@ -2,7 +2,7 @@
     "name": "@posthog/cypress",
     "scripts": {},
     "dependencies": {
-        "@babel/runtime": "^7.24.0",
+        "@babel/runtime": "^7.26.10",
         "@cypress/webpack-preprocessor": "^6.0.2",
         "@posthog/frontend": "workspace:*",
         "@posthog/storybook": "workspace:*",
