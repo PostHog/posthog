@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest import TestCase
 from freezegun import freeze_time
 
@@ -26,11 +27,11 @@ from posthog.models.error_tracking import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
     _create_person,
     _create_event,
     flush_persons_and_events,
 )
+from posthog.test.base import snapshot_clickhouse_queries
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -120,6 +121,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         filterGroup=None,
         orderBy=None,
         status=None,
+        volumeResolution=1,
     ):
         return (
             ErrorTrackingQueryRunner(
@@ -134,18 +136,20 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     filterGroup=filterGroup,
                     orderBy=orderBy,
                     status=status,
+                    volumeResolution=volumeResolution,
                 ),
             )
             .calculate()
             .model_dump()
         )
 
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_column_names(self):
         columns = self._calculate()["columns"]
         self.assertEqual(
             columns,
-            ["id", "occurrences", "sessions", "users", "last_seen", "first_seen", "volumeDay", "volumeMonth"],
+            ["id", "occurrences", "sessions", "users", "last_seen", "first_seen", "volumeDay", "volumeRange"],
         )
 
         columns = self._calculate(issueId=self.issue_id_one)["columns"]
@@ -159,11 +163,12 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "last_seen",
                 "first_seen",
                 "volumeDay",
-                "volumeMonth",
+                "volumeRange",
                 "earliest",
             ],
         )
 
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_issue_grouping(self):
         results = self._calculate(issueId=self.issue_id_one)["results"]
@@ -172,31 +177,31 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["id"], self.issue_id_one)
         self.assertEqual(results[0]["aggregations"]["occurrences"], 2)
 
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_search_query(self):
-        with freeze_time("2022-01-10 12:11:00"):
-            self.create_events_and_issue(
-                issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
-                fingerprint="fingerprint_DatabaseNotFoundX",
-                distinct_ids=[self.distinct_id_one],
-                exception_list=[{"type": "DatabaseNotFoundX", "value": "this is the same error message"}],
-                additional_properties={"$exception_types": "['DatabaseNotFoundX']"},
-            )
-            self.create_events_and_issue(
-                issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
-                fingerprint="fingerprint_DatabaseNotFoundY",
-                distinct_ids=[self.distinct_id_one],
-                exception_list=[{"type": "DatabaseNotFoundY", "value": "this is the same error message"}],
-                additional_properties={"$exception_types": "['DatabaseNotFoundY']"},
-            )
-            self.create_events_and_issue(
-                issue_id="01936e82-241e-7e27-b47d-6659c54eb0be",
-                fingerprint="fingerprint_xyz",
-                distinct_ids=[self.distinct_id_two],
-                exception_list=[{"type": "xyz", "value": "this is the same error message"}],
-                additional_properties={"$exception_types": "['xyz']"},
-            )
-            flush_persons_and_events()
+        self.create_events_and_issue(
+            issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
+            fingerprint="fingerprint_DatabaseNotFoundX",
+            distinct_ids=[self.distinct_id_one],
+            exception_list=[{"type": "DatabaseNotFoundX", "value": "this is the same error message"}],
+            additional_properties={"$exception_types": "['DatabaseNotFoundX']"},
+        )
+        self.create_events_and_issue(
+            issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
+            fingerprint="fingerprint_DatabaseNotFoundY",
+            distinct_ids=[self.distinct_id_one],
+            exception_list=[{"type": "DatabaseNotFoundY", "value": "this is the same error message"}],
+            additional_properties={"$exception_types": "['DatabaseNotFoundY']"},
+        )
+        self.create_events_and_issue(
+            issue_id="01936e82-241e-7e27-b47d-6659c54eb0be",
+            fingerprint="fingerprint_xyz",
+            distinct_ids=[self.distinct_id_two],
+            exception_list=[{"type": "xyz", "value": "this is the same error message"}],
+            additional_properties={"$exception_types": "['xyz']"},
+        )
+        flush_persons_and_events()
 
         results = sorted(
             self._calculate(
@@ -218,35 +223,37 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["aggregations"]["sessions"], 0)
         self.assertEqual(results[1]["aggregations"]["users"], 1)
 
+    @freeze_time("2022-01-10T12:11:00")
+    @snapshot_clickhouse_queries
     def test_empty_search_query(self):
         results = self._calculate(searchQuery="probs not found")["results"]
         self.assertEqual(len(results), 0)
 
+    @freeze_time("2022-01-10 12:11:00")
     @snapshot_clickhouse_queries
     def test_search_query_with_multiple_search_items(self):
-        with freeze_time("2022-01-10 12:11:00"):
-            self.create_events_and_issue(
-                issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
-                fingerprint="fingerprint_DatabaseNotFoundX",
-                distinct_ids=[self.distinct_id_one],
-                additional_properties={
-                    "$exception_types": "['DatabaseNotFoundX']",
-                    "$exception_values": "['this is the same error message']",
-                    "$exception_sources": "['posthog/clickhouse/client/execute.py']",
-                },
-            )
+        self.create_events_and_issue(
+            issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
+            fingerprint="fingerprint_DatabaseNotFoundX",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={
+                "$exception_types": "['DatabaseNotFoundX']",
+                "$exception_values": "['this is the same error message']",
+                "$exception_sources": "['posthog/clickhouse/client/execute.py']",
+            },
+        )
 
-            self.create_events_and_issue(
-                issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
-                fingerprint="fingerprint_DatabaseNotFoundY",
-                distinct_ids=[self.distinct_id_two],
-                additional_properties={
-                    "$exception_types": "['DatabaseNotFoundY']",
-                    "$exception_values": "['this is the same error message']",
-                    "$exception_sources": "['posthog/clickhouse/client/execute.py']",
-                },
-            )
-            flush_persons_and_events()
+        self.create_events_and_issue(
+            issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
+            fingerprint="fingerprint_DatabaseNotFoundY",
+            distinct_ids=[self.distinct_id_two],
+            additional_properties={
+                "$exception_types": "['DatabaseNotFoundY']",
+                "$exception_values": "['this is the same error message']",
+                "$exception_sources": "['posthog/clickhouse/client/execute.py']",
+            },
+        )
+        flush_persons_and_events()
 
         results = self._calculate(
             filterTestAccounts=True, searchQuery="databasenotfoundX clickhouse/client/execute.py"
@@ -258,48 +265,50 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["aggregations"]["sessions"], 0)
         self.assertEqual(results[0]["aggregations"]["users"], 1)
 
+    @freeze_time("2020-01-10 12:11:00")
+    @snapshot_clickhouse_queries
     def test_only_returns_exception_events(self):
-        with freeze_time("2020-01-10 12:11:00"):
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$pageview",
-                team=self.team,
-                properties={"$exception_issue_id": self.issue_id_one},
-            )
+        _create_event(
+            distinct_id=self.distinct_id_one,
+            event="$pageview",
+            team=self.team,
+            properties={"$exception_issue_id": self.issue_id_one},
+        )
         flush_persons_and_events()
 
         results = self._calculate()["results"]
         self.assertEqual(len(results), 3)
 
+    @freeze_time("2022-01-10 12:11:00")
     @snapshot_clickhouse_queries
     def test_correctly_counts_session_ids(self):
-        with freeze_time("2022-01-10 12:11:00"):
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
-            )
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
-            )
-            # blank string
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$exception",
-                team=self.team,
-                properties={"$session_id": "", "$exception_issue_id": self.issue_id_one},
-            )
-            flush_persons_and_events()
+        _create_event(
+            distinct_id=self.distinct_id_one,
+            event="$exception",
+            team=self.team,
+            properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
+        )
+        _create_event(
+            distinct_id=self.distinct_id_one,
+            event="$exception",
+            team=self.team,
+            properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
+        )
+        # blank string
+        _create_event(
+            distinct_id=self.distinct_id_one,
+            event="$exception",
+            team=self.team,
+            properties={"$session_id": "", "$exception_issue_id": self.issue_id_one},
+        )
+        flush_persons_and_events()
 
         results = self._calculate(issueId=self.issue_id_one)["results"]
         self.assertEqual(results[0]["id"], self.issue_id_one)
         # only includes valid session ids
         self.assertEqual(results[0]["aggregations"]["sessions"], 2)
 
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_hogql_filters(self):
         results = self._calculate(
@@ -320,6 +329,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # two errors exist for person with distinct_id_two
         self.assertEqual(len(results), 2)
 
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_ordering(self):
         results = self._calculate(orderBy="last_seen")["results"]
@@ -328,6 +338,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(orderBy="first_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_status(self):
         resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_one)
@@ -346,6 +357,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(status="all")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_one, self.issue_id_two])
 
+    @freeze_time("2022-01-10T12:11:00")
+    @snapshot_clickhouse_queries
     def test_overrides_aggregation(self):
         self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)
         results = self._calculate(orderBy="occurrences")["results"]
@@ -358,6 +371,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["id"], self.issue_id_two)
         self.assertEqual(results[1]["aggregations"]["occurrences"], 1)
 
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_user_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
@@ -372,6 +386,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_user_group_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
@@ -386,6 +401,65 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._calculate(assignee={"type": "user_group", "id": str(user_group.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @freeze_time("2020-01-12")
+    @snapshot_clickhouse_queries
+    def test_volume_aggregation_simple(self):
+        results = self._calculate(
+            volumeResolution=3, dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11")
+        )["results"]
+        self.assertEqual(len(results), 3)
+
+        ## Make sure resolution is correct
+        for result in results:
+            aggregations = result["aggregations"]
+            self.assertEqual(len(aggregations["volumeDay"]), 3)
+            self.assertEqual(len(aggregations["volumeRange"]), 3)
+
+        ## Make sure occurences are correct
+        first_aggregations = results[0]["aggregations"]
+        self.assertEqual(first_aggregations["volumeDay"], [0, 0, 0])  # Should not appear in the last 24hours
+        self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
+
+    @freeze_time("2025-05-05")
+    @snapshot_clickhouse_queries
+    def test_volume_aggregation_advanced(self):
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-102334368d64"
+        issue_fingerprint = "fingerprint"
+        self.create_issue(issue_id, issue_fingerprint)
+        for ts in range(0, 24):
+            event_properties = {
+                "$exception_issue_id": issue_id,
+                "$exception_fingerprint": issue_fingerprint,
+                "$exception_list": [],
+            }
+            for distinct_id in range(0, 5):
+                event_ts = now() - timedelta(hours=ts)
+                _create_event(
+                    distinct_id=f"{issue_id}_{ts}_{distinct_id}",
+                    event="$exception",
+                    team=self.team,
+                    properties=event_properties,
+                    timestamp=event_ts,
+                )
+        flush_persons_and_events()
+
+        results = self._calculate(
+            volumeResolution=4, issueId=issue_id, dateRange=DateRange(date_from="2025-05-04", date_to="2025-05-06")
+        )["results"]
+        self.assertEqual(len(results), 1)
+
+        ## Make sure resolution is correct
+        for result in results:
+            aggregations = result["aggregations"]
+            self.assertEqual(len(aggregations["volumeDay"]), 4)
+            self.assertEqual(len(aggregations["volumeRange"]), 4)
+
+        ## Make sure occurences are correct
+        first_aggregations = results[0]["aggregations"]
+        self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
+        self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
+        self.assertEqual(first_aggregations["volumeDay"], [30.0, 30.0, 30.0, 30.0])
 
 
 class TestSearchTokenizer(TestCase):

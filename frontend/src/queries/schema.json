@@ -7129,25 +7129,12 @@
                     "type": "string"
                 }
             },
-            "required": ["assignee", "description", "first_seen", "id", "name", "status"],
+            "required": ["aggregations", "assignee", "description", "first_seen", "id", "last_seen", "name", "status"],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
             "additionalProperties": false,
             "properties": {
-                "customVolume": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "type": "number"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
                 "occurrences": {
                     "type": "number"
                 },
@@ -7163,14 +7150,14 @@
                     },
                     "type": "array"
                 },
-                "volumeMonth": {
+                "volumeRange": {
                     "items": {
                         "type": "number"
                     },
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeMonth", "customVolume"],
+            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeRange"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -7201,16 +7188,6 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/ErrorTrackingIssueAssignee"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "customVolume": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/ErrorTrackingSparklineConfig"
                         },
                         {
                             "type": "null"
@@ -7260,9 +7237,12 @@
                 "status": {
                     "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
                     "type": "string"
+                },
+                "volumeResolution": {
+                    "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["dateRange", "kind"],
+            "required": ["dateRange", "kind", "volumeResolution"],
             "type": "object"
         },
         "ErrorTrackingQueryResponse": {
@@ -7348,20 +7328,6 @@
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
-            "type": "object"
-        },
-        "ErrorTrackingSparklineConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "interval": {
-                    "enum": ["minute", "hour", "day", "week", "month"],
-                    "type": "string"
-                },
-                "value": {
-                    "$ref": "#/definitions/integer"
-                }
-            },
-            "required": ["value", "interval"],
             "type": "object"
         },
         "EventDefinition": {

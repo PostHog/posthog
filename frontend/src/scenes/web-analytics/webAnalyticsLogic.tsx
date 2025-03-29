@@ -1921,6 +1921,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   filterTestAccounts: filterTestAccounts,
                                   filterGroup: replayFilters.filter_group,
                                   columns: ['error', 'users', 'occurrences'],
+                                  volumeResolution: 0,
                                   limit: 4,
                               }),
                               docs: {

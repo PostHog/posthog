@@ -119,8 +119,7 @@ const errorTrackingQueryResponse: ErrorTrackingQueryResponse = {
             sessions: sessions,
             users: users,
             volumeDay: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            volumeMonth: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            customVolume: [1, 2, 3, 4, 5, 6, 2, 3, 1],
+            volumeRange: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         },
     })),
 }
