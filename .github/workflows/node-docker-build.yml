@@ -1,0 +1,167 @@
+name: Build and deploy node container image
+
+on:
+    workflow_dispatch:
+    push:
+        paths:
+            - 'plugin-server/**'
+            - 'common/hogvm/**'
+            - 'common/plugin_transpiler/**'
+            - '.github/workflows/node-docker-build.yml'
+        branches:
+            - 'master'
+
+jobs:
+    build:
+        name: build node container image
+        runs-on: depot-ubuntu-22.04
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow reading the repo contents
+            packages: write # allow push to ghcr.io
+
+        outputs:
+            digest: ${{ steps.digest.outputs.digest }}
+
+        steps:
+            - name: Check Out Repo
+              uses: actions/checkout@v3
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
+              with:
+                  image: tonistiigi/binfmt:latest
+                  platforms: all
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
+            - name: Docker meta
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/posthog/posthog/node
+                  tags: |
+                      type=ref,event=pr
+                      type=ref,event=branch
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=sha
+
+            - name: Set up Docker Buildx
+              id: buildx
+              uses: docker/setup-buildx-action@v2
+
+            - name: Build and push image
+              id: docker_build
+              uses: depot/build-push-action@v1
+              with:
+                  project: ${{ matrix.project }}
+                  context: .
+                  file: plugin-server/Dockerfile
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+
+            - name: Container image digest
+              id: digest
+              run: |
+                  echo ${{ steps.docker_build.outputs.digest }}
+                  echo "digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
+                  cat $GITHUB_OUTPUT
+
+    test:
+        # Runs the docker image locally using enough valid vars to get a healthy plugin server
+        name: test
+        runs-on: ubuntu-24.04
+        needs: build
+        steps:
+            - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
+              run: |
+                  cat <<EOT >> .env
+                  SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
+                  REDIS_URL=redis://localhost
+                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+                  KAFKA_HOSTS=kafka:9092
+                  DISABLE_SECURE_SSL_REDIRECT=1
+                  SECURE_COOKIES=0
+                  OPT_OUT_CAPTURE=0
+                  E2E_TESTING=1
+                  SKIP_SERVICE_VERSION_REQUIREMENTS=1
+                  EMAIL_HOST=email.test.posthog.net
+                  SITE_URL=http://localhost:8000
+                  NO_RESTART_LOOP=1
+                  CLICKHOUSE_SECURE=0
+                  OBJECT_STORAGE_ENABLED=1
+                  OBJECT_STORAGE_ENDPOINT=http://localhost:19000
+                  OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
+                  OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
+                  GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  CELERY_METRICS_PORT=8999
+                  CLOUD_DEPLOYMENT=E2E
+                  ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00
+                  PLUGIN_SERVER_MODE=cdp-api
+                  EOT
+
+            - name: Run docker image
+              run: |
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
+                  $DOCKER_RUN ./bin/plugin-server &> /tmp/logs/server.txt &
+
+            - name: Wait for PostHog
+              uses: iFaxity/wait-on-action@v1.2.1
+              timeout-minutes: 3
+              with:
+                  verbose: true
+                  log: true
+                  resource: http://localhost:8000/_health
+
+            - name: Archive report
+              uses: actions/upload-artifact@v4
+              with:
+                  name: plugin-server-logs
+                  path: /tmp/logs/server.txt
+                  retention-days: 30
+              if: ${{ always() }}
+
+    deploy:
+        name: deploy ${{ matrix.release }}
+        runs-on: ubuntu-24.04
+        needs: build
+        if: github.ref == 'refs/heads/master'
+        steps:
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v3
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+
+            - name: Trigger Node deployment
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "node",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
