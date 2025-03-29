@@ -7,7 +7,7 @@ from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
-    from django.core.management.base import BaseCommand
+    from django.core.management.base import BaseCommand, CommandError
 
 from posthog.constants import (
     BATCH_EXPORTS_TASK_QUEUE,
@@ -148,22 +148,25 @@ class Command(BaseCommand):
         structlog.reset_defaults()
         metrics_port = int(options["metrics_port"])
 
-        asyncio.run(
-            start_worker(
-                temporal_host,
-                temporal_port,
-                metrics_port=metrics_port,
-                namespace=namespace,
-                task_queue=task_queue,
-                server_root_ca_cert=server_root_ca_cert,
-                client_cert=client_cert,
-                client_key=client_key,
-                workflows=workflows,  # type: ignore
-                activities=activities,
-                graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
-                if graceful_shutdown_timeout_seconds is not None
-                else None,
-                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                max_concurrent_activities=max_concurrent_activities,
+        try:
+            asyncio.run(
+                start_worker(
+                    temporal_host,
+                    temporal_port,
+                    metrics_port=metrics_port,
+                    namespace=namespace,
+                    task_queue=task_queue,
+                    server_root_ca_cert=server_root_ca_cert,
+                    client_cert=client_cert,
+                    client_key=client_key,
+                    workflows=workflows,  # type: ignore
+                    activities=activities,
+                    graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
+                    if graceful_shutdown_timeout_seconds is not None
+                    else None,
+                    max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                    max_concurrent_activities=max_concurrent_activities,
+                )
             )
-        )
+        except Exception as exc:
+            raise CommandError(returncode=1) from exc
