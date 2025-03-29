@@ -6,9 +6,8 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { ErrorTrackingSetupPrompt } from '../ErrorTrackingSetupPrompt'
+import { ERROR_TRACKING_LOGIC_KEY } from '../utils'
 import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingConfigurationSceneType'
-
-const SETTINGS_LOGIC_KEY = 'errorTracking'
 
 export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurationSceneLogicType>([
     path(['scenes', 'error-tracking', 'configuration', 'errorTrackingConfigurationSceneLogic']),
@@ -40,7 +39,7 @@ export function ErrorTrackingConfigurationScene(): JSX.Element {
     return (
         <ErrorTrackingSetupPrompt>
             <Settings
-                logicKey={SETTINGS_LOGIC_KEY}
+                logicKey={ERROR_TRACKING_LOGIC_KEY}
                 sectionId="environment-error-tracking"
                 settingId="error-tracking-exception-autocapture" // acts as a default
                 handleLocally
