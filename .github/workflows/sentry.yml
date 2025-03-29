@@ -20,7 +20,7 @@ jobs:
             - name: Checkout master
               uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
             - name: Notify Sentry
-              uses: getsentry/action-release@a74facf8a080ecbdf1cb355f16743530d712abb7 # v1
+              uses: getsentry/action-release@00ed2a6cc2171514e031a0f5b4b3cdc586dc171a # v1
               env:
                   SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
                   SENTRY_ORG: posthog
