@@ -820,8 +820,10 @@ class _Printer(Visitor):
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.In:
             op = f"in({left}, {right})"
+            return op
         elif node.op == ast.CompareOperationOp.NotIn:
             op = f"notIn({left}, {right})"
+            return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
             op = f"globalIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
@@ -916,11 +918,6 @@ class _Printer(Visitor):
             # Only the left side is null. Return a value only if the right side doesn't matter.
             if value_if_both_sides_are_null == value_if_one_side_is_null:
                 return "1" if value_if_one_side_is_null is True else "0"
-
-        # "in" and "not in" return 0/1 when the right operator is null, so optimize if the left operand is not nullable
-        if node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn:
-            if not nullable_left or (isinstance(node.left, ast.Constant) and node.left.value is not None):
-                return op
 
         # No constants, so check for nulls in SQL
         if value_if_one_side_is_null is True and value_if_both_sides_are_null is True:

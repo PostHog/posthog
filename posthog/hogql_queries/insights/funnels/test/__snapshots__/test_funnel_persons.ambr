@@ -153,7 +153,8 @@
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE ifNull(in(steps, [1, 2, 3]), 0)
+     WHERE in(steps,
+              [1, 2, 3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -166,7 +167,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.1
@@ -180,7 +182,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.2
@@ -337,7 +340,8 @@
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE ifNull(in(steps, [2, 3]), 0)
+     WHERE in(steps,
+              [2, 3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -350,7 +354,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.3
@@ -364,7 +369,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.4
@@ -534,7 +540,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.5
@@ -548,6 +555,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
