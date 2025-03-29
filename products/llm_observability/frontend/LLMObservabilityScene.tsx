@@ -22,6 +22,7 @@ import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from
 import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
+import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundScene'
 
 export const scene: SceneExport = {
     component: LLMObservabilityScene,
@@ -231,6 +232,12 @@ export function LLMObservabilityScene(): JSX.Element {
                         label: 'Users',
                         content: hasSentAiGenerationEvent ? <LLMObservabilityUsers /> : <LLMObservabilityNoEvents />,
                         link: combineUrl(urls.llmObservabilityUsers(), searchParams).url,
+                    },
+                    {
+                        key: 'playground',
+                        label: 'Playground',
+                        content: <LLMObservabilityPlaygroundScene />,
+                        link: combineUrl(urls.llmObservabilityPlayground(), searchParams).url,
                     },
                 ]}
             />
