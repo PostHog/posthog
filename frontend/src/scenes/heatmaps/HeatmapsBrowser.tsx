@@ -21,7 +21,7 @@ function UrlSearchHeader(): JSX.Element {
 
     const { browserUrlSearchOptions, browserUrl, isBrowserUrlValid, replayIframeData, hasValidReplayIframeData } =
         useValues(logic)
-    const { setBrowserSearch, setBrowserUrl, setReplayIframeData } = useActions(logic)
+    const { setBrowserSearch, setBrowserUrl, setReplayIframeData, setReplayIframeDataURL } = useActions(logic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
@@ -29,7 +29,7 @@ function UrlSearchHeader(): JSX.Element {
         <div className="bg-surface-primary p-2 border-b flex items-center gap-2">
             <span className="flex-1">
                 {hasValidReplayIframeData ? (
-                    <LemonInput value={replayIframeData?.url} disabled={true} />
+                    <LemonInput value={replayIframeData?.url} onChange={(s) => setReplayIframeDataURL(s)} />
                 ) : (
                     <LemonInputSelect
                         mode="single"

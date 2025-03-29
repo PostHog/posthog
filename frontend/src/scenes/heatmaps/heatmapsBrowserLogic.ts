@@ -83,6 +83,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         startTrackingLoading: true,
         stopTrackingLoading: true,
         setReplayIframeData: (replayIframeData: ReplayIframeData | null) => ({ replayIframeData }),
+        setReplayIframeDataURL: (url: string | null) => ({ url }),
     }),
 
     loaders(({ values }) => ({
@@ -151,6 +152,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             null as ReplayIframeData | null,
             {
                 setReplayIframeData: (_, { replayIframeData }) => replayIframeData,
+                setReplayIframeDataURL: (state, { url }) => ({ ...state, url }),
             },
         ],
         filterPanelCollapsed: [

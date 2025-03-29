@@ -2,7 +2,7 @@ import { IconDownload, IconEllipsis, IconNotebook, IconPin, IconPinFilled, IconT
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment, IconHeatmap } from 'lib/lemon-ui/icons'
+import { IconComment } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -57,7 +57,6 @@ function PinToPlaylistButton(): JSX.Element {
 export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
 
     const nodeLogic = useNotebookNode()
 
@@ -70,16 +69,6 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                             <MenuActions size={size} />
                         </div>
                     )}
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconHeatmap />}
-                        onClick={() => {
-                            setPause()
-                            openHeatmap()
-                        }}
-                    >
-                        {size === 'normal' ? 'View heatmap' : ''}
-                    </LemonButton>
                     {size === 'normal' && <AddToNotebookButton />}
 
                     <PlayerShareMenu />
