@@ -114,12 +114,14 @@ class Insight(FileSystemSyncMixin, models.Model):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Insight"]:
-        base_qs = cls.objects.filter(team=team, deleted=False, saved=True)
+        base_qs = cls.objects.filter(team__project_id=team.project_id, deleted=False, saved=True)
         return cls._filter_unfiled_queryset(base_qs, team, type="insight", ref_field="short_id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         should_delete = self.deleted or not self.saved
         return FileSystemRepresentation(
+            project_id=self.team.project_id,
+            team_id=self.team_id,
             base_folder="Unfiled/Insights",
             type="insight",
             ref=self.short_id,

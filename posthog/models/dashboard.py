@@ -102,12 +102,14 @@ class Dashboard(FileSystemSyncMixin, models.Model):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Dashboard"]:
-        base_qs = cls.objects.filter(team=team, deleted=False).exclude(creation_mode="template")
+        base_qs = cls.objects.filter(team__project_id=team.project_id, deleted=False).exclude(creation_mode="template")
         return cls._filter_unfiled_queryset(base_qs, team, type="dashboard", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         should_delete = self.deleted or (self.creation_mode == "template")
         return FileSystemRepresentation(
+            project_id=self.team.project_id,
+            team_id=self.team_id,
             base_folder="Unfiled/Dashboards",
             type="dashboard",
             ref=str(self.id),
