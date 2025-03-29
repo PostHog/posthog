@@ -25,6 +25,7 @@ from posthog.models.user import User
 from posthog.permissions import (
     APIScopePermission,
     AccessControlPermission,
+    AnyTeamInProjectMemberAccessPermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
@@ -105,8 +106,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         # override the entire method.
         permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
 
-        if self._is_team_view or self._is_project_view:
+        if self._is_team_view:
             permission_classes.append(TeamMemberAccessPermission)
+        elif self._is_project_view:
+            permission_classes.append(AnyTeamInProjectMemberAccessPermission)
         else:
             permission_classes.append(OrganizationMemberPermissions)
 
@@ -443,7 +446,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        return UserPermissions(user=cast(User, self.request.user), team=self.team)
+        ret = UserPermissions(user=cast(User, self.request.user))
+        ret._current_team = (
+            # We need to set _current_team the hacky way, because for project views we first need to determine
+            # the passthrough team, and for that we need UserPermissions() already existing. It's because we must skip
+            # teams the user doesn't have access to.
+            self.project.get_passthrough_team(ret.team_ids_visible_for_user) if self._is_project_view else self.team
+        )
+        return ret
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":

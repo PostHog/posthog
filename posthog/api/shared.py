@@ -14,6 +14,8 @@ from rest_framework.fields import SkipField
 from rest_framework.relations import PKOnlyObject
 from rest_framework.utils import model_meta
 
+from posthog.user_permissions import UserPermissionsSerializerMixin
+
 
 class UserBasicSerializer(serializers.ModelSerializer):
     hedgehog_config = serializers.SerializerMethodField()
@@ -58,7 +60,7 @@ class ProjectBasicSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
+class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     """
     Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
     passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
@@ -153,8 +155,10 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
             try:
                 attribute_source = instance
                 if field.field_name in self.Meta.team_passthrough_fields:
-                    # This branch is the only material change from the original method
-                    attribute_source = instance.passthrough_team
+                    # This branch is the only material change from the original method. Fields listed in
+                    # team_passthrough_fields are not actually on the Project model, but on the Team model.
+                    # This is backwards compatibility with the times when /api/projects/ referred to the Team model.
+                    attribute_source = instance.get_passthrough_team(self.user_permissions.team_ids_visible_for_user)
                 attribute = field.get_attribute(attribute_source)
             except SkipField:
                 continue
