@@ -1,5 +1,11 @@
-import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+import type {
+    ActionsNode,
+    EventsNode,
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+} from '~/queries/schema/schema-general'
+import { ExperimentDataWarehouseNode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {
@@ -11,10 +17,22 @@ export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | 
 }
 
 export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
-    if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
-        return metric.metric_config.event
-    } else if (metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
-        return metric.metric_config.name || `Action ${metric.metric_config.action}`
+    const getDefaultName = (
+        entity: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    ): string | null | undefined => {
+        if (entity.kind === NodeKind.EventsNode) {
+            return entity.name || entity.event
+        } else if (entity.kind === NodeKind.ActionsNode) {
+            return entity.name || `Action ${entity.id}`
+        } else if (entity.kind === NodeKind.ExperimentDataWarehouseNode) {
+            return entity.table_name
+        }
     }
-    return 'Untitled metric'
+
+    switch (metric.metric_type) {
+        case ExperimentMetricType.MEAN:
+            return getDefaultName(metric.source) || 'Untitled metric'
+        case ExperimentMetricType.FUNNEL:
+            return getDefaultName(metric.series[0]) || 'Untitled funnel'
+    }
 }

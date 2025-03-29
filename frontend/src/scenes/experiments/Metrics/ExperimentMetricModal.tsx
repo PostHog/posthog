@@ -122,7 +122,7 @@ export function ExperimentMetricModal({
             </div>
             <ExperimentMetricForm
                 metric={metric}
-                handleSetMetric={({ newMetric }: { newMetric: ExperimentMetric }) => {
+                handleSetMetric={(newMetric) => {
                     setMetric({ metricIdx, metric: newMetric, isSecondary })
                 }}
                 filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
