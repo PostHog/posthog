@@ -6,7 +6,7 @@
       {
         "ordinal": 0,
         "name": "name",
-        "type_info": "Varchar"
+        "type_info": "Text"
       }
     ],
     "parameters": {
