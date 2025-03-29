@@ -214,8 +214,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 menuItem
                                                 active={item.id === 'Project' && isLayoutPanelVisible}
                                                 data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
+                                                className="group"
                                             >
-                                                <Button.Icon className="text-tertiary">{item.icon}</Button.Icon>
+                                                <Button.Icon className="text-tertiary group-hover:text-primary">
+                                                    {item.icon}
+                                                </Button.Icon>
                                                 <Button.Label menuItem>{item.id}</Button.Label>
                                                 {item.id === 'Project' && (
                                                     <span className="flex items-center gap-px">
@@ -237,7 +240,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     </div>
                                     <div className="flex flex-col gap-px">
                                         {navbarItems.map((section, index) => (
-                                            <ul key={index} className="flex flex-col gap-px">
+                                            <ul key={index} className="flex flex-col gap-px ">
                                                 {section.map((item) => {
                                                     if (filteredNavItemsIdentifiers.includes(item.identifier)) {
                                                         return null
@@ -268,11 +271,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <Button.Root
                                                                 menuItem
                                                                 to={'to' in item ? item.to : undefined}
+                                                                className="group"
                                                                 data-attr={`menu-item-${item.identifier
                                                                     .toString()
                                                                     .toLowerCase()}`}
                                                             >
-                                                                <Button.Icon className="text-tertiary">
+                                                                <Button.Icon className="text-tertiary group-hover:text-primary">
                                                                     {item.icon}
                                                                 </Button.Icon>
                                                                 <Button.Label menuItem>{item.label}</Button.Label>
