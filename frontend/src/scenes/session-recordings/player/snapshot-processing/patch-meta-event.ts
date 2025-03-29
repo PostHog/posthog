@@ -2,7 +2,7 @@ import { eventWithTime } from '@posthog/rrweb-types'
 import { fullSnapshotEvent } from '@posthog/rrweb-types'
 import { EventType } from '@posthog/rrweb-types'
 import { isObject } from 'lib/utils'
-import { posthog } from 'posthog-js'
+import posthog from 'posthog-js'
 
 import { RecordingSnapshot } from '~/types'
 
