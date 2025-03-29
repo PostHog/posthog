@@ -1,5 +1,6 @@
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconRevert } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonInputSelect, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -18,19 +19,19 @@ import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrlSearchOptions, browserUrl, isBrowserUrlValid, replayIframeData, hasValidReplayIframeData } = useValues(logic)
-    const { setBrowserSearch, setBrowserUrl, updateReplayIframeURL } = useActions(logic)
+    const { browserUrlSearchOptions, browserUrl, isBrowserUrlValid, replayIframeData, hasValidReplayIframeData } =
+        useValues(logic)
+    const { setBrowserSearch, setBrowserUrl, setReplayIframeData } = useActions(logic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
         <div className="bg-surface-primary p-2 border-b flex items-center gap-2">
             <span className="flex-1">
-                {/*KLUDGE: LemonInputSelect handles long values badly*/}
                 {hasValidReplayIframeData ? (
-                    <LemonInput value={replayIframeData?.url} onChange={updateReplayIframeURL} />
+                    <LemonInput value={replayIframeData?.url} disabled={true} />
                 ) : (
-                 <LemonInputSelect
+                    <LemonInputSelect
                         mode="single"
                         allowCustomValues
                         placeholder={`e.g. ${placeholderUrl}`}
@@ -45,9 +46,19 @@ function UrlSearchHeader(): JSX.Element {
                         }
                         className={!isBrowserUrlValid ? 'border-red-500' : undefined}
                     />
-                    )}
+                )}
             </span>
-
+            {hasValidReplayIframeData ? (
+                <LemonButton
+                    icon={<IconRevert />}
+                    onClick={() => {
+                        setReplayIframeData(null)
+                        setBrowserUrl(null)
+                    }}
+                >
+                    Reset
+                </LemonButton>
+            ) : null}
             <LemonButton
                 type="secondary"
                 sideIcon={<IconOpenInNew />}

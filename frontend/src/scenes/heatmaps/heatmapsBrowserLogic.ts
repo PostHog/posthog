@@ -82,7 +82,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         startTrackingLoading: true,
         stopTrackingLoading: true,
         setReplayIframeData: (replayIframeData: ReplayIframeData | null) => ({ replayIframeData }),
-        updateReplayIframeURL: (url: string) => ({ url }),
     }),
 
     loaders(({ values }) => ({
@@ -151,7 +150,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             null as ReplayIframeData | null,
             {
                 setReplayIframeData: (_, { replayIframeData }) => replayIframeData,
-                updateReplayIframeURL: (state, { url }) => ({ ...state, url }),
             },
         ],
         filterPanelCollapsed: [
@@ -285,12 +283,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 actions.patchHeatmapFilters
             }
         },
-        updateReplayIframeURL: ({ url }) => {
-            if (url.includes('*')) {
-                actions.setUrlMatch('wildcard')
-            }
-            actions.setHref(url)
-        },
+
         setBrowserSearch: async (_, breakpoint) => {
             await breakpoint(200)
             actions.loadBrowserSearchResults()
