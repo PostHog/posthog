@@ -71,7 +71,6 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                         </div>
                     )}
                     <LemonButton
-                        type="secondary"
                         size="xsmall"
                         icon={<IconHeatmap />}
                         onClick={() => {
@@ -79,7 +78,7 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                             openHeatmap()
                         }}
                     >
-                        Heatmaps
+                        {size === 'normal' ? 'View heatmap' : ''}
                     </LemonButton>
                     {size === 'normal' && <AddToNotebookButton />}
 
