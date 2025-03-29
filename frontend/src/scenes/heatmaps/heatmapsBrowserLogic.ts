@@ -18,6 +18,7 @@ import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
+import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -276,11 +277,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     listeners(({ actions, cache, props, values }) => ({
         setReplayIframeData: ({ replayIframeData }) => {
-            if (replayIframeData) {
+            if (replayIframeData && replayIframeData.url) {
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
                 actions.setHref(replayIframeData.url)
-                actions.patchHeatmapFilters
+            } else {
+                removeReplayIframeDataFromLocalStorage()
             }
         },
 

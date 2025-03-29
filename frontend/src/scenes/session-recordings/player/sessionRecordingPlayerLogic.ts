@@ -101,6 +101,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
     setPinned?: (pinned: boolean) => void
 }
 
+const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
+
 // weights should add up to 1
 const smoothingWeights = [
     0.01,
@@ -126,10 +128,14 @@ const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
 function removeFromLocalStorageWithPrefix(prefix: string): void {
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i)
-        if (key.startsWith(prefix)) {
+        if (key?.startsWith(prefix)) {
             localStorage.removeItem(key)
         }
     }
+}
+
+export function removeReplayIframeDataFromLocalStorage(): void {
+    removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
 }
 
 /**
@@ -1303,17 +1309,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             const iframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
-            if (!iframeHtml) {
+            const resolution = values.resolution
+            if (!iframeHtml || !resolution) {
                 return
             }
 
-            const keyPrefix = 'ph_replay_fixed_heatmap_'
-            removeFromLocalStorageWithPrefix(keyPrefix)
-            const key = keyPrefix + uuid()
+            removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
+            const key = ReplayIframeDatakeyPrefix + uuid()
             const data: ReplayIframeData = {
                 html: iframeHtml,
-                width: values.resolution.width,
-                height: values.resolution.height,
+                width: resolution.width,
+                height: resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,
                 url: values.currentURL,
             }
