@@ -656,7 +656,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Login as the member
         self.client.force_login(member_user)
 
-        # Try to invite a user as an admin
+        # Try to invite an admin as an member
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/invites/",
             {
@@ -682,7 +682,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Login as the admin
         self.client.force_login(admin_user)
 
-        # Try to invite a user as an owner
+        # Try to invite an owner as an admin
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/invites/",
             {
@@ -708,7 +708,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Login as the member
         self.client.force_login(member_user)
 
-        # Try to invite a user as a member (same level)
+        # Try to invite a member as a member (same level)
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/invites/",
             {
@@ -732,7 +732,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Login as the admin
         self.client.force_login(admin_user)
 
-        # Try to invite a user as an admin (same level)
+        # Try to invite an admin as an admin (same level)
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/invites/",
             {
