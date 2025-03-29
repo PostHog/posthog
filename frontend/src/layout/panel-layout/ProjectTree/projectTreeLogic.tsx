@@ -64,11 +64,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
-            [] as FileSystemEntry[],
+            false as boolean,
             {
                 loadUnfiledItems: async () => {
                     const response = await api.fileSystem.unfiled()
-                    return [...values.unfiledItems, ...response.results]
+                    if (response.results.length > 0) {
+                        actions.loadFolder('Unfiled')
+                        for (const folder of Object.keys(values.folders)) {
+                            if (folder.startsWith('Unfiled/')) {
+                                actions.loadFolder(folder)
+                            }
+                        }
+                    }
+                    return true
                 },
             },
         ],
@@ -270,10 +278,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (folderStates): boolean => Object.values(folderStates).some((state) => state === 'loading'),
         ],
         viableItems: [
-            // Combine unfiledItems with savedItems and apply pendingActions
-            (s) => [s.unfiledItems, s.savedItems, s.pendingActions],
-            (unfiledItems, savedItems, pendingActions): FileSystemEntry[] => {
-                const initialItems = [...savedItems, ...unfiledItems]
+            // Combine savedItems with pendingActions
+            (s) => [s.savedItems, s.pendingActions],
+            (savedItems, pendingActions): FileSystemEntry[] => {
+                const initialItems = [...savedItems]
                 const itemsByPath = initialItems.reduce((acc, item) => {
                     acc[item.path] = acc[item.path] ? [...acc[item.path], item] : [item]
                     return acc

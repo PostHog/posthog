@@ -1,4 +1,4 @@
-import { cva } from 'class-variance-authority'
+import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
@@ -9,7 +9,8 @@ import { PanelLayoutNavBar } from './PanelLayoutNavBar'
 import { ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
-const panelLayoutStyles = cva('gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]', {
+const panelLayoutStyles = cva({
+    base: 'gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]',
     variants: {
         isLayoutNavbarVisibleForMobile: {
             true: 'translate-x-0',
