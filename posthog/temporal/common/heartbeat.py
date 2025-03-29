@@ -1,9 +1,12 @@
 import abc
 import asyncio
 import collections.abc
+import contextvars
 import dataclasses
+import threading
 import typing
 
+import structlog.typing
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_internal_logger
@@ -12,25 +15,41 @@ from posthog.temporal.common.logger import get_internal_logger
 class Heartbeater:
     """Regular heartbeatting during Temporal activity execution.
 
-    This class manages two heartbeat tasks via a context manager:
-    * A task that hearbeats regularly every 'heartbeat_timeout' / 'factor'.
-    * A task that heartbeats after worker shutdown is detected.
+    This class supports both asynchronous and synchronous activities by managing:
+    * An `asyncio.Task` for asynchronous activities.
+    * A `threading.Thread` for synchronous activities.
+
+    Both will the task and the thread will heartbeat regularly every
+    `heartbeat_timeout` / `factor`.
 
     Attributes:
         details: Set this attribute to a tuple to send as heartbeat details.
         factor: Used to determine interval between regular heartbeatting.
-        heartbeat_task: A reference to regular heartbeatting task maintained while in the
-            context manager to avoid garbage collection.
-        heartbeat_on_shutdown_task: A reference to task that heartbeats on shutdown
-            maintained while in the context manager to avoid garbage collection.
+        heartbeat_task: A reference to regular heartbeatting task maintained
+            while in the asynchronous context manager to avoid garbage collection.
+        heartbeat_thread: A reference to a daemonic thread heartbeatting while
+            in the synchronous context manager.
+        heartbeat_thread_stop_event: A stop event used to signal to the
+            heartbeatting thread on context manager exit.
+        logger: Reference to a logger.
     """
 
-    def __init__(self, details: tuple[typing.Any, ...] = (), factor: int = 120):
+    def __init__(
+        self,
+        details: tuple[typing.Any, ...] = (),
+        factor: int = 12,
+        logger: structlog.typing.FilteringBoundLogger | None = None,
+    ):
         self._details: tuple[typing.Any, ...] = details
         self.factor = factor
-        self.heartbeat_task: asyncio.Task | None = None
-        self.heartbeat_on_shutdown_task: asyncio.Task | None = None
-        self.logger = get_internal_logger()
+
+        self.heartbeat_task: asyncio.Task[None] | None = None
+        self.heartbeat_on_shutdown_task: asyncio.Task[None] | None = None
+
+        self.heartbeat_thread: threading.Thread | None = None
+        self.heartbeat_thread_stop_event: threading.Event | None = None
+
+        self.logger = logger or get_internal_logger()
 
     @property
     def details(self) -> tuple[typing.Any, ...]:
@@ -46,6 +65,34 @@ class Heartbeater:
         """Set `HeartbeatDetails` to be passed as heartbeat details."""
         self._details = tuple(details.serialize_details())
 
+    def __enter__(self):
+        """Enter managed heartbeatting context."""
+
+        def heartbeat_forever(stop_event: threading.Event, delay: float):
+            """Heartbeat forever every delay seconds or until `stop_event` is set."""
+            while not stop_event.wait(delay):
+                try:
+                    activity.heartbeat(*self.details)
+                except Exception:
+                    self.logger.exception("Heartbeat failed")
+
+        heartbeat_timeout = activity.info().heartbeat_timeout
+
+        if not heartbeat_timeout:
+            return
+
+        context = contextvars.copy_context()
+        self.heartbeat_thread_stop_event = threading.Event()
+
+        self.heartbeat_thread = threading.Thread(
+            target=context.run,
+            args=(heartbeat_forever, self.heartbeat_thread_stop_event, heartbeat_timeout.total_seconds() / self.factor),
+            daemon=True,
+        )
+        self.heartbeat_thread.start()
+
+        return self
+
     async def __aenter__(self):
         """Enter managed heartbeatting context."""
 
@@ -57,49 +104,38 @@ class Heartbeater:
 
         heartbeat_timeout = activity.info().heartbeat_timeout
 
-        if heartbeat_timeout:
-            self.heartbeat_task = asyncio.create_task(
-                heartbeat_forever(heartbeat_timeout.total_seconds() / self.factor)
-            )
+        if not heartbeat_timeout:
+            return
 
-        async def heartbeat_on_shutdown() -> None:
-            """Handle the Worker shutting down by heart-beating our latest status."""
-            await activity.wait_for_worker_shutdown()
-            await self.logger.adebug("Detected Worker shutdown")
-
-            if not self.details:
-                return
-
-            activity.heartbeat(*self.details)
-            if heartbeat_timeout:
-                heartbeat_timeout_seconds = heartbeat_timeout.total_seconds()
-                await self.logger.adebug(
-                    "Will attempt to wait %d seconds for heartbeat to flush", heartbeat_timeout_seconds
-                )
-                await asyncio.sleep(heartbeat_timeout_seconds)
-
-        self.heartbeat_on_shutdown_task = asyncio.create_task(heartbeat_on_shutdown())
+        self.heartbeat_task = asyncio.create_task(heartbeat_forever(heartbeat_timeout.total_seconds() / self.factor))
 
         return self
 
+    def __exit__(self, *args, **kwargs):
+        """Stop heartbeatting thread on exit."""
+
+        if self.heartbeat_thread_stop_event is not None:
+            self.heartbeat_thread_stop_event.set()
+
+        if self.heartbeat_thread is not None:
+            self.heartbeat_thread.join()
+
+        activity.heartbeat(*self.details)
+
+        self.heartbeat_thread = None
+        self.heartbeat_thread_stop_event = None
+
     async def __aexit__(self, *args, **kwargs):
-        """Cancel heartbeatting tasks on exit."""
-        tasks_to_wait = []
+        """Cancel heartbeatting task on exit."""
         if self.heartbeat_task is not None:
-            self.heartbeat_task.cancel()
-            tasks_to_wait.append(self.heartbeat_task)
+            running = self.heartbeat_task.cancel()
 
-        if self.heartbeat_on_shutdown_task is not None:
-            self.heartbeat_on_shutdown_task.cancel()
-            tasks_to_wait.append(self.heartbeat_on_shutdown_task)
-
-        if tasks_to_wait:
-            await asyncio.wait(tasks_to_wait)
+            if running:
+                _ = await asyncio.wait([self.heartbeat_task])
 
         activity.heartbeat(*self.details)
 
         self.heartbeat_task = None
-        self.heartbeat_on_shutdown_task = None
 
 
 class EmptyHeartbeatError(Exception):
