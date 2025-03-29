@@ -7,7 +7,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import React, { useEffect, useState } from 'react'
+import React, { forwardRef, useEffect, useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -45,9 +45,10 @@ interface PropertyFiltersProps {
     disabledReason?: string
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
+    ref?: React.RefCallback<HTMLDivElement>
 }
 
-export function PropertyFilters({
+export const PropertyFilters = forwardRef<HTMLButtonElement, PropertyFiltersProps>(({
     propertyFilters = null,
     onChange,
     pageKey,
@@ -75,7 +76,7 @@ export function PropertyFilters({
     disabledReason = undefined,
     exactMatchFeatureFlagCohortOperators = false,
     hideBehavioralCohorts,
-}: PropertyFiltersProps): JSX.Element {
+}, ref): JSX.Element => {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
@@ -141,6 +142,7 @@ export function PropertyFilters({
                                             allowRelativeDateOptions={allowRelativeDateOptions}
                                             exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
+                                            ref={ref}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}
@@ -154,4 +156,4 @@ export function PropertyFilters({
             </div>
         </div>
     )
-}
+})

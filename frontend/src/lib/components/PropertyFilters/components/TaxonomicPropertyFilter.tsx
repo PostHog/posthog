@@ -20,7 +20,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { useMemo } from 'react'
+import { forwardRef, useMemo } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
@@ -36,7 +36,7 @@ import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 let uniqueMemoizedIndex = 0
 
-export function TaxonomicPropertyFilter({
+export const TaxonomicPropertyFilter = forwardRef<HTMLButtonElement, PropertyFilterInternalProps>(({
     pageKey: pageKeyInput,
     index,
     filters,
@@ -57,7 +57,7 @@ export function TaxonomicPropertyFilter({
     allowRelativeDateOptions,
     exactMatchFeatureFlagCohortOperators,
     hideBehavioralCohorts,
-}: PropertyFilterInternalProps): JSX.Element {
+}, ref): JSX.Element => {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
         TaxonomicFilterGroupType.EventProperties,
@@ -219,6 +219,7 @@ export function TaxonomicPropertyFilter({
                                 data-attr={'property-select-toggle-' + index}
                                 sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                                ref={ref}
                             >
                                 {filter?.type === 'cohort' ? (
                                     filter.cohort_name || `Cohort #${filter?.value}`
@@ -243,4 +244,4 @@ export function TaxonomicPropertyFilter({
             )}
         </div>
     )
-}
+})

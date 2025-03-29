@@ -56,7 +56,7 @@ export interface PopoverProps {
     padded?: boolean
     middleware?: Middleware[]
     /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers. */
-    additionalRefs?: React.MutableRefObject<HTMLDivElement | null>[]
+    additionalRefs?: React.MutableRefObject<HTMLDivElement | HTMLButtonElement | null>[]
     referenceRef?: UseFloatingReturn['refs']['reference']
     floatingRef?: UseFloatingReturn['refs']['floating']
     style?: React.CSSProperties
