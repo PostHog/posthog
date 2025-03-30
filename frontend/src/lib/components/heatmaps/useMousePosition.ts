@@ -14,13 +14,11 @@ export const useMousePosition = (container?: HTMLElement | null): { x: number; y
             const newX = e.clientX - rect.left
             const newY = e.clientY - rect.top
             const inBounds = newX >= 0 && newY >= 0
-            const hasChanged = newX !== mousePosition.x || newY !== mousePosition.y
-            if (inBounds && hasChanged) {
-                setMousePosition({
-                    x: newX,
-                    y: newY,
-                })
-            }
+
+            setMousePosition((prev) => {
+                const hasChanged = newX !== prev.x || newY !== prev.y
+                return inBounds && hasChanged ? { x: newX, y: newY } : prev
+            })
         }
 
         window.addEventListener('mousemove', onMove, { passive: true })
