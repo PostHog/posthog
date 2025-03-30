@@ -126,9 +126,13 @@ jobs:
             - name: Update hogql-parser in requirements
               shell: bash
               run: |
-                  local=$(python common/hogql_parser/setup.py --version)
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" pyproject.toml
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" uv.lock
+                  # In case the version is not available yet, try up to 20 times
+                  for i in {1..20}; do
+                      if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
+                          break
+                      fi
+                      sleep 0.5
+                  done
 
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               with:
