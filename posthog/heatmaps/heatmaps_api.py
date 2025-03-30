@@ -170,7 +170,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
         exprs = self._predicate_expressions(placeholders)
 
-        if request_serializer.validated_data.get("filter_test_accounts") is not None:
+        if request_serializer.validated_data.get("filter_test_accounts") is True:
             date_from: date = request_serializer.validated_data["date_from"]
             date_to: date | None = request_serializer.validated_data.get("date_to", None)
             events_select = replace_filters(
