@@ -1,5 +1,7 @@
 import { IconClock, IconEllipsis, IconHourglass, IconMouse, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -187,16 +189,18 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                     />
                 </div>
                 <div className="flex flex-row gap-0.5">
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconHeatmap />}
-                        onClick={() => {
-                            setPause()
-                            openHeatmap()
-                        }}
-                    >
-                        View heatmap
-                    </LemonButton>
+                    <FlaggedFeature match={true} flag={FEATURE_FLAGS.STATIC_HEATMAPS}>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconHeatmap />}
+                            onClick={() => {
+                                setPause()
+                                openHeatmap()
+                            }}
+                        >
+                            View heatmap
+                        </LemonButton>
+                    </FlaggedFeature>
                     {noInspector ? null : <InspectDOM />}
                     <PlayerInspectorButton />
                 </div>
