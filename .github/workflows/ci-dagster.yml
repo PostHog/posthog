@@ -104,8 +104,8 @@ jobs:
                   cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            # uv is a fast pip alternative: https://github.com/astral-sh/uv/
-            - run: pip install uv
+            - name: Install uv
+              uses: astral-sh/setup-uv@v5
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -115,7 +115,7 @@ jobs:
             - name: Install python dependencies
               shell: bash
               run: |
-                  uv sync --frozen
+                  uv sync --frozen --dev
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts

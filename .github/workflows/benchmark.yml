@@ -59,8 +59,8 @@ jobs:
                   cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            # uv is a fast pip alternative: https://github.com/astral-sh/uv/
-            - run: pip install uv
+            - name: Install uv
+              uses: astral-sh/setup-uv@v5
 
             - name: Install SAML (python3-saml) dependencies
               shell: bash
@@ -69,10 +69,10 @@ jobs:
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies
-              run: uv sync --frozen
+              run: uv sync --frozen --dev
 
             - name: Install asv
-              run: uv pip install --system asv==0.5.1 virtualenv
+              run: uv pip install asv==0.5.1
 
             - name: Set up PostHog
               run: |

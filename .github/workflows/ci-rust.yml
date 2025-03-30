@@ -133,9 +133,9 @@ jobs:
                   cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            # uv is a fast pip alternative: https://github.com/astral-sh/uv/
-            - run: pip install uv
+            - name: Install uv
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              uses: astral-sh/setup-uv@v5
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
@@ -146,7 +146,7 @@ jobs:
             - name: Install python dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
-                  uv pip install --system -r ../pyproject.toml
+                  uv sync --frozen --dev --directory ..
 
             - name: Set up databases
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
