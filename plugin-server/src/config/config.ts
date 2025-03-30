@@ -212,7 +212,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
+            ? 'postgres://posthog:posthog@localhost:5432/rust_test_database'
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
             : '',
