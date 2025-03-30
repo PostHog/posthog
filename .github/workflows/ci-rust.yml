@@ -164,10 +164,16 @@ jobs:
               run: |
                   cd ../ && ./bin/download-mmdb
 
+            - name: Bootstrap Rust test database
+              if: needs.changes.outputs.rust == 'true' && matrix.package != 'feature-flags'
+              run: |
+                  echo "Starting Rust test database..."
+                  ./bin/migrate_tests
+
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
               run: |
-                  echo "Starting cargo test"
+                  echo "Starting cargo test..."
                   RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
                   echo "Cargo test completed"
 
