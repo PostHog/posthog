@@ -82,8 +82,7 @@ jobs:
         strategy:
             matrix:
                 package:
-                    - feature-flags
-                    - others
+                    - workspace
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
@@ -96,15 +95,8 @@ jobs:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true'
 
-            - name: Setup main repo dependencies for flags
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
-              run: |
-                  docker compose -f ../docker-compose.dev.yml down
-                  docker compose -f ../docker-compose.dev.yml up -d
-                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
-
             - name: Setup dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   docker compose -f ../docker-compose.dev.yml down
                   docker compose -f ../docker-compose.dev.yml up -d
@@ -155,21 +147,15 @@ jobs:
               run: |
                   cd ../ && ./bin/download-mmdb
 
-            - name: Bootstrap Rust test database
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
+            - name: Bootstrap test databases, refresh SQLX query cache, run cargo test
+              if: needs.changes.outputs.rust == 'true'
               env:
                   DEBUG: 'true'
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
               run: |
-                  echo "Bootstrapping test databases and executing SQLX migrations"
-                  ./bin/migrate_tests
-
-            - name: Run cargo test
-              if: needs.changes.outputs.rust == 'true'
-              run: |
-                  echo "Starting cargo test..."
-                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
+                  echo "Starting Cargo test suite..."
+                  ./bin/run_workspace_tests
                   echo "Cargo test completed"
 
     linting:
