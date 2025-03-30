@@ -23,6 +23,7 @@ export function FixedReplayHeatmapBrowser({
         viewportRange,
         commonFilters,
         rawHeatmapLoading,
+        heatmapEmpty,
     } = useValues(heatmapDataLogic)
     const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode, setCommonFilters } =
         useActions(heatmapDataLogic)
@@ -49,24 +50,14 @@ export function FixedReplayHeatmapBrowser({
 
     return hasValidReplayIframeData ? (
         <div className="flex flex-row gap-x-2 w-full">
-            <FilterPanel {...fixedReplayFilterPanelProps} />
+            <FilterPanel {...fixedReplayFilterPanelProps} isEmpty={heatmapEmpty} />
             <div className="relative flex-1 w-full h-full">
-                {/*{loading ? <LoadingOverlay /> : null}*/}
-                {/*{!loading && iframeBanner ? <IframeErrorOverlay /> : null}*/}
                 <HeatmapCanvas positioning="absolute" />
                 <iframe
                     ref={iframeRef}
                     className="w-full h-full bg-white"
-                    // src={appEditorUrl(browserUrl, {
-                    //     userIntent: 'heatmaps',
-                    // })}
                     srcDoc={replayIframeData?.html}
                     onLoad={onIframeLoad}
-                    // these two sandbox values are necessary so that the site and toolbar can run
-                    // this is a very loose sandbox,
-                    // but we specify it so that at least other capabilities are denied
-                    // sandbox="allow-scripts allow-same-origin"
-                    // we don't allow things such as camera access though
                     allow=""
                 />
             </div>

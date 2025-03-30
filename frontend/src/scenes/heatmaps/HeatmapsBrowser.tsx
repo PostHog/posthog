@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { DetectiveHog } from 'lib/components/hedgehogs'
+import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import React, { useEffect, useRef } from 'react'
@@ -160,7 +160,7 @@ function IframeErrorOverlay(): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
     const { iframeBanner } = useValues(logic)
     return iframeBanner ? (
-        <div className="absolute flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none">
+        <div className="absolute mt-10 flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none">
             <LemonBanner className="w-full" type={iframeBanner.level}>
                 {iframeBanner.message}. Your site might not allow being embedded in an iframe. You can click "Open in
                 toolbar" above to visit your site and view the heatmap there.
@@ -258,6 +258,7 @@ function EmbeddedHeatmapBrowser({
         viewportRange,
         commonFilters,
         filterPanelCollapsed,
+        heatmapEmpty,
     } = useValues(logic)
     const {
         onIframeLoad,
@@ -293,7 +294,7 @@ function EmbeddedHeatmapBrowser({
 
     return browserUrl ? (
         <div className="flex flex-row gap-x-2 w-full">
-            <FilterPanel {...embeddedFilterPanelProps} />
+            <FilterPanel {...embeddedFilterPanelProps} isEmpty={heatmapEmpty} />
             <div className="relative flex-1 w-full h-full">
                 {loading ? <LoadingOverlay /> : null}
                 {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
@@ -343,6 +344,23 @@ function Warnings(): JSX.Element | null {
     ) : null
 }
 
+function ReplayIframeDataIntro(): JSX.Element | null {
+    const { hasValidReplayIframeData } = useValues(heatmapsBrowserLogic)
+
+    return hasValidReplayIframeData ? (
+        <LemonBanner type="info" dismissKey="heatmaps-replay-iframe-data-intro">
+            <div className="flex flex-row gap-2 items-center">
+                <FilmCameraHog className="w-30 h-30" />
+                <div>
+                    You're using session recording data as the background for this heatmap.{' '}
+                    <p>You can change the URL that the heatmap data loads below, for example to add wildcards.</p>
+                    And use the filters below to slice and dice the data.
+                </div>
+            </div>
+        </LemonBanner>
+    ) : null
+}
+
 export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
@@ -356,6 +374,7 @@ export function HeatmapsBrowser(): JSX.Element {
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <div className="flex flex-col gap-2">
                 <Warnings />
+                <ReplayIframeDataIntro />
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
                     <UrlSearchHeader />
 

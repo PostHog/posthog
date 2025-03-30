@@ -199,6 +199,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
 
+        heatmapEmpty: [
+            (s) => [s.rawHeatmap, s.rawHeatmapLoading],
+            (rawHeatmap, rawHeatmapLoading) => {
+                return rawHeatmap?.results.length === 0 && !rawHeatmapLoading
+            },
+        ],
+
         heatmapJsData: [
             (s) => [s.heatmapElements, s.heatmapScrollY, s.windowWidth, s.heatmapFixedPositionMode],
             (heatmapElements, heatmapScrollY, windowWidth, heatmapFixedPositionMode): HeatmapJsData => {

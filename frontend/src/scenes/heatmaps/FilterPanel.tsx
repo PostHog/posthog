@@ -5,6 +5,7 @@ import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -26,6 +27,7 @@ export function FilterPanel({
     setHeatmapFixedPositionMode,
     setCommonFilters,
     toggleFilterPanelCollapsed,
+    isEmpty,
 }: {
     heatmapFilters?: HeatmapFilters
     heatmapColorPalette?: string | null
@@ -39,6 +41,7 @@ export function FilterPanel({
     setHeatmapFixedPositionMode?: (mode: HeatmapFixedPositionMode) => void
     setCommonFilters?: (filters: CommonFilters) => void
     toggleFilterPanelCollapsed?: () => void
+    isEmpty?: boolean
 }): JSX.Element {
     return (
         <div className={clsx('flex flex-col gap-y-2 px-2 py-1 border-r', !filterPanelCollapsed && 'w-100')}>
@@ -61,8 +64,13 @@ export function FilterPanel({
                             />
                         </Tooltip>
                         <h2 className="flex-1 mb-0 px-2">Heatmap settings</h2>
+                        {loading && <LoadingBar />}
                     </div>
-                    {loading && <LoadingBar />}
+                    {isEmpty ? (
+                        <LemonBanner type="info">
+                            No data found. Try changing your filters or the URL above.
+                        </LemonBanner>
+                    ) : null}
                     <DateFilter
                         dateFrom={commonFilters?.date_from}
                         dateTo={commonFilters?.date_to}
