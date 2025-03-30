@@ -150,23 +150,19 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
-            - name: Set up databases
-              if: needs.changes.outputs.rust == 'true'
-              env:
-                  DEBUG: 'true'
-                  TEST: 'true'
-                  SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
               run: |
                   cd ../ && ./bin/download-mmdb
 
             - name: Bootstrap Rust test database
-              if: needs.changes.outputs.rust == 'true' && matrix.package != 'feature-flags'
+              if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
+              env:
+                  DEBUG: 'true'
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
               run: |
-                  echo "Executing setup_test_environment; starting Rust workspace test database..."
+                  echo "Bootstrapping test databases and executing SQLX migrations"
                   ./bin/migrate_tests
 
             - name: Run cargo test
