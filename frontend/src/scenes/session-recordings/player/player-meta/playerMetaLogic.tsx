@@ -6,10 +6,7 @@ import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/Pr
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from 'lib/taxonomy'
-import {
-    capitalizeFirstLetter, ceilMsToClosestSecond, humanFriendlyDuration,
-    percentage,
-} from 'lib/utils'
+import { capitalizeFirstLetter, ceilMsToClosestSecond, humanFriendlyDuration, percentage } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import posthog from 'posthog-js'
 import React from 'react'
