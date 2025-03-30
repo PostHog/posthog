@@ -67,10 +67,14 @@ function UrlSearchHeader(): JSX.Element {
                         ? appEditorUrl(browserUrl, {
                               userIntent: 'heatmaps',
                           })
+                        : hasValidReplayIframeData && replayIframeData?.url
+                        ? appEditorUrl(replayIframeData?.url, {
+                              userIntent: 'heatmaps',
+                          })
                         : undefined
                 }
                 targetBlank
-                disabledReason={!browserUrl ? 'Select a URL first' : undefined}
+                disabledReason={!browserUrl && !hasValidReplayIframeData ? 'Select a URL first' : undefined}
             >
                 Open in toolbar
             </LemonButton>
