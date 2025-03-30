@@ -6,12 +6,15 @@ import React, { useEffect } from 'react'
 import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/heatmapsBrowserLogic'
 
+import { ViewportChooser } from './HeatmapsBrowser'
+
 export function FixedReplayHeatmapBrowser({
     iframeRef,
 }: {
     iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
+    const [widthOverride, setWidthOverride] = React.useState<number | null>(null)
 
     const { replayIframeData, hasValidReplayIframeData, filterPanelCollapsed } = useValues(logic)
     const { onIframeLoad, setIframeWidth, toggleFilterPanelCollapsed } = useActions(logic)
@@ -25,8 +28,13 @@ export function FixedReplayHeatmapBrowser({
         rawHeatmapLoading,
         heatmapEmpty,
     } = useValues(heatmapDataLogic)
-    const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode, setCommonFilters } =
-        useActions(heatmapDataLogic)
+    const {
+        patchHeatmapFilters,
+        setHeatmapColorPalette,
+        setHeatmapFixedPositionMode,
+        setCommonFilters,
+        setWindowWidthOverride,
+    } = useActions(heatmapDataLogic)
 
     const fixedReplayFilterPanelProps = {
         heatmapFilters,
@@ -45,21 +53,33 @@ export function FixedReplayHeatmapBrowser({
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
     useEffect(() => {
-        setIframeWidth(iframeWidth ?? null)
-    }, [iframeWidth])
+        if (widthOverride === null) {
+            setIframeWidth(iframeWidth ?? null)
+        }
+        setWindowWidthOverride(widthOverride)
+    }, [iframeWidth, setIframeWidth, widthOverride, setWindowWidthOverride])
 
     return hasValidReplayIframeData ? (
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel {...fixedReplayFilterPanelProps} isEmpty={heatmapEmpty} />
             <div className="relative flex-1 w-full h-full">
-                <HeatmapCanvas positioning="absolute" />
-                <iframe
-                    ref={iframeRef}
-                    className="w-full h-full bg-white"
-                    srcDoc={replayIframeData?.html}
-                    onLoad={onIframeLoad}
-                    allow=""
-                />
+                <ViewportChooser setWidth={setWidthOverride} selectedWidth={widthOverride} />
+                <div className="flex justify-center h-full w-full">
+                    <div
+                        className="relative h-full "
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: widthOverride ?? '100%' }}
+                    >
+                        <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} />
+                        <iframe
+                            ref={iframeRef}
+                            className="w-full h-full bg-white"
+                            srcDoc={replayIframeData?.html}
+                            onLoad={onIframeLoad}
+                            allow=""
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     ) : null

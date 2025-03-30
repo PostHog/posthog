@@ -41,6 +41,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         }),
         setFetchFn: (fetchFn: 'native' | 'toolbar') => ({ fetchFn }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
+        setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -98,6 +99,12 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             0,
             {
                 setHeatmapScrollY: (_, { scrollY }) => scrollY,
+            },
+        ],
+        windowWidthOverride: [
+            null as number | null,
+            {
+                setWindowWidthOverride: (_, { widthOverride }) => widthOverride,
             },
         ],
     }),
@@ -185,8 +192,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
 
         viewportRange: [
-            (s) => [s.heatmapFilters, s.windowWidth],
-            (heatmapFilters, windowWidth) => calculateViewportRange(heatmapFilters, windowWidth),
+            (s) => [s.heatmapFilters, s.windowWidth, s.windowWidthOverride],
+            (heatmapFilters, windowWidth, windowWidthOverride) =>
+                calculateViewportRange(heatmapFilters, windowWidthOverride ?? windowWidth),
         ],
 
         heatmapTooltipLabel: [
@@ -207,8 +215,21 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
 
         heatmapJsData: [
-            (s) => [s.heatmapElements, s.heatmapScrollY, s.windowWidth, s.heatmapFixedPositionMode],
-            (heatmapElements, heatmapScrollY, windowWidth, heatmapFixedPositionMode): HeatmapJsData => {
+            (s) => [
+                s.heatmapElements,
+                s.heatmapScrollY,
+                s.windowWidth,
+                s.windowWidthOverride,
+                s.heatmapFixedPositionMode,
+            ],
+            (
+                heatmapElements,
+                heatmapScrollY,
+                windowWidth,
+                windowWidthOverride,
+                heatmapFixedPositionMode
+            ): HeatmapJsData => {
+                const width = windowWidthOverride ?? windowWidth
                 // We want to account for all the fixed position elements, the scroll of the context and the browser width
                 const data = heatmapElements.reduce((acc, element) => {
                     if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
@@ -220,7 +241,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             ? element.y
                             : element.y - heatmapScrollY
                     )
-                    const x = Math.round(element.xPercentage * windowWidth)
+                    const x = Math.round(element.xPercentage * width)
 
                     return [...acc, { x, y, value: element.count }]
                 }, [] as HeatmapJsDataPoint[])
@@ -255,6 +276,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             actions.loadHeatmap()
         },
         setHref: () => {
+            actions.loadHeatmap()
+        },
+        setWindowWidthOverride: () => {
             actions.loadHeatmap()
         },
     })),

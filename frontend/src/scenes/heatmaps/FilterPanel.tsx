@@ -9,6 +9,21 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useEffect, useState } from 'react'
+
+const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
+    const [debouncedLoading, setDebouncedLoading] = useState(false)
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedLoading(loading)
+        }, delay)
+
+        return () => clearTimeout(timer)
+    }, [loading, delay])
+
+    return debouncedLoading
+}
 
 /**
  * values and actions are passed as props because they are different
@@ -43,6 +58,8 @@ export function FilterPanel({
     toggleFilterPanelCollapsed?: () => void
     isEmpty?: boolean
 }): JSX.Element {
+    const debouncedLoading = useDebounceLoading(loading ?? false)
+
     return (
         <div className={clsx('flex flex-col gap-y-2 px-2 py-1 border-r', !filterPanelCollapsed && 'w-100')}>
             {filterPanelCollapsed ? (
@@ -64,8 +81,8 @@ export function FilterPanel({
                             />
                         </Tooltip>
                         <h2 className="flex-1 mb-0 px-2">Heatmap settings</h2>
-                        {loading && <LoadingBar />}
                     </div>
+                    {debouncedLoading && <LoadingBar />}
                     {isEmpty ? (
                         <LemonBanner type="info">
                             No data found. Try changing your filters or the URL above.

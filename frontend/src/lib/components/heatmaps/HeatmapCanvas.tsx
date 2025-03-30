@@ -1,8 +1,8 @@
-import clsx from 'clsx'
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
+import { cn } from 'lib/utils/css-classes'
 import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { useMousePosition } from './useMousePosition'
@@ -51,7 +51,13 @@ function HeatmapMouseInfo({
     )
 }
 
-export function HeatmapCanvas({ positioning = 'fixed' }: { positioning?: 'absolute' | 'fixed' }): JSX.Element | null {
+export function HeatmapCanvas({
+    positioning = 'fixed',
+    widthOverride,
+}: {
+    positioning?: 'absolute' | 'fixed'
+    widthOverride?: number | null
+}): JSX.Element | null {
     const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
         useValues(heatmapDataLogic)
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
@@ -121,9 +127,13 @@ export function HeatmapCanvas({ positioning = 'fixed' }: { positioning?: 'absolu
     }
 
     return (
-        <div className={clsx('inset-0 overflow-hidden w-full h-full', positioning)}>
+        <div className={cn('inset-0 overflow-hidden w-full h-full', positioning)}>
             {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas */}
-            <div key={`${windowWidth}x${windowHeight}`} className="absolute inset-0" ref={setHeatmapContainer} />
+            <div
+                key={`${widthOverride ?? windowWidth}x${windowHeight}`}
+                className="absolute inset-0"
+                ref={setHeatmapContainer}
+            />
             <HeatmapMouseInfo heatmapJsRef={heatmapsJsRef} containerRef={heatmapsJsContainerRef} />
         </div>
     )

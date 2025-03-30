@@ -181,7 +181,7 @@ function LoadingOverlay(): JSX.Element {
     )
 }
 
-function ViewportChooser({
+export function ViewportChooser({
     setWidth,
     selectedWidth,
 }: {
@@ -303,7 +303,7 @@ function EmbeddedHeatmapBrowser({
                 {loading ? <LoadingOverlay /> : null}
                 {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
                 <ViewportChooser setWidth={setWidthOverride} selectedWidth={widthOverride} />
-                <div className="flex justify-center h-full">
+                <div className="flex relative justify-center h-full">
                     <iframe
                         ref={iframeRef}
                         className="h-full bg-white"
