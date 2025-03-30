@@ -64,6 +64,5 @@ WORKDIR /workspace
 #
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
-    pip install -r requirements.txt --compile --no-cache-dir
+COPY pyproject.toml uv.lock ./
+RUN pip install uv && uv sync
