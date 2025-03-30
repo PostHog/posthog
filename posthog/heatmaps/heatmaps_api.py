@@ -174,7 +174,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_from: date = request_serializer.validated_data["date_from"]
             date_to: date | None = request_serializer.validated_data.get("date_to", None)
             events_select = replace_filters(
-                parse_select("SELECT $session_id FROM events where {filters}", placeholders={}),
+                parse_select(
+                    "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
+                ),
                 HogQLFilters(
                     filterTestAccounts=True,
                     dateRange=DateRange(

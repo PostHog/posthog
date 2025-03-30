@@ -473,7 +473,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         response = self._get_heatmap({"date_from": "2023-03-08", "filter_test_accounts": True})
-        assert sorted(response.json()["results"], key=lambda k: k["pointer_relative_x"]) == [
+        # mypy thinks there is no json method... but there is
+        json_results = response.json()["results"]  # type: ignore
+        assert sorted(json_results, key=lambda k: k["pointer_relative_x"]) == [
             {
                 "count": 1,
                 "pointer_relative_x": 1.0,
@@ -483,7 +485,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
 
         response_without_internal_filter = self._get_heatmap({"date_from": "2023-03-08"})
-        assert sorted(response_without_internal_filter.json()["results"], key=lambda k: k["pointer_relative_x"]) == [
+        # mypy thinks there is no json method... but there is
+        json_results_two = response_without_internal_filter.json()["results"]  # type: ignore
+        assert sorted(json_results_two, key=lambda k: k["pointer_relative_x"]) == [
             {
                 "count": 2,
                 "pointer_relative_x": 0.0,
