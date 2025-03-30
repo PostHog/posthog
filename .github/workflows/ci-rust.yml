@@ -157,7 +157,6 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd ../ && python manage.py setup_test_environment --only-postgres
 
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
@@ -167,7 +166,7 @@ jobs:
             - name: Bootstrap Rust test database
               if: needs.changes.outputs.rust == 'true' && matrix.package != 'feature-flags'
               run: |
-                  echo "Starting Rust test database..."
+                  echo "Executing setup_test_environment; starting Rust workspace test database..."
                   ./bin/migrate_tests
 
             - name: Run cargo test
