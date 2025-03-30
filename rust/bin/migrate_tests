@@ -38,7 +38,7 @@ sqlx database create -D "$DATABASE_URL"
 # but for now, let's just support it so we can run "cargo test"
 # from the workspace level (posthog/rust) and have it work.
 pushd "$SCRIPT_DIR/../.."
-TEST=1 python manage.py setup_test_environment --only-postgres
+DEBUG=true TEST=true python manage.py setup_test_environment --only-postgres
 
 # these have matching tables in prod (and top-level dev Docker Compose)
 # already, so we only want to replicate the tables we need in sqlx::test
