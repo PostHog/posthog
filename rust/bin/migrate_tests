@@ -18,6 +18,11 @@ fi
 # NOTE: cargo and sqlx honor the .env file by default when developing locally
 source "$SCRIPT_DIR/../.env"
 
+if ! which sqlx; then
+  echo "Installing SQLX CLI tool..."
+  cargo install sqlx-cli --version 0.8.3
+fi
+
 sqlx database create -D "$DATABASE_URL"
 
 # hop up to posthog repo root and bootstrap the test_posthog DB.
