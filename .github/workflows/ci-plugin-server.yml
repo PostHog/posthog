@@ -147,8 +147,7 @@ jobs:
             - name: Install python dependencies
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
-                  uv pip install --system -r requirements-dev.txt
-                  uv pip install --system -r requirements.txt
+                  uv sync --frozen
 
             - name: Install pnpm
               if: needs.changes.outputs.plugin-server == 'true'
@@ -247,8 +246,7 @@ jobs:
             - name: Install python dependencies
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
-                  uv pip install --system -r requirements-dev.txt
-                  uv pip install --system -r requirements.txt
+                  uv sync --frozen
 
             - name: Install pnpm
               if: needs.changes.outputs.plugin-server == 'true'

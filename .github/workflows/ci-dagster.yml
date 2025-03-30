@@ -115,7 +115,7 @@ jobs:
             - name: Install python dependencies
               shell: bash
               run: |
-                  uv pip install --system -r requirements.txt -r requirements-dev.txt
+                  uv sync --frozen
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts

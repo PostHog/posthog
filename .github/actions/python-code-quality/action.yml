@@ -37,7 +37,7 @@ runs:
         - name: Install Python dependencies
           shell: bash
           run: |
-              uv pip install --system -r requirements.txt -r requirements-dev.txt
+              uv sync --frozen
 
         - name: Check for syntax errors, import sort, and code style violations
           shell: bash

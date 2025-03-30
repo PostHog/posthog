@@ -120,7 +120,7 @@ runs:
         - name: Install Python dependencies
           shell: bash
           run: |
-              uv pip install --system -r requirements.txt -r requirements-dev.txt
+              uv sync --frozen
 
         - name: Install the working version of hogql-parser
           if: steps.hogql-parser-diff.outputs.changed == 'true'

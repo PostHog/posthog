@@ -153,7 +153,7 @@ jobs:
 
             - name: Install python dependencies for master
               run: |
-                  uv pip install --system -r requirements.txt -r requirements-dev.txt
+                  uv sync --frozen
 
             - name: Run migrations up to master
               run: |
@@ -165,7 +165,7 @@ jobs:
 
             - name: Install python dependencies for this PR
               run: |
-                  uv pip install --system -r requirements.txt -r requirements-dev.txt
+                  uv sync --frozen
 
             - name: Run migrations for this PR
               run: |
@@ -325,7 +325,7 @@ jobs:
             - name: Install python dependencies
               shell: bash
               run: |
-                  uv pip install --system -r requirements.txt -r requirements-dev.txt
+                  uv sync --frozen
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts

@@ -146,8 +146,7 @@ jobs:
             - name: Install python dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
-                  uv pip install --system -r ../requirements-dev.txt
-                  uv pip install --system -r ../requirements.txt
+                  uv pip install --system -r ../pyproject.toml
 
             - name: Set up databases
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'

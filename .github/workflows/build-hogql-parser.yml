@@ -127,12 +127,12 @@ jobs:
               shell: bash
               run: |
                   local=$(python common/hogql_parser/setup.py --version)
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.in
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.txt
+                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" pyproject.toml
+                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" uv.lock
 
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               with:
-                  add: '["requirements.in", "requirements.txt"]'
+                  add: '["pyproject.toml", "uv.lock"]'
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
