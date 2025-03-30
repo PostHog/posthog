@@ -377,6 +377,26 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @parameterized.expand(
         [
+            ("boolean_true_is_valid", True, status.HTTP_200_OK),
+            ("boolean_false_is_valid", False, status.HTTP_200_OK),
+            ("none_is_invalid", None, status.HTTP_400_BAD_REQUEST),
+            ("empty_string_is_valid_because_it_is_none", "", status.HTTP_200_OK),
+            ("whitespace_string_is_invalid", "     ", status.HTTP_400_BAD_REQUEST),
+            ("number_one_is_valid", 1, status.HTTP_200_OK),
+            ("number_zero_is_valid", 0, status.HTTP_200_OK),
+            ("dict_is_invalid", {"test": "test"}, status.HTTP_400_BAD_REQUEST),
+            ("dict_with_filter_key_is_invalid", {"filterTestAccounts": "test"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_only_allow_valid_values_for_filter_test_accounts(
+        self, _test_name: str, choice: str | None, expected_status_code: int
+    ) -> None:
+        self._assert_heatmap_no_result_count(
+            {"date_from": "2023-03-08", "filter_test_accounts": choice}, expected_status_code=expected_status_code
+        )
+
+    @parameterized.expand(
+        [
             ["total_count", status.HTTP_200_OK],
             ["unique_visitors", status.HTTP_200_OK],
             ["direction", status.HTTP_400_BAD_REQUEST],
