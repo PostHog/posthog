@@ -189,7 +189,7 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                     />
                 </div>
                 <div className="flex flex-row gap-0.5">
-                    <FlaggedFeature match={true} flag={FEATURE_FLAGS.STATIC_HEATMAPS}>
+                    <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
                         <LemonButton
                             size="xsmall"
                             icon={<IconHeatmap />}
