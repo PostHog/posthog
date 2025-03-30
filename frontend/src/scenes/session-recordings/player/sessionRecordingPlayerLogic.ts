@@ -126,7 +126,7 @@ const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
 
 function removeFromLocalStorageWithPrefix(prefix: string): void {
-    for (let i = 0; i < localStorage.length; i++) {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i)
         if (key?.startsWith(prefix)) {
             localStorage.removeItem(key)
