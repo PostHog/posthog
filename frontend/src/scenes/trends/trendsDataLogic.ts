@@ -275,14 +275,14 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     }
 
                     const logic = dashboardLogic.findMounted({ id: props.dashboardId })
-                    const temporaryBreakdownColors = logic?.values.temporaryBreakdownColors
+                    const dashboardBreakdownColors = logic?.values.temporaryBreakdownColors
 
                     // dashboard color overrides
                     const key = getTrendDatasetKey(dataset)
                     let breakdownValue = JSON.parse(key)['breakdown_value']
                     breakdownValue = Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
 
-                    const colorOverride = temporaryBreakdownColors?.find(
+                    const colorOverride = dashboardBreakdownColors?.find(
                         (config) =>
                             config.breakdownValue === breakdownValue &&
                             config.breakdownType === (breakdownFilter?.breakdown_type ?? 'event')

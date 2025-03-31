@@ -25,7 +25,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
     const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
     const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
 
-    const { temporaryBreakdownColors, dashboardMode } = useValues(dashboardLogic)
+    const { temporaryBreakdownColors: dashboardBreakdownColors, dashboardMode } = useValues(dashboardLogic)
     const { setBreakdownColorConfig, setDashboardMode } = useActions(dashboardLogic)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -99,7 +99,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                         dataSource={breakdownValues.map((breakdownValue) => ({
                             ...breakdownValue,
                             colorToken:
-                                temporaryBreakdownColors.find(
+                                dashboardBreakdownColors.find(
                                     (c) =>
                                         c.breakdownValue === breakdownValue.breakdownValue &&
                                         c.breakdownType === breakdownValue.breakdownType
