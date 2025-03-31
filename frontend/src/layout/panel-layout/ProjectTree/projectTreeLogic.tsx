@@ -601,21 +601,39 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
         },
-        assureVisibility: ({ projectTreeRef }) => {
+        assureVisibility: async ({ projectTreeRef }, breakpoint) => {
             if (projectTreeRef) {
                 const treeItem = values.viableItems.find(
                     (item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref
                 )
-
+                let path: string | undefined
                 if (treeItem) {
-                    // console.log("!!!! Found it in the tree: ", treeItem)
+                    path = treeItem.path
+                } else {
+                    const resp = await api.fileSystem.list({ ref: projectTreeRef.ref, type: projectTreeRef.type })
+                    breakpoint() // bail if we opened some other item in the meanwhile
+                    if (resp.results && resp.results.length > 0) {
+                        const result = resp.results[0]
+                        path = result.path
+                    }
                 }
-                // if (path) {
-                //     const folderId = `project/${path}`
-                //     actions.toggleFolderOpen(folderId, true)
-                //     actions.setLastViewedId(folderId)
-                //     projectTreeRef.scrollToItem(folderId)
-                // }
+                if (path) {
+                    const expandedSet = new Set(values.expandedFolders)
+                    const allFolders = splitPath(path).slice(0, -1)
+                    const allFullFolders = allFolders.map((_, index) => joinPath(allFolders.slice(0, index + 1)))
+                    const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project/' + f))
+
+                    for (const folder of nonExpandedFolders) {
+                        if (values.folderStates[folder] !== 'loaded' && values.folderStates[folder] !== 'loading') {
+                            actions.loadFolder(folder)
+                        }
+                    }
+                    actions.setExpandedFolders([
+                        ...values.expandedFolders,
+                        ...nonExpandedFolders.map((f) => 'project/' + f),
+                    ])
+                    // TODO: scroll to item?
+                }
             }
         },
     })),
