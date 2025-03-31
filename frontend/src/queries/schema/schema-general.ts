@@ -2821,6 +2821,7 @@ export type SDKUsageData = {
             }
         }
     }
+    dateRange: [string, string]
 }
 
 export interface SDKDeprecationWarningsResponse {
