@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { groupLogic } from 'scenes/groups/groupLogic'
@@ -10,7 +11,7 @@ export function GroupOverview(): JSX.Element {
     const { groupTypeName, groupData, groupTypeDetailDashboard } = useValues(groupLogic)
 
     const { createDetailDashboard } = useActions(groupLogic)
-
+    const { reportGroupTypeDetailDashboardCreated } = useActions(eventUsageLogic)
     const [creatingDetailDashboard, setCreatingDetailDashboard] = useState(false)
 
     if (!groupData) {
@@ -35,6 +36,7 @@ export function GroupOverview(): JSX.Element {
                             type="primary"
                             onClick={() => {
                                 setCreatingDetailDashboard(true)
+                                reportGroupTypeDetailDashboardCreated()
                                 createDetailDashboard(groupData.group_type_index)
                             }}
                             disabled={creatingDetailDashboard}
