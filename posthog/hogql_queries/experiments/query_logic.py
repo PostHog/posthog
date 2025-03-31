@@ -12,7 +12,7 @@ from posthog.schema import (
 def get_data_warehouse_metric_source(
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric],
 ) -> ExperimentDataWarehouseNode | None:
-    if isinstance(metric, ExperimentMeanMetric) and metric.source.kind == "ExperimentDataWarehouseNode":
+    if isinstance(metric, ExperimentMeanMetric) and isinstance(metric.source, ExperimentDataWarehouseNode):
         return metric.source
     return None
 
@@ -27,7 +27,7 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
         # If the metric is a property math type, we need to extract the value from the event property
         metric_property = metric.source.math_property
         if metric_property:
-            if metric.source.kind == "ExperimentDataWarehouseNode":
+            if isinstance(metric.source, ExperimentDataWarehouseNode):
                 return parse_expr(metric_property)
             else:
                 return parse_expr(
