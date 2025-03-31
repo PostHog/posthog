@@ -2,13 +2,14 @@
 
 PostHog Rust service monorepo. This is *not* the Rust client library for PostHog.
 
-### Requirements
+## Requirements
 
 1. [Rust](https://www.rust-lang.org/tools/install).
 1. [Docker](https://docs.docker.com/engine/install/), or [podman](https://podman.io/docs/installation) and [podman-compose](https://github.com/containers/podman-compose#installation): To setup development stack.
 1. [sqlx](https://github.com/launchbadge/sqlx) and [sqlx-cli](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md) - this is *optional to use* if your project interacts with a database (unit tests etc.) that you'd like to manage with `sqlx`. It is installed for you either way locally and in CI by `posthog/rust/bin/migrate_tests` if it's missing.
 
-### Testing
+### Local Dev
+Generally not needed for Rust projects in local, since the default `DATABASE_URL` and test suites run against test-scoped Docker Compose and DB namespaces. However, if you want to code "live" against isolated DB namespaces + the `posthog` local dev DB, you can override `DATABASE_URL` as set in the `rust/.env` file and do so this way:
 
 1. Start development stack:
 ```bash
@@ -17,7 +18,8 @@ PostHog Rust service monorepo. This is *not* the Rust client library for PostHog
 > bin/migrate
 ```
 
-2. Test:
+### Testing (local and CI)
+This is the typical flow for working locally and running test suites. CI now behaves very similarly using the same scripts/automation.
 
 ```bash
 # from posthog repo root (if you haven't already)
@@ -112,7 +114,7 @@ The subprojects in the workspace fall into several categories:
 * Provides strong serialization integration with existing Rust frameworks for hydrating and persisting complex data types
 * Provides `sqlx::test` annotations that automate per-test database isolation and migration services to enable parallel test execution
 
-However, `sqlx` has some prickly points too:
+However, `sqlx` has some prickly points that we must accommodate:
 * `cargo sqlx prepare --workspace` requires that all tables referenced in `sqlx::query*` macros are created and exist on the same database
 * `sqlx::test` requires a single `DATABASE_URL` (and therefore Postgres DB namespace) to be shared when running tests from the workspace level
 
@@ -126,30 +128,22 @@ TODO: write up a brief intro for all of them.
 
 This is a rewrite of [capture.py](https://github.com/PostHog/posthog/blob/master/posthog/api/capture.py), in Rust.
 
-#### Why?
+_TODO: complete the transition from legacy `capture` implementations into the Rust version hosted here._
 
-Capture is very simple. It takes some JSON, checks a key in Redis, and then pushes onto Kafka. It's mostly IO bound.
-
-We currently use far too much compute to run this service, and it could be more efficient. This effort should not take too long to complete, but should massively reduce our CPU usage - and therefore spend.
-
-#### How?
-
-I'm trying to ensure the rewrite at least vaguely resembles the Python version. This will both minimize accidental regressions, but also serve as a "rosetta stone" for engineers at PostHog who have not written Rust before.
-
-### rusty-hook
-A reliable and performant webhook system for PostHog
+### common
+Shared boilerplate code (metrics publishing, k8s health endpoints, kafka client wrappers, etc.) that many of the other subprojects depend on.
 
 ### property-defs-rs
 Consumes the `clickhouse_events_json` (post-processed events) topic, scanning for new event definitions and properties. Attempts to classify the value type of each property and update the `posthog_propertydefinition`, `posthog_eventproperty`, and `posthog_eventdefinition` tables accordingly.
 
-This data is queried by the Django taxonomy API to display event property types and metadata used in filter and query building in the product. 
+This data is queried by the Django taxonomy API to display event property types and metadata used in filter and query building in the product.
 
 ### feature-flags
 Manages PostHog Feature Flags. **IMPORTANT** this project does not rely on `sqlx` for database management. It utilizes the `posthog` (Django-managed) database setup `manage.py setup_test_environment` and it's own internal project scripts to handle local dev and test flows. It *does* share the `posthog` (repo root) Docker Compose with the rest of the Rust workspace, and utilizes the same common `posthog/rust/bin` database and test suite management scripts, which are special-cased in places to accommodate it.
 
 See the `posthog/rust/feature-flags/README.md` for details.
 
-If you're starting a new Rust project and do not intend to depend on `sqlx`, this 
+If you're starting a new Rust project and do not intend to depend on `sqlx`, this project is a good template to start with.
 
 ### hook-\*
 Various libraries and services that manage PostHog webhooks
