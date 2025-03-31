@@ -3886,6 +3886,7 @@ export type IntegrationKind =
     | 'snapchat'
     | 'intercom'
     | 'email'
+    | 'linear'
 
 export interface IntegrationType {
     id: number
@@ -3905,6 +3906,10 @@ export interface SlackChannelType {
     is_ext_shared: boolean
     is_member: boolean
     is_private_without_access?: boolean
+}
+export interface LinearTeamType {
+    id: string
+    name: string
 }
 
 export interface SharingConfigurationType {

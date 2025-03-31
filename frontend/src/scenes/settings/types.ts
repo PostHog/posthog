@@ -84,6 +84,7 @@ export type SettingId =
     | 'error-tracking-alerting'
     | 'integration-webhooks'
     | 'integration-slack'
+    | 'integration-error-tracking'
     | 'integration-other'
     | 'integration-ip-allowlist'
     | 'environment-access-control'
