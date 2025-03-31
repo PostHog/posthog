@@ -2803,3 +2803,27 @@ export interface RevenueTrackingConfig {
      */
     dataWarehouseTables: RevenueTrackingDataWarehouseTable[]
 }
+
+export interface SDKWarning {
+    lib: string
+    latestUsedVersion: string
+    latestAvailableVersion?: string
+    level: 'error' | 'warning' | 'info'
+    numVersionsBehind?: number
+    message?: string
+}
+
+export type SDKUsageData = {
+    libs: {
+        [lib: string]: {
+            [version: string]: {
+                [date: string]: number
+            }
+        }
+    }
+}
+
+export interface SDKDeprecationWarningsResponse {
+    warnings: SDKWarning[]
+    usageData: SDKUsageData
+}

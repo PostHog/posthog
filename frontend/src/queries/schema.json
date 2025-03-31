@@ -15383,6 +15383,67 @@
                 }
             ]
         },
+        "SDKDeprecationWarningsResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "usageData": {
+                    "$ref": "#/definitions/SDKUsageData"
+                },
+                "warnings": {
+                    "items": {
+                        "$ref": "#/definitions/SDKWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["warnings", "usageData"],
+            "type": "object"
+        },
+        "SDKUsageData": {
+            "additionalProperties": false,
+            "properties": {
+                "libs": {
+                    "additionalProperties": {
+                        "additionalProperties": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "type": "object"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["libs"],
+            "type": "object"
+        },
+        "SDKWarning": {
+            "additionalProperties": false,
+            "properties": {
+                "latestAvailableVersion": {
+                    "type": "string"
+                },
+                "latestUsedVersion": {
+                    "type": "string"
+                },
+                "level": {
+                    "enum": ["error", "warning", "info"],
+                    "type": "string"
+                },
+                "lib": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "numVersionsBehind": {
+                    "type": "number"
+                }
+            },
+            "required": ["lib", "latestUsedVersion", "level"],
+            "type": "object"
+        },
         "SamplingRate": {
             "additionalProperties": false,
             "properties": {
