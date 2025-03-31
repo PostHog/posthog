@@ -111,15 +111,13 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
     return (
         // Apply transform to the entire container and make it the drag reference
         <div
-            className={cn('relative', props.className)}
+            className={cn('relative w-full', props.className)}
             ref={setNodeRef}
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
             {...(props.enableDragging ? listeners : {})}
         >
-            <div className="flex-1" {...attributes}>
-                {props.children}
-            </div>
+            <div {...attributes}>{props.children}</div>
         </div>
     )
 }

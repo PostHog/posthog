@@ -71,6 +71,7 @@ type ButtonBaseProps = {
     external?: boolean
     disabled?: boolean
     active?: boolean
+    buttonWrapper?: (button: JSX.Element) => JSX.Element
 } & VariantProps<typeof buttonVariants>
 
 /* -------------------------------------------------------------------------- */
@@ -90,11 +91,34 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
         sizeContext: size,
     }
 
+    let buttonHeight = ''
+    switch (size) {
+        case 'sm':
+            buttonHeight = BUTTON_HEIGHT_SM
+            break
+        case 'base':
+            buttonHeight = BUTTON_HEIGHT_BASE
+            break
+        case 'lg':
+            buttonHeight = BUTTON_HEIGHT_LG
+            break
+        case 'fit':
+            buttonHeight = ''
+            break
+    }
+
     return (
         <ButtonContext.Provider value={setContext}>
             <Comp
                 className={cn(
-                    buttonVariants({ size: 'fit', variant: 'default-group', fullWidth, isGroup: true, className })
+                    buttonVariants({
+                        size: 'fit',
+                        variant: 'default-group',
+                        fullWidth,
+                        isGroup: true,
+                        className,
+                    }),
+                    buttonHeight
                 )}
                 ref={ref}
                 {...rest}
@@ -128,7 +152,6 @@ const buttonVariants = cva({
         inline-flex
         w-fit
         items-center
-        justify-center
         rounded-md
         text-sm
         font-normal
@@ -149,7 +172,7 @@ const buttonVariants = cva({
             sm: `${BUTTON_HEIGHT_SM} px-[var(--button-padding-x-sm)] [&_svg]:size-3`,
             base: `${BUTTON_HEIGHT_BASE} px-[var(--button-padding-x-base)] [&_svg]:size-4`,
             lg: `${BUTTON_HEIGHT_LG} px-[var(--button-padding-x-lg)] [&_svg]:size-5`,
-            fit: '',
+            fit: 'px-0',
         },
         iconOnly: {
             true: 'p-0',
@@ -164,7 +187,7 @@ const buttonVariants = cva({
             false: 'gap-1.5',
         },
         menuItem: {
-            true: 'w-full justify-start',
+            true: 'w-full justify-start', // @TODO this isn't working
             false: '',
         },
         truncate: {
@@ -215,6 +238,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
         menuItem,
         disabled,
         active,
+        buttonWrapper,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -228,7 +252,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
     // Determine the element props
     const elementProps = href ? { href, ...rest } : rest
 
-    return React.createElement(
+    const buttonComponent = React.createElement(
         Comp,
         {
             className: cn(
@@ -250,6 +274,12 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
         },
         children
     )
+
+    if (buttonWrapper) {
+        return buttonWrapper(buttonComponent)
+    }
+
+    return buttonComponent
 })
 
 ButtonPrimitive.displayName = 'ButtonPrimitive'
