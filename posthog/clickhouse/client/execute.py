@@ -92,7 +92,6 @@ def validated_client_query_id() -> Optional[str]:
 
 @cached(cache=TTLCache(maxsize=1, ttl=600))
 def get_api_queries_online_allow_list() -> set[int]:
-    cfg = None
     with suppress(Exception):
         cfg = posthoganalytics.get_remote_config_payload("api-queries-on-online-cluster")
         return set(cfg.get("allowed_team_id", [])) if cfg else set[int]()
