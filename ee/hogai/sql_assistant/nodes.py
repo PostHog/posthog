@@ -1,5 +1,5 @@
 import datetime
-from typing import Literal
+from typing import Literal, cast
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -14,7 +14,14 @@ from langchain_openai import ChatOpenAI
 from ee.hogai.sql_assistant.prompts import SQL_ASSISTANT_SYSTEM_PROMPT
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantMessage, HumanMessage
+from posthog.schema import AssistantMessage, HumanMessage, AssistantToolCall
+from pydantic import BaseModel
+
+
+class generate_hogql_query(BaseModel):
+    """
+    Generate a hogQL query to answer the user's question.
+    """
 
 
 class SQLAssistantNode(AssistantNode):
@@ -39,6 +46,7 @@ class SQLAssistantNode(AssistantNode):
 
         # Get the model
         model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True)
+        model = model.bind_tools([generate_hogql_query])
 
         # Create the chain
         chain = prompt | model
@@ -56,12 +64,17 @@ class SQLAssistantNode(AssistantNode):
             },
             config,
         )
+        message = cast(LangchainAIMessage, message)
 
         # Return the result as a PartialAssistantState
         return PartialAssistantState(
             messages=[
                 AssistantMessage(
                     content=str(message.content),
+                    tool_calls=[
+                        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
+                        for tool_call in message.tool_calls
+                    ],
                     id=str(uuid4()),
                 ),
             ],
@@ -72,7 +85,11 @@ class SQLAssistantNode(AssistantNode):
         Router for the thinking node - always routes to the next node (SQL planner).
         This prevents looping back to itself.
         """
-        return "next"
+        last_message = state.messages[-1]
+        # only possible tool call is generate_hogql_query for now
+        if last_message.tool_calls:
+            return "next"
+        return "end"
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         """

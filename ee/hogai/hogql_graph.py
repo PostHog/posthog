@@ -50,7 +50,10 @@ class HogQLGraph:
         builder.add_conditional_edges(
             AssistantNodeName.SQL_ASSISTANT,
             sql_assistant_node.router,
-            path_map={"next": next_node},
+            path_map={
+                "next": next_node,
+                "end": AssistantNodeName.END,
+            },
         )
         return self
 
