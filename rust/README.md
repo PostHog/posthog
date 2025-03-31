@@ -6,7 +6,7 @@ PostHog Rust service monorepo. This is *not* the Rust client library for PostHog
 
 1. [Rust](https://www.rust-lang.org/tools/install).
 1. [Docker](https://docs.docker.com/engine/install/), or [podman](https://podman.io/docs/installation) and [podman-compose](https://github.com/containers/podman-compose#installation): To setup development stack.
-1. `sqlx-cli` - this is *optional to use* if your project interacts with a database (unit tests etc.) that you'd like to manange with `sqlx`. It is installed for you either way locally and in CI by `posthog/rust/bin/migrate_tests` if it's missing.
+1. [sqlx](https://github.com/launchbadge/sqlx) and [sqlx-cli](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md) - this is *optional to use* if your project interacts with a database (unit tests etc.) that you'd like to manage with `sqlx`. It is installed for you either way locally and in CI by `posthog/rust/bin/migrate_tests` if it's missing.
 
 ### Testing
 
@@ -25,63 +25,52 @@ PostHog Rust service monorepo. This is *not* the Rust client library for PostHog
 
 # from posthog/rust (Rust workspace root)
 
-# Bootstrap the test environment (required to run tests!)
-> bin/migrate_tests
-
 # Run an individual workspace subproject's test suite
-# Note: see `cargo test --help` to filter to specific modules or unit tests
+> bin/migrate_tests
 > RUST_BACKTRACE=1 cargo test -p <SUBPROJECT_NAME>
 
-# Run the full test suite for all workspace projects (CI does this)
+# Run the test migrations and test suites for all workspace projects (CI does this)
 > bin/run_workspace_tests
 ```
 
-**Note** this does all of the following:
-1. Sources the `.env` file to establish a *test-scoped* `DATABASE_URL` for all subprojects that use `sqlx` or don't depend on Postgres
-1. Creates and migrates the consolidated test database for all Rust workspace services (except `feature-flags`)
-1. Runs `posthog` repo root `manage.py setup_test_environment` to bootstrap Django-managed DB for `feature-flags` service
-1. Installs `sqlx-cli` at pinned version if missing
-1. Runs an `sqlx`-managed DB migration for every Rust workspace service that depends on `sqlx`
-1. Refreshes the `sqlx` query cache required by all `sqlx::query*` macros, updating the cache at `posthog/rust/.sqlx`
-1. Runs the full-workspace test suite on a capped thread pool to avoid Docker resource saturation
-
-
 ## Rust Workspace Local Dev, Test, and CI components
+The Rust workspace dev/test/CI environment has a bunch of moving parts. Here's a brief intro to orient you on all of them:
 
 * `posthog/docker-compose.dev.yml`: the single, unified Docker Compose environment used by `posthog` and Rust workspace projects
-* `bin/migrate`
-    * Runs the Django `setup_test_environment` automation for Rust projects that share the `posthog` and `test_posthog` databases
-    * Runs individual DB creation + migrations for Rust subprojects that manage their own isolated databases in production
+* `posthog/bin/migrate`
+    * Bootstraps and migrates the `posthog` (repo root) database for local development
+    * Executes `posthog/rust/bin/migrate` to bootstrap DB namespaces in local dev for Rust services that depend on an _isolated Postgres instance in production_
+* /posthog/rust/bin/migrate`
+    * Bootstraps and migrates isolated DB namespaces for local dev (*not* tests/CI) for Rust services that depend on an isolated Postgres instance in production
         * Currently, this is `cyclotron-*` and (soon) `property-defs-rs`
+* `posthog/plugin-server/package.json`
+    * Manages running the `posthog/rust/cyclotron-*` service and bootstrapping its isolated DB for local dev
+    * Cyclotron is a library and set of support services wrapped by a NodeJS API for use in the Node `plugin-server` deployments
+* `posthog/rust/.sqlx/`
+    * Single unified query cache for all `sqlx`-dependent Rust workspace subprojects
+    * Must be updated when queries constructed by `sqlx::query*` macros change and checked into your PR
 * `posthog/rust/.env`
     * Sourced by automation including `cargo` and `sqlx` as well as `posthog/rust/bin` scripts
     * Sets up a **test scoped** unified database namespace on the `posthog` Docker Compose Postgres instance `postgres-db-1`
     * Must be **overridden in your local env** to work directly with isolated DBs/namespaces outside of test scope
-    * Can also be overridden (see `posthog/rust/bin` scripts for details) in use by `cargo` and `sqlx` commands using `-D <DB_URL>`
+    * Can be overridden when executing `cargo` and `sqlx` commands directly, using `-D <DB_URL>`
 * `posthog/rust/.cargo/config.toml`
     * Sets up `SQLX_OFFLINE=true` (offline query caching) by default with `cargo` and `sqlx` tools
 * `posthog/rust/bin/update_sqlx_query_cache`
-    * Depends on and executed by `bin/migrate_tests`
+    * Runs `cargo sqlx prepare` for the entire workspace, curating a unified query cache at `posthog/rust/.sqlx`
     * Can be run directly in local dev _if_ `bin/migrate_tests` has already run successfully
 * `posthog/rust/bin/migrate_tests`
+    * Sources the current test DB namespace and URL from `posthog/rust/.env`
     * Runs the Django `setup_test_environment` automation for Rust projects that share the `posthog` and `test_posthog` databases
-    * Runs all `migrtations` and `test_migrations` against `rust_test_database` DB namespace, for all `sqlx`-dependent workspace subprojects
-    * Runs `cargo sqlx prepare` for the entire workspace, curating a unified query cache at `posthog/rust/.sqlx`
-* `posthog/plugin-server/package.json`
-    * Manages running the `posthog/rust/cyclotron-*` service and bootstrapping its isolated DB for local dev
-    * Cyclotron is a library and set of support services wrapped by a NodeJS API for use in the Node `plugin-server` deployments
+    * Runs all Rust workspace migrations against single shared `rust_test_database` DB namespace
+        * :point_up: this is required to curate single query cache for all `sqlx`-dependent subprojects
+    * Executes `bin/update_sqlx_query_cache`
 * `posthog/rust/bin/run_workspace_tests`
     * Runs `bin/migrate_tests`
     * Runs `cargo test` at the workspace level for all subprojects
 * `posthog/.github/workspaces/ci-rust.yml`
     * Runs a single workspace-wide test prep and suite
     * Utilizes `bin/run_workspace_tests` in CI as in local dev and unit testing
-* `posthog/.github/workspaces/ci-hobby.yml`
-    * Deploys the "Hobby" (FOSS) bootstrap of `posthog` in a Droplet
-    * Attempts to sanity check the deployment is successful and live
-    * Gates CI success for `posthog` repo PRs
-* `posthog/bin/hobby-ci.py`
-    * Utility script used by `ci-hobby.yml` GitHub Action
 
 ### Updating the SQLX query cache
 This is required when making changes to any production (dev) or test-scoped queries managed using `sqlx::query*` macros in Rust code. If you see fail messages during test runs referring to `SQLX_OFFLINE` then you need to update the query cache locally.
@@ -90,7 +79,7 @@ This is required when making changes to any production (dev) or test-scoped quer
 # From the `posthog` directory
 > docker compose -f docker-compose.dev.yml up -d --wait
 
-# From the `posthog/rust` directory
+# From the `posthog/rust` directory - also runs SQLX cache update
 > bin/migrate_tests
 
 # If you've already done the above and are in mid-dev-loop, you can just run:
