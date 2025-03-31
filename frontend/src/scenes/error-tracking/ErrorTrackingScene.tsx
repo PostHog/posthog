@@ -23,7 +23,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -122,7 +122,7 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
     const { results } = useValues(errorTrackingDataNodeLogic)
-    const allSelected = results.length == selectedIssueIds.length
+    const allSelected = results.length == selectedIssueIds.length && selectedIssueIds.length > 0
 
     return (
         <div className="flex gap-2 items-center">
@@ -187,7 +187,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 }
 
 const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
-    const aggregations = (record as ErrorTrackingIssue).aggregations as ErrorTrackingIssueAggregations
+    const aggregations = (record as ErrorTrackingIssue).aggregations
     const count = aggregations[columnName as 'occurrences' | 'sessions' | 'users']
 
     return (
