@@ -461,7 +461,7 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
 
                 return {
                     id: step.event,
-                    name: step.name,
+                    name: step.event ?? undefined,
                     event: step.event,
                     order: index,
                     type: 'events',
