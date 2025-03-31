@@ -1,8 +1,6 @@
-import { IconMagicWand } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { useState } from 'react'
+import { QuestionInputComponent } from 'scenes/max/QuestionInput'
 import { Thread } from 'scenes/max/Thread'
 
 import { queryAILogic } from './queryAILogic'
@@ -36,24 +34,15 @@ export function QueryAIInstance(): JSX.Element {
         <div className="flex flex-col pt-2 gap-2 h-full">
             {!hasSubmitted && (
                 <div className="flex gap-2 pl-2 pr-2">
-                    <LemonInput
-                        className="grow"
-                        prefix={<IconMagicWand />}
-                        value={question}
-                        onPressEnter={handleSubmit}
+                    <QuestionInputComponent
                         onChange={(value) => setQuestion(value)}
-                        placeholder="What do you want to know? How would you like to tweak the query?"
-                        maxLength={400}
+                        placeholder={threadLoading ? 'Thinking…' : 'Ask Max to write a query for you'}
+                        value={question}
+                        onSubmit={handleSubmit}
+                        isLoading={threadLoading}
+                        inputDisabled={threadLoading}
+                        buttonDisabledReason={threadLoading ? "Let's bail" : undefined}
                     />
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSubmit}
-                        disabledReason={!question ? 'Provide a prompt first' : null}
-                        tooltipPlacement="left"
-                        loading={threadLoading}
-                    >
-                        Think
-                    </LemonButton>
                 </div>
             )}
 
@@ -65,24 +54,15 @@ export function QueryAIInstance(): JSX.Element {
                         )}
                     </div>
                     <div className="flex gap-2 pt-2 pr-2 pl-2 sticky bottom-2 z-10">
-                        <LemonInput
-                            className="grow"
-                            prefix={<IconMagicWand />}
-                            value={question}
-                            onPressEnter={handleSubmit}
+                        <QuestionInputComponent
                             onChange={(value) => setQuestion(value)}
-                            placeholder="Ask a follow-up question..."
-                            maxLength={400}
+                            placeholder={threadLoading ? 'Thinking…' : 'Ask follow up'}
+                            value={question}
+                            onSubmit={handleSubmit}
+                            isLoading={threadLoading}
+                            isFloating={true}
+                            buttonDisabledReason={threadLoading ? "Let's bail" : undefined}
                         />
-                        <LemonButton
-                            type="primary"
-                            onClick={handleSubmit}
-                            disabledReason={!question ? 'Provide a prompt first' : null}
-                            tooltipPlacement="left"
-                            loading={threadLoading}
-                        >
-                            Ask
-                        </LemonButton>
                     </div>
                 </div>
             )}

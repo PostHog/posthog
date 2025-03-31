@@ -10,28 +10,97 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
+interface QuestionInputComponentProps {
+    value: string
+    onChange: (value: string) => void
+    onSubmit: () => void
+    onStop?: () => void
+    isLoading?: boolean
+    isFloating?: boolean
+    disabled?: boolean
+    disabledReason?: string
+    placeholder?: string
+    autoFocus?: boolean
+}
+
+export function QuestionInputComponent({
+    value,
+    onChange,
+    onSubmit,
+    onStop,
+    isLoading = false,
+    isFloating = false,
+    disabled = false,
+    disabledReason,
+    placeholder = 'Ask away',
+    autoFocus = false,
+}: QuestionInputComponentProps): JSX.Element {
+    const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
+
+    useEffect(() => {
+        if (isLoading) {
+            textAreaRef.current?.focus()
+        }
+    }, [isLoading])
+
+    useEffect(() => {
+        if (autoFocus && textAreaRef.current) {
+            textAreaRef.current.focus()
+            textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
+        }
+    }, [autoFocus])
+
+    return (
+        <div className="relative w-full">
+            <LemonTextArea
+                ref={textAreaRef}
+                value={value}
+                onChange={onChange}
+                placeholder={isLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : placeholder}
+                onPressEnter={() => {
+                    if (value && !disabledReason && !isLoading) {
+                        onSubmit()
+                    }
+                }}
+                disabled={disabled}
+                minRows={1}
+                maxRows={10}
+                className={clsx('p-3 pr-12', isFloating && 'border-primary')}
+            />
+            <div className="absolute flex items-center right-3 bottom-[7px]">
+                <LemonButton
+                    type={(isFloating && !value) || isLoading ? 'secondary' : 'primary'}
+                    onClick={() => {
+                        if (isLoading) {
+                            onStop?.()
+                        } else {
+                            onSubmit()
+                        }
+                    }}
+                    tooltip={
+                        isLoading ? (
+                            "Let's bail"
+                        ) : (
+                            <>
+                                Let's go! <KeyboardShortcut enter />
+                            </>
+                        )
+                    }
+                    disabledReason={disabledReason}
+                    size="small"
+                    icon={isLoading ? <IconStopFilled /> : <IconArrowRight />}
+                />
+            </div>
+        </div>
+    )
+}
+
 export function QuestionInput(): JSX.Element {
     const { tools } = useValues(maxGlobalLogic)
     const { question, threadGrouped, threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxLogic)
     const { askMax, setQuestion, stopGeneration } = useActions(maxLogic)
 
-    const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
-
     const isFloating = threadGrouped.length > 0
-
-    useEffect(() => {
-        if (threadLoading) {
-            textAreaRef.current?.focus() // Focus after submit
-        }
-    }, [threadLoading])
-
-    useEffect(() => {
-        if (textAreaRef.current) {
-            // Autofocus, but a version that also moves cursor to end of text
-            textAreaRef.current.focus()
-            textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
-        }
-    }, [])
 
     return (
         <div
@@ -48,47 +117,17 @@ export function QuestionInput(): JSX.Element {
                     isFloating && (tools.length > 0 ? 'mb-1.5' : 'mb-3')
                 )}
             >
-                <div className="relative w-full">
-                    <LemonTextArea
-                        ref={textAreaRef}
-                        value={question}
-                        onChange={(value) => setQuestion(value)}
-                        placeholder={threadLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : 'Ask away'}
-                        onPressEnter={() => {
-                            if (question && !submissionDisabledReason && !threadLoading) {
-                                askMax(question)
-                            }
-                        }}
-                        disabled={inputDisabled}
-                        minRows={1}
-                        maxRows={10}
-                        className={clsx('p-3 pr-12', isFloating && 'border-primary')}
-                    />
-                    <div className="absolute flex items-center right-3 bottom-[7px]">
-                        <LemonButton
-                            type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
-                            onClick={() => {
-                                if (threadLoading) {
-                                    stopGeneration()
-                                } else {
-                                    askMax(question)
-                                }
-                            }}
-                            tooltip={
-                                threadLoading ? (
-                                    "Let's bail"
-                                ) : (
-                                    <>
-                                        Let's go! <KeyboardShortcut enter />
-                                    </>
-                                )
-                            }
-                            disabledReason={submissionDisabledReason}
-                            size="small"
-                            icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
-                        />
-                    </div>
-                </div>
+                <QuestionInputComponent
+                    value={question}
+                    onChange={setQuestion}
+                    onSubmit={() => askMax(question)}
+                    onStop={stopGeneration}
+                    isLoading={threadLoading}
+                    isFloating={isFloating}
+                    disabled={inputDisabled}
+                    disabledReason={submissionDisabledReason}
+                    autoFocus={true}
+                />
                 {tools.length > 0 && (
                     <div
                         className={clsx(

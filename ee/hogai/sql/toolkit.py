@@ -4,7 +4,7 @@ from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 class SQLTaxonomyAgentToolkit(TaxonomyAgentToolkit):
     def _get_tools(self) -> list[ToolkitTool]:
         return [
-            # *self._default_tools,
+            *self._default_tools,
             {
                 "name": "final_answer",
                 "signature": "(final_response: str)",

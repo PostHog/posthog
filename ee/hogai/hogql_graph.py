@@ -6,8 +6,6 @@ from ee.hogai.sql_assistant.nodes import SQLAssistantNode
 from ee.hogai.sql.nodes import (
     SQLGeneratorNode,
     SQLGeneratorToolsNode,
-    SQLPlannerNode,
-    SQLPlannerToolsNode,
 )
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
@@ -41,7 +39,7 @@ class HogQLGraph:
 
     def add_sql_assistant(
         self,
-        next_node: AssistantNodeName = AssistantNodeName.SQL_PLANNER,
+        next_node: AssistantNodeName = AssistantNodeName.SQL_GENERATOR,
     ):
         builder = self._graph
         self._has_start_node = True
@@ -54,29 +52,6 @@ class HogQLGraph:
             sql_assistant_node.router,
             path_map={"next": next_node},
         )
-        return self
-
-    def add_sql_planner(
-        self,
-        next_node: AssistantNodeName = AssistantNodeName.SQL_GENERATOR,
-    ):
-        builder = self._graph
-
-        sql_planner = SQLPlannerNode(self._team)
-        builder.add_node(AssistantNodeName.SQL_PLANNER, sql_planner)
-        builder.add_edge(AssistantNodeName.SQL_PLANNER, AssistantNodeName.SQL_PLANNER_TOOLS)
-
-        sql_planner_tools = SQLPlannerToolsNode(self._team)
-        builder.add_node(AssistantNodeName.SQL_PLANNER_TOOLS, sql_planner_tools)
-        builder.add_conditional_edges(
-            AssistantNodeName.SQL_PLANNER_TOOLS,
-            sql_planner_tools.router,
-            path_map={
-                "continue": AssistantNodeName.SQL_PLANNER,
-                "plan_found": next_node,
-            },
-        )
-
         return self
 
     def add_sql_generator(self, next_node: AssistantNodeName = AssistantNodeName.END):
@@ -101,4 +76,4 @@ class HogQLGraph:
         return self
 
     def compile_full_graph(self):
-        return self.add_sql_assistant().add_sql_planner().add_sql_generator().compile()
+        return self.add_sql_assistant().add_sql_generator().compile()
