@@ -11,11 +11,11 @@ import {
     IconSearch,
     IconToolbar,
 } from '@posthog/icons'
-import clsx from 'clsx'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -25,6 +25,7 @@ import { Button } from 'lib/ui/Button/Button'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -56,16 +57,18 @@ const panelStyles = cva({
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, activePanelIdentifier, mainContentRef, isLayoutPanelPinned } =
+    const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier, toggleLayoutNavCollapsed } =
+        useActions(panelLayoutLogic)
+    const { isLayoutPanelVisible, activePanelIdentifier, mainContentRef, isLayoutPanelPinned, isLayoutNavCollapsed } =
         useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { navbarItems } = useValues(navigation3000Logic)
+    const { mobileLayout: isMobileLayout, navbarItems } = useValues(navigation3000Logic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { isDev } = useValues(preflightLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (!isLayoutPanelVisible) {
@@ -104,6 +107,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         'PersonsManagement',
     ]
     const navItems = [
+        ...(isLayoutNavCollapsed
+            ? [
+                  {
+                      identifier: 'Search',
+                      id: 'Search',
+                      icon: <IconSearch />,
+                      onClick: () => {
+                          toggleSearchBar()
+                      },
+                  },
+              ]
+            : []),
         {
             identifier: 'ProjectHomepage',
             id: 'Home',
@@ -175,19 +190,25 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         <>
             <div className="flex gap-0 relative">
                 <nav
-                    className={clsx(
-                        'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-project-panel-layout)] w-[250px] border-r border-primary'
+                    className={cn(
+                        'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-project-panel-layout)] border-r border-primary',
+                        {
+                            'w-[var(--project-navbar-width-collapsed)]': isLayoutNavCollapsed,
+                            'w-[var(--project-navbar-width)]': !isLayoutNavCollapsed,
+                        }
                     )}
                     ref={containerRef}
                 >
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <Button.Root size="base" onClick={() => toggleSearchBar()} data-attr="search-button">
-                            <Button.Icon>
-                                <IconSearch className="text-secondary" />
-                            </Button.Icon>
-                        </Button.Root>
+                        {!isLayoutNavCollapsed && (
+                            <Button.Root size="base" onClick={() => toggleSearchBar()} data-attr="search-button">
+                                <Button.Icon>
+                                    <IconSearch className="text-secondary" />
+                                </Button.Icon>
+                            </Button.Root>
+                        )}
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
@@ -216,16 +237,23 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                 className="group"
                                             >
-                                                <Button.Icon className="text-tertiary group-hover:text-primary">
+                                                <Button.Icon
+                                                    className="text-tertiary group-hover:text-primary"
+                                                    size={isLayoutNavCollapsed ? 'lg' : 'base'}
+                                                >
                                                     {item.icon}
                                                 </Button.Icon>
-                                                <Button.Label menuItem>{item.id}</Button.Label>
-                                                {item.id === 'Project' && (
-                                                    <span className="flex items-center gap-px">
-                                                        <Button.Icon customIconSize>
-                                                            <IconChevronRight className="size-3 text-secondary" />
-                                                        </Button.Icon>
-                                                    </span>
+                                                {!isLayoutNavCollapsed && (
+                                                    <>
+                                                        <Button.Label menuItem>{item.id}</Button.Label>
+                                                        {item.id === 'Project' && (
+                                                            <span className="flex items-center gap-px">
+                                                                <Button.Icon customIconSize>
+                                                                    <IconChevronRight className="size-3 text-secondary" />
+                                                                </Button.Icon>
+                                                            </span>
+                                                        )}
+                                                    </>
                                                 )}
                                             </Button.Root>
                                         </ListBox.Item>
@@ -235,9 +263,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <div className="border-b border-primary h-px my-1" />
 
                                 <div className="pt-1 px-1">
-                                    <div className="flex justify-between items-center pl-2 pr-0 pb-2">
-                                        <span className="text-xs font-semibold text-quaternary">Products</span>
-                                    </div>
+                                    {!isLayoutNavCollapsed && (
+                                        <div className="flex justify-between items-center pl-2 pr-0 pb-2">
+                                            <span className="text-xs font-semibold text-quaternary">Products</span>
+                                        </div>
+                                    )}
                                     <div className="flex flex-col gap-px">
                                         {navbarItems.map((section, index) => (
                                             <ul key={index} className="flex flex-col gap-px ">
@@ -276,42 +306,52 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                     .toString()
                                                                     .toLowerCase()}`}
                                                             >
-                                                                <Button.Icon className="text-tertiary group-hover:text-primary">
+                                                                <Button.Icon
+                                                                    className="text-tertiary group-hover:text-primary"
+                                                                    size={isLayoutNavCollapsed ? 'lg' : 'base'}
+                                                                >
                                                                     {item.icon}
                                                                 </Button.Icon>
-                                                                <Button.Label menuItem>{item.label}</Button.Label>
+                                                                {!isLayoutNavCollapsed && (
+                                                                    <>
+                                                                        <Button.Label menuItem>
+                                                                            {item.label}
+                                                                        </Button.Label>
+                                                                        {item.tag && (
+                                                                            <LemonTag
+                                                                                type={
+                                                                                    item.tag === 'alpha'
+                                                                                        ? 'completion'
+                                                                                        : item.tag === 'beta'
+                                                                                        ? 'warning'
+                                                                                        : 'success'
+                                                                                }
+                                                                                size="small"
+                                                                                className="ml-auto"
+                                                                            >
+                                                                                {item.tag.toUpperCase()}
+                                                                            </LemonTag>
+                                                                        )}
 
-                                                                {item.tag && (
-                                                                    <LemonTag
-                                                                        type={
-                                                                            item.tag === 'alpha'
-                                                                                ? 'completion'
-                                                                                : item.tag === 'beta'
-                                                                                ? 'warning'
-                                                                                : 'success'
-                                                                        }
-                                                                        size="small"
-                                                                        className="ml-auto"
-                                                                    >
-                                                                        {item.tag.toUpperCase()}
-                                                                    </LemonTag>
+                                                                        {item.sideAction &&
+                                                                            item.identifier === 'SavedInsights' && (
+                                                                                <Button.Icon
+                                                                                    isTriggerRight
+                                                                                    isTrigger
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault()
+                                                                                        e.stopPropagation()
+                                                                                        e.nativeEvent.stopImmediatePropagation()
+                                                                                        router.actions.push(
+                                                                                            urls.insightNew()
+                                                                                        )
+                                                                                    }}
+                                                                                >
+                                                                                    {item.sideAction.icon}
+                                                                                </Button.Icon>
+                                                                            )}
+                                                                    </>
                                                                 )}
-
-                                                                {item.sideAction &&
-                                                                    item.identifier === 'SavedInsights' && (
-                                                                        <Button.Icon
-                                                                            isTriggerRight
-                                                                            isTrigger
-                                                                            onClick={(e) => {
-                                                                                e.preventDefault()
-                                                                                e.stopPropagation()
-                                                                                e.nativeEvent.stopImmediatePropagation()
-                                                                                router.actions.push(urls.insightNew())
-                                                                            }}
-                                                                        >
-                                                                            {item.sideAction.icon}
-                                                                        </Button.Icon>
-                                                                    )}
                                                             </Button.Root>
                                                         </ListBox.Item>
                                                     )
@@ -325,7 +365,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-primary h-px " />
 
-                        <div className="pt-1 px-1 pb-2 flex flex-col gap-px">
+                        {/* 
+                            Extra padding to compensate for dev mode debug notice... 
+                            not sure how better to do this other than lower the notices z-index.. 
+                        */}
+                        <div className={`pt-1 px-1 flex flex-col gap-px ${isDev ? 'pb-10' : 'pb-2'}`}>
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <Button.Root
                                     menuItem
@@ -336,24 +380,24 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     }
                                     data-attr="activation-button"
                                 >
-                                    <Button.Icon>
-                                        <SidePanelActivationIcon size={16} />
+                                    <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
+                                        <SidePanelActivationIcon size={isLayoutNavCollapsed ? 20 : 16} />
                                     </Button.Icon>
-                                    <Button.Label menuItem>Quick start</Button.Label>
+                                    {!isLayoutNavCollapsed && <Button.Label menuItem>Quick start</Button.Label>}
                                 </Button.Root>
                             )}
                             <Button.Root menuItem to={urls.toolbarLaunch()} data-attr={Scene.ToolbarLaunch}>
-                                <Button.Icon>
+                                <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
                                     <IconToolbar />
                                 </Button.Icon>
-                                <Button.Label menuItem>Toolbar</Button.Label>
+                                {!isLayoutNavCollapsed && <Button.Label menuItem>Toolbar</Button.Label>}
                             </Button.Root>
 
                             <Button.Root menuItem to={urls.settings('project')} data-attr={Scene.Settings}>
-                                <Button.Icon>
+                                <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
                                     <IconGear />
                                 </Button.Icon>
-                                <Button.Label menuItem>Settings</Button.Label>
+                                {!isLayoutNavCollapsed && <Button.Label menuItem>Settings</Button.Label>}
                             </Button.Root>
 
                             <Popover
@@ -364,24 +408,43 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 className="min-w-70"
                             >
                                 <Button.Root menuItem active={isAccountPopoverOpen} onClick={toggleAccountPopover}>
-                                    <Button.Icon>
-                                        <ProfilePicture user={user} size="sm" className="mr-1" />
+                                    <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
+                                        <ProfilePicture
+                                            user={user}
+                                            size="sm"
+                                            className={!isLayoutNavCollapsed ? 'mr-1' : ''}
+                                        />
                                     </Button.Icon>
-                                    <Button.Label menuItem>
-                                        {user?.first_name ? (
-                                            <span>{user?.first_name}</span>
-                                        ) : (
-                                            <span>{user?.email}</span>
-                                        )}
-                                    </Button.Label>
-                                    <Button.Icon customIconSize>
-                                        <IconChevronRight className="size-3 text-secondary" />
-                                    </Button.Icon>
+                                    {!isLayoutNavCollapsed && (
+                                        <>
+                                            <Button.Label menuItem>
+                                                {user?.first_name ? (
+                                                    <span>{user?.first_name}</span>
+                                                ) : (
+                                                    <span>{user?.email}</span>
+                                                )}
+                                            </Button.Label>
+                                            <Button.Icon customIconSize>
+                                                <IconChevronRight className="size-3 text-secondary" />
+                                            </Button.Icon>
+                                        </>
+                                    )}
                                 </Button.Root>
                             </Popover>
                         </div>
                     </div>
+                    {!isMobileLayout && (
+                        <Resizer
+                            logicKey="panel-layout-navbar"
+                            placement="right"
+                            containerRef={containerRef}
+                            closeThreshold={100}
+                            onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
+                            onDoubleClick={() => toggleLayoutNavCollapsed()}
+                        />
+                    )}
                 </nav>
+
                 <div
                     className={cn(
                         panelStyles({

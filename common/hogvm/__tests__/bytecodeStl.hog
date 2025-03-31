@@ -10,3 +10,8 @@ print('--- arrayFilter ----')
 print(arrayFilter(x -> x like '%nana%', ['apple', 'banana', 'cherry']))
 print(arrayFilter(x -> x like '%e%', ['apple', 'banana', 'cherry']))
 print(arrayFilter(x -> x like '%boom%', []))
+
+print('--- arrayReduce ----')
+print(arrayReduce((a, b) -> a + b, [1,2,3,4,5], 0))
+print(arrayReduce((a, b) -> a + b, [1,2,3,4,5], 15))
+print(arrayReduce((a, b) -> a - b, [5,10], 30))

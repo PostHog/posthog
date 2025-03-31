@@ -22,6 +22,7 @@ import {
     FeatureFlagFilters,
     IntervalType,
     MultipleSurveyQuestion,
+    ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
@@ -1218,6 +1219,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
                 { key: [Scene.Survey, survey?.id || 'new'], name: survey.name },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: SurveyLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'survey', ref: String(id) }),
         ],
         dataTableQuery: [
             (s) => [s.survey, s.propertyFilters, s.answerFilters],

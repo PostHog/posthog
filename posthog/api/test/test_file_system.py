@@ -477,3 +477,46 @@ class TestFileSystemAPI(APIBaseTest):
 
         file2.refresh_from_db()
         self.assertEqual(file2.path, "NewFolder/File2")
+
+    def test_list_by_type_filter(self):
+        """
+        Ensure that the list endpoint filters results by the 'type' query parameter.
+        """
+        # Create several FileSystem items with different types
+        FileSystem.objects.create(team=self.team, path="FileA.txt", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="FileB.txt", type="img", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="FileC.txt", type="doc", created_by=self.user)
+
+        # Filter by type 'doc'
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?type=doc")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Expecting 2 items with type 'doc'
+        self.assertEqual(data["count"], 2)
+        for item in data["results"]:
+            self.assertEqual(item["type"], "doc")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?type__startswith=d")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Expecting 2 items with type starting with 'd'
+        self.assertEqual(data["count"], 2)
+
+    def test_search_files_by_ref(self):
+        """
+        Ensure that searching with the ?search= query param returns items matching on the 'ref' field.
+        """
+        # Create items with unique ref values
+        FileSystem.objects.create(
+            team=self.team, path="SomePath/File1", type="doc", ref="unique-ref-123", created_by=self.user
+        )
+        FileSystem.objects.create(
+            team=self.team, path="OtherPath/File2", type="doc", ref="other-ref-456", created_by=self.user
+        )
+        # Using search to filter by part of the ref value
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=unique-ref")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Expecting only the item with ref "unique-ref-123"
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["ref"], "unique-ref-123")
