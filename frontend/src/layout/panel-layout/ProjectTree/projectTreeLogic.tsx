@@ -522,7 +522,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     hasMore = true
                 }
                 const fileIds = new Set(files.map((file) => file.id))
-                // TODO: remove from previousFiles the ones whose id is in files
                 const previousUniqueFiles = previousFiles.filter(
                     (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
                 )
@@ -656,8 +655,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ...values.expandedFolders,
                         ...nonExpandedFolders.map((f) => 'project/' + f),
                     ])
-
-                    // TODO: scroll to item?
                 }
             }
         },
