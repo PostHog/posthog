@@ -286,8 +286,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     )
 
                     if (colorOverride?.colorToken) {
-                        const dashboardThemeId = logic?.values.temporaryBreakdownColorThemeId
-                        return [getTheme(dashboardThemeId), colorOverride.colorToken]
+                        const dashboardTheme = logic?.values.dataColorTheme
+                        return [dashboardTheme, colorOverride.colorToken]
                     }
 
                     const theme = getTheme(querySource?.dataColorTheme)

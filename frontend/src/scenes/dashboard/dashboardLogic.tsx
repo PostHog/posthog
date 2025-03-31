@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -229,6 +230,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
+        setDataColorTheme: (theme: DataColorTheme | null) => ({ theme }),
         setFiltersAndLayoutsAndVariables: (
             filters: DashboardFilter,
             variables: Record<string, HogQLVariable>,
@@ -617,7 +619,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
-        temporaryBreakdownColorThemeId: [null as number | null],
+        dataColorTheme: [null as DataColorTheme | null, { setDataColorTheme: (_, { theme }) => theme }],
         filters: [
             {
                 date_from: null,
