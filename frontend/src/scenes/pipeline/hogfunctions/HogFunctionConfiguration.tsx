@@ -260,7 +260,7 @@ export function HogFunctionConfiguration({
                     </div>
                 ) : null}
 
-                {type === 'site_destination' && !id ? (
+                {type === 'site_destination' ? (
                     <LemonBanner
                         type="warning"
                         action={{
