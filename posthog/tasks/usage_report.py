@@ -1111,6 +1111,7 @@ def _get_teams_for_usage_reports() -> Sequence[Team]:
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
         .only("id", "name", "organization__id", "organization__name", "organization__created_at")
+        .order_by("organization__id")
     )
 
 

@@ -26,12 +26,13 @@ from posthog.tasks.usage_report import (
     _get_teams_for_usage_reports,
     _get_team_report,
     _get_full_org_usage_report,
-    _add_team_report_to_org_reports,
     _get_full_org_usage_report_as_dict,
     has_non_zero_usage,
+    get_org_user_count,
     _queue_report,
     capture_report,
     OrgReport,
+    UsageReportCounters,
 )
 
 logger = structlog.get_logger()
@@ -58,6 +59,56 @@ async def query_usage_reports(
         import posthoganalytics
         from sentry_sdk import capture_message
 
+        # Async functions
+        @database_sync_to_async
+        def async_get_all_usage_data(p_start, p_end):
+            return _get_all_usage_data(p_start, p_end)
+
+        @database_sync_to_async
+        def async_get_teams_for_usage_reports():
+            return _get_teams_for_usage_reports()
+
+        @database_sync_to_async
+        def async_get_team_report(a_data, t):
+            return _get_team_report(a_data, t)
+
+        @database_sync_to_async
+        def async_get_instance_metadata(p):
+            return get_instance_metadata(p)
+
+        @sync_to_async
+        def async_capture_report(oid, frd, ad) -> None:
+            try:
+                at_date_str = ad.isoformat() if ad else None
+                capture_report(
+                    organization_id=oid,
+                    full_report_dict=frd,
+                    at_date=at_date_str,
+                )
+            except Exception as err:
+                logger.exception(f"Error capturing report for organization {oid}: {err}")
+
+        @sync_to_async
+        def async_queue_report(p, oid, frd) -> bool:
+            try:
+                _queue_report(p, oid, frd)
+                return True
+            except Exception as err:
+                logger.exception(f"Error queueing report for organization {oid}: {err}")
+                return False
+
+        @database_sync_to_async
+        def async_get_org_user_count(oid):
+            return get_org_user_count(oid)
+
+        # Helpers
+        def convert_to_team_rows(raw_data):
+            result = {}
+            for key, rows in raw_data.items():
+                result[key] = convert_team_usage_rows_to_dict(rows)
+            return result
+
+        # Workflow
         are_usage_reports_disabled = posthoganalytics.feature_enabled(
             "disable-usage-reports", "internal_billing_events"
         )
@@ -71,47 +122,14 @@ async def query_usage_reports(
 
         print(f"Querying all org reports {period_start} - {period_end}")  # noqa: T201
 
-        @database_sync_to_async
-        def async_get_all_usage_data(p_start, p_end):
-            return _get_all_usage_data(p_start, p_end)
-
-        def convert_to_team_rows(raw_data):
-            result = {}
-            for key, rows in raw_data.items():
-                result[key] = convert_team_usage_rows_to_dict(rows)
-            return result
-
         raw_data = await async_get_all_usage_data(period_start, period_end)
-
         all_data = convert_to_team_rows(raw_data)
 
         print("Querying all teams")  # noqa: T201
 
-        @database_sync_to_async
-        def async_get_teams_for_usage_reports():
-            return _get_teams_for_usage_reports()
-
         teams = await async_get_teams_for_usage_reports()
 
         print(f"Querying all teams complete {len(teams)} teams")  # noqa: T201
-
-        org_reports: dict[str, OrgReport] = {}
-
-        print("Generating org reports")  # noqa: T201
-
-        @database_sync_to_async
-        def async_add_team_report_to_org_reports(o_r, t, t_r, p_start):
-            return _add_team_report_to_org_reports(o_r, t, t_r, p_start)
-
-        for team in teams:
-            team_report = _get_team_report(all_data, team)
-            await async_add_team_report_to_org_reports(org_reports, team, team_report, period_start)
-
-        print(f"Generating org reports complete {len(org_reports)} orgs")  # noqa: T201
-
-        @sync_to_async
-        def async_get_instance_metadata(p):
-            return get_instance_metadata(p)
 
         instance_metadata = await async_get_instance_metadata(period)
 
@@ -126,70 +144,100 @@ async def query_usage_reports(
 
         pha_client = get_ph_client(sync_mode=True)
 
-        total_orgs = len(org_reports)
+        # Process teams by organization
+        current_org_id = None
+        current_org_report = None
+        total_orgs = 0
         total_orgs_sent = 0
-
-        pha_client.capture(
-            "internal_billing_events",
-            "usage reports - starting to send",
-            {
-                "total_orgs": total_orgs,
-                "period_start": period_start.isoformat(),
-                "period_end": period_end.isoformat(),
-                "region": get_instance_region(),
-            },
-            groups={"instance": settings.SITE_URL},
-        )
-
-        print(f"Sending usage reports {total_orgs} orgs")  # noqa: T201
-
         org_count = 0
-        for org_report in org_reports.values():
-            try:
+
+        print("Processing teams by organization")  # noqa: T201
+
+        for team in teams:
+            org_id = str(team.organization.id)
+
+            # If we've moved to a new organization, process the previous one
+            if current_org_id is not None and current_org_id != org_id:
                 org_count += 1
                 if org_count % 500 == 0:
-                    print(f"Processed {org_count}/{total_orgs} organizations...")  # noqa: T201
+                    print(f"Processed {org_count} organizations...")  # noqa: T201
 
-                organization_id = org_report.organization_id
+                # Process the completed organization report
+                try:
+                    full_report = _get_full_org_usage_report(current_org_report, instance_metadata)
+                    full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
-                full_report = _get_full_org_usage_report(org_report, instance_metadata)
-                full_report_dict = _get_full_org_usage_report_as_dict(full_report)
+                    # First capture the events to PostHog
+                    if not inputs.skip_capture_event:
+                        await async_capture_report(current_org_id, full_report_dict, at_date)
 
-                @sync_to_async
-                def async_capture_report(oid, frd, ad) -> None:
-                    try:
-                        at_date_str = ad.isoformat() if ad else None
-                        capture_report(
-                            organization_id=oid,
-                            full_report_dict=frd,
-                            at_date=at_date_str,
+                    # Then send the reports to billing through SQS (only if the producer is available)
+                    if has_non_zero_usage(full_report) and producer:
+                        success = await async_queue_report(producer, current_org_id, full_report_dict)
+                        if success:
+                            total_orgs_sent += 1
+
+                except Exception as loop_err:
+                    logger.exception(f"Error processing organization report: {loop_err}")
+
+                # Reset for the new organization
+                current_org_report = None
+
+            # Start a new organization or continue with the current one
+            if current_org_report is None:
+                total_orgs += 1
+                current_org_id = org_id
+
+                # Create a new org report
+                team_report = await async_get_team_report(all_data, team)
+
+                current_org_report = OrgReport(
+                    date=period_start.strftime("%Y-%m-%d"),
+                    organization_id=org_id,
+                    organization_name=team.organization.name,
+                    organization_created_at=team.organization.created_at.isoformat(),
+                    organization_user_count=await async_get_org_user_count(org_id),
+                    team_count=1,
+                    teams={str(team.id): team_report},
+                    **dataclasses.asdict(team_report),  # Clone the team report as the basis
+                )
+            else:
+                # Add this team to the current org report
+                team_report = await async_get_team_report(all_data, team)
+                current_org_report.teams[str(team.id)] = team_report
+                current_org_report.team_count += 1
+
+                # Update the counters in the org report
+                for field in dataclasses.fields(UsageReportCounters):
+                    if hasattr(team_report, field.name):
+                        setattr(
+                            current_org_report,
+                            field.name,
+                            getattr(current_org_report, field.name) + getattr(team_report, field.name),
                         )
-                    except Exception as err:
-                        logger.exception(f"Error capturing report for organization {oid}: {err}")
+
+        # Process the last organization
+        if current_org_report is not None:
+            org_count += 1
+            try:
+                full_report = _get_full_org_usage_report(current_org_report, instance_metadata)
+                full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
                 # First capture the events to PostHog
                 if not inputs.skip_capture_event:
-                    await async_capture_report(organization_id, full_report_dict, at_date)
-
-                @sync_to_async
-                def async_queue_report(p, oid, frd) -> bool:
-                    try:
-                        _queue_report(p, oid, frd)
-                        return True
-                    except Exception as err:
-                        logger.exception(f"Error queueing report for organization {oid}: {err}")
-                        return False
+                    await async_capture_report(current_org_id, full_report_dict, at_date)
 
                 # Then send the reports to billing through SQS (only if the producer is available)
                 if has_non_zero_usage(full_report) and producer:
-                    success = await async_queue_report(producer, organization_id, full_report_dict)
+                    success = await async_queue_report(producer, current_org_id, full_report_dict)
                     if success:
                         total_orgs_sent += 1
 
             except Exception as loop_err:
                 logger.exception(f"Error processing organization report: {loop_err}")
 
-        print(f"Total orgs: {total_orgs}")  # noqa: T201
+        print(f"Total orgs before: {total_orgs}")  # noqa: T201
+        print(f"Total orgs counted: {org_count}")  # noqa: T201
         print(f"Total orgs sent: {total_orgs_sent}")  # noqa: T201
 
         pha_client.capture(
