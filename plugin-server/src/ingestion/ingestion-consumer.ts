@@ -563,24 +563,23 @@ export class IngestionConsumer {
             const functionIds = hogFunctions.map((func) => func.id)
             const states = await this.hogWatcher.getStates(functionIds)
 
-            // Filter the functions based on their state
-            return hogFunctions.filter((func) => {
+            // Just log which functions would be filtered, but return all of them for now
+            hogFunctions.forEach((func) => {
                 const state = states[func.id]?.state
 
-                // Skip functions that are disabled (temporarily or permanently)
+                // Log functions that would be disabled (temporarily or permanently)
                 if (state >= HogWatcherState.disabledForPeriod) {
-                    logger.debug(
+                    logger.info(
                         '🚫',
-                        `Filtering out disabled HogFunction: ${func.name} (${func.id}) for team ${func.team_id}, state: ${state}`
+                        `Would filter out disabled HogFunction: ${func.name} (${func.id}) for team ${func.team_id}, state: ${state}`
                     )
-                    return false
                 }
-
-                return true
             })
+            // Return all functions for now - no actual filtering yet
+            return hogFunctions
         } catch (error) {
             // If we can't check the watcher state, allow all functions to proceed
-            logger.warn('⚠️', 'Error filtering faulty HogFunctions', { error })
+            logger.warn('⚠️', 'Error filtering degraded HogFunctions', { error })
             return hogFunctions
         }
     }
