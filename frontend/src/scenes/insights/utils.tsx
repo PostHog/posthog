@@ -333,10 +333,10 @@ export function formatBreakdownLabel(
     }
 
     // stringified numbers
-    if (!Number.isNaN(Number(breakdown_value))) {
+    if (breakdown_value && /^\d+$/.test(breakdown_value)) {
         const numericValue =
             Number.isInteger(Number(breakdown_value)) && !Number.isSafeInteger(Number(breakdown_value))
-                ? BigInt(breakdown_value!)
+                ? BigInt(breakdown_value)
                 : Number(breakdown_value)
         return formatNumericBreakdownLabel(
             numericValue,
