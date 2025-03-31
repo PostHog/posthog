@@ -238,7 +238,7 @@ ButtonRoot.displayName = 'Button.Root'
 /*                              Button.Icon                                   */
 /* -------------------------------------------------------------------------- */
 
-const iconVariants = cva({
+export const iconVariants = cva({
     base: `
         flex
         items-center
