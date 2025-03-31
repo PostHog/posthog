@@ -7,7 +7,13 @@ from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models import Organization, Team
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    snapshot_clickhouse_queries,
+)
 
 
 INSERT_SINGLE_HEATMAP_EVENT = """
@@ -69,6 +75,68 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == expected_status_code, response.json()
 
         return response
+
+    def _create_heatmap_event(
+        self,
+        session_id: str,
+        type: str,
+        date_from: str = "2023-03-08T09:00:00",
+        viewport_width: int = 100,
+        viewport_height: int = 100,
+        x: int = 10,
+        y: int = 20,
+        current_url: str | None = None,
+        distinct_id: str = "user_distinct_id",
+        team_id: int | None = None,
+    ) -> None:
+        if team_id is None:
+            team_id = self.team.pk
+
+        p = ClickhouseProducer()
+        # because this is in a test it will write directly using SQL not really with Kafka
+        p.produce(
+            topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+            sql=INSERT_SINGLE_HEATMAP_EVENT,
+            data={
+                "session_id": session_id,
+                "team_id": team_id,
+                "distinct_id": distinct_id,
+                "timestamp": format_clickhouse_timestamp(date_from),
+                "x": round(x / 16),
+                "y": round(y / 16),
+                "scale_factor": 16,
+                # this adjustment is done at ingestion
+                "viewport_width": round(viewport_width / 16),
+                "viewport_height": round(viewport_height / 16),
+                "type": type,
+                "pointer_target_fixed": True,
+                "current_url": current_url if current_url else "http://posthog.com",
+            },
+        )
+
+    def create_event(
+        self,
+        timestamp: str,
+        team: Team | None = None,
+        event_name: str = "$pageview",
+        properties: dict | None = None,
+        distinct_id: str = "user_distinct_id",
+        session_id: str = "12345",
+    ):
+        if team is None:
+            team = self.team
+        if properties is None:
+            properties = {"$os": "Windows 95", "$current_url": "aloha.com/2"}
+
+        properties["$session_id"] = session_id
+
+        return _create_event(
+            team=team,
+            event=event_name,
+            timestamp=timestamp,
+            distinct_id=distinct_id,
+            properties=properties,
+        )
 
     @snapshot_clickhouse_queries
     def test_can_get_empty_response(self) -> None:
@@ -366,6 +434,75 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert sorted(response.json()["results"], key=lambda k: k["pointer_relative_x"]) == expected_results
 
     @snapshot_clickhouse_queries
+    def test_can_filter_by_test_accounts(self) -> None:
+        self.team.test_account_filters = [
+            {
+                "key": "$host",
+                "value": "127.0.0.1",
+                "operator": "not_icontains",
+                "type": "event",
+            }
+        ]
+        self.team.save()
+
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
+        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
+        self._create_heatmap_event(
+            "session_3", "click", "2023-03-08T08:01:00", viewport_width=100, viewport_height=100, x=100, y=10
+        )
+
+        # 127.0.0.1 is a test account
+        # so only session_3 should be included
+        self.create_event(
+            session_id="session_1",
+            timestamp="2023-03-08T08:00:00",
+            distinct_id="12345",
+            properties={"$host": "127.0.0.1"},
+        )
+        self.create_event(
+            session_id="session_2",
+            timestamp="2023-03-08T08:00:00",
+            distinct_id="12345",
+            properties={"$host": "127.0.0.1"},
+        )
+        self.create_event(
+            session_id="session_3",
+            timestamp="2023-03-08T08:01:00",
+            distinct_id="12345",
+            properties={"$host": "posthog.com"},
+        )
+
+        response = self._get_heatmap({"date_from": "2023-03-08", "filter_test_accounts": True})
+        # mypy thinks there is no json method... but there is
+        json_results = response.json()["results"]  # type: ignore
+        assert sorted(json_results, key=lambda k: k["pointer_relative_x"]) == [
+            {
+                "count": 1,
+                "pointer_relative_x": 1.0,
+                "pointer_target_fixed": True,
+                "pointer_y": 16,
+            },
+        ]
+
+        response_without_internal_filter = self._get_heatmap({"date_from": "2023-03-08"})
+        # mypy thinks there is no json method... but there is
+        json_results_two = response_without_internal_filter.json()["results"]  # type: ignore
+        assert sorted(json_results_two, key=lambda k: k["pointer_relative_x"]) == [
+            {
+                "count": 2,
+                "pointer_relative_x": 0.0,
+                "pointer_target_fixed": True,
+                "pointer_y": 16,
+            },
+            {
+                "count": 1,
+                "pointer_relative_x": 1.0,
+                "pointer_target_fixed": True,
+                "pointer_y": 16,
+            },
+        ]
+
+    @snapshot_clickhouse_queries
     def test_can_get_count_by_aggregation(self) -> None:
         # 3 items but 2 visitors
         self._create_heatmap_event("session_1", "click", distinct_id="12345")
@@ -374,6 +511,26 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 3)
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "aggregation": "unique_visitors"}, 2)
+
+    @parameterized.expand(
+        [
+            ("boolean_true_is_valid", True, status.HTTP_200_OK),
+            ("boolean_false_is_valid", False, status.HTTP_200_OK),
+            ("none_is_invalid", None, status.HTTP_400_BAD_REQUEST),
+            ("empty_string_is_valid_because_it_is_none", "", status.HTTP_200_OK),
+            ("whitespace_string_is_invalid", "     ", status.HTTP_400_BAD_REQUEST),
+            ("number_one_is_valid", 1, status.HTTP_200_OK),
+            ("number_zero_is_valid", 0, status.HTTP_200_OK),
+            ("dict_is_invalid", {"test": "test"}, status.HTTP_400_BAD_REQUEST),
+            ("dict_with_filter_key_is_invalid", {"filterTestAccounts": "test"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_only_allow_valid_values_for_filter_test_accounts(
+        self, _test_name: str, choice: str | None, expected_status_code: int
+    ) -> None:
+        self._assert_heatmap_no_result_count(
+            {"date_from": "2023-03-08", "filter_test_accounts": choice}, expected_status_code=expected_status_code
+        )
 
     @parameterized.expand(
         [
@@ -389,42 +546,4 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_only_allow_valid_values_for_aggregation(self, choice: str | None, expected_status_code: int) -> None:
         self._assert_heatmap_no_result_count(
             {"date_from": "2023-03-08", "aggregation": choice}, expected_status_code=expected_status_code
-        )
-
-    def _create_heatmap_event(
-        self,
-        session_id: str,
-        type: str,
-        date_from: str = "2023-03-08T09:00:00",
-        viewport_width: int = 100,
-        viewport_height: int = 100,
-        x: int = 10,
-        y: int = 20,
-        current_url: str | None = None,
-        distinct_id: str = "user_distinct_id",
-        team_id: int | None = None,
-    ) -> None:
-        if team_id is None:
-            team_id = self.team.pk
-
-        p = ClickhouseProducer()
-        # because this is in a test it will write directly using SQL not really with Kafka
-        p.produce(
-            topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-            sql=INSERT_SINGLE_HEATMAP_EVENT,
-            data={
-                "session_id": session_id,
-                "team_id": team_id,
-                "distinct_id": distinct_id,
-                "timestamp": format_clickhouse_timestamp(date_from),
-                "x": round(x / 16),
-                "y": round(y / 16),
-                "scale_factor": 16,
-                # this adjustment is done at ingestion
-                "viewport_width": round(viewport_width / 16),
-                "viewport_height": round(viewport_height / 16),
-                "type": type,
-                "pointer_target_fixed": True,
-                "current_url": current_url if current_url else "http://posthog.com",
-            },
         )

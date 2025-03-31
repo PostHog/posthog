@@ -46,6 +46,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'heatmapElements',
                 'heatmapTooltipLabel',
                 'heatmapScrollY',
+                'dateRange',
             ],
         ],
         actions: [
@@ -362,7 +363,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             await breakpoint(delayMs)
             if (values.heatmapEnabled) {
                 if (values.heatmapFilters.enabled && values.heatmapFilters.type) {
-                    actions.loadHeatmap(values.heatmapFilters.type)
+                    actions.loadHeatmap()
                 }
             }
         },

@@ -10,10 +10,11 @@ from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstRateThrottle
-from posthog.schema import HogQLQueryResponse
+from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 DEFAULT_QUERY = """
@@ -65,6 +66,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         help_text="How to aggregate the response",
         default="total_count",
     )
+    filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -120,6 +122,9 @@ class HeatmapsRequestSerializer(serializers.Serializer):
             else:
                 values.pop("url_exact")
 
+        if values.get("filter_test_accounts") and not isinstance(values.get("filter_test_accounts"), bool):
+            raise serializers.ValidationError("filter_test_accounts must be a boolean")
+
         return values
 
 
@@ -165,6 +170,29 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
         exprs = self._predicate_expressions(placeholders)
 
+        if request_serializer.validated_data.get("filter_test_accounts") is True:
+            date_from: date = request_serializer.validated_data["date_from"]
+            date_to: date | None = request_serializer.validated_data.get("date_to", None)
+            events_select = replace_filters(
+                parse_select(
+                    "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
+                ),
+                HogQLFilters(
+                    filterTestAccounts=True,
+                    dateRange=DateRange(
+                        date_from=date_from.strftime("%Y-%m-%d"),
+                        date_to=date_to.strftime("%Y-%m-%d") if date_to else None,
+                    ),
+                ),
+                self.team,
+            )
+            session_filter_expr = ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["session_id"]),
+                right=events_select,
+            )
+            exprs.append(session_filter_expr)
+
         stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
         results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
@@ -198,9 +226,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         }
 
         for predicate_key in placeholders.keys():
-            predicate_expressions.append(
-                parse_expr(predicate_mapping[predicate_key], {predicate_key: placeholders[predicate_key]})
-            )
+            # we e.g. don't want to add the filter_test_accounts predicate here
+            if predicate_key in predicate_mapping:
+                predicate_expressions.append(
+                    parse_expr(predicate_mapping[predicate_key], {predicate_key: placeholders[predicate_key]})
+                )
 
         if len(predicate_expressions) == 0:
             raise serializers.ValidationError("must always generate some filter conditions")

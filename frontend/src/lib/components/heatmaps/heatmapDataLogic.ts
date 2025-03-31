@@ -116,7 +116,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 loadHeatmap: async (_, breakpoint) => {
                     const href = values.href
                     const matchType = values.urlMatch
-                    const { date_from, date_to } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
                     const urlExact = matchType === 'exact' ? href : undefined
                     const urlRegex = matchType === 'regex' ? href : undefined
@@ -132,6 +132,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
+                            filter_test_accounts,
                         },
                         '?'
                     )}`

@@ -10,6 +10,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useState } from 'react'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
     const [debouncedLoading, setDebouncedLoading] = useState(false)
@@ -92,9 +93,18 @@ export function FilterPanel({
                         dateFrom={commonFilters?.date_from}
                         dateTo={commonFilters?.date_to}
                         onChange={(fromDate, toDate) => {
-                            setCommonFilters?.({ date_from: fromDate, date_to: toDate })
+                            setCommonFilters?.({ ...(commonFilters || {}), date_from: fromDate, date_to: toDate })
                         }}
                         dateOptions={heatmapDateOptions}
+                    />
+                    <TestAccountFilter
+                        filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
+                        onChange={(value) => {
+                            setCommonFilters?.({
+                                ...(commonFilters || {}),
+                                filter_test_accounts: value.filter_test_accounts,
+                            })
+                        }}
                     />
                     <HeatmapsSettings
                         heatmapFilters={heatmapFilters}

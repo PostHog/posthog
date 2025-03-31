@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
+import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { compactNumber } from 'lib/utils'
 import { Fragment } from 'react'
 
@@ -26,7 +27,8 @@ export function Elements(): JSX.Element {
         relativePositionCompensation,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
-    const { highestClickCount, shiftPressed } = useValues(heatmapToolbarMenuLogic)
+    const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+    const shiftPressed = useShiftKeyPressed()
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
     const { theme } = useValues(toolbarLogic)

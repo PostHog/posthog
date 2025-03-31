@@ -56,6 +56,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 type: AuthorizedUrlListType.TOOLBAR_URLS,
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
+            [heatmapDataLogic, ['heatmapEmpty']],
         ],
         actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setUrlMatch']],
     }),
@@ -152,7 +153,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             null as ReplayIframeData | null,
             {
                 setReplayIframeData: (_, { replayIframeData }) => replayIframeData,
-                setReplayIframeDataURL: (state, { url }) => ({ ...state, url }),
+                setReplayIframeDataURL: (state, { url }) => {
+                    if (state === null) {
+                        return null
+                    }
+                    return { ...state, url } as ReplayIframeData
+                },
             },
         ],
         filterPanelCollapsed: [
