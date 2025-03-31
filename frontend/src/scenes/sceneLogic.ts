@@ -11,7 +11,7 @@ import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfiguratio
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
+import { PipelineTab, ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
@@ -29,7 +29,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
-    [ProductKey.DATA_WAREHOUSE]: [urls.dataWarehouse(), urls.sqlEditor()],
+    [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.pipeline(PipelineTab.Sources)],
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
 }
 
@@ -287,7 +287,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                 )
 
                                 if (
-                                    scene === Scene.DataWarehouseTable &&
+                                    scene === Scene.PipelineNodeNew &&
                                     params.searchParams.kind == 'hubspot' &&
                                     params.searchParams.code
                                 ) {

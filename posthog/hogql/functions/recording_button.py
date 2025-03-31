@@ -8,5 +8,7 @@ def recording_button(node: ast.Expr, args: list[ast.Expr]) -> ast.Expr:
             ast.Constant(value="RecordingButton"),
             ast.Constant(value="sessionId"),
             args[0],
+            ast.Constant(value="recordingStatus"),
+            args[1] if len(args) > 1 else ast.Field(chain=["properties", "$recording_status"]),
         ]
     )

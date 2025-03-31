@@ -58,7 +58,7 @@ function TableRowRaw<T extends Record<string, any>>({
                     rowClassNameDetermined,
                     rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`,
                     extraProps?.onClick
-                        ? 'hover:underline cursor-pointer hover:bg-accent-primary-highlight'
+                        ? 'hover:underline cursor-pointer hover:bg-accent-highlight-secondary'
                         : undefined,
                     className
                 )}

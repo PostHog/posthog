@@ -1,6 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-use ahash::AHashSet;
 use app_context::AppContext;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::{Config, TeamFilterMode, TeamList};
@@ -11,16 +10,21 @@ use metrics_consts::{
     UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
     UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
+use types::{Event, Update};
+use v2_batch_ingestion::process_batch_v2;
+
+use ahash::AHashSet;
 use quick_cache::sync::Cache;
+
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{error, warn};
-use types::{Event, Update};
 
 pub mod api;
 pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;
+pub mod v2_batch_ingestion;
 
 const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 2;
 const UPDATE_RETRY_DELAY_MS: u64 = 50;
@@ -77,68 +81,84 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // We split our update batch into chunks, one per transaction. We know each update touches
-        // exactly one row, so we can issue the chunks in parallel, and smaller batches issue faster,
-        // which helps us with inter-pod deadlocking and retries.
-        let chunk_size = batch.len() / config.max_concurrent_transactions;
-        let mut chunks = vec![Vec::with_capacity(chunk_size); config.max_concurrent_transactions];
-        for (i, update) in batch.drain(..).enumerate() {
-            chunks[i % config.max_concurrent_transactions].push(update);
+        // conditionall enable new write path
+        if config.enable_v2 {
+            process_batch_v2(&config, cache.clone(), &context.pool, batch).await;
+        } else {
+            process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
         }
-
-        metrics::gauge!(CHUNK_SIZE).set(chunk_size as f64);
-
-        let mut handles = Vec::new();
-        let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
-        for mut chunk in chunks {
-            let m_context = context.clone();
-            let m_cache = cache.clone();
-            let handle = tokio::spawn(async move {
-                let mut tries: u64 = 0;
-                // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
-                // if we still fail, we drop the batch and clear it's content from the cached update set, because
-                // we assume everything in it will be seen again.
-                while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
-                    tries += 1;
-                    if tries > BATCH_UPDATE_MAX_ATTEMPTS {
-                        let chunk_len = chunk.len() as u64;
-                        metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
-                        metrics::counter!(UPDATES_DROPPED, &[("reason", "batch_write_fail")])
-                            .increment(chunk_len);
-                        error!(
-                            "Issue failed: retries exhausted, dropping batch of size {} with error: {:?}",
-                            chunk_len, e,
-                        );
-                        // We clear any updates that were in this batch from the cache, so that
-                        // if we see them again we'll try again to issue them.
-                        chunk.iter().for_each(|u| {
-                            if m_cache.remove(u).is_some() {
-                                metrics::counter!(UPDATES_CACHE, &[("action", "removed")])
-                                    .increment(1);
-                            } else {
-                                metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")])
-                                    .increment(1);
-                            }
-                        });
-                        return;
-                    }
-
-                    let jitter = rand::random::<u64>() % 50;
-                    let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                    metrics::counter!(ISSUE_FAILED, &[("attempt", format!("retry_{}", tries))])
-                        .increment(1);
-                    warn!("Issue failed: {:?}, sleeping for {}ms", e, delay);
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
-                }
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.await.expect("Issue task failed, exiting");
-        }
-        issue_time.fin();
     }
+}
+
+async fn process_batch_v1(
+    config: &Config,
+    cache: Arc<Cache<Update, ()>>,
+    context: Arc<AppContext>,
+    mut batch: Vec<Update>,
+) {
+    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
+    metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
+
+    // We split our update batch into chunks, one per transaction. We know each update touches
+    // exactly one row, so we can issue the chunks in parallel, and smaller batches issue faster,
+    // which helps us with inter-pod deadlocking and retries.
+    let chunk_size = batch.len() / config.max_concurrent_transactions;
+    let mut chunks = vec![Vec::with_capacity(chunk_size); config.max_concurrent_transactions];
+    for (i, update) in batch.drain(..).enumerate() {
+        chunks[i % config.max_concurrent_transactions].push(update);
+    }
+
+    metrics::gauge!(CHUNK_SIZE).set(chunk_size as f64);
+
+    let mut handles = Vec::new();
+    let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
+    for mut chunk in chunks {
+        let m_context = context.clone();
+        let m_cache = cache.clone();
+        let handle = tokio::spawn(async move {
+            let mut tries: u64 = 0;
+            // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
+            // if we still fail, we drop the batch and clear it's content from the cached update set, because
+            // we assume everything in it will be seen again.
+            while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
+                tries += 1;
+                if tries > BATCH_UPDATE_MAX_ATTEMPTS {
+                    let chunk_len = chunk.len() as u64;
+                    metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
+                    metrics::counter!(UPDATES_DROPPED, &[("reason", "batch_write_fail")])
+                        .increment(chunk_len);
+                    error!(
+                        "Issue failed: retries exhausted, dropping batch of size {} with error: {:?}",
+                        chunk_len, e,
+                    );
+                    // We clear any updates that were in this batch from the cache, so that
+                    // if we see them again we'll try again to issue them.
+                    chunk.iter().for_each(|u| {
+                        if m_cache.remove(u).is_some() {
+                            metrics::counter!(UPDATES_CACHE, &[("action", "removed")]).increment(1);
+                        } else {
+                            metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")])
+                                .increment(1);
+                        }
+                    });
+                    return;
+                }
+
+                let jitter = rand::random::<u64>() % 50;
+                let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
+                metrics::counter!(ISSUE_FAILED, &[("attempt", format!("retry_{}", tries))])
+                    .increment(1);
+                warn!("Issue failed: {:?}, sleeping for {}ms", e, delay);
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+            }
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.await.expect("Issue task failed, exiting");
+    }
+    issue_time.fin();
 }
 
 pub async fn update_producer_loop(

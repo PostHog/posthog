@@ -22,6 +22,7 @@ import {
     FeatureFlagFilters,
     IntervalType,
     MultipleSurveyQuestion,
+    ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
@@ -578,7 +579,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING SINGLE CHOICE RESPONSES
                         SELECT
-                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
+                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -586,6 +587,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            AND survey_response != null
                             AND {filters}
                         GROUP BY survey_response
                     `,
@@ -1217,6 +1219,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
                 { key: [Scene.Survey, survey?.id || 'new'], name: survey.name },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: SurveyLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'survey', ref: String(id) }),
         ],
         dataTableQuery: [
             (s) => [s.survey, s.propertyFilters, s.answerFilters],

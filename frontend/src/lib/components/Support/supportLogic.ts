@@ -192,6 +192,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Group analytics',
             },
             {
+                value: 'revenue_analytics',
+                'data-attr': `support-form-target-area-revenue-analytics`,
+                label: 'Revenue analytics',
+            },
+            {
                 value: 'session_replay',
                 'data-attr': `support-form-target-area-session_replay`,
                 label: 'Session replay (incl. recordings)',
