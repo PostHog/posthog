@@ -62,8 +62,72 @@ export const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
 
+export interface ViewportResolution {
+    width: string
+    height: string
+    href: string
+}
+
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
+}
+
+// when we capture in a loop, we don't want to capture the same error twice
+// since we loop over large datasets we risk capturing the same error multiple times
+// so we use a set to throttle the errors
+const THROTTLE_CAPTURE_KEY = new Set<string>()
+function throttleCapture(key: string, fn: () => void): void {
+    if (!THROTTLE_CAPTURE_KEY.has(key)) {
+        fn()
+        THROTTLE_CAPTURE_KEY.add(key)
+    }
+}
+// only for testing
+export function clearThrottle(): void {
+    THROTTLE_CAPTURE_KEY.clear()
+}
+
+export function patchMetaEventIntoWebData(
+    snapshots: RecordingSnapshot[],
+    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
+    sessionRecordingId: string
+): RecordingSnapshot[] {
+    // Iterate in reverse order so we can modify the array while iterating
+    for (let i = snapshots.length - 1; i >= 0; i--) {
+        const snapshot = snapshots[i]
+        if (snapshot.type !== EventType.FullSnapshot) {
+            continue
+        }
+
+        const previousEvent = snapshots[i - 1]
+        const previousEventIsMeta = previousEvent?.type === EventType.Meta
+        if (previousEventIsMeta) {
+            continue
+        }
+
+        const viewport = viewportForTimestamp(snapshot.timestamp)
+        const thereIsNoViewport = !viewport || !viewport.width || !viewport.height
+        if (thereIsNoViewport) {
+            throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
+                posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
+                    snapshot,
+                })
+            })
+        } else {
+            snapshots.splice(i, 0, {
+                type: EventType.Meta,
+                timestamp: snapshot.timestamp,
+                windowId: snapshot.windowId,
+                data: {
+                    width: parseInt(viewport.width, 10),
+                    height: parseInt(viewport.height, 10),
+                    href: viewport.href || 'unknown',
+                },
+            })
+        }
+    }
+
+    return snapshots
 }
 
 /*
@@ -71,7 +135,10 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
  rrweb player hides itself until it has seen the meta event 🤷
  but we can patch a meta event into the recording data to make it work
 */
-function patchMetaEventIntoMobileData(parsedLines: RecordingSnapshot[]): RecordingSnapshot[] {
+function patchMetaEventIntoMobileData(
+    parsedLines: RecordingSnapshot[],
+    sessionRecordingId: string
+): RecordingSnapshot[] {
     let fullSnapshotIndex: number = -1
     let metaIndex: number = -1
     try {
@@ -99,9 +166,11 @@ function patchMetaEventIntoMobileData(parsedLines: RecordingSnapshot[]): Recordi
             parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
         }
     } catch (e) {
-        captureException(e, {
-            tags: { feature: 'session-recording-missing-meta-patching' },
-            extra: { fullSnapshotIndex, metaIndex },
+        throttleCapture(`${sessionRecordingId}-missing-mobile-meta-patching`, () => {
+            posthog.captureException(e, {
+                tags: { feature: 'session-recording-missing-mobile-meta-patching' },
+                extra: { fullSnapshotIndex, metaIndex },
+            })
         })
     }
 
@@ -137,7 +206,7 @@ function unzip(compressedStr: string | undefined): any {
  *
  * KLUDGE: we shouldn't need so many type assertions on ev.data but TS is not smart enough to figure it out
  */
-function decompressEvent(ev: unknown): unknown {
+function decompressEvent(ev: unknown, sessionRecordingId: string): unknown {
     try {
         if (isCompressedEvent(ev)) {
             if (ev.cv === '2024-10') {
@@ -176,10 +245,12 @@ function decompressEvent(ev: unknown): unknown {
                     }
                 }
             } else {
-                posthog.captureException(new Error('Unknown compressed event version'), {
-                    feature: 'session-recording-compressed-event-decompression',
-                    compressedEvent: ev,
-                    compressionVersion: ev.cv,
+                throttleCapture(`${sessionRecordingId}-unknown-compressed-event-version`, () => {
+                    posthog.captureException(new Error('Unknown compressed event version'), {
+                        feature: 'session-recording-compressed-event-decompression',
+                        compressedEvent: ev,
+                        compressionVersion: ev.cv,
+                    })
                 })
                 // probably unplayable but we don't know how to decompress it
                 return ev
@@ -187,9 +258,11 @@ function decompressEvent(ev: unknown): unknown {
         }
         return ev
     } catch (e) {
-        posthog.captureException((e as Error) || new Error('Could not decompress event'), {
-            feature: 'session-recording-compressed-event-decompression',
-            compressedEvent: ev,
+        throttleCapture(`${sessionRecordingId}-unknown-compressed-event-version`, () => {
+            posthog.captureException((e as Error) || new Error('Could not decompress event'), {
+                feature: 'session-recording-compressed-event-decompression',
+                compressedEvent: ev,
+            })
         })
         return ev
     }
@@ -201,9 +274,9 @@ function decompressEvent(ev: unknown): unknown {
  *
  * If it can't be case as eventWithTime by this point then it's probably not a valid event anyway
  */
-function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): eventWithTime {
+function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean, sessionRecordingId: string): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in future
-    const currentEvent = decompressEvent(d)
+    const currentEvent = decompressEvent(d, sessionRecordingId)
     return withMobileTransformer
         ? postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
         : (currentEvent as eventWithTime)
@@ -307,7 +380,7 @@ export const parseEncodedSnapshots = async (
             }
 
             return snapshotData.flatMap((d: unknown) => {
-                const snap = coerceToEventWithTime(d, withMobileTransformer)
+                const snap = coerceToEventWithTime(d, withMobileTransformer, sessionId)
 
                 const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
@@ -332,13 +405,15 @@ export const parseEncodedSnapshots = async (
             unparseableLinesCount: unparseableLines.length,
             exampleLines: unparseableLines.slice(0, 3),
         }
-        posthog.capture('session recording had unparseable lines', {
-            ...extra,
-            feature: 'session-recording-snapshot-processing',
+        throttleCapture(`${sessionId}-unparseable-lines`, () => {
+            posthog.capture('session recording had unparseable lines', {
+                ...extra,
+                feature: 'session-recording-snapshot-processing',
+            })
         })
     }
 
-    return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines) : parsedLines
+    return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines, sessionId) : parsedLines
 }
 
 const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
@@ -644,7 +719,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height
                             FROM events
                             WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
                               AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
@@ -705,6 +780,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 pathname = undefined
                             }
 
+                            const viewportWidth = event.length > 7 ? event[7] : undefined
+                            const viewportHeight = event.length > 8 ? event[8] : undefined
+
                             return {
                                 id: event[0],
                                 event: event[1],
@@ -715,6 +793,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     $current_url: currentUrl,
                                     $event_type: event[6],
                                     $pathname: pathname,
+                                    $viewport_width: viewportWidth,
+                                    $viewport_height: viewportHeight,
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
@@ -978,7 +1058,53 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     )?.windowId
                 },
         ],
+        eventViewports: [
+            (s) => [s.sessionEventsData],
+            (sessionEventsData): (ViewportResolution & { timestamp: string | number })[] =>
+                (sessionEventsData || [])
+                    .filter((e) => e.properties.$viewport_width && e.properties.$viewport_height)
+                    .map((e) => ({
+                        width: e.properties.$viewport_width,
+                        height: e.properties.$viewport_height,
+                        href: e.properties.$current_url,
+                        timestamp: e.timestamp,
+                    })),
+        ],
+        viewportForTimestamp: [
+            (s) => [s.eventViewports],
+            (eventViewports) =>
+                (timestamp: number): ViewportResolution | undefined => {
+                    // we do this as a function because in most recordings we don't need the data so we don't need to run this every time
 
+                    // First try to find the first event after the timestamp that has viewport dimensions
+                    const nextEvent = eventViewports
+                        .filter((e) => dayjs(e.timestamp).isSameOrAfter(dayjs(timestamp)))
+                        .sort((a, b) => dayjs(a.timestamp).valueOf() - dayjs(b.timestamp).valueOf())[0]
+
+                    if (nextEvent) {
+                        return {
+                            width: nextEvent.width,
+                            height: nextEvent.height,
+                            href: nextEvent.href,
+                        }
+                    }
+
+                    // If no event after timestamp, find the closest event before it
+                    const previousEvent = eventViewports
+                        .filter((e) => dayjs(e.timestamp).isBefore(dayjs(timestamp)))
+                        .sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())[0] // Sort descending to get closest
+
+                    if (previousEvent) {
+                        return {
+                            width: previousEvent.width,
+                            height: previousEvent.height,
+                            href: previousEvent.href,
+                        }
+                    }
+
+                    return undefined
+                },
+        ],
         sessionPlayerData: [
             (s, p) => [
                 s.sessionPlayerMetaData,
@@ -1122,15 +1248,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshots: [
-            (s) => [s.snapshotSources, s.snapshotsBySource],
-            (sources, snapshotsBySource): RecordingSnapshot[] => {
+            (s, p) => [s.snapshotSources, s.snapshotsBySource, s.viewportForTimestamp, p.sessionRecordingId],
+            (sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId): RecordingSnapshot[] => {
                 const allSnapshots =
                     sources?.flatMap((source) => {
                         const sourceKey = getSourceKey(source)
                         return snapshotsBySource?.[sourceKey]?.snapshots || []
                     }) ?? []
 
-                return deduplicateSnapshots(allSnapshots)
+                return patchMetaEventIntoWebData(
+                    deduplicateSnapshots(allSnapshots),
+                    viewportForTimestamp,
+                    sessionRecordingId
+                )
             },
         ],
 

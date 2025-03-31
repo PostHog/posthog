@@ -244,7 +244,7 @@ export function PlayerInspectorListItem({
             ref={ref}
             className={clsx(
                 'ml-1 flex flex-col items-center',
-                isExpanded && 'border border-accent-primary',
+                isExpanded && 'border border-accent',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
                 isHovering && 'bg-surface-primary'
             )}
@@ -300,7 +300,7 @@ export function PlayerInspectorListItem({
                             'flex-1 overflow-hidden',
                             item.highlightColor === 'danger' && `bg-fill-error-highlight`,
                             item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
-                            item.highlightColor === 'primary' && `bg-fill-accent-primary-highlight`
+                            item.highlightColor === 'primary' && `bg-fill-accent-highlight-secondary`
                         )}
                     >
                         <RowItemTitle item={item} finalTimestamp={end} />

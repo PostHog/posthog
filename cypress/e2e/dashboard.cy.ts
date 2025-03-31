@@ -97,7 +97,7 @@ describe('Dashboard', () => {
         cy.contains('span', 'Last 14 days').click()
         cy.contains('span', 'Save').click()
 
-        cy.contains('span[class="text-accent-primary text-sm font-medium"]', 'Refreshing').should('not.exist')
+        cy.contains('span[class="text-accent text-sm font-medium"]', 'Refreshing').should('not.exist')
         cy.get('span').contains('Refreshing').should('not.exist')
     })
 

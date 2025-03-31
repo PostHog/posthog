@@ -462,6 +462,7 @@
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -472,7 +473,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '75'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -569,6 +570,7 @@
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -579,7 +581,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '76'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -667,6 +669,7 @@
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -677,7 +680,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '77'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -832,6 +835,7 @@
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.2
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -842,7 +846,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '78'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -861,6 +865,7 @@
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.4
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -871,7 +876,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '79'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -890,6 +895,7 @@
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.6
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -900,7 +906,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '80'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC

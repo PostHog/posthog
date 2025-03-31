@@ -26,7 +26,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
         return (
             <div className="absolute top-0 right-0 z-10">
                 <div
-                    className="cursor-pointer border border-accent-primary rounded-lg pr-3 pl-2 py-1 hover:bg-accent-primary-highlight transition-colors group"
+                    className="cursor-pointer border border-accent rounded-lg pr-3 pl-2 py-1 hover:bg-accent-highlight-secondary transition-colors group"
                     onClick={() => toggleCreditCTAHeroDismissed(false)}
                 >
                     <span className="flex items-center gap-1.5">

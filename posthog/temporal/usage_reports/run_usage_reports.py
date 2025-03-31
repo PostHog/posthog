@@ -12,7 +12,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat import Heartbeater
 from asgiref.sync import sync_to_async
-
+from posthog.warehouse.util import database_sync_to_async
 from posthog.utils import (
     get_instance_region,
     get_previous_day,
@@ -21,8 +21,12 @@ from posthog.utils import (
 from posthog.tasks.usage_report import (
     get_instance_metadata,
     get_ph_client,
-    _get_all_org_reports,
+    _get_all_usage_data,
+    convert_team_usage_rows_to_dict,
+    _get_teams_for_usage_reports,
+    _get_team_report,
     _get_full_org_usage_report,
+    _add_team_report_to_org_reports,
     _get_full_org_usage_report_as_dict,
     has_non_zero_usage,
     _queue_report,
@@ -78,11 +82,47 @@ async def query_usage_reports(
         period = get_previous_day(at=at_date)
         period_start, period_end = period
 
-        @sync_to_async
-        def get_all_org_reports(ps, pe):
-            return _get_all_org_reports(ps, pe)
+        print(f"Querying all org reports {period_start} - {period_end}")  # noqa: T201
 
-        org_reports = await get_all_org_reports(period_start, period_end)
+        @database_sync_to_async
+        def async_get_all_usage_data(p_start, p_end):
+            return _get_all_usage_data(p_start, p_end)
+
+        def convert_to_team_rows(raw_data):
+            result = {}
+            for key, rows in raw_data.items():
+                result[key] = convert_team_usage_rows_to_dict(rows)
+            return result
+
+        raw_data = await async_get_all_usage_data(period_start, period_end)
+
+        activity.heartbeat()
+
+        all_data = convert_to_team_rows(raw_data)
+
+        print("Querying all teams")  # noqa: T201
+
+        @database_sync_to_async
+        def async_get_teams_for_usage_reports():
+            return _get_teams_for_usage_reports()
+
+        teams = await async_get_teams_for_usage_reports()
+
+        print(f"Querying all teams complete {len(teams)} teams")  # noqa: T201
+
+        org_reports: dict[str, OrgReport] = {}
+
+        print("Generating org reports")  # noqa: T201
+
+        @database_sync_to_async
+        def async_add_team_report_to_org_reports(o_r, t, t_r, p_start):
+            return _add_team_report_to_org_reports(o_r, t, t_r, p_start)
+
+        for team in teams:
+            team_report = _get_team_report(all_data, team)
+            await async_add_team_report_to_org_reports(org_reports, team, team_report, period_start)
+
+        print(f"Generating org reports complete {len(org_reports)} orgs")  # noqa: T201
 
         return QueryUsageReportsResult(
             org_reports=org_reports,
@@ -130,6 +170,8 @@ async def send_usage_reports(
             groups={"instance": settings.SITE_URL},
         )
 
+        print(f"Sending usage reports {total_orgs} orgs")  # noqa: T201
+
         for org_report in inputs.org_reports.values():
             try:
                 organization_id = org_report.organization_id
@@ -138,11 +180,10 @@ async def send_usage_reports(
                 full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
                 @sync_to_async
-                def async_capture_report(p, oid, frd, ad) -> None:
+                def async_capture_report(oid, frd, ad) -> None:
                     try:
                         at_date_str = ad.isoformat() if ad else None
                         capture_report(
-                            pha_client=p,
                             organization_id=oid,
                             full_report_dict=frd,
                             at_date=at_date_str,
@@ -152,7 +193,7 @@ async def send_usage_reports(
 
                 # First capture the events to PostHog
                 if not inputs.skip_capture_event:
-                    await async_capture_report(pha_client, organization_id, full_report_dict, at_date)
+                    await async_capture_report(organization_id, full_report_dict, at_date)
 
                 @sync_to_async
                 def async_queue_report(p, oid, frd) -> bool:
@@ -209,10 +250,11 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                     initial_interval=timedelta(minutes=1),
                 ),
-                heartbeat_timeout=timedelta(seconds=30),
+                heartbeat_timeout=timedelta(minutes=2),
             )
 
             if not query_usage_reports_result.org_reports:
+                logger.info("No org reports found - skipping send")
                 return
 
             send_usage_reports_inputs = SendUsageReportsInputs(
@@ -228,9 +270,10 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                     initial_interval=timedelta(minutes=1),
                 ),
-                heartbeat_timeout=timedelta(seconds=30),
+                heartbeat_timeout=timedelta(minutes=2),
             )
 
         except Exception as e:
+            logger.exception("Error running usage reports", error=e)
             capture_exception(e)
             raise
