@@ -97,8 +97,6 @@ const buttonVariants = cva({
         px-[5px] 
         py-[3px] 
         rounded-md 
-        transition-colors 
-        duration-100
         cursor-default
     `,
     variants: {
@@ -238,7 +236,7 @@ ButtonRoot.displayName = 'Button.Root'
 /*                              Button.Icon                                   */
 /* -------------------------------------------------------------------------- */
 
-const iconVariants = cva({
+export const iconVariants = cva({
     base: `
         flex
         items-center

@@ -18,3 +18,9 @@
         }
     }
 }
+
+.RowDetailsModal {
+    .LemonTable__content table td {
+        max-width: 0;
+    }
+}
