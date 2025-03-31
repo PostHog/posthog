@@ -168,6 +168,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             group = self.get_queryset().get()
             group_id = group.id
             group_key = group.group_key
+            # TODO needs to be deleted in ClickHouse too
             group.delete()
             log_activity(
                 organization_id=self.organization.id,
