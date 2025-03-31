@@ -213,7 +213,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         folderLoadCount: [
-            {} as Record<string, FolderState>,
+            {} as Record<string, number>,
             {
                 loadFolderSuccess: (state, { folder, entries }) => {
                     return { ...state, [folder]: entries.length + (state[folder] ?? 0) }
