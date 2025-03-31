@@ -104,7 +104,6 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
                     "body": {
                         "email": "max@posthog.com",
                         "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                        "company": "PostHog",
                         "firstName": "Max",
                         "lastName": "AI",
                         "mailingLists": {
@@ -218,14 +217,18 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
             globals={
                 "person": {
                     "id": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                    "properties": {"company": "PostHog"},
+                    "properties": {"name": "Max", "company": "PostHog"},
+                },
+                "event": {
+                    "event": "pageview",
+                    "properties": {"pathname": "/pricing"},
                 },
             },
         )
 
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
-                "https://app.loops.so/api/v1/contacts/update",
+                "https://app.loops.so/api/v1/events/send",
                 {
                     "method": "POST",
                     "headers": {
@@ -235,9 +238,10 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
                     "body": {
                         "email": "max@posthog.com",
                         "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                        "company": "PostHog",
-                        "firstName": "Max",
-                        "lastName": "AI",
+                        "eventName": "pageview",
+                        "eventProperties": {
+                            "product": "PostHog",
+                        },
                         "mailingLists": {
                             "list_id": true
                         }
