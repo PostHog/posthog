@@ -108,7 +108,7 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
                 size="xsmall"
                 value={sparklineSelectedPeriod}
                 options={sparklineOptions}
-                onChange={(newValue) => setSparklineSelectedPeriod(newValue)}
+                onChange={setSparklineSelectedPeriod}
             />
         </div>
     )

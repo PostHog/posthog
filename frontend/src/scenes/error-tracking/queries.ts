@@ -18,24 +18,17 @@ export const errorTrackingQuery = ({
     filterTestAccounts,
     filterGroup,
     searchQuery,
-    volumeResolution,
+    volumeResolution = 0,
     columns,
     orderDirection,
     limit = 50,
 }: Pick<
     ErrorTrackingQuery,
-    | 'orderBy'
-    | 'status'
-    | 'dateRange'
-    | 'assignee'
-    | 'filterTestAccounts'
-    | 'limit'
-    | 'searchQuery'
-    | 'orderDirection'
-    | 'volumeResolution'
+    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
 > & {
     filterGroup: UniversalFiltersGroup
     columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
+    volumeResolution?: number
 }): DataTableNode => {
     return {
         kind: NodeKind.DataTableNode,

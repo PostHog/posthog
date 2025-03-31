@@ -41,7 +41,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     actions({
         loadIssue: true,
-        loadProperties: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
+        loadProperties: (dateRange: DateRange) => ({ dateRange }),
         loadSummary: (dateRange: DateRange) => ({ dateRange }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
@@ -51,7 +51,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     defaults({
         issue: null as ErrorTrackingRelationalIssue | null,
         properties: {} as Record<string, string>,
-        summary: 'toto' as ErrorTrackingIssueSummary | string,
+        summary: null as ErrorTrackingIssueSummary | null,
     }),
 
     reducers({
@@ -120,29 +120,23 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     loaders(({ props }) => ({
         issue: {
-            loadIssue: async () => {
-                const issue = await api.errorTracking.getIssue(props.id, props.fingerprint)
-                return issue
-            },
+            loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
         },
         properties: {
-            loadProperties: async ({ issue }) => {
-                const firstSeen = dayjs(issue.first_seen)
+            loadProperties: async ({ dateRange }) => {
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
-                        dateRange: {
-                            date_from: firstSeen.startOf('minute').toISOString(),
-                            date_to: firstSeen.endOf('minute').toISOString(),
-                        },
+                        dateRange,
                         volumeResolution: 0,
                     }),
                     {},
                     undefined,
                     'blocking'
                 )
-                const issueAgg = response.results[0]
-                return JSON.parse(issueAgg.earliest!)
+                const issue = response.results[0]
+                // Earliest field should be defined as we use the issueId parameter
+                return JSON.parse(issue.earliest!)
             },
         },
         summary: {
@@ -169,8 +163,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     listeners(({ props, actions }) => {
         return {
             loadIssueSuccess: [
-                ({ issue }) => actions.loadProperties(issue),
-                ({ issue }) => actions.loadSummary(getIssueDateRange(issue)),
+                ({ issue }) => actions.loadProperties(getPropertiesDateRange(issue)),
+                ({ issue }) => actions.loadSummary(getSummaryDateRange(issue)),
             ],
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
@@ -189,10 +183,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 ])
 
-function getIssueDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
+function getSummaryDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
     return {
         date_from: dayjs(issue.first_seen).startOf('day').toISOString(),
         date_to: dayjs().endOf('minute').toISOString(),
+    }
+}
+
+function getPropertiesDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
+    const firstSeen = dayjs(issue.first_seen)
+    return {
+        date_from: firstSeen.startOf('minute').toISOString(),
+        date_to: firstSeen.endOf('minute').toISOString(),
     }
 }
 
