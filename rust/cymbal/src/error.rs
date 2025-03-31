@@ -123,7 +123,7 @@ pub enum JsResolveErr {
     NoSourcemapUploaded(String),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
@@ -141,6 +141,8 @@ pub enum EventError {
     Suppressed(Uuid),
     #[error("Could not deserialize event data: {1}")]
     FailedToDeserialize(Box<CapturedEvent>, String),
+    #[error("Filtered by team id")]
+    FilteredByTeamId,
 }
 
 impl From<JsResolveErr> for Error {

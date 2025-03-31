@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0693_grouptypemapping_default_columns"),
+        ("posthog", "0696_file_system_project_id"),
     ]
 
     operations = [
