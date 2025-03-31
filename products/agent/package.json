@@ -1,0 +1,7 @@
+{
+    "name": "@posthog/agent",
+    "dependencies": {
+        "@google/generative-ai": "^0.24.0",
+        "@types/node": "^18.11.9"
+    }
+}

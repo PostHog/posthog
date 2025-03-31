@@ -74,6 +74,7 @@
         "@posthog/products-product-analytics": "workspace:*",
         "@posthog/products-replay": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
+        "@posthog/agent": "workspace:*",
         "@posthog/rrweb": "0.0.13",
         "@posthog/rrweb-plugin-console-record": "0.0.13",
         "@posthog/rrweb-types": "0.0.13",
