@@ -109,7 +109,7 @@ class CompareRecordingMetadataActivityInputs:
 
 
 @temporalio.activity.defn
-async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataActivityInputs) -> dict:
+async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataActivityInputs) -> None:
     """Compare session recording metadata between storage backends."""
     logger = get_internal_logger()
     start_time = dt.datetime.now()
@@ -150,8 +150,8 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         only_in_v2 = list(set(v2_sessions.keys()) - set(v1_sessions.keys()))
 
         # Compare data for sessions in both
-        session_differences: dict[str, list[dict[str, typing.Any]]] = {}
         all_differing_sessions: list[str] = []
+        differing_sessions_count = 0
         for session_id in set(v1_sessions.keys()) & set(v2_sessions.keys()):
             v1_data = v1_sessions[session_id]
             v2_data = v2_sessions[session_id]
@@ -164,36 +164,34 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
 
             if differences:
                 all_differing_sessions.append(session_id)
-                # Only add detailed differences if within limit
-                if not inputs.window_result_limit or len(session_differences) < inputs.window_result_limit:
-                    session_differences[session_id] = differences
-
-        result = {
-            "summary": {
-                "v1_count": len(results_v1),
-                "v2_count": len(results_v2),
-                "time_range": {
-                    "started_after": started_after.isoformat(),
-                    "started_before": started_before.isoformat(),
-                },
-                "total_differing_sessions": len(all_differing_sessions),
-            },
-            "only_in_v1": only_in_v1,
-            "only_in_v2": only_in_v2,
-            "session_differences": session_differences,
-        }
+                differing_sessions_count += 1
+                # Only log detailed differences if within limit
+                if not inputs.window_result_limit or differing_sessions_count <= inputs.window_result_limit:
+                    await logger.ainfo("Found differences in session", session_id=session_id, differences=differences)
 
         end_time = dt.datetime.now()
         duration = (end_time - start_time).total_seconds()
+
+        # Log summary
         await logger.ainfo(
-            "Completed comparison activity in %.2f seconds. Found %d sessions only in v1, %d only in v2, and %d with differences (showing details for %d)",
-            duration,
-            len(only_in_v1),
-            len(only_in_v2),
-            len(all_differing_sessions),
-            len(session_differences),
+            "Completed comparison activity",
+            duration_seconds=duration,
+            v1_count=len(results_v1),
+            v2_count=len(results_v2),
+            only_in_v1_count=len(only_in_v1),
+            only_in_v2_count=len(only_in_v2),
+            total_differing_sessions=len(all_differing_sessions),
+            time_range={
+                "started_after": started_after.isoformat(),
+                "started_before": started_before.isoformat(),
+            },
         )
-        return result
+
+        # Log sessions only in v1/v2 if any exist
+        if only_in_v1:
+            await logger.ainfo("Sessions only in v1", session_ids=only_in_v1)
+        if only_in_v2:
+            await logger.ainfo("Sessions only in v2", session_ids=only_in_v2)
 
 
 @dataclasses.dataclass(frozen=True)
