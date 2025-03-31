@@ -286,11 +286,13 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     )
 
                     if (colorOverride?.colorToken) {
-                        const dashboardTheme = logic?.values.dataColorTheme
+                        // use the dashboard theme, or fallback to the default theme
+                        const dashboardTheme = logic?.values.dataColorTheme || getTheme(undefined)
                         return [dashboardTheme, colorOverride.colorToken]
                     }
 
-                    const theme = getTheme(querySource?.dataColorTheme)
+                    // use the dashboard theme, or fallback to the insight theme, or the default theme
+                    const theme = logic?.values.dataColorTheme || getTheme(querySource?.dataColorTheme)
                     return [
                         theme,
                         getTrendResultCustomizationColorToken(
