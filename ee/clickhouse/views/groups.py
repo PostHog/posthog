@@ -20,7 +20,7 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
-from posthog.models.group.util import raw_create_group_ch
+from posthog.models.group.util import raw_create_group_ch, raw_delete_group_ch
 from posthog.models.group_type_mapping import GroupTypeMapping
 from loginas.utils import is_impersonated_session
 
@@ -168,8 +168,13 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             group = self.get_queryset().get()
             group_id = group.id
             group_key = group.group_key
-            # TODO needs to be deleted in ClickHouse too
             group.delete()
+            raw_delete_group_ch(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                sync=True,
+            )
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,

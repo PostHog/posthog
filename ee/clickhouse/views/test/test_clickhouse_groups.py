@@ -1042,6 +1042,22 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             ).count(),
             0,
         )
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select COUNT(*)
+                from groups
+                where index = {index}
+                and key = {key}
+                """,
+                placeholders={
+                    "index": ast.Constant(value=group_type_mapping.group_type_index),
+                    "key": ast.Constant(value="org:5"),
+                },
+            ),
+            self.team,
+        )
+        self.assertEqual(response.results, [(0,)])
 
     def test_delete_group_not_found(self):
         group_type_mapping = GroupTypeMapping.objects.create(
@@ -1066,6 +1082,22 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             ).count(),
             1,
         )
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select COUNT(*)
+                from groups
+                where index = {index}
+                and key = {key}
+                """,
+                placeholders={
+                    "index": ast.Constant(value=group_type_mapping.group_type_index),
+                    "key": ast.Constant(value="org:5"),
+                },
+            ),
+            self.team,
+        )
+        self.assertEqual(response.results, [(1,)])
 
     def test_create_detail_dashboard_success(self):
         group_type_mapping = GroupTypeMapping.objects.create(
