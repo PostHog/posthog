@@ -246,19 +246,20 @@ async def query_usage_reports(
         print(f"Total orgs counted: {org_count}")  # noqa: T201
         print(f"Total orgs sent: {total_orgs_sent}")  # noqa: T201
 
-        pha_client.capture(
-            "internal_billing_events",
-            "usage reports - sending complete",
-            {
-                "total_orgs": total_orgs,
-                "total_orgs_sent": total_orgs_sent,
-                "period_start": period_start.isoformat(),
-                "period_end": period_end.isoformat(),
-                "region": get_instance_region(),
-            },
-            groups={"instance": settings.SITE_URL},
-        )
-        pha_client.flush()  # Flush and close the client
+        if get_instance_region():
+            pha_client.capture(
+                "internal_billing_events",
+                "usage reports - sending complete",
+                {
+                    "total_orgs": total_orgs,
+                    "total_orgs_sent": total_orgs_sent,
+                    "period_start": period_start.isoformat(),
+                    "period_end": period_end.isoformat(),
+                    "region": get_instance_region(),
+                },
+                groups={"instance": settings.SITE_URL},
+            )
+            pha_client.flush()  # Flush and close the client
 
         return None
 
