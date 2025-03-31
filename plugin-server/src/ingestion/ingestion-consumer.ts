@@ -2,6 +2,9 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { HogWatcherService } from '../cdp/services/hog-watcher.service'
+import { HogFunctionManagerService } from '../cdp/services/hog-function-manager.service'
+import { createCdpRedisPool } from '../cdp/redis'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -23,6 +26,8 @@ import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
+import { HogFunctionInvocationResult, HogFunctionType } from '../cdp/types'
+
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
@@ -41,6 +46,13 @@ const histogramKafkaBatchSizeKb = new Histogram({
 const forcedOverflowEventsCounter = new Counter({
     name: 'ingestion_forced_overflow_events_total',
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
+})
+
+// Add metrics for hogwatcher batch operations
+const transformEventBatchWatcherLatency = new Histogram({
+    name: 'transform_event_batch_watcher_latency_seconds',
+    help: 'Time spent in HogWatcher batch operations in seconds for batch transformEvent',
+    labelNames: ['operation'],
 })
 
 type IncomingEvent = { message: Message; event: PipelineEvent }
@@ -78,6 +90,11 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokensToForceOverflow: string[] = []
 
+    // Track batch invocation results
+    private batchInvocationResults: HogFunctionInvocationResult[] = []
+    private hogWatcher: HogWatcherService
+    private hogFunctionManager: HogFunctionManagerService
+
     constructor(
         private hub: Hub,
         overrides: Partial<
@@ -109,6 +126,8 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
+        this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
+        this.hogFunctionManager = new HogFunctionManagerService(hub)
     }
 
     public get service(): PluginServerService {
@@ -123,6 +142,7 @@ export class IngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             this.hogTransformer.start(),
+            this.hogFunctionManager.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
@@ -151,6 +171,8 @@ export class IngestionConsumer {
         await this.kafkaProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
         await this.kafkaOverflowProducer?.disconnect()
+        logger.info('🔁', `${this.name} - stopping hog function manager`)
+        await this.hogFunctionManager.stop()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
         logger.info('👍', `${this.name} - stopped!`)
@@ -173,11 +195,69 @@ export class IngestionConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
+        // Extract team IDs from the batch for gathering team hog functions
+        const teamIds = new Set<number>()
+        Object.values(parsedMessages).forEach(events => {
+            events.forEach(({ event }) => {
+                if (event.team_id) {
+                    teamIds.add(event.team_id)
+                }
+            })
+        })
+
+        // Fetch all transformation functions and their states for all teams in the batch
+        const filteredTeamHogFunctionsMap: Record<number, HogFunctionType[]> = {}
+        
+        await this.runInstrumented('fetchAndFilterTransformationFunctions', async () => {
+            // Get all function IDs across all teams first
+            const teamToFunctionsMap: Record<number, HogFunctionType[]> = {}
+            const allFunctionIds: string[] = []
+            
+            // Step 1: Fetch all functions for all teams
+            await Promise.all(
+                [...teamIds].map(async (teamId) => {
+                    const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(
+                        teamId, 
+                        ['transformation']
+                    )
+                    teamToFunctionsMap[teamId] = teamHogFunctions
+                    teamHogFunctions.forEach(fn => allFunctionIds.push(fn.id))
+                })
+            )
+            
+            // Step 2: Get all function states in one batch
+            const functionStates = allFunctionIds.length > 0 
+                ? await this.getHogWatcherStates(allFunctionIds) 
+                : {}
+            
+            // Step 3: Filter out disabled functions for each team
+            for (const teamId of teamIds) {
+                const teamFunctions = teamToFunctionsMap[teamId] || []
+                const enabledFunctions = teamFunctions.filter(fn => {
+                    const state = functionStates[fn.id]?.state
+                    const isEnabled = !state || state < 2 // Not disabled if state is undefined or < 2
+                    
+                    if (!isEnabled) {
+                        logger.info('🧪', 'Skipping disabled transformation', {
+                            function_id: fn.id,
+                            function_name: fn.name,
+                            team_id: teamId,
+                            state
+                        })
+                    }
+                    
+                    return isEnabled
+                })
+                
+                filteredTeamHogFunctionsMap[teamId] = enabledFunctions
+            }
+        })
+
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
                 Object.values(parsedMessages).map(async (x) => {
-                    return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(x)
+                    return await this.runInstrumented('processEventsForDistinctId', () => 
+                        this.processEventsForDistinctId(x, filteredTeamHogFunctionsMap)
                     )
                 })
             )
@@ -186,6 +266,11 @@ export class IngestionConsumer {
         logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         logger.debug('🔁', `Processed batch`)
+
+        // Process hogwatcher observations in batch after all events are processed
+        await this.runInstrumented('processHogWatcherObservations', async () => {
+            await this.processHogWatcherObservationsBatch()
+        })
 
         for (const message of messages) {
             if (message.timestamp) {
@@ -196,7 +281,10 @@ export class IngestionConsumer {
         }
     }
 
-    private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
+    private async processEventsForDistinctId(
+        incomingEvents: IncomingEvent[], 
+        teamHogFunctionsMap: Record<number, HogFunctionType[]>
+    ): Promise<void> {
         // Process every message sequentially, stash promises to await on later
         for (const { message, event } of incomingEvents) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
@@ -243,7 +331,13 @@ export class IngestionConsumer {
                     continue
                 }
 
-                const result = await this.runInstrumented('runEventPipeline', () => this.runEventPipeline(event))
+                // Get team hog functions (already pre-filtered in handleKafkaBatch)
+                const teamHogFunctions = teamHogFunctionsMap[event.team_id || -1] || []
+                
+                // Pass the pre-fetched and filtered team hog functions to the event pipeline
+                const result = await this.runInstrumented('runEventPipeline', () => 
+                    this.runEventPipeline(event, teamHogFunctions)
+                )
 
                 logger.debug('🔁', `Processed event`, {
                     event,
@@ -263,11 +357,32 @@ export class IngestionConsumer {
         }
     }
 
-    private async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+    private async runEventPipeline(
+        event: PipelineEvent, 
+        teamHogFunctions: HogFunctionType[] = []
+    ): Promise<EventPipelineResult> {
         return await retryIfRetriable(async () => {
             const runner = new EventPipelineRunner(this.hub, event, this.hogTransformer)
-            return await runner.runEventPipeline(event)
+            
+            // Just pass the pre-filtered hog functions directly to runEventPipeline
+            const result = await runner.runEventPipeline(event, teamHogFunctions);
+            
+            // Extract any invocation results from the transformation that need to be observed
+            const { invocationResults } = await this.extractInvocationResults(result);
+            if (invocationResults && invocationResults.length > 0) {
+                this.addToBatchObservations(invocationResults);
+            }
+            
+            return result;
         })
+    }
+    
+    // Helper method to extract invocation results from pipeline result
+    private async extractInvocationResults(result: EventPipelineResult): Promise<{ invocationResults: HogFunctionInvocationResult[] }> {
+        // Return invocation results from the pipeline result if they exist
+        return { 
+            invocationResults: result.invocationResults || [] 
+        };
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
@@ -497,5 +612,58 @@ export class IngestionConsumer {
                 })
             )
         )
+    }
+
+    /**
+     * Gets HogWatcher states for multiple function IDs at once
+     * @param functionIds Array of function IDs to get states for
+     * @returns Record of function ID to watcher state
+     */
+    private async getHogWatcherStates(functionIds: string[]): Promise<Record<string, { state: number }>> {
+        if (!functionIds.length) {
+            return {}
+        }
+        
+        const timer = transformEventBatchWatcherLatency.startTimer({ operation: 'getStates' })
+        try {
+            // Access hogWatcher directly
+            return await this.hogWatcher.getStates(functionIds)
+        } catch (error) {
+            logger.warn('⚠️', 'HogWatcher getStates failed', { error })
+            return {}
+        } finally {
+            timer()
+        }
+    }
+    
+    /**
+     * Adds invocation results to the batch for later processing by hogwatcher
+     * @param results Invocation results to add to the batch
+     */
+    public addToBatchObservations(results: HogFunctionInvocationResult[]): void {
+        if (results.length > 0) {
+            this.batchInvocationResults.push(...results)
+        }
+    }
+    
+    /**
+     * Processes all accumulated batch observations in a single hogwatcher operation
+     */
+    private async processHogWatcherObservationsBatch(): Promise<void> {
+        if (!this.batchInvocationResults.length) {
+            return
+        }
+        
+        const timer = transformEventBatchWatcherLatency.startTimer({ operation: 'observeResults' })
+        try {
+            // Access hogWatcher directly
+            await this.hogWatcher.observeResults(this.batchInvocationResults)
+        } catch (error) {
+            logger.warn('⚠️', 'HogWatcher batch observeResults failed', { error })
+        } finally {
+            timer()
+            // Clear the batch after processing
+            this.batchInvocationResults = []
+        }
     }
 }

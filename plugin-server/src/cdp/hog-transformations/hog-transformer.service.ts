@@ -10,7 +10,6 @@ import { CdpRedis, createCdpRedisPool } from '../redis'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
-import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
@@ -38,12 +37,6 @@ export const hogTransformationCompleted = new Counter({
     labelNames: ['type'],
 })
 
-export const transformEventHogWatcherLatency = new Histogram({
-    name: 'transform_event_hog_watcher_latency_milliseconds',
-    help: 'Time spent in HogWatcher operations in milliseconds for transformEvent',
-    labelNames: ['operation'],
-})
-
 export interface TransformationResultPure {
     event: PluginEvent | null
     invocationResults: HogFunctionInvocationResult[]
@@ -59,7 +52,6 @@ export class HogTransformerService {
     private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
-    private hogWatcher: HogWatcherService
     private redis: CdpRedis
 
     constructor(hub: Hub) {
@@ -69,7 +61,6 @@ export class HogTransformerService {
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
-        this.hogWatcher = new HogWatcherService(hub, this.redis)
     }
 
     public async start(): Promise<void> {
@@ -133,7 +124,10 @@ export class HogTransformerService {
         })
     }
 
-    public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResultPure> {
+    public transformEvent(
+        event: PluginEvent, 
+        teamHogFunctions: HogFunctionType[]
+    ): Promise<TransformationResultPure> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEvent`,
             func: async () => {
@@ -143,44 +137,8 @@ export class HogTransformerService {
                 const transformationsFailed: string[] = event.properties?.$transformations_failed || []
                 const transformationsSkipped: string[] = event.properties?.$transformations_skipped || []
 
-                const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-
-                // Get states for all functions to check if any are disabled - only if feature flag is enabled
-                let states: Record<string, { state: HogWatcherState }> = {}
-                if (shouldRunHogWatcher) {
-                    try {
-                        const timer = transformEventHogWatcherLatency.startTimer({ operation: 'getStates' })
-                        states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
-                        timer()
-                    } catch (error) {
-                        logger.warn('⚠️', 'HogWatcher getStates failed', { error })
-                    }
-                }
-
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
-
-                    // Check if the function would be disabled via hogWatcher - but don't actually disable yet
-                    if (shouldRunHogWatcher) {
-                        const functionState = states[hogFunction.id]
-                        if (functionState?.state >= HogWatcherState.disabledForPeriod) {
-                            // Just log that we would have disabled this transformation but we're letting it run for testing
-                            logger.info(
-                                '🧪',
-                                '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
-                                {
-                                    function_id: hogFunction.id,
-                                    function_name: hogFunction.name,
-                                    team_id: event.team_id,
-                                    state: functionState.state,
-                                    state_name:
-                                        functionState.state === HogWatcherState.disabledForPeriod
-                                            ? 'disabled_temporarily'
-                                            : 'disabled_permanently',
-                                }
-                            )
-                        }
-                    }
 
                     // Check if we should apply this transformation based on its filters
                     if (this.hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS.includes(event.team_id)) {
@@ -286,17 +244,6 @@ export class HogTransformerService {
                     }
 
                     transformationsSucceeded.push(transformationIdentifier)
-                }
-
-                // Observe the results to update rate limiting state - only if feature flag is enabled
-                if (results.length > 0 && shouldRunHogWatcher) {
-                    try {
-                        const timer = transformEventHogWatcherLatency.startTimer({ operation: 'observeResults' })
-                        await this.hogWatcher.observeResults(results)
-                        timer()
-                    } catch (error) {
-                        logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
-                    }
                 }
 
                 if (transformationsFailed.length > 0) {
