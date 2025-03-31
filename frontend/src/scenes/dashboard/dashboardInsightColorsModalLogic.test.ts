@@ -3,7 +3,7 @@ import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constant
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { extractBreakdownValues } from '../dashboardInsightColorsModalLogic'
+import { extractBreakdownValues } from './dashboardInsightColorsModalLogic'
 
 describe('extractBreakdownValues', () => {
     const createTestTile = (
@@ -68,7 +68,15 @@ describe('extractBreakdownValues', () => {
                 } as InsightVizNode<InsightQueryNode>,
             }),
         ]
-        expect(extractBreakdownValues(tiles)).toEqual(['Baseline', 'Chrome', 'Firefox', 'Safari'])
+
+        const result = extractBreakdownValues(tiles)
+
+        expect(result).toEqual([
+            { breakdownValue: 'Baseline', breakdownType: 'event' },
+            { breakdownValue: 'Chrome', breakdownType: 'event' },
+            { breakdownValue: 'Firefox', breakdownType: 'event' },
+            { breakdownValue: 'Safari', breakdownType: 'event' },
+        ])
     })
 
     it('handles trends insights', () => {
@@ -95,7 +103,14 @@ describe('extractBreakdownValues', () => {
                 } as InsightVizNode<InsightQueryNode>,
             }),
         ]
-        expect(extractBreakdownValues(tiles)).toEqual(['Chrome', 'Firefox', 'Safari'])
+
+        const result = extractBreakdownValues(tiles)
+
+        expect(result).toEqual([
+            { breakdownValue: 'Chrome', breakdownType: 'event' },
+            { breakdownValue: 'Firefox', breakdownType: 'event' },
+            { breakdownValue: 'Safari', breakdownType: 'event' },
+        ])
     })
 
     it('deduplicates repeated breakdown values across tiles', () => {
@@ -114,7 +129,7 @@ describe('extractBreakdownValues', () => {
             }),
             createTestTile({
                 result: [
-                    { action: { order: 0 }, breakdown_value: ['Chrome'] }, // Repeated in second tile
+                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
                     { action: { order: 1 }, breakdown_value: ['Safari'] },
                 ],
                 query: {
@@ -125,7 +140,14 @@ describe('extractBreakdownValues', () => {
                 } as InsightVizNode<InsightQueryNode>,
             }),
         ]
-        expect(extractBreakdownValues(tiles)).toEqual(['Chrome', 'Firefox', 'Safari'])
+
+        const result = extractBreakdownValues(tiles)
+
+        expect(result).toEqual([
+            { breakdownValue: 'Chrome', breakdownType: 'event' },
+            { breakdownValue: 'Firefox', breakdownType: 'event' },
+            { breakdownValue: 'Safari', breakdownType: 'event' },
+        ])
     })
 
     it('ignores non-matching insight types', () => {
