@@ -2,6 +2,7 @@ import { IconPlus } from '@posthog/icons'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -9,8 +10,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTree } from './defaultTree'
@@ -29,6 +32,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['featureFlags'],
             panelLayoutLogic,
             ['searchTerm'],
+            breadcrumbsLogic,
+            ['projectTreeRef'],
         ],
         actions: [panelLayoutLogic, ['setSearchTerm']],
     }),
@@ -61,6 +66,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         rename: (path: string) => ({ path }),
         createFolder: (parentPath: string) => ({ parentPath }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
+        assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -595,9 +601,36 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
         },
+        assureVisibility: ({ projectTreeRef }) => {
+            if (projectTreeRef) {
+                const treeItem = values.viableItems.find(
+                    (item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref
+                )
+
+                if (treeItem) {
+                    // console.log("!!!! Found it in the tree: ", treeItem)
+                }
+                // if (path) {
+                //     const folderId = `project/${path}`
+                //     actions.toggleFolderOpen(folderId, true)
+                //     actions.setLastViewedId(folderId)
+                //     projectTreeRef.scrollToItem(folderId)
+                // }
+            }
+        },
     })),
-    afterMount(({ actions }) => {
+    subscriptions(({ actions }) => ({
+        projectTreeRef: (newRef: ProjectTreeRef | null) => {
+            if (newRef) {
+                actions.assureVisibility(newRef)
+            }
+        },
+    })),
+    afterMount(({ actions, values }) => {
         actions.loadFolder('')
         actions.loadUnfiledItems()
+        if (values.projectTreeRef) {
+            actions.assureVisibility(values.projectTreeRef)
+        }
     }),
 ])
