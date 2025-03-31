@@ -57,7 +57,7 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
                 disableIcon
             />
         )
-    } else if (key === 'person.$delete') {
+    } else if (key === 'person.$delete' || key === 'group.$delete') {
         title = ''
         width = 0
     } else if (key.startsWith('person.properties.')) {

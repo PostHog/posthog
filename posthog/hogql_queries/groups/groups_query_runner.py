@@ -24,12 +24,22 @@ class GroupsQueryRunner(QueryRunner):
         ]
         if self.query.select:
             self.columns.extend([col for col in self.query.select if col not in self.columns])
+        self.columns.append("group.$delete")
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
 
     def to_query(self) -> ast.SelectQuery:
+        select = [
+            ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
+        ]
+        for col in self.columns[1:]:
+            if col == "group.$delete":
+                select.append(ast.Constant(value=1))
+            else:
+                select.append(ast.Field(chain=list(col.split("."))))
+
         where_exprs: list[ast.Expr] = []
 
         where_exprs.append(
@@ -80,10 +90,7 @@ class GroupsQueryRunner(QueryRunner):
                 order_by.append(parse_order_expr(col, timings=self.timings))
 
         return ast.SelectQuery(
-            select=[
-                ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
-                *[ast.Field(chain=list(col.split("."))) for col in self.columns[1:]],
-            ],
+            select=select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
             where=where,
             order_by=order_by,

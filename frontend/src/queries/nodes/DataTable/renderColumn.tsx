@@ -34,7 +34,9 @@ import {
     isTracesQuery,
     trimQuotes,
 } from '~/queries/utils'
-import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, EventType, GroupTypeIndex, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { DeleteGroupButton } from '../GroupsQuery/DeleteGroupButton'
 
 export function renderColumn(
     key: string,
@@ -263,6 +265,17 @@ export function renderColumn(
         }
         const personRecord = record[0] as PersonType
         return <DeletePersonButton person={personRecord} />
+    } else if (key === 'group.$delete' && isGroupsQuery(query.source)) {
+        if (!Array.isArray(record)) {
+            console.error('Expected record to be an array for group.$delete column')
+            return ''
+        }
+
+        return (
+            <DeleteGroupButton
+                group={{ group_type_index: query.source.group_type_index as GroupTypeIndex, group_key: record[1] }}
+            />
+        )
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
