@@ -84,7 +84,6 @@ fi
 
 # Ensure Python virtual environment - Python version is defined in pyproject.toml
 uv sync
-source $UV_PROJECT_ENVIRONMENT/bin/activate
 
 # Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)
 # This also sets up pre-commit hooks via Husky
@@ -140,6 +139,7 @@ bash = '''
     # ensure even with your shell prefs in place we know this is a Flox.dev env
     export PS1="\033[47m(flox)\033[0m $PS1"
   fi
+  source $UV_PROJECT_ENVIRONMENT/bin/activate
 '''
 zsh = '''
   if [[ -f "$HOME/.zshrc" ]]; then
@@ -147,6 +147,13 @@ zsh = '''
     # ensure even with your shell prefs in place we know this is a Flox.dev env
     export PS1="%K{white}%F{black}(flox)%k%f $PS1"
   fi
+  source $UV_PROJECT_ENVIRONMENT/bin/activate
+'''
+fish = '''
+  source $UV_PROJECT_ENVIRONMENT/bin/activate.fish
+'''
+tcsh = '''
+  source $UV_PROJECT_ENVIRONMENT/bin/activate.csh
 '''
 
 # The `[services]` section of the manifest allows you to define services.
