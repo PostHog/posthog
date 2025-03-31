@@ -186,15 +186,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 function getIssueDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
     return {
         date_from: dayjs(issue.first_seen).startOf('day').toISOString(),
-        date_to: dayjs().endOf('minute').toISOString(),
+        date_to: dayjs().endOf('hour').toISOString(),
     }
 }
 
 function getPropertiesDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
     const firstSeen = dayjs(issue.first_seen)
     return {
-        date_from: firstSeen.startOf('minute').toISOString(),
-        date_to: firstSeen.endOf('minute').toISOString(),
+        date_from: firstSeen.startOf('hour').toISOString(),
+        date_to: firstSeen.endOf('hour').toISOString(),
     }
 }
 
