@@ -11,7 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from typing import Optional
 
-from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX, get_surveys_opt_in
+from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX, get_surveys_count, get_surveys_opt_in
 from posthog.api.utils import (
     get_project_id,
     get_token,
@@ -92,7 +92,8 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             use_remote_config = True
 
     REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
-    surveys_opt_in = get_surveys_opt_in(team)
+
+    surveys_opt_in = get_surveys_opt_in(team) and get_surveys_count(team) > 0
 
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)

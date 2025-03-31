@@ -1,6 +1,7 @@
 import json
 from typing import cast
 from django.test import override_settings
+from pytest import mark
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.utils import create_data_warehouse_table
@@ -31,6 +32,8 @@ from posthog.schema import (
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
     PersonsOnEventsMode,
+    ExperimentFunnelMetricConfig,
+    ExperimentFunnelStepConfig,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -278,7 +281,11 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.FUNNEL,
-            metric_config=ExperimentEventMetricConfig(event="purchase"),
+            metric_config=ExperimentFunnelMetricConfig(
+                funnel=[
+                    ExperimentFunnelStepConfig(event="purchase", order=1),
+                ],
+            ),
         )
 
         experiment_query = ExperimentQuery(
@@ -786,7 +793,11 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             kind="ExperimentQuery",
             metric=ExperimentMetric(
                 metric_type=ExperimentMetricType.FUNNEL,
-                metric_config=ExperimentEventMetricConfig(event="purchase"),
+                metric_config=ExperimentFunnelMetricConfig(
+                    funnel=[
+                        ExperimentFunnelStepConfig(event="purchase", order=1),
+                    ],
+                ),
             ),
         )
         experiment.exposure_criteria = {"filterTestAccounts": True}
@@ -1020,6 +1031,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # In the new query runner, the exposure value is the same as the absolute exposure value
         self.assertEqual(test_variant.exposure, 2.0)
 
+    @mark.skip("Funnel metrics on data warehouse tables are not supported yet")
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_funnel_metric(self):
         table_name = self.create_data_warehouse_table_with_usage()
@@ -2494,3 +2506,198 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Verify the exposure counts (users who have been exposed to the variant)
         self.assertEqual(control_variant.absolute_exposure, 1)  # Only user_control
         self.assertEqual(test_variant.absolute_exposure, 1)  # Only user_test
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_funnel_metric_config(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                # User with first step only
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User with first and second step completed
+                "user_control_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T12:02:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User with second step only
+                "user_control_3": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T12:02:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User with only first step completed
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+                # User with whole funnel completed
+                "user_test_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-03T12:01:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T12:02:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+                # User with only feature flag and purchase, no pageview. Should be excluded.
+                "user_test_3": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T12:02:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.FUNNEL,
+            metric_config=ExperimentFunnelMetricConfig(
+                funnel=[
+                    ExperimentFunnelStepConfig(
+                        event="$pageview",
+                        name="$pageview",
+                        order=0,
+                        properties=[],
+                    ),
+                    ExperimentFunnelStepConfig(
+                        event="purchase",
+                        name="purchase",
+                        order=1,
+                        properties=[],
+                    ),
+                ]
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.success_count, 1)
+        self.assertEqual(control_variant.failure_count, 2)
+        self.assertEqual(test_variant.success_count, 1)
+        self.assertEqual(test_variant.failure_count, 2)

@@ -43,7 +43,7 @@ jobs:
                       dockerfile: ./rust/Dockerfile
                       project: 8dq0xkk0ck
                     - image: feature-flags
-                      dockerfile: ./rust/Dockerfile-feature-flags
+                      dockerfile: ./rust/Dockerfile
                       project: vglf58qgzw
                     - image: batch-import-worker
                       dockerfile: ./rust/Dockerfile

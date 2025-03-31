@@ -43,6 +43,19 @@ export const groupsModel = kea<groupsModelType>([
                     )
                     return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
                 },
+                setDefaultColumns: async ({
+                    groupTypeIndex,
+                    defaultColumns,
+                }: {
+                    groupTypeIndex: number
+                    defaultColumns: string[]
+                }) => {
+                    const groupType = await api.put(
+                        `/api/projects/${values.currentProjectId}/groups_types/set_default_columns`,
+                        { group_type_index: groupTypeIndex, default_columns: defaultColumns }
+                    )
+                    return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
+                },
             },
         ],
     })),

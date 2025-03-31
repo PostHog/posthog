@@ -156,12 +156,12 @@ class TestFileSystemSyncMixin(TestCase):
         then physically deleting it removes the entry.
         """
         note = Notebook.objects.create(team=self.team, title="My Notebook", deleted=False, created_by=self.user)
-        fs_entry = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note.id)).first()
+        fs_entry = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note.short_id)).first()
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Notebooks/My Notebook")
 
         # Physical delete
-        note_id = note.id
+        note_id = note.short_id
         note.delete()
         fs_entry2 = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note_id)).first()
         assert fs_entry2 is None
