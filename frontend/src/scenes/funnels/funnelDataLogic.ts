@@ -455,7 +455,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     if (theme == null) {
                         return '#000000' // fallback while loading
                     }
-                    return theme[getFunnelsColorToken(dataset.breakdownValue)!]
+                    return theme[getFunnelsColorToken(dataset)!]
                 }
             },
         ],
