@@ -13,7 +13,10 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         query: [
             {
                 kind: NodeKind.DataTableNode,
-                source: { kind: NodeKind.ActorsQuery, select: defaultDataTableColumns(NodeKind.ActorsQuery) },
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    select: [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete'],
+                },
                 full: true,
                 propertiesViaUrl: true,
             } as DataTableNode,

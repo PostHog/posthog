@@ -1799,7 +1799,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
-    customVolume?: ErrorTrackingSparklineConfig | null
+    volumeResolution: integer
     limit?: integer
     offset?: integer
 }
@@ -1809,18 +1809,12 @@ export interface ErrorTrackingIssueAssignee {
     id: integer | string
 }
 
-export type ErrorTrackingSparklineConfig = {
-    value: integer
-    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
-}
-
 export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
     volumeDay: number[]
-    volumeMonth: number[]
-    customVolume: number[] | null
+    volumeRange: number[]
 }
 
 export interface ErrorTrackingRelationalIssue {
@@ -1835,9 +1829,9 @@ export interface ErrorTrackingRelationalIssue {
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
-    last_seen?: string
+    last_seen: string
     earliest?: string
-    aggregations?: ErrorTrackingIssueAggregations
+    aggregations: ErrorTrackingIssueAggregations
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {

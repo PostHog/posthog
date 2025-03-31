@@ -115,6 +115,9 @@ pub struct Config {
     // bundled ingest pipeline refactors
     #[envconfig(default = "false")]
     pub enable_v2: bool,
+
+    #[envconfig(default = "100")]
+    pub v2_ingest_batch_size: usize,
 }
 
 #[derive(Clone)]

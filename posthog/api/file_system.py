@@ -104,7 +104,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = FileSystemSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
-    search_fields = ["path"]
+    search_fields = ["path", "ref", "type"]
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -115,6 +115,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
+        type_param = self.request.query_params.get("type")
+        type__startswith_param = self.request.query_params.get("type__startswith")
+        ref_param = self.request.query_params.get("ref")
 
         if depth_param is not None:
             try:
@@ -125,6 +128,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
+        if type_param:
+            queryset = queryset.filter(type=type_param)
+        if type__startswith_param:
+            queryset = queryset.filter(type__startswith=type__startswith_param)
+        if ref_param:
+            queryset = queryset.filter(ref=ref_param)
 
         if self.action == "list":
             queryset = queryset.order_by("path")
