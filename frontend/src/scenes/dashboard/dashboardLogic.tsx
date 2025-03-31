@@ -617,6 +617,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
+        temporaryBreakdownColorThemeId: [null as number | null],
         filters: [
             {
                 date_from: null,

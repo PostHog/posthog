@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -83,7 +84,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'yAxisScaleType',
                 'showMultipleYAxes',
                 'resultCustomizationBy',
-                'theme',
+                'getTheme',
             ],
         ],
         actions: [
@@ -267,21 +268,17 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
         resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
         getTrendsColorToken: [
-            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.theme, s.breakdownFilter],
-            (resultCustomizationBy, resultCustomizations, theme, breakdownFilter) => {
-                return (dataset) => {
-                    if (theme == null) {
-                        return null
-                    }
-
-                    const logic = dashboardLogic.findMounted({ id: props.dashboardId })
-                    const dashboardBreakdownColors = logic?.values.temporaryBreakdownColors
-
-                    // dashboard color overrides
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
+            (resultCustomizationBy, resultCustomizations, getTheme, breakdownFilter, querySource) => {
+                return (dataset: IndexedTrendResult): [DataColorTheme | null, DataColorToken | null] => {
+                    // stringified breakdown value
                     const key = getTrendDatasetKey(dataset)
                     let breakdownValue = JSON.parse(key)['breakdown_value']
                     breakdownValue = Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
 
+                    // dashboard color overrides
+                    const logic = dashboardLogic.findMounted({ id: props.dashboardId })
+                    const dashboardBreakdownColors = logic?.values.temporaryBreakdownColors
                     const colorOverride = dashboardBreakdownColors?.find(
                         (config) =>
                             config.breakdownValue === breakdownValue &&
@@ -289,27 +286,29 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     )
 
                     if (colorOverride?.colorToken) {
-                        return colorOverride.colorToken
+                        const dashboardThemeId = logic?.values.temporaryBreakdownColorThemeId
+                        return [getTheme(dashboardThemeId), colorOverride.colorToken]
                     }
 
-                    return getTrendResultCustomizationColorToken(
-                        resultCustomizationBy,
-                        resultCustomizations,
+                    const theme = getTheme(querySource?.dataColorTheme)
+                    return [
                         theme,
-                        dataset
-                    )
+                        getTrendResultCustomizationColorToken(
+                            resultCustomizationBy,
+                            resultCustomizations,
+                            theme,
+                            dataset
+                        ),
+                    ]
                 }
             },
         ],
         getTrendsColor: [
-            (s) => [s.theme, s.getTrendsColorToken],
-            (theme, getTrendsColorToken) => {
-                return (dataset) => {
-                    if (theme == null) {
-                        return '#000000' // fallback while loading
-                    }
-
-                    return theme[getTrendsColorToken(dataset)!]
+            (s) => [s.getTrendsColorToken],
+            (getTrendsColorToken) => {
+                return (dataset: IndexedTrendResult) => {
+                    const [colorTheme, colorToken] = getTrendsColorToken(dataset)
+                    return colorTheme && colorToken ? colorTheme[colorToken] : '#000000'
                 }
             },
         ],
