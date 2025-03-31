@@ -83,7 +83,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 appears.
             </p>
             <p className="text-muted-alt mb-4">
-                <i>Note: This feature currently only works for trend and funnel insights.</i>
+                <i>Note: This feature currently only works for trend and step-based funnel insights.</i>
             </p>
 
             {insightTilesLoading ? (
