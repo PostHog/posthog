@@ -8,10 +8,10 @@ const cache = new Map<string, string>()
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
 
-const model = genAI.getGenerativeModel({
+const summarizationModel = genAI.getGenerativeModel({
     model: 'gemini-2.0-flash',
     systemInstruction:
-        'Your goal is to summarize the provided code and describe the product features. Generate a single paragraph of text.',
+        'Your goal is to summarize the provided code and generate a list of high level product features. Generate a single paragraph of text and a list of features.',
     generationConfig: {
         temperature: 0.2,
     },
@@ -19,17 +19,24 @@ const model = genAI.getGenerativeModel({
 
 async function summarizeFile(path: string, content: string): Promise<void> {
     if (!content) {
-        cache.set(path, '')
         return
     }
 
-    const { response } = await model.generateContent({
+    let truncated = false
+    if (content.length > 15000) {
+        content = content.slice(0, 15000)
+        truncated = true
+    }
+
+    const { response } = await summarizationModel.generateContent({
         contents: [
             {
                 role: 'user',
                 parts: [
                     {
-                        text: `The file path is \`${path}\`. The file contents are:\n\`\`\`\n${content}\n\`\`\``,
+                        text: `The file path is \`${path}\`. The file contents are:\n\`\`\`\n${content}\n\`\`\`${
+                            truncated ? '\n(File was truncated)' : ''
+                        }`,
                     },
                 ],
             },
@@ -37,6 +44,41 @@ async function summarizeFile(path: string, content: string): Promise<void> {
     })
     const text = response.text()
     cache.set(path, text)
+}
+
+const clusteringModel = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    systemInstruction:
+        'Your goal is to summarize the provided code descriptions and generate a list of high level product features. Generate a single paragraph of text and a list of features.',
+    generationConfig: {
+        temperature: 0.2,
+    },
+})
+
+async function summarizeFolder(folder: string, paths: string[]): Promise<void> {
+    const content = paths
+        .filter((path) => cache.get(path))
+        .map((path) => `File path: ${path}\nFile summary:\n\`\`\`\n${cache.get(path)}\n\`\`\``)
+        .join('\n')
+
+    if (!content) {
+        return
+    }
+
+    const { response } = await clusteringModel.generateContent({
+        contents: [
+            {
+                role: 'user',
+                parts: [
+                    {
+                        text: content,
+                    },
+                ],
+            },
+        ],
+    })
+    const text = response.text()
+    cache.set(folder, text)
 }
 
 let jobs: Promise<void>[] = []
@@ -104,6 +146,14 @@ async function dfsGitTrackedFiles(gitPaths: string[], gitFilesSet: Set<string>, 
                 for (const item of contents) {
                     totalSize += await dfs(item)
                 }
+
+                await Promise.all(jobs)
+                jobs = []
+
+                console.log('Summarizing folder', currentPath)
+                // Form a cluster of files
+                await summarizeFolder(currentPath, contents)
+
                 return totalSize
             }
         } catch (e) {
@@ -114,6 +164,8 @@ async function dfsGitTrackedFiles(gitPaths: string[], gitFilesSet: Set<string>, 
     }
 
     const totalSize = await dfs(startDir)
+    await Promise.all(jobs)
+
     return { files: result, characterSize, totalSize }
 }
 
@@ -127,15 +179,13 @@ async function main(): Promise<void> {
         files: trackedFiles,
         characterSize,
         totalSize,
-    } = await dfsGitTrackedFiles(gitPaths, gitFilesSet, 'products/llm_observability')
+    } = await dfsGitTrackedFiles(gitPaths, gitFilesSet, 'frontend/src')
 
     console.log('Git tracked files:')
     trackedFiles.forEach((file) => console.log(`${file} (${characterSize.get(file)} characters)`))
     console.log(`Total size: ${totalSize} characters`)
 
-    await Promise.all(jobs)
     const result = Array.from(cache.entries()).map(([path, summary]) => ({ path, summary }))
-    console.log(result)
     await fs.writeFile('cache.json', JSON.stringify(result, null, 2))
 }
 
