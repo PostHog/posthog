@@ -24,8 +24,6 @@ export function MessagingTabs(): JSX.Element {
         tabs.push({ key: 'library', label: 'Library' })
     }
 
-    tabs.push({ key: 'providers', label: 'Providers' })
-
     return <LemonTabs activeKey={currentTab} onChange={(tab) => setTab(tab as MessagingTab)} tabs={tabs} />
 }
 
