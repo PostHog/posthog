@@ -28,14 +28,14 @@ export function QueryVariables(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-2 py-2 h-full">
+        <div className="flex flex-col gap-2 py-2 h-full overflow-auto">
             <div className="flex flex-row items-center justify-between px-2">
                 <h3 className="text-sm font-semibold mb-0">Query variables</h3>
                 <AddVariableButton buttonProps={{ type: 'primary', size: 'xsmall' }} title="" />
             </div>
             <div className="flex flex-row items-center justify-between px-2">
                 <span className="text-xs text-muted-alt">
-                    Query variables let you dynamically set values in your hogQL query.{' '}
+                    Query variables let you dynamically set values in your SQL query.{' '}
                     <Link to={documentationUrl} target="_blank">
                         Learn more
                     </Link>

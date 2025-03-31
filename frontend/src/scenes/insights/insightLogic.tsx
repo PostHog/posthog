@@ -470,7 +470,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 saved: true,
             })
 
-            if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+            if (router.values.location.pathname.includes(urls.sqlEditor())) {
                 lemonToast.info(`You're now viewing ${values.insight.name || values.insight.derived_name || name}`)
             } else {
                 lemonToast.info(
