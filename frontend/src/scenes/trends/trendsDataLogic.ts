@@ -267,8 +267,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
         resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
         getTrendsColorToken: [
-            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.theme],
-            (resultCustomizationBy, resultCustomizations, theme) => {
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.theme, s.breakdownFilter],
+            (resultCustomizationBy, resultCustomizations, theme, breakdownFilter) => {
                 return (dataset) => {
                     if (theme == null) {
                         return null
@@ -281,8 +281,14 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     const key = getTrendDatasetKey(dataset)
                     const breakdownValue = JSON.parse(key)['breakdown_value']
 
-                    if (temporaryBreakdownColors?.[breakdownValue]) {
-                        return temporaryBreakdownColors[breakdownValue]
+                    const colorOverride = temporaryBreakdownColors?.find(
+                        (config) =>
+                            config.breakdownValue === breakdownValue &&
+                            config.breakdownType === breakdownFilter?.breakdown_type
+                    )
+
+                    if (colorOverride?.colorToken) {
+                        return colorOverride.colorToken
                     }
 
                     return getTrendResultCustomizationColorToken(

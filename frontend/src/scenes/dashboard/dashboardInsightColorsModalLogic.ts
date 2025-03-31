@@ -4,10 +4,15 @@ import { getFunnelDatasetKey, getTrendDatasetKey } from 'scenes/insights/utils'
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
+import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardInsightColorsModalLogicType } from './dashboardInsightColorsModalLogicType'
 import { dashboardLogic } from './dashboardLogic'
 
-export function extractBreakdownValues(insightTiles: DashboardTile<QueryBasedInsightModel>[] | null): string[] {
+type BreakdownValueAndType = Omit<BreakdownColorConfig, 'colorToken'>
+
+export function extractBreakdownValues(
+    insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
+): BreakdownValueAndType[] {
     if (insightTiles == null) {
         return []
     }
@@ -23,22 +28,37 @@ export function extractBreakdownValues(insightTiles: DashboardTile<QueryBasedIns
                             (querySource.funnelsFilter?.funnelVizType === undefined ||
                                 querySource.funnelsFilter?.funnelVizType === FunnelVizType.Steps)
                         ) {
-                            const breakdownValues = ['Baseline']
+                            const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
+                            const breakdownValues: BreakdownValueAndType[] = [
+                                {
+                                    breakdownValue: 'Baseline',
+                                    breakdownType,
+                                },
+                            ]
                             tile.insight?.result.forEach((result: any) => {
                                 const key = getFunnelDatasetKey(result)
                                 const keyParts = JSON.parse(key)
                                 const breakdownValue = keyParts['breakdown_value']
-                                breakdownValues.push(
-                                    Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
-                                )
+                                breakdownValues.push({
+                                    breakdownValue: Array.isArray(breakdownValue)
+                                        ? breakdownValue.join('::')
+                                        : breakdownValue,
+                                    breakdownType,
+                                })
                             })
                             return breakdownValues
                         } else if (isTrendsQuery(querySource)) {
+                            const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
                             return tile.insight?.result.map((result: any) => {
                                 const key = getTrendDatasetKey(result)
                                 const keyParts = JSON.parse(key)
                                 const breakdownValue = keyParts['breakdown_value']
-                                return Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
+                                return {
+                                    breakdownValue: Array.isArray(breakdownValue)
+                                        ? breakdownValue.join('::')
+                                        : breakdownValue,
+                                    breakdownType,
+                                }
                             })
                         }
                         return []

@@ -9,28 +9,34 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { DashboardMode } from '~/types'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
+
+export type BreakdownColorConfig = {
+    colorToken: DataColorToken | null
+    breakdownValue: string
+    breakdownType: Extract<BreakdownFilter, 'breakdown_type'>
+}
 
 export function DashboardInsightColorsModal(): JSX.Element {
     const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
     const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
 
     const { temporaryBreakdownColors, dashboardMode } = useValues(dashboardLogic)
-    const { setBreakdownColor, setDashboardMode } = useActions(dashboardLogic)
+    const { setBreakdownColorConfig, setDashboardMode } = useActions(dashboardLogic)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { cohorts } = useValues(cohortsModel)
 
-    const columns: LemonTableColumns<{ breakdownValue: string; colorToken: DataColorToken | null }> = [
+    const columns: LemonTableColumns<BreakdownColorConfig> = [
         {
             title: 'Breakdown',
             key: 'breakdown_value',
-            render: (_, { breakdownValue }) => {
-                // TODO: support for cohorts and nested breakdowns
-                const breakdownFilter = {}
+            render: (_, { breakdownValue, ...config }) => {
+                const breakdownFilter: BreakdownFilter = { breakdown_type: config.breakdownType }
                 const breakdownLabel = formatBreakdownLabel(
                     breakdownValue,
                     breakdownFilter,
@@ -46,7 +52,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
             title: 'Color',
             key: 'color',
             width: 400,
-            render: (_, { breakdownValue, colorToken }) => {
+            render: (_, { colorToken, ...config }) => {
                 return (
                     <LemonColorPicker
                         selectedColorToken={colorToken}
@@ -55,7 +61,10 @@ export function DashboardInsightColorsModal(): JSX.Element {
                                 setDashboardMode(DashboardMode.Edit, null)
                             }
 
-                            setBreakdownColor(breakdownValue, colorToken)
+                            setBreakdownColorConfig({
+                                ...config,
+                                colorToken,
+                            })
                         }}
                         customButton={
                             colorToken === null ? <LemonButton type="tertiary">Customize color</LemonButton> : undefined
@@ -88,8 +97,13 @@ export function DashboardInsightColorsModal(): JSX.Element {
                     <LemonTable
                         columns={columns}
                         dataSource={breakdownValues.map((breakdownValue) => ({
-                            breakdownValue,
-                            colorToken: temporaryBreakdownColors[breakdownValue] || null,
+                            ...breakdownValue,
+                            colorToken:
+                                temporaryBreakdownColors.find(
+                                    (c) =>
+                                        c.breakdownValue === breakdownValue.breakdownValue &&
+                                        c.breakdownType === breakdownValue.breakdownType
+                                )?.colorToken || null,
                         }))}
                         loading={insightTilesLoading || undefined}
                     />

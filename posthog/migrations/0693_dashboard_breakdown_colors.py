@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="dashboard",
             name="breakdown_colors",
-            field=models.JSONField(blank=True, default=dict, null=True),
+            field=models.JSONField(blank=True, default=list, null=True),
         ),
     ]

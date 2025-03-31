@@ -16,7 +16,6 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { DataColorToken } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -69,6 +68,7 @@ import {
 
 import { getResponseBytes, sortDates, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
+import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
@@ -228,11 +228,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
-        setBreakdownColor: (breakdownValue: string, colorToken: DataColorToken) => ({ breakdownValue, colorToken }),
+        setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
         setFiltersAndLayoutsAndVariables: (
             filters: DashboardFilter,
             variables: Record<string, HogQLVariable>,
-            breakdownColors: Record<string, DataColorToken>
+            breakdownColors: BreakdownColorConfig[]
         ) => ({
             filters,
             variables,
@@ -603,19 +603,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         temporaryBreakdownColors: [
-            {} as Record<string, DataColorToken>,
+            [] as BreakdownColorConfig[],
             {
-                setBreakdownColor: (state, { breakdownValue, colorToken }) => ({
-                    ...state,
-                    [breakdownValue]: colorToken,
-                }),
+                setBreakdownColorConfig: (state, { config }) => {
+                    const existingConfigIndex = state.findIndex((c) => c.breakdownValue === config.breakdownValue)
+                    if (existingConfigIndex >= 0) {
+                        return [...state.slice(0, existingConfigIndex), config, ...state.slice(existingConfigIndex + 1)]
+                    }
+                    return [...state, config]
+                },
                 loadDashboardSuccess: (state, { dashboard }) => {
-                    return dashboard
-                        ? {
-                              ...state,
-                              ...(dashboard.breakdown_colors ?? {}),
-                          }
-                        : state
+                    return [...state, ...(dashboard?.breakdown_colors ?? [])]
                 },
             },
         ],

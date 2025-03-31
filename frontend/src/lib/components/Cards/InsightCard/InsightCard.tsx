@@ -69,7 +69,7 @@ export interface InsightCardProps extends Resizeable {
     /** Dashboard variables to override the ones in the insight */
     variablesOverride?: Record<string, HogQLVariable>
     /** Dashboard breakdown colors to override the ones in the insight */
-    breakdownColorOverride?: Record<string, string>
+    breakdownColorOverride?: BreakdownColorConfig[]
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode

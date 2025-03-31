@@ -413,8 +413,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
         ],
         getFunnelsColorToken: [
-            (s) => [s.resultCustomizations, s.theme],
-            (resultCustomizations, theme) => {
+            (s) => [s.resultCustomizations, s.theme, s.breakdownFilter],
+            (resultCustomizations, theme, breakdownFilter) => {
                 return (dataset) => {
                     if (theme == null) {
                         return null
@@ -427,8 +427,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     const key = getFunnelDatasetKey(dataset)
                     const breakdownValue = JSON.parse(key)['breakdown_value']
 
-                    if (temporaryBreakdownColors?.[breakdownValue]) {
-                        return temporaryBreakdownColors[breakdownValue]
+                    const colorOverride = temporaryBreakdownColors?.find(
+                        (config) =>
+                            config.breakdownValue === breakdownValue &&
+                            config.breakdownType === breakdownFilter?.breakdown_type
+                    )
+
+                    if (colorOverride?.colorToken) {
+                        return colorOverride.colorToken
                     }
 
                     // insight color overrides
@@ -448,7 +454,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     if (theme == null) {
                         return '#000000' // fallback while loading
                     }
-                    return theme[getFunnelsColorToken(dataset)!]
+                    return theme[getFunnelsColorToken(dataset.breakdownValue)!]
                 }
             },
         ],
