@@ -25,7 +25,7 @@ import { getDataWarehouseSourceUrl } from 'scenes/data-warehouse/settings/DataWa
  * @param url
  */
 export function mapUrlToProvider(url: string): string {
-    if (url.includes('.s3.amazonaws.com')) {
+    if (url.includes('amazonaws.com')) {
         return 'aws'
     } else if (url.startsWith('https://storage.googleapis.com')) {
         return 'google-cloud'

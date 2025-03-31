@@ -1063,7 +1063,7 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         flush_persons_and_events()
         sync_execute("SYSTEM FLUSH LOGS")
         sync_execute("TRUNCATE TABLE system.query_log")
-        tag_queries(kind="request", id="1", access_method="personal_api_key", qaas=True)
+        tag_queries(kind="request", id="1", access_method="personal_api_key", chargeable=1)
 
         execute_hogql_query(
             query="select * from events limit 400",

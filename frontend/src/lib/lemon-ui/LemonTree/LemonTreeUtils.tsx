@@ -1,7 +1,6 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { IconChevronRight, IconDocument, IconFolder, IconFolderOpen } from '@posthog/icons'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 
 import { TreeDataItem } from './LemonTree'
@@ -16,7 +15,7 @@ type IconProps = {
 // If no icon is provided, use a defaultNodeIcon icon
 // If no defaultNodeIcon icon is provided, use empty div
 export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): JSX.Element {
-    const ICON_CLASSES = 'text-tertiary'
+    const ICON_CLASSES = 'text-tertiary pt-0.5'
 
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
@@ -26,23 +25,22 @@ export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): 
         return (
             // On folder group hover, the chevron icon should fade in and the folder should fade out
             <div className="relative">
-                <IconWrapper
-                    size="sm"
+                <div
                     className={cn(
                         ICON_CLASSES,
                         'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button:opacity-100 transition-opacity duration-150'
                     )}
                 >
                     <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
-                </IconWrapper>
-                <IconWrapper
+                </div>
+                <div
                     className={cn(
                         ICON_CLASSES,
                         'group-hover/lemon-tree-button:opacity-0 transition-opacity duration-150'
                     )}
                 >
                     {isOpen ? <IconFolderOpen /> : <IconFolder />}
-                </IconWrapper>
+                </div>
             </div>
         )
     }
@@ -50,21 +48,21 @@ export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): 
     if (isFile) {
         return (
             <>
-                <IconWrapper className={ICON_CLASSES}>
+                <div className={ICON_CLASSES}>
                     <IconDocument />
-                </IconWrapper>
+                </div>
             </>
         )
     }
 
     return (
-        <IconWrapper
+        <div
             className={cn(ICON_CLASSES, {
                 'text-tertiary': item.disabledReason,
             })}
         >
             {item.icon || defaultNodeIcon || <div />}
-        </IconWrapper>
+        </div>
     )
 }
 
