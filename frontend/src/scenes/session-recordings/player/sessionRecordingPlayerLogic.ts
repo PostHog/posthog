@@ -169,7 +169,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'trackedWindow',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'showMouseTail'],
+            ['speed', 'skipInactivitySetting'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -778,7 +778,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ...COMMON_REPLAYER_CONFIG,
                 // these two settings are attempts to improve performance of running two Replayers at once
                 // the main player and a preview player
-                mouseTail: values.showMouseTail && props.mode !== SessionRecordingPlayerMode.Preview,
+                mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
                 plugins,
                 onError: (error) => {
