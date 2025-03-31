@@ -569,8 +569,8 @@
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
     --z-resizer: 755;
-    --z-project-panel-layout: 1099;
-    --z-project-panel-overlay: 1098;
+    --z-project-panel-layout: 755;
+    --z-project-panel-overlay: 754;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
@@ -581,6 +581,7 @@
 
     // Elements
     --project-navbar-width: 250px;
+    --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
 
     // Toasts
