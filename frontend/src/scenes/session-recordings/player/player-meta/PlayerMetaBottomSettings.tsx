@@ -1,4 +1,4 @@
-import { IconClock, IconEllipsis, IconHourglass, IconMouse, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import { IconClock, IconEllipsis, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -121,8 +121,8 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
-    const { showMouseTail, skipInactivitySetting, timestampFormat } = useValues(playerSettingsLogic)
-    const { setShowMouseTail, setSkipInactivitySetting, setTimestampFormat } = useActions(playerSettingsLogic)
+    const { skipInactivitySetting, timestampFormat } = useValues(playerSettingsLogic)
+    const { setSkipInactivitySetting, setTimestampFormat } = useActions(playerSettingsLogic)
     const isSmall = size === 'small'
 
     const menuItems: LemonMenuItem[] = [
@@ -164,14 +164,6 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                   icon: <IconHourglass />,
               }
             : undefined,
-        {
-            // title: "Show a tail following the cursor to make it easier to see",
-            label: 'Show mouse tail',
-            active: showMouseTail,
-            'data-attr': 'show-mouse-tail-in-menu',
-            onClick: () => setShowMouseTail(!showMouseTail),
-            icon: <IconMouse className="text-lg" />,
-        },
     ].filter(Boolean) as LemonMenuItem[]
 
     return (
@@ -181,13 +173,14 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                     <SetPlaybackSpeed />
                     {!isSmall && <SetTimeFormat />}
                     {!isSmall && <SkipInactivity />}
-
-                    <SettingsMenu
-                        icon={<IconEllipsis />}
-                        items={menuItems}
-                        highlightWhenActive={false}
-                        closeOnClickInside={false}
-                    />
+                    {isSmall && (
+                        <SettingsMenu
+                            icon={<IconEllipsis />}
+                            items={menuItems}
+                            highlightWhenActive={false}
+                            closeOnClickInside={false}
+                        />
+                    )}
                 </div>
                 <div className="flex flex-row gap-0.5">
                     <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
