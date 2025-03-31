@@ -150,7 +150,7 @@ class DashboardSerializer(DashboardBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    breakdown_colors = serializers.JSONField(required=False, default=dict)
+    breakdown_colors = serializers.JSONField(required=False, default=list)
 
     class Meta:
         model = Dashboard
