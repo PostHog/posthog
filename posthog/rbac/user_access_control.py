@@ -394,6 +394,11 @@ class UserAccessControl:
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         ).access_level
 
+    def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
+        filters = self._access_controls_filters_for_resource(resource)
+        access_controls = self._get_access_controls(filters)
+        return bool(access_controls)
+
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
         access_level = self.access_level_for_resource(resource)
 
@@ -492,14 +497,12 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             self._preloaded_access_controls = True
 
         resource = model_to_resource(obj)
-        if resource:
+        access_level_for_resource = None
+        if resource and self.user_access_control.has_access_levels_for_resource(resource):
             access_level_for_resource = self.user_access_control.access_level_for_resource(resource)
-        else:
-            access_level_for_resource = default_access_level(resource)
+
+        if access_level_for_resource:
+            return access_level_for_resource
 
         access_level_for_object = self.user_access_control.access_level_for_object(obj)
-
-        return max(
-            (access_level_for_object, access_level_for_resource),
-            key=lambda access_level: ordered_access_levels(resource).index(access_level),
-        )
+        return access_level_for_object
