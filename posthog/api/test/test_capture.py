@@ -5,8 +5,7 @@ import pathlib
 import random
 import string
 from collections import Counter
-from datetime import UTC
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any, Union, cast
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call
@@ -403,7 +402,7 @@ class TestCapture(BaseTest):
             capacity=1,
             storage=MemoryStorage(),
         )
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
 
         with patch("posthog.api.capture.LIMITER", new=limiter):
             with freeze_time(start):

@@ -3697,5 +3697,6 @@
         "session_replay": 3,
         "product_analytics": 3
     },
-    "stripe_portal_url": "http://localhost:8000/api/billing/portal"
+    "stripe_portal_url": "http://localhost:8000/api/billing/portal",
+    "billing_plan": "free"
 }

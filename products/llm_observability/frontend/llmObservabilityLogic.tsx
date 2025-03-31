@@ -697,7 +697,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     }
                     const mountedInsightDataLogic = insightDataLogic.findMounted(insightProps)
                     if (mountedInsightDataLogic) {
-                        mountedInsightDataLogic.actions.loadData(true)
+                        mountedInsightDataLogic.actions.loadData('force_blocking')
                     }
                     actions.setRefreshStatus(`tile-${index}`, false)
                 })

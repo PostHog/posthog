@@ -182,7 +182,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                                     this.hub.teamManager.fetchTeam(clickHouseEvent.team_id),
                                 ])
 
-                                if (!teamHogFunctions || !team) {
+                                if (!teamHogFunctions.length || !team) {
                                     return
                                 }
                                 events.push(

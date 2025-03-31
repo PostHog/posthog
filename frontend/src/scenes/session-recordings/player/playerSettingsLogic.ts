@@ -34,7 +34,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
-        setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
     }),
     connect({
         values: [teamLogic, ['currentTeam']],
@@ -99,13 +98,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
-            },
-        ],
-        showMouseTail: [
-            true,
-            { persist: true },
-            {
-                setShowMouseTail: (_, { showMouseTail }) => showMouseTail,
             },
         ],
     })),

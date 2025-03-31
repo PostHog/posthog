@@ -11,7 +11,6 @@ import {
     IconNotification,
     IconPeople,
     IconPlug,
-    IconRocket,
     IconServer,
     IconSparkles,
     IconTarget,
@@ -25,7 +24,10 @@ import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
 export function iconForType(type?: string): JSX.Element {
-    if (type && type in fileSystemTypes && fileSystemTypes[type as keyof typeof fileSystemTypes].icon) {
+    if (!type) {
+        return <IconBook />
+    }
+    if (type in fileSystemTypes && fileSystemTypes[type as keyof typeof fileSystemTypes].icon) {
         return fileSystemTypes[type as keyof typeof fileSystemTypes].icon
     }
     switch (type) {
@@ -39,17 +41,12 @@ export function iconForType(type?: string): JSX.Element {
             return <IconMessage />
         case 'sql':
             return <IconServer />
-        case 'site_app':
-            return <IconPlug />
-        case 'destination':
-            return <IconPlug />
-        case 'transformation':
-            return <IconPlug />
-        case 'source':
-            return <IconPlug />
         case 'folder':
             return <IconChevronRight />
         default:
+            if (type.startsWith('hog/')) {
+                return <IconPlug />
+            }
             return <IconBook />
     }
 }
@@ -66,7 +63,7 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
         {
             path: `Create new/Feature`,
             type: 'feature',
-            href: () => urls.featureManagement('new'),
+            href: () => urls.earlyAccessFeature('new'),
         },
         {
             path: `Create new/Repl`,
@@ -109,12 +106,6 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
             href: () => urls.eventDefinitions(),
         },
         {
-            path: 'Explore/Data management/Actions',
-            icon: <IconRocket />,
-            href: () => urls.actions(),
-        },
-
-        {
             path: 'Explore/Data management/Property Definitions',
             icon: <IconDatabase />,
             href: () => urls.propertyDefinitions(),
@@ -148,7 +139,7 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
         {
             path: 'Explore/Data warehouse',
             icon: <IconDatabase />,
-            href: () => urls.dataWarehouse(),
+            href: () => urls.sqlEditor(),
         },
         {
             path: 'Explore/People and groups/Cohorts',

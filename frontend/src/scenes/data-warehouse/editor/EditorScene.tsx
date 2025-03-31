@@ -16,7 +16,7 @@ import {
 import { DataVisualizationLogicProps } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
-import { ItemMode } from '~/types'
+import { ChartDisplayType, ItemMode } from '~/types'
 
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -78,6 +78,7 @@ export function EditorScene(): JSX.Element {
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
+        defaultVisualizationType: ChartDisplayType.ActionsLineGraph,
         setQuery: setSourceQuery,
     }
 
@@ -100,7 +101,7 @@ export function EditorScene(): JSX.Element {
         sourceQuery,
         setQuery: setSourceQuery,
         onUpdate: (query) => {
-            loadData(true, undefined, query.source)
+            loadData('force_async', undefined, query.source)
         },
     }
 

@@ -910,6 +910,17 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         return survey.conditions
 
 
+def get_surveys_opt_in(team: Team) -> bool:
+    # return False if the team has not set a value for surveys_opt_in
+    if team.surveys_opt_in is None:
+        return False
+    return team.surveys_opt_in
+
+
+def get_surveys_count(team: Team) -> int:
+    return Survey.objects.filter(team_id=team.id).exclude(archived=True).count()
+
+
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
         Survey.objects.filter(team_id=team.id)

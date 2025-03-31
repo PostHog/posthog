@@ -24,8 +24,8 @@ def _resolve_single_provider_value(
     provider: ConfigProvider,
     key: str,
     hint: type[Any],
-    pipeline_name: str | None = None,  # type: ignore
-    config_section: str | None = None,  # type: ignore
+    pipeline_name: str | None = None,
+    config_section: str | None = None,
     explicit_sections: tuple[str, ...] = (),
     embedded_sections: tuple[str, ...] = (),
 ) -> tuple[Optional[Any], list[LookupTrace]]:
@@ -119,7 +119,7 @@ class Command(BaseCommand):
             pipeline.sync_destination()
 
             try:
-                sources = pipeline.state["sources"]  # type: ignore
+                sources = pipeline.state["sources"]
                 resource = sources[next(iter(sources.keys()))]
                 resources = resource["resources"]
                 tables = resources[next(iter(resources.keys()))]

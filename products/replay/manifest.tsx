@@ -21,9 +21,14 @@ export const manifest: ProductManifest = {
         replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
         replaySingle: (id: string): string => `/replay/${id}`,
         replayFilePlayback: (): string => '/replay/file-playback',
-        replaySettings: (): string => '/replay/settings',
+        replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        replay_playlist: {
+            icon: <IconRewindPlay />,
+            href: (ref: string) => urls.replayPlaylist(ref),
+        },
+    },
     treeItems: [
         {
             path: 'Explore/Recordings/Recordings',

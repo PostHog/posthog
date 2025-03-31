@@ -406,6 +406,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             newStartDate,
         }),
+        reportExperimentEndDateChange: (experiment: Experiment, newEndDate: string) => ({
+            experiment,
+            newEndDate,
+        }),
         reportExperimentCompleted: (
             experiment: Experiment,
             endDate: Dayjs,
@@ -554,6 +558,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
         reportBillingCTAShown: true,
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
+        reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -978,6 +983,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 new_start_date: newStartDate,
             })
         },
+        reportExperimentEndDateChange: ({ experiment, newEndDate }) => {
+            posthog.capture('experiment end date changed', {
+                ...getEventPropertiesForExperiment(experiment),
+                old_end_date: experiment.end_date,
+                new_end_date: newEndDate,
+            })
+        },
         reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
             posthog.capture('experiment completed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1339,6 +1351,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportCommandBarActionResultExecuted: ({ resultDisplay }) => {
             posthog.capture('command bar search result executed', { resultDisplay })
+        },
+        reportAccountOwnerClicked: ({ name, email }) => {
+            posthog.capture('account owner clicked', { name, email })
         },
     })),
 ])

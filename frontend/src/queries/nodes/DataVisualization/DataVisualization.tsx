@@ -11,7 +11,6 @@ import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
@@ -26,6 +25,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
@@ -102,8 +102,8 @@ export function DataTableVisualization({
         variablesOverride,
     }
 
-    const { insightProps: insightLogicProps } = useValues(insightLogic)
-    const { exportContext } = useValues(insightDataLogic(insightLogicProps))
+    // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic
+    const { exportContext } = useValues(insightDataLogic(insightProps as unknown as InsightLogicProps))
 
     const { loadData } = useActions(dataVisualizationLogic(dataVisualizationLogicProps))
 
@@ -120,7 +120,11 @@ export function DataTableVisualization({
                             sourceQuery: query,
                             setQuery: setQuery,
                             onUpdate: (query: DataVisualizationNode) => {
-                                loadData(true, undefined, query.source)
+                                loadData(
+                                    shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking',
+                                    undefined,
+                                    query.source
+                                )
                             },
                         }}
                     >
@@ -227,7 +231,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                     <AddVariableButton />
 
                                     {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.dataWarehouse()) && ( // decouple this component from insights tab and datawarehouse scene
+                                        !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
                                             <DateRange
                                                 key="date-range"
                                                 query={query.source}

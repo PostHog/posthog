@@ -91,7 +91,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                         data-attr="cohort-add-filter-group-criteria"
                                                         type="secondary"
                                                         onClick={() => addFilter(groupIndex)}
-                                                        icon={<IconPlusSmall color="var(--accent-primary)" />}
+                                                        icon={<IconPlusSmall />}
                                                     >
                                                         Add criteria
                                                     </LemonButton>
@@ -110,7 +110,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                 className="mb-4 mt-4"
                 type="secondary"
                 onClick={() => addFilter()}
-                icon={<IconPlusSmall color="var(--accent-primary)" />}
+                icon={<IconPlusSmall />}
                 fullWidth
             >
                 Add criteria group

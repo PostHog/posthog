@@ -3,6 +3,7 @@ import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { CSSProperties } from 'react'
 
 import {
@@ -467,22 +468,6 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
-/** Format currency from string with commas and a number of decimal places (defaults to 2). */
-export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
-    if (!d) {
-        d = '0.00'
-    }
-
-    let number: number
-    if (typeof d === 'string') {
-        number = parseFloat(d)
-    } else {
-        number = d
-    }
-
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
-}
-
 export function humanFriendlyLargeNumber(d: number): string {
     if (isNaN(d)) {
         return 'NaN'
@@ -516,6 +501,22 @@ export function humanFriendlyLargeNumber(d: number): string {
         return `${prefix}${(d / thousand).toString()}K`
     }
     return `${prefix}${d}`
+}
+
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
@@ -1439,6 +1440,7 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
             .split(' ')
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
+        posthog.captureException(e)
         Sentry.captureException(e)
         return null
     }

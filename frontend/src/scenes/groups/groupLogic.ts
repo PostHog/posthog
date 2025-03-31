@@ -51,6 +51,7 @@ export const groupLogic = kea<groupLogicType>([
     key((props) => `${props.groupTypeIndex}-${props.groupKey}`),
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect({
+        actions: [groupsModel, ['createDetailDashboard']],
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -175,6 +176,10 @@ export const groupLogic = kea<groupLogicType>([
         groupType: [
             (s, p) => [s.groupTypes, p.groupTypeIndex],
             (groupTypes, index): string | null => groupTypes.get(index as GroupTypeIndex)?.group_type ?? null,
+        ],
+        groupTypeDetailDashboard: [
+            (s, p) => [s.groupTypes, p.groupTypeIndex],
+            (groupTypes, index): number | null => groupTypes.get(index as GroupTypeIndex)?.detail_dashboard ?? null,
         ],
         breadcrumbs: [
             (s, p) => [s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],

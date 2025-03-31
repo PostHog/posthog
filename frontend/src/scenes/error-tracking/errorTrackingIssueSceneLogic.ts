@@ -80,7 +80,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         }),
                         {},
                         undefined,
-                        true
+                        'force_blocking'
                     )
 
                     // ErrorTrackingQuery returns a list of issues

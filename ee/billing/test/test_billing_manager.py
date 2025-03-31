@@ -144,6 +144,7 @@ class TestBillingManager(BaseTest):
             },
             "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
+            "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
         }
         organization.save()
@@ -161,6 +162,7 @@ class TestBillingManager(BaseTest):
                     "recordings": {"usage": 15, "limit": 100},
                     "rows_synced": {"usage": 45, "limit": 500},
                     "feature_flag_requests": {"usage": 25, "limit": 300},
+                    "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
                 },
                 "billing_period": {
                     "current_period_start": "2024-01-01T00:00:00Z",
@@ -188,4 +190,5 @@ class TestBillingManager(BaseTest):
             "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
+            "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
         }

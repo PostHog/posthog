@@ -2,7 +2,9 @@ from unittest import mock
 from uuid import UUID
 
 from freezegun.api import freeze_time
+from orjson import orjson
 
+from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -284,7 +286,10 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
+        # Check properties regardless of JSON key order
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0]), 1)
+        self.assertEqual(orjson.loads(response.results[0][0]), {"name": "Mr. Krabs", "industry": "technology"})
 
         mock_capture.assert_called_once_with(
             distinct_id=str(self.team.uuid),
@@ -778,18 +783,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "group_type": "organization",
                     "name_singular": "organization!",
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 1,
                     "group_type": "playlist",
                     "name_singular": None,
                     "name_plural": "playlists",
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 2,
                     "group_type": "another",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
             ],
         )
@@ -815,18 +826,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "group_type": "organization",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 1,
                     "group_type": "playlist",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 2,
                     "group_type": "another",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
             ],
         )
@@ -906,18 +923,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "group_type": "organization",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 1,
                     "group_type": "playlist",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 2,
                     "group_type": "another",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
             ],
         )
@@ -935,6 +958,63 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             disabled_response.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
+
+    def test_create_detail_dashboard_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
+            {"group_type_index": 0},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        group_type_mapping.refresh_from_db()
+        self.assertIsNotNone(group_type_mapping.detail_dashboard)
+
+    def test_create_detail_dashboard_duplicate(self):
+        group_type = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
+        group_type.detail_dashboard = dashboard
+        group_type.save()
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
+            {"group_type_index": 0},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_create_detail_dashboard_not_found(self):
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
+            {"group_type_index": 1},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_set_default_columns_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/set_default_columns",
+            {"group_type_index": 0, "default_columns": ["$group_0", "$group_1"]},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        group_type_mapping.refresh_from_db()
+        self.assertEqual(group_type_mapping.default_columns, ["$group_0", "$group_1"])
+
+    def test_set_default_columns_not_found(self):
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/set_default_columns",
+            {"group_type_index": 1, "default_columns": ["$group_0", "$group_1"]},
+        )
+        self.assertEqual(response.status_code, 404)
 
     def _create_related_groups_data(self):
         GroupTypeMapping.objects.create(

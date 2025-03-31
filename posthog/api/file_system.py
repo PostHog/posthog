@@ -1,16 +1,34 @@
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import QuerySet
+import posthoganalytics
 from rest_framework import filters, serializers, viewsets, pagination, status
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.file_system import FileSystem, save_unfiled_files, split_path
+from posthog.models.file_system.file_system import FileSystem, split_path
+from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.user import User
 from posthog.models.team import Team
+
+
+def has_permissions_to_access_tree_view(user, team):
+    tree_view_enabled = posthoganalytics.feature_enabled(
+        "tree-view",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+    if user.is_staff or tree_view_enabled:
+        return
+
+    raise PermissionDenied("You must have the 'tree-view' flag enabled, or be a staff user to access this resource.")
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -88,6 +106,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = FileSystemsLimitOffsetPagination
     search_fields = ["path"]
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        has_permissions_to_access_tree_view(request.user, self.team)
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team=self.team)
 
@@ -123,6 +145,45 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "results": FileSystemSerializer(files, many=True).data,
                 "count": len(files),
             },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["POST"], detail=True)
+    def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        new_path = request.data.get("new_path")
+        if not new_path:
+            return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+        if targets and any(target.type != "folder" for target in targets):
+            return Response({"detail": "Cannot move into a file"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if instance.type == "folder":
+            if new_path.startswith(instance.path):
+                return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+
+            with transaction.atomic():
+                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                    file.path = new_path + file.path[len(instance.path) :]
+                    file.depth = len(split_path(file.path))
+                    file.save()
+
+                if any(target.type == "folder" for target in targets):
+                    # TODO: merge access controls once those are in place
+                    instance.delete()
+                else:
+                    instance.path = new_path
+                    instance.depth = len(split_path(instance.path))
+                    instance.save()
+
+        else:
+            instance.path = new_path
+            instance.depth = len(split_path(instance.path))
+            instance.save()
+
+        return Response(
+            "OK",
             status=status.HTTP_200_OK,
         )
 

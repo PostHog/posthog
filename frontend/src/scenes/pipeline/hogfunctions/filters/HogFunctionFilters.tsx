@@ -83,7 +83,9 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
 
     const showMasking = type === 'destination' && !isLegacyPlugin
-    const showDropEvents = type === 'transformation'
+    const showDropEvents = false // TODO coming back to this later for the dropEvents Transformation
+
+    const isTransformation = type === 'transformation'
 
     return (
         <div
@@ -108,29 +110,41 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     mappings.
                                 </p>
                             )}
-                            <TestAccountFilterSwitch
-                                checked={filters?.filter_test_accounts ?? false}
-                                onChange={(filter_test_accounts) => onChange({ ...filters, filter_test_accounts })}
-                                fullWidth
-                            />
-                            <PropertyFilters
-                                propertyFilters={(filters?.properties ?? []) as AnyPropertyFilter[]}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                    TaxonomicFilterGroupType.Elements,
-                                    TaxonomicFilterGroupType.HogQLExpression,
-                                    ...groupsTaxonomicTypes,
-                                ]}
-                                onChange={(properties: AnyPropertyFilter[]) => {
-                                    onChange({
-                                        ...filters,
-                                        properties,
-                                    })
-                                }}
-                                pageKey={`HogFunctionPropertyFilters.${id}`}
-                            />
+                            {isTransformation && (
+                                <LemonBanner type="info">
+                                    For transformations, only event properties and SQL expressions can be used in
+                                    filters as they run during ingestion before other properties are available.
+                                </LemonBanner>
+                            )}
+                            {!isTransformation && (
+                                <>
+                                    <TestAccountFilterSwitch
+                                        checked={filters?.filter_test_accounts ?? false}
+                                        onChange={(filter_test_accounts) =>
+                                            onChange({ ...filters, filter_test_accounts })
+                                        }
+                                        fullWidth
+                                    />
+                                    <PropertyFilters
+                                        propertyFilters={(filters?.properties ?? []) as AnyPropertyFilter[]}
+                                        taxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.EventFeatureFlags,
+                                            TaxonomicFilterGroupType.Elements,
+                                            TaxonomicFilterGroupType.HogQLExpression,
+                                            ...groupsTaxonomicTypes,
+                                        ]}
+                                        onChange={(properties: AnyPropertyFilter[]) => {
+                                            onChange({
+                                                ...filters,
+                                                properties,
+                                            })
+                                        }}
+                                        pageKey={`HogFunctionPropertyFilters.${id}`}
+                                    />
+                                </>
+                            )}
 
                             {!useMapping ? (
                                 <>
@@ -138,8 +152,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         <LemonLabel>Match events and actions</LemonLabel>
                                     </div>
                                     <p className="mb-0 text-xs text-secondary">
-                                        If set, the destination will only run if the <b>event matches any</b> of the
-                                        below.
+                                        If set, the {type} will only run if the <b>event matches any</b> of the below.
                                     </p>
                                     <ActionFilter
                                         bordered
@@ -155,18 +168,26 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         hideRename
                                         hideDuplicate
                                         showNestedArrow={false}
-                                        actionsTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.Events,
-                                            TaxonomicFilterGroupType.Actions,
-                                        ]}
-                                        propertiesTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.EventFeatureFlags,
-                                            TaxonomicFilterGroupType.Elements,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.HogQLExpression,
-                                            ...groupsTaxonomicTypes,
-                                        ]}
+                                        actionsTaxonomicGroupTypes={
+                                            isTransformation
+                                                ? [TaxonomicFilterGroupType.Events]
+                                                : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+                                        }
+                                        propertiesTaxonomicGroupTypes={
+                                            isTransformation
+                                                ? [
+                                                      TaxonomicFilterGroupType.EventProperties,
+                                                      TaxonomicFilterGroupType.HogQLExpression,
+                                                  ]
+                                                : [
+                                                      TaxonomicFilterGroupType.EventProperties,
+                                                      TaxonomicFilterGroupType.EventFeatureFlags,
+                                                      TaxonomicFilterGroupType.Elements,
+                                                      TaxonomicFilterGroupType.PersonProperties,
+                                                      TaxonomicFilterGroupType.HogQLExpression,
+                                                      ...groupsTaxonomicTypes,
+                                                  ]
+                                        }
                                         propertyFiltersPopover
                                         addFilterDefaultOptions={{
                                             id: '$pageview',
