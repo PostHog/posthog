@@ -410,6 +410,7 @@
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
 
     // Buttons
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-50);
     --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-100);
     --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-100);
     --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
@@ -830,6 +831,7 @@
     --bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-50);
     --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-100);
     --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-100);
     --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);

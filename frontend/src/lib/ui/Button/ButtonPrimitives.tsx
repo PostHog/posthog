@@ -19,26 +19,28 @@ const BUTTON_ICON_WIDTH_LG = 'w-[var(--button-height-lg)]'
 
 const BUTTON_VARIANT: Record<ButtonVariant, string> = {
     'default-group': `
-            border border-transparent
-            text-primary 
-            max-w-full
-            [&>.button-primitive]:rounded-none
-            [&>.button-primitive]:first:rounded-l-md
-            [&>.button-primitive]:last:rounded-r-md
-            [&>.button-primitive:not(:first-child)]:border-l-0
-        `,
+        border border-transparent
+        text-primary 
+        max-w-full
+        [&>.button-primitive]:rounded-none
+        [&>.button-primitive]:first:rounded-l-md
+        [&>.button-primitive]:last:rounded-r-md
+        [&>.button-primitive:not(:first-child)]:border-l-0
+        hover:bg-fill-button-group-tertiary-hover
+        focus-within:bg-fill-button-group-tertiary-hover
+    `,
     default: `
-            border border-transparent
-            text-primary 
-            max-w-full
-            not-disabled:hover:bg-fill-button-tertiary-hover 
-            data-[focused=true]:bg-fill-button-tertiary-hover 
-            data-[active=true]:bg-fill-button-tertiary-active 
-            data-[current=true]:bg-fill-button-tertiary-active 
-            data-[state=open]:bg-fill-button-tertiary-active 
-            data-[state=checked]:bg-fill-button-tertiary-active
-            data-highlighted:bg-fill-button-tertiary-active
-        `,
+        border border-transparent
+        text-primary 
+        max-w-full
+        not-disabled:hover:bg-fill-button-tertiary-hover 
+        data-[focused=true]:bg-fill-button-tertiary-hover 
+        data-[active=true]:bg-fill-button-tertiary-active 
+        data-[current=true]:bg-fill-button-tertiary-active 
+        data-[state=open]:bg-fill-button-tertiary-active 
+        data-[state=checked]:bg-fill-button-tertiary-active
+        data-highlighted:bg-fill-button-tertiary-active
+    `,
     outline: `
         border border-secondary
         not-disabled:hover:border-tertiary
@@ -175,7 +177,7 @@ const buttonVariants = cva({
             fit: 'px-0',
         },
         iconOnly: {
-            true: 'p-0',
+            true: 'p-0 justify-center items-center',
             false: '',
         },
         fullWidth: {

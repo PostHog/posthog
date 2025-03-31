@@ -218,15 +218,16 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                                         <ContextMenuTrigger asChild>
                                             <ButtonGroupPrimitive fullWidth>
-                                                {/* This is a hack to make the button have a left padding since we use important on all tailwind classes */}
-
                                                 <ButtonPrimitive
-                                                    className={cn('group/lemon-tree-button cursor-pointer z-1', {
-                                                        'bg-fill-button-tertiary-hover':
-                                                            focusedId === item.id ||
-                                                            isContextMenuOpenForItem === item.id,
-                                                        'bg-fill-button-tertiary-active': getItemActiveState(item),
-                                                    })}
+                                                    className={cn(
+                                                        'group/lemon-tree-button cursor-pointer z-1 rounded-r-none',
+                                                        {
+                                                            'bg-fill-button-tertiary-hover':
+                                                                focusedId === item.id ||
+                                                                isContextMenuOpenForItem === item.id,
+                                                            'bg-fill-button-tertiary-active': getItemActiveState(item),
+                                                        }
+                                                    )}
                                                     onClick={() => {
                                                         handleClick(item)
                                                     }}
@@ -248,6 +249,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                   <TreeNodeDraggable
                                                                       id={item.record?.path}
                                                                       enableDragging
+                                                                      className="h-[var(--button-height-base)]"
                                                                   >
                                                                       {button}
                                                                   </TreeNodeDraggable>
@@ -255,6 +257,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             : undefined
                                                     }
                                                 >
+                                                    {/* This is a hack to make the button have a left padding since we use important on all tailwind classes */}
                                                     {depth !== 0 && (
                                                         <div
                                                             className="h-full bg-transparent pointer-events-none flex-shrink-0"

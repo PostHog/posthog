@@ -174,7 +174,13 @@ export function ProjectTree(): JSX.Element {
                                 </Button.Root>
                             </ContextMenuItem>
                             {item.record?.path ? (
-                                <ContextMenuItem asChild onClick={() => item.record?.path && rename(item.record.path)}>
+                                <ContextMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        item.record?.path && rename(item.record.path)
+                                    }}
+                                >
                                     <Button.Root size="sm" menuItem>
                                         <Button.Label>Rename</Button.Label>
                                     </Button.Root>
