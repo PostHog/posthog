@@ -45,7 +45,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             <IconPlusSmall />
                         )}
                     </Button.Icon>
-                    <Button.Label>
+                    <Button.Label className="font-semibold">
                         {currentOrganization ? currentOrganization.name : 'Select organization'}
                     </Button.Label>
                     <Button.Icon size="sm">
