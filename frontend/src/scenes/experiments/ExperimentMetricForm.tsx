@@ -10,7 +10,7 @@ import { FilterType } from '~/types'
 
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
-    filterToMetricTypeProps,
+    filterToMetricConfig,
     getAllowedMathTypes,
     getDefaultExperimentMetric,
     getMathAvailability,
@@ -50,7 +50,7 @@ export function ExperimentMetricForm({
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
 
     const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-        const metricConfig = filterToMetricTypeProps(metric.metric_type, actions, events, data_warehouse)
+        const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
         if (metricConfig) {
             handleSetMetric({
                 ...metric,
