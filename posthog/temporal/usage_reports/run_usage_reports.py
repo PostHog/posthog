@@ -204,6 +204,12 @@ async def query_usage_reports(
             else:
                 # Add this team to the current org report
                 team_report = await async_get_team_report(all_data, team)
+
+                # Safety check to ensure team belongs to the current organization (should never happen)
+                if str(team.organization.id) != current_org_id:
+                    capture_message(f"Usage report: team organization mismatch: {team.id} {current_org_id}")
+                    continue
+
                 current_org_report.teams[str(team.id)] = team_report
                 current_org_report.team_count += 1
 
