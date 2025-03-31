@@ -88,7 +88,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                 <DropdownMenuSeparator />
                 <div className="flex flex-col gap-px">
                     <DropdownMenuItem asChild>
-                        <Button.Root menuItem active className="hover:bg-transparent">
+                        <Button.Root menuItem active>
                             <Button.Label menuItem>
                                 <ProjectName team={currentTeam} />
                             </Button.Label>
