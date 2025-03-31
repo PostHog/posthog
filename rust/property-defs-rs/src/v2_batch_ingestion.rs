@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use quick_cache::sync::Cache;
@@ -32,7 +32,7 @@ pub struct EventPropertiesBatch {
     pub event_names: Vec<String>,
     pub property_names: Vec<String>,
 
-    pub to_cache: Vec<Update>,
+    pub to_cache: VecDeque<Update>,
 }
 
 impl EventPropertiesBatch {
@@ -43,7 +43,7 @@ impl EventPropertiesBatch {
             project_ids: Vec::with_capacity(batch_size),
             event_names: Vec::with_capacity(batch_size),
             property_names: Vec::with_capacity(batch_size),
-            to_cache: Vec::with_capacity(batch_size),
+            to_cache: VecDeque::with_capacity(batch_size),
         }
     }
 
@@ -53,7 +53,7 @@ impl EventPropertiesBatch {
         self.event_names.push(ep.event.clone());
         self.property_names.push(ep.property.clone());
 
-        self.to_cache.push(Update::EventProperty(ep));
+        self.to_cache.push_back(Update::EventProperty(ep));
     }
 
     pub fn should_flush_batch(&self) -> bool {
@@ -66,9 +66,7 @@ impl EventPropertiesBatch {
 
     pub fn cache_batch(&mut self, cache: &mut Arc<Cache<Update, ()>>) {
         let timer = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_CACHE_TIME, &[]);
-        let to_cache_size = self.to_cache.len();
-        for _ in 0..to_cache_size {
-            let update = self.to_cache.swap_remove(0);
+        for update in self.to_cache.drain(..) {
             cache.insert(update, ());
         }
         timer.fin();
@@ -83,7 +81,7 @@ pub struct EventDefinitionsBatch {
     pub team_ids: Vec<i32>,
     pub project_ids: Vec<i64>,
     pub last_seen_ats: Vec<DateTime<Utc>>,
-    pub to_cache: Vec<Update>,
+    pub to_cache: VecDeque<Update>,
 }
 
 impl EventDefinitionsBatch {
@@ -95,7 +93,7 @@ impl EventDefinitionsBatch {
             team_ids: Vec::with_capacity(batch_size),
             project_ids: Vec::with_capacity(batch_size),
             last_seen_ats: Vec::with_capacity(batch_size),
-            to_cache: Vec::with_capacity(batch_size),
+            to_cache: VecDeque::with_capacity(batch_size),
         }
     }
 
@@ -106,7 +104,7 @@ impl EventDefinitionsBatch {
         self.project_ids.push(ed.project_id);
         self.last_seen_ats.push(ed.last_seen_at);
 
-        self.to_cache.push(Update::Event(ed));
+        self.to_cache.push_back(Update::Event(ed));
     }
 
     pub fn should_flush_batch(&self) -> bool {
@@ -119,9 +117,7 @@ impl EventDefinitionsBatch {
 
     pub fn cache_batch(mut self, cache: &mut Arc<Cache<Update, ()>>) {
         let timer = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_CACHE_TIME, &[]);
-        let to_cache_size = self.to_cache.len();
-        for _ in 0..to_cache_size {
-            let update = self.to_cache.swap_remove(0);
+        for update in self.to_cache.drain(..) {
             cache.insert(update, ());
         }
         timer.fin();
@@ -140,7 +136,7 @@ pub struct PropertyDefinitionsBatch {
     pub property_types: Vec<Option<i16>>,
     pub group_type_indices: Vec<Option<i16>>,
     // note: I left off deprecated fields we null out on writes
-    pub to_cache: Vec<Update>,
+    pub to_cache: VecDeque<Update>,
 }
 
 impl PropertyDefinitionsBatch {
@@ -155,7 +151,7 @@ impl PropertyDefinitionsBatch {
             property_types: Vec::with_capacity(batch_size),
             event_types: Vec::with_capacity(batch_size),
             group_type_indices: Vec::with_capacity(batch_size),
-            to_cache: Vec::with_capacity(batch_size),
+            to_cache: VecDeque::with_capacity(batch_size),
         }
     }
 
@@ -178,7 +174,7 @@ impl PropertyDefinitionsBatch {
         self.event_types.push(pd.event_type as i16);
         self.group_type_indices.push(group_type_index);
 
-        self.to_cache.push(Update::Property(pd));
+        self.to_cache.push_back(Update::Property(pd));
     }
 
     pub fn should_flush_batch(&self) -> bool {
@@ -191,9 +187,7 @@ impl PropertyDefinitionsBatch {
 
     pub fn cache_batch(&mut self, cache: &mut Arc<Cache<Update, ()>>) {
         let timer = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_CACHE_TIME, &[]);
-        let to_cache_size = self.to_cache.len();
-        for _ in 0..to_cache_size {
-            let update = self.to_cache.swap_remove(0);
+        for update in self.to_cache.drain(..) {
             cache.insert(update, ());
         }
         timer.fin();
