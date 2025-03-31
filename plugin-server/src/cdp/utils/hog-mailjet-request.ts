@@ -3,9 +3,9 @@ import { z } from 'zod'
 import { HogFunctionQueueParametersFetchRequest } from '../types'
 
 const MailjetEmailInputSchema = z.object({
-    from: z.string(),
+    from: z.string().email().min(1),
     from_name: z.string().optional(),
-    to: z.string(),
+    to: z.string().email().min(1),
     to_name: z.string().optional(),
     subject: z.string(),
     html: z.string(),
