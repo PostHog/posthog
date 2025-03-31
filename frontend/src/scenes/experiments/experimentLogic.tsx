@@ -60,6 +60,7 @@ import {
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
+    ProjectTreeRef,
     PropertyMathType,
     TrendExperimentVariant,
     TrendResult,
@@ -1476,6 +1477,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: ExperimentLogicProps) => props.experimentId],
+            (experimentId): ProjectTreeRef => ({ type: 'experiment', ref: String(experimentId) }),
         ],
         variants: [
             (s) => [s.experiment],
