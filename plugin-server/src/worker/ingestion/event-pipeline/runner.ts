@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
-import { HogFunctionInvocationResult, HogFunctionType } from '../../../cdp/types'
+import { HogFunctionType } from '../../../cdp/types'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -42,8 +42,6 @@ export type EventPipelineResult = {
     lastStep: string
     args: any[]
     error?: string
-    // Results from HOG function invocations
-    invocationResults?: HogFunctionInvocationResult[]
 }
 
 class StepErrorNoRetry extends Error {
@@ -55,13 +53,12 @@ class StepErrorNoRetry extends Error {
         this.args = args
     }
 }
-
 export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
-    
+
     constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
         this.hub = hub
         this.originalEvent = event
@@ -108,13 +105,10 @@ export class EventPipelineRunner {
             heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
-        return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks, [])
+        return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks)
     }
 
-    async runEventPipeline(
-        event: PipelineEvent,
-        teamHogFunctions: HogFunctionType[] = []
-    ): Promise<EventPipelineResult> {
+    async runEventPipeline(event: PipelineEvent, teamHogFunctions: HogFunctionType[]): Promise<EventPipelineResult> {
         this.originalEvent = event
 
         try {
@@ -125,19 +119,15 @@ export class EventPipelineRunner {
                         drop_cause: 'disallowed',
                     })
                     .inc()
-                return this.registerLastStep('eventDisallowedStep', [event], undefined, [])
+                return this.registerLastStep('eventDisallowedStep', [event])
             }
             let result: EventPipelineResult
             const { eventWithTeam, team } =
                 (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
             if (eventWithTeam != null && team != null) {
-                result = await this.runEventPipelineSteps(
-                    eventWithTeam, 
-                    team,
-                    teamHogFunctions
-                )
+                result = await this.runEventPipelineSteps(eventWithTeam, team, teamHogFunctions)
             } else {
-                result = this.registerLastStep('populateTeamDataStep', [event], undefined, [])
+                result = this.registerLastStep('populateTeamDataStep', [event])
             }
             eventProcessedAndIngestedCounter.inc()
             return result
@@ -161,9 +151,9 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(
-        event: PluginEvent, 
-        team: Team, 
-        teamHogFunctions: HogFunctionType[] = []
+        event: PluginEvent,
+        team: Team,
+        teamHogFunctions: HogFunctionType[]
     ): Promise<EventPipelineResult> {
         const kafkaAcks: Promise<void>[] = []
 
@@ -193,7 +183,7 @@ export class EventPipelineRunner {
                         )
                     )
 
-                    return this.registerLastStep('invalidEventForProvidedFlags', [event], kafkaAcks, [])
+                    return this.registerLastStep('invalidEventForProvidedFlags', [event], kafkaAcks)
                 }
 
                 // If person processing is disabled, go ahead and remove person related keys before
@@ -234,7 +224,7 @@ export class EventPipelineRunner {
                 { alwaysSend: true }
             )
 
-            return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks, [])
+            return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
         }
 
         if (event.event === '$$heatmap') {
@@ -243,74 +233,38 @@ export class EventPipelineRunner {
 
         const [postCookielessEvent] = await this.runStep(cookielessServerHashStep, [this.hub, event], event.team_id)
         if (postCookielessEvent == null) {
-            return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks, [])
+            return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
         }
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
 
         if (processedEvent == null) {
             // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks, [])
+            return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
         }
 
-        let transformedEvent
-        let messagePromises
-        let allInvocationResults: HogFunctionInvocationResult[] = [];
-        
-        // Check if we have preloaded hog functions from batch processing
-        if (this.hogTransformer && teamHogFunctions.length > 0) {
-            // Use transformEvent with the preloaded functions
-            const { event: transformedEventResult, invocationResults } = await this.runStep(
-                async (event: PluginEvent) => {
-                    const result = await this.hogTransformer!.transformEvent(
-                        event,
-                        teamHogFunctions
-                    )
-                    
-                    return result
-                },
-                [processedEvent],
-                event.team_id
-            )
-            transformedEvent = transformedEventResult
-            
-            if (invocationResults?.length > 0) {
-                allInvocationResults = [...allInvocationResults, ...invocationResults];
-            }
-            
-            // Process invocationResults if needed
-            if (this.hogTransformer && invocationResults?.length > 0) {
-                await this.runStep(
-                    async () => {
-                        await this.hogTransformer!.hogFunctionMonitoringService.processInvocationResults(invocationResults)
-                        return this.hogTransformer!.hogFunctionMonitoringService.produceQueuedMessages()
-                    },
-                    [],
-                    event.team_id
-                ).then((result) => {
-                    if (result) {
-                        kafkaAcks.push(result)
-                    }
-                })
-            }
-        } else {
-            // Use the regular transform step that fetches functions on its own
-            const result = await this.runStep(transformEventStep, [processedEvent, this.hogTransformer], event.team_id)
-            transformedEvent = result.event
-            messagePromises = result.messagePromises
-            
-            if (result.invocationResults?.length > 0) {
-                allInvocationResults = [...allInvocationResults, ...result.invocationResults];
-            }
+        const {
+            event: transformedEvent,
+            messagePromises,
+            watcherPromises,
+        } = await this.runStep(
+            transformEventStep,
+            [processedEvent, this.hogTransformer, teamHogFunctions],
+            event.team_id
+        )
 
-            // Add message promises to kafkaAcks
-            if (messagePromises) {
-                kafkaAcks.push(...messagePromises)
-            }
+        // Add message promises to kafkaAcks
+        if (messagePromises) {
+            kafkaAcks.push(...messagePromises)
+        }
+
+        // Add watcher promises to kafkaAcks
+        if (watcherPromises) {
+            kafkaAcks.push(...watcherPromises)
         }
 
         if (transformedEvent === null) {
-            return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks, allInvocationResults)
+            return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks)
         }
 
         const [normalizedEvent, timestamp] = await this.runStep(
@@ -358,26 +312,20 @@ export class EventPipelineRunner {
                 event.team_id
             )
             kafkaAcks.push(exceptionAck)
-            return this.registerLastStep('produceExceptionSymbolificationEventStep', [rawEvent], kafkaAcks, allInvocationResults)
+            return this.registerLastStep('produceExceptionSymbolificationEventStep', [rawEvent], kafkaAcks)
         } else {
             const [clickhouseAck] = await this.runStep(emitEventStep, [this, rawEvent], event.team_id)
             kafkaAcks.push(clickhouseAck)
-            return this.registerLastStep('emitEventStep', [rawEvent], kafkaAcks, allInvocationResults)
+            return this.registerLastStep('emitEventStep', [rawEvent], kafkaAcks)
         }
     }
 
-    registerLastStep(
-        stepName: string, 
-        args: any[], 
-        ackPromises?: Array<Promise<void>>,
-        invocationResults?: HogFunctionInvocationResult[]
-    ): EventPipelineResult {
+    registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {
         pipelineLastStepCounter.labels(stepName).inc()
         return {
             ackPromises,
             lastStep: stepName,
             args,
-            invocationResults
         }
     }
 

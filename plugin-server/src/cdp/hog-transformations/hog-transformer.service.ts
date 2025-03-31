@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { Counter, Histogram } from 'prom-client'
+import { Counter } from 'prom-client'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionType } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
@@ -10,6 +10,7 @@ import { CdpRedis, createCdpRedisPool } from '../redis'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
+import { HogWatcherService } from '../services/hog-watcher.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
@@ -40,6 +41,7 @@ export const hogTransformationCompleted = new Counter({
 export interface TransformationResultPure {
     event: PluginEvent | null
     invocationResults: HogFunctionInvocationResult[]
+    watcherPromises: Promise<void>[]
 }
 
 export interface TransformationResult extends TransformationResultPure {
@@ -52,6 +54,7 @@ export class HogTransformerService {
     private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private hogWatcher: HogWatcherService
     private redis: CdpRedis
 
     constructor(hub: Hub) {
@@ -61,6 +64,7 @@ export class HogTransformerService {
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
+        this.hogWatcher = new HogWatcherService(hub, this.redis)
     }
 
     public async start(): Promise<void> {
@@ -103,15 +107,15 @@ export class HogTransformerService {
         }
     }
 
-    public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
+    public transformEventAndProduceMessages(
+        event: PluginEvent,
+        teamHogFunctions: HogFunctionType[]
+    ): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
                 hogTransformationAttempts.inc({ type: 'with_messages' })
 
-                const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, [
-                    'transformation',
-                ])
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
@@ -124,10 +128,7 @@ export class HogTransformerService {
         })
     }
 
-    public transformEvent(
-        event: PluginEvent, 
-        teamHogFunctions: HogFunctionType[]
-    ): Promise<TransformationResultPure> {
+    public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResultPure> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEvent`,
             func: async () => {
@@ -194,6 +195,7 @@ export class HogTransformerService {
                         return {
                             event: null,
                             invocationResults: results,
+                            watcherPromises: [],
                         }
                     }
 
@@ -246,6 +248,18 @@ export class HogTransformerService {
                     transformationsSucceeded.push(transformationIdentifier)
                 }
 
+                // Observe the results to update degraded state of HogFunctions
+                const watcherPromises: Promise<void>[] = []
+                if (results.length > 0 && this.hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS.includes(event.team_id)) {
+                    const watcherPromise = this.hogWatcher
+                        .observeResults(results)
+                        .then(() => {})
+                        .catch((error) => {
+                            logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
+                        })
+                    watcherPromises.push(watcherPromise)
+                }
+
                 if (transformationsFailed.length > 0) {
                     event.properties = {
                         ...event.properties,
@@ -270,6 +284,7 @@ export class HogTransformerService {
                 return {
                     event,
                     invocationResults: results,
+                    watcherPromises,
                 }
             },
         })
