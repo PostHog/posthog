@@ -68,7 +68,7 @@ async def query_usage_reports(
         )
         if are_usage_reports_disabled:
             capture_message(f"Usage reports are disabled for {inputs.at}")
-            return
+            return QueryUsageReportsResult()
 
         at_date = parser.parse(inputs.at) if inputs.at else None
         period = get_previous_day(at=at_date)
@@ -210,6 +210,8 @@ async def query_usage_reports(
             groups={"instance": settings.SITE_URL},
         )
         pha_client.flush()  # Flush and close the client
+
+        return QueryUsageReportsResult()
 
 
 @workflow.defn(name="run-usage-reports")
