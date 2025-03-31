@@ -50,15 +50,10 @@ class QueryUsageReportsInputs:
     skip_capture_event: Optional[bool] = False
 
 
-@dataclasses.dataclass
-class QueryUsageReportsResult:
-    pass
-
-
 @activity.defn(name="query-usage-reports")
 async def query_usage_reports(
     inputs: QueryUsageReportsInputs,
-) -> QueryUsageReportsResult:
+) -> None:
     async with Heartbeater():
         import posthoganalytics
         from sentry_sdk import capture_message
@@ -68,7 +63,7 @@ async def query_usage_reports(
         )
         if are_usage_reports_disabled:
             capture_message(f"Usage reports are disabled for {inputs.at}")
-            return QueryUsageReportsResult()
+            return None
 
         at_date = parser.parse(inputs.at) if inputs.at else None
         period = get_previous_day(at=at_date)
@@ -211,7 +206,7 @@ async def query_usage_reports(
         )
         pha_client.flush()  # Flush and close the client
 
-        return QueryUsageReportsResult()
+        return None
 
 
 @workflow.defn(name="run-usage-reports")
