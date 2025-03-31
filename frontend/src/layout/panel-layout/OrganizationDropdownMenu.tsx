@@ -32,7 +32,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive className="max-w-[200px]">
+                <ButtonPrimitive className="max-w-[240px]">
                     {currentOrganization ? (
                         <UploadedLogo
                             size="xsmall"

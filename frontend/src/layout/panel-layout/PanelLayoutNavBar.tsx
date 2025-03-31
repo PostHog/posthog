@@ -217,6 +217,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 menuItem
                                                 active={item.id === 'Project' && isLayoutPanelVisible}
                                                 data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
+                                                className="group"
                                             >
                                                 <span className="text-tertiary">{item.icon}</span>
                                                 <span className="truncate">{item.id}</span>
@@ -238,7 +239,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     </div>
                                     <div className="flex flex-col gap-px">
                                         {navbarItems.map((section, index) => (
-                                            <ul key={index} className="flex flex-col gap-px">
+                                            <ul key={index} className="flex flex-col gap-px ">
                                                 {section.map((item) => {
                                                     if (filteredNavItemsIdentifiers.includes(item.identifier)) {
                                                         return null
