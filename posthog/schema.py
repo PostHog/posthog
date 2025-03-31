@@ -1737,6 +1737,7 @@ class SDKUsageData(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateRange: list[str] = Field(..., max_length=2, min_length=2)
     libs: dict[str, dict[str, dict[str, float]]]
 
 

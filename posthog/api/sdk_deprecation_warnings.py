@@ -1,8 +1,8 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Optional
 
-from rest_framework import response, viewsets
+from rest_framework import request, response, viewsets
 
 from posthog import redis
 from posthog.api.utils import action
@@ -18,7 +18,6 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
-
 
 
 LIBRARIES = [
@@ -95,6 +94,7 @@ CACHE_TTL = 5 * 60  # 5 minutes in seconds
 CURRENT_DAY_TTL = 60 * 60  # 1 hour in seconds
 HISTORICAL_TTL = 7 * 24 * 60 * 60  # 7 days in seconds
 
+
 def get_tags(lib_name: str, tags_url: str) -> Optional[list]:
     """Get tags data for a specific library with caching"""
     cache_key = f"{TAGS_CACHE_KEY_PREFIX}{lib_name}"
@@ -116,6 +116,7 @@ def get_tags(lib_name: str, tags_url: str) -> Optional[list]:
         pass
 
     return None
+
 
 def get_deprecation(lib_name: str, deprecation_url: str) -> Optional[dict]:
     """Get deprecation data for a specific library with caching"""
@@ -139,6 +140,7 @@ def get_deprecation(lib_name: str, deprecation_url: str) -> Optional[dict]:
 
     return None
 
+
 class SdkDeprecationWarningsViewSet(
     TeamAndOrgViewSetMixin,
     viewsets.ViewSet,
@@ -146,9 +148,9 @@ class SdkDeprecationWarningsViewSet(
     scope_object = "query"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
 
-    def get_usage(self, team, date: datetime) -> list:
+    def get_usage(self, team, d: date, today: date) -> list:
         """Get SDK usage data for a specific day with caching"""
-        cache_key = f"{SDK_USAGE_CACHE_KEY_PREFIX}{team.id}:{date.date().isoformat()}"
+        cache_key = f"{SDK_USAGE_CACHE_KEY_PREFIX}{team.id}:{d.strftime('%Y-%m-%d')}"
         redis_client = redis.get_client()
 
         # Try to get from cache first
@@ -157,17 +159,21 @@ class SdkDeprecationWarningsViewSet(
             return json.loads(cached)
 
         # If not in cache, query ClickHouse
-        date_str = date.strftime('%Y-%m-%d')
+        date_str = d.strftime("%Y-%m-%d")
 
-        libraries_or = ast.Or(exprs=[
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["properties","$lib"]),
-                right=ast.Constant(value=lib["lib"])
-            ) for lib in LIBRARIES
-        ])
+        libraries_or = ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["properties", "$lib"]),
+                    right=ast.Constant(value=lib["lib"]),
+                )
+                for lib in LIBRARIES
+            ]
+        )
 
-        select = parse_select('''
+        select = parse_select(
+            """
             SELECT
                 properties.$lib AS lib,
                 properties.$lib_version AS lib_version,
@@ -177,17 +183,15 @@ class SdkDeprecationWarningsViewSet(
             AND ({libraries_or})
             GROUP BY lib, lib_version
             ORDER BY count DESC
-        ''', placeholders={
-            "libraries_or": libraries_or,
-            "date_str": ast.Constant(value=date_str)
-        })
+        """,
+            placeholders={"libraries_or": libraries_or, "date_str": ast.Constant(value=date_str)},
+        )
 
-        results = execute_hogql_query(query=select, team=team, query_type='SdkDeprecationWarnings')
+        results = execute_hogql_query(query=select, team=team, query_type="SdkDeprecationWarnings")
         daily_data = results.results or []
 
         # Cache the results with appropriate TTL
-        today = datetime.now().date()
-        ttl = CURRENT_DAY_TTL if date.date() == today else HISTORICAL_TTL
+        ttl = CURRENT_DAY_TTL if d == today else HISTORICAL_TTL
         redis_client.set(cache_key, json.dumps(daily_data), ex=ttl)
 
         return daily_data
@@ -212,15 +216,19 @@ class SdkDeprecationWarningsViewSet(
 
     def _get_usage_data(self) -> SDKUsageData:
         """Get usage data for the last 7 days with caching"""
-        today = datetime.now()
-        usage_data = SDKUsageData(libs={})  # lib -> version -> date -> count
+        today = datetime.now().date()
+        days = [today - timedelta(days=i) for i in range(7)]
+        date_range = [days[-1].strftime("%Y-%m-%d"), days[0].strftime("%Y-%m-%d")]
+        # Define the date range
 
-        for days_ago in range(7):
-            date = today - timedelta(days=days_ago)
-            daily_data = self.get_usage(self.team, date)
+        # print days in YYYY-MM-DD format
+        usage_data = SDKUsageData(libs={}, dateRange=date_range)
+
+        for d in days:
+            daily_data = self.get_usage(self.team, d, today)
 
             # Process the data
-            date_str = date.date().isoformat()
+            date_str = d.strftime("%Y-%m-%d")
             for row in daily_data:
                 lib, version, count = row[0], row[1], row[2]
                 if lib not in usage_data.libs:
@@ -255,21 +263,26 @@ class SdkDeprecationWarningsViewSet(
             diff = diff_versions(latest_version, version)
             if diff:
                 num_versions_behind = next(
-                    (i for i, v in enumerate(sdk_versions) if is_equal_version(v, version)),
-                    len(sdk_versions) - 1
+                    (i for i, v in enumerate(sdk_versions) if is_equal_version(v, version)), len(sdk_versions) - 1
                 )
 
                 if num_versions_behind < diff["diff"]:
                     num_versions_behind = diff["diff"]
 
                 level = None
-                if diff["kind"] == "major":
-                    level = Level.INFO
-                elif diff["kind"] == "minor" and num_versions_behind >= 40:
-                    level = Level.WARNING
 
-                if level is None and num_versions_behind >= 50:
+                if diff["kind"] == "major":
+                    # if people have chosen to be on a different Major version, just provide an Info warning
+                    level = Level.INFO
+                elif num_versions_behind >= 50:
+                    # if people are 50 versions behind, provide an Error warning
                     level = Level.ERROR
+                elif num_versions_behind >= 40:
+                    # shortly before giving people an Error warning, provide a Warning
+                    level = Level.WARNING
+                elif num_versions_behind >= 30:
+                    # shortly before giving people a Warning, provide an Info warning
+                    level = Level.INFO
 
                 if level and version.strip():
                     warning = SDKWarning(
@@ -283,7 +296,7 @@ class SdkDeprecationWarningsViewSet(
         return warning
 
     @action(methods=["GET"], detail=False)
-    def warnings(self) -> response.Response:
+    def warnings(self, request: request.Request, **kwargs) -> response.Response:
         usage_data = self._get_usage_data()
 
         warnings: list[SDKWarning] = []
@@ -309,13 +322,6 @@ class SdkDeprecationWarningsViewSet(
                             warnings.append(warning)
 
         # Create a custom response with warnings and usage data
-        response_data = SDKDeprecationWarningsResponse(
-            warnings = warnings,
-            usageData=usage_data
-        )
+        response_data = SDKDeprecationWarningsResponse(warnings=warnings, usageData=usage_data)
 
-        return response.Response(response_data)
-
-
-
-
+        return response.Response(response_data.model_dump())

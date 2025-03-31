@@ -4,11 +4,28 @@ from freezegun import freeze_time
 import responses
 from datetime import datetime, timedelta
 from unittest.mock import patch
+from posthog import redis
 
 from rest_framework import status
 
+
 @freeze_time("2025-01-01T12:00:00Z")
 class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+        # Clear Redis cache before each test
+        self.redis_client = redis.get_client()
+        cache_keys = self.redis_client.keys("@posthog/sdk-*")
+        if cache_keys:
+            self.redis_client.delete(*cache_keys)
+
+    def tearDown(self):
+        # Clear Redis cache after each test
+        cache_keys = self.redis_client.keys("@posthog/sdk-*")
+        if cache_keys:
+            self.redis_client.delete(*cache_keys)
+        super().tearDown()
+
     def test_empty_response(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/sdk_deprecation_warnings/warnings",
@@ -18,6 +35,13 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
         assert response.status_code == status.HTTP_200_OK
         response_body = SDKDeprecationWarningsResponse(**response.json())
         assert len(response_body.warnings) == 0
+
+        # Check dateRange format and values
+        assert response_body.usageData.dateRange is not None
+        assert len(response_body.usageData.dateRange) == 2
+        # With freeze_time set to 2025-01-01, the date range should be 2024-12-26 to 2025-01-01
+        assert response_body.usageData.dateRange[0] == "2024-12-26"
+        assert response_body.usageData.dateRange[1] == "2025-01-01"
 
     @responses.activate
     def test_sdk_with_deprecation_warning(self):
@@ -66,8 +90,11 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
         assert "deprecated" in warning.message
         assert "1.3.0" in warning.message
 
+        # Check dateRange
+        assert response_body.usageData.dateRange == ["2024-12-26", "2025-01-01"]
+
     @responses.activate
-    def test_sdk_with_version_behind_warning(self):
+    def test_sdk_with_major_version_behind_is_info(self):
         # Set up tag responses
         responses.add(
             responses.GET,
@@ -95,8 +122,46 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
         assert warning.lib == "posthog-python"
         assert warning.latestUsedVersion == "1.10.0"
         assert warning.latestAvailableVersion == "2.0.0"
-        assert warning.level == Level.ERROR  # 51 versions behind (2.0.0 vs 1.10.0) should be error
-        assert warning.numVersionsBehind >= 50
+        assert warning.numVersionsBehind == 51
+        assert warning.level == Level.INFO
+
+        # Check dateRange
+        assert response_body.usageData.dateRange == ["2024-12-26", "2025-01-01"]
+
+    @responses.activate
+    def test_sdk_with_many_minor_versions_behind_is_error(self):
+        # Set up tag responses
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/posthog/posthog-python/tags",
+            json=[{"name": f"v1.{i}.0"} for i in range(60, 0, -1)],
+            status=200,
+        )
+
+        # Create events with outdated version
+        self._create_events_with_sdk("posthog-python", "1.10.0")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/sdk_deprecation_warnings/warnings",
+            data={},
+            HTTP_ORIGIN="http://testserver",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_body = SDKDeprecationWarningsResponse(**response.json())
+
+        # Check that we have a version behind warning
+        assert len(response_body.warnings) == 1
+        warning = response_body.warnings[0]
+
+        assert warning.lib == "posthog-python"
+        assert warning.latestUsedVersion == "1.10.0"
+        assert warning.latestAvailableVersion == "1.60.0"
+        assert warning.numVersionsBehind == 50
+        assert warning.level == Level.ERROR
+
+        # Check dateRange
+        assert response_body.usageData.dateRange == ["2024-12-26", "2025-01-01"]
 
     @responses.activate
     def test_multiple_sdk_warnings(self):
@@ -124,7 +189,7 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
         responses.add(
             responses.GET,
             "https://api.github.com/repos/posthog/posthog-python/tags",
-            json=[{"name": "v2.0.0"}] + [{"name": f"v1.{i}.0"} for i in range(60, 0, -1)],
+            json=[{"name": "v2.0.0"}] + [{"name": f"v1.{i}.0"} for i in range(40, 0, -1)],
             status=200,
         )
 
@@ -149,6 +214,7 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
         assert web_warning is not None
         assert web_warning.latestUsedVersion == "1.2.0"
         assert web_warning.level == Level.WARNING
+        assert web_warning.message
         assert "deprecated" in web_warning.message
 
         # Check for python warning
@@ -156,7 +222,10 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
         assert python_warning is not None
         assert python_warning.latestUsedVersion == "1.10.0"
         assert python_warning.latestAvailableVersion == "2.0.0"
-        assert python_warning.level == Level.ERROR
+        assert python_warning.level == Level.INFO
+
+        # Check dateRange
+        assert response_body.usageData.dateRange == ["2024-12-26", "2025-01-01"]
 
     @responses.activate
     def test_no_warning_for_up_to_date_sdk(self):
@@ -187,6 +256,9 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
 
         # Check that there are no warnings
         assert len(response_body.warnings) == 0
+
+        # Check dateRange
+        assert response_body.usageData.dateRange == ["2024-12-26", "2025-01-01"]
 
     @responses.activate
     def test_caching_of_tags_and_deprecation(self):
@@ -234,7 +306,7 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
         # Both responses should have the same data
         assert response1.json() == response2.json()
 
-    @patch('posthog.api.sdk_deprecation_warnings.redis.get_client')
+    @patch("posthog.api.sdk_deprecation_warnings.redis.get_client")
     def test_cached_usage_with_different_ttls(self, mock_redis):
         # Create a mock Redis client
         mock_client = mock_redis.return_value
@@ -256,12 +328,10 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
 
         # Find the calls for current day and previous day
         today_calls = [
-            call for call in mock_client.set.call_args_list
-            if f"{self.team.id}:{today_isoformat}" in call[0][0]
+            call for call in mock_client.set.call_args_list if f"{self.team.id}:{today_isoformat}" in call[0][0]
         ]
         previous_day_calls = [
-            call for call in mock_client.set.call_args_list
-            if f"{self.team.id}:{yesterday_isoformat}" in call[0][0]
+            call for call in mock_client.set.call_args_list if f"{self.team.id}:{yesterday_isoformat}" in call[0][0]
         ]
 
         # Check that we have the expected calls
@@ -270,16 +340,14 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
 
         # Check TTLs
         for call in today_calls:
-            assert call[1].get('ex') == 60 * 60  # 1 hour for today
+            assert call[1].get("ex") == 60 * 60  # 1 hour for today
 
         for call in previous_day_calls:
-            assert call[1].get('ex') == 7 * 24 * 60 * 60  # 7 days for historical
+            assert call[1].get("ex") == 7 * 24 * 60 * 60  # 7 days for historical
 
     def _create_events_with_sdk(self, lib, version):
         # Get the date range for the past week
-        self._create_events_for_dates(lib, version, [
-            datetime(2025, 1, 1) - timedelta(days=i) for i in range(7)
-        ])
+        self._create_events_for_dates(lib, version, [datetime(2025, 1, 1) - timedelta(days=i) for i in range(7)])
 
     def _create_events_for_dates(self, lib, version, dates):
         for date in dates:
@@ -293,4 +361,3 @@ class TestSdkDeprecationWarningsAPi(ClickhouseTestMixin, APIBaseTest, QueryMatch
                     "$lib_version": version,
                 },
             )
-

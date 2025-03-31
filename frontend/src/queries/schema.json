@@ -15402,6 +15402,14 @@
         "SDKUsageData": {
             "additionalProperties": false,
             "properties": {
+                "dateRange": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
                 "libs": {
                     "additionalProperties": {
                         "additionalProperties": {
@@ -15415,7 +15423,7 @@
                     "type": "object"
                 }
             },
-            "required": ["libs"],
+            "required": ["libs", "dateRange"],
             "type": "object"
         },
         "SDKWarning": {
