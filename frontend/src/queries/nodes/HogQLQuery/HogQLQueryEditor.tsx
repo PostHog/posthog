@@ -36,11 +36,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const editorRef = useRef<HTMLDivElement | null>(null)
 
     const [key, setKey] = useState(() =>
-        router.values.location.pathname.includes(urls.dataWarehouse()) ? router.values.location.pathname : uniqueNode++
+        router.values.location.pathname.includes(urls.sqlEditor()) ? router.values.location.pathname : uniqueNode++
     )
 
     useEffect(() => {
-        if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+        if (router.values.location.pathname.includes(urls.sqlEditor())) {
             setKey(router.values.location.pathname)
         }
     }, [router.values.location.pathname])

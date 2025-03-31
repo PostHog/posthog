@@ -112,7 +112,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                             )}
                             {isTransformation && (
                                 <LemonBanner type="info">
-                                    For transformations, only event properties and HogQL expressions can be used in
+                                    For transformations, only event properties and SQL expressions can be used in
                                     filters as they run during ingestion before other properties are available.
                                 </LemonBanner>
                             )}

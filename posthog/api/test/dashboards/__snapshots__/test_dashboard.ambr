@@ -1005,6 +1005,7 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.30
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -5931,6 +5932,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.156
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -6658,6 +6660,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.23
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -8426,6 +8429,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.6
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -10139,6 +10143,7 @@
 # name: TestDashboard.test_retrieve_dashboard
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -10483,6 +10488,7 @@
 # name: TestDashboard.test_retrieve_dashboard.14
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -11780,6 +11786,7 @@
 # name: TestDashboard.test_retrieve_dashboard_list.23
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -12715,6 +12722,7 @@
 # name: TestDashboard.test_retrieve_dashboard_list.6
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",

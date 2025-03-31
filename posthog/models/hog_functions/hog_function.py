@@ -61,8 +61,6 @@ TYPES_WITH_COMPILED_FILTERS = (
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
-TYPES_IN_FILE_SYSTEM = (HogFunctionType.DESTINATION, HogFunctionType.SITE_APP, HogFunctionType.TRANSFORMATION)
-
 
 class HogFunction(FileSystemSyncMixin, UUIDModel):
     class Meta:
@@ -102,7 +100,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
         base_qs = HogFunction.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type=list(TYPES_IN_FILE_SYSTEM), ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type__startswith="hog/", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         if self.type == HogFunctionType.SITE_APP:
@@ -116,7 +114,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
             url_type = f"destinations"
         return FileSystemRepresentation(
             base_folder=folder,
-            type=str(self.type),
+            type=f"hog/{self.type}",
             ref=str(self.pk),
             name=self.name or "Untitled",
             href=f"/pipeline/{url_type}/hog-{self.pk}/configuration",
