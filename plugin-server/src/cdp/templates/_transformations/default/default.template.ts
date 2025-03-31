@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'beta',
+    status: 'alpha',
     type: 'transformation',
     id: 'template-blank-transformation',
     name: 'Custom transformation',
