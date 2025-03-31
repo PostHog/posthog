@@ -20,6 +20,8 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
 import { AvailableFeature } from '~/types'
 
+import { panelLayoutLogic } from './panelLayoutLogic'
+
 export function OrganizationDropdownMenu(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { otherOrganizations } = useValues(userLogic)
@@ -28,15 +30,16 @@ export function OrganizationDropdownMenu(): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
+    const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <Button.Root>
-                    <Button.Icon>
+                    <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
                         {currentOrganization ? (
                             <UploadedLogo
-                                size="xsmall"
+                                size={isLayoutNavCollapsed ? 'medium' : 'xsmall'}
                                 name={currentOrganization.name}
                                 entityId={currentOrganization.id}
                                 mediaId={currentOrganization.logo_media_id}
@@ -45,12 +48,16 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             <IconPlusSmall />
                         )}
                     </Button.Icon>
-                    <Button.Label className="font-semibold">
-                        {currentOrganization ? currentOrganization.name : 'Select organization'}
-                    </Button.Label>
-                    <Button.Icon size="sm">
-                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
-                    </Button.Icon>
+                    {!isLayoutNavCollapsed && (
+                        <>
+                            <Button.Label className="font-semibold">
+                                {currentOrganization ? currentOrganization.name : 'Select organization'}
+                            </Button.Label>
+                            <Button.Icon size="sm">
+                                <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                            </Button.Icon>
+                        </>
+                    )}
                 </Button.Root>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="start" className="w-fit max-w-[400px]">
