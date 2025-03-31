@@ -79,6 +79,7 @@ export function Sparkline({
             },
             alignToPixels: true,
         }
+
         const defaultYScale: AnyScaleOptions = {
             // We use the Y axis for the maximum indicator
             display: maximumIndicator,

@@ -2,6 +2,7 @@ import { IconPlus } from '@posthog/icons'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -9,14 +10,17 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+
 const PAGINATION_LIMIT = 100
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -29,6 +33,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['featureFlags'],
             panelLayoutLogic,
             ['searchTerm'],
+            breadcrumbsLogic,
+            ['projectTreeRef'],
         ],
         actions: [panelLayoutLogic, ['setSearchTerm']],
     }),
@@ -61,6 +67,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         rename: (path: string) => ({ path }),
         createFolder: (parentPath: string) => ({ parentPath }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
+        assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -203,6 +210,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         }
                     }
                     return newState
+                },
+            },
+        ],
+        folderLoadCount: [
+            {} as Record<string, number>,
+            {
+                loadFolderSuccess: (state, { folder, entries }) => {
+                    return { ...state, [folder]: entries.length + (state[folder] ?? 0) }
                 },
             },
         ],
@@ -492,11 +507,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadFolderStart(folder)
             try {
                 const previousFiles = values.folders[folder] || []
+                const offset = values.folderLoadCount[folder] ?? 0
                 const response = await api.fileSystem.list({
                     parent: folder,
                     depth: splitPath(folder).length + 1,
                     limit: PAGINATION_LIMIT + 1,
-                    offset: previousFiles.length,
+                    offset: offset,
                 })
 
                 let files = response.results
@@ -505,7 +521,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     files = files.slice(0, PAGINATION_LIMIT)
                     hasMore = true
                 }
-                actions.loadFolderSuccess(folder, [...previousFiles, ...files], hasMore)
+                const fileIds = new Set(files.map((file) => file.id))
+                const previousUniqueFiles = previousFiles.filter(
+                    (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
+                )
+                actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
             }
@@ -595,9 +615,62 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
         },
+        assureVisibility: async ({ projectTreeRef }, breakpoint) => {
+            if (projectTreeRef) {
+                const treeItem = projectTreeRef.type.endsWith('/')
+                    ? values.viableItems.find(
+                          (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
+                      )
+                    : values.viableItems.find(
+                          (item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref
+                      )
+                let path: string | undefined
+                if (treeItem) {
+                    path = treeItem.path
+                } else {
+                    const resp = await api.fileSystem.list(
+                        projectTreeRef.type.endsWith('/')
+                            ? { ref: projectTreeRef.ref, type__startswith: projectTreeRef.type }
+                            : { ref: projectTreeRef.ref, type: projectTreeRef.type }
+                    )
+                    breakpoint() // bail if we opened some other item in the meanwhile
+                    if (resp.results && resp.results.length > 0) {
+                        const result = resp.results[0]
+                        path = result.path
+                        actions.createSavedItem(result)
+                    }
+                }
+                if (path) {
+                    const expandedSet = new Set(values.expandedFolders)
+                    const allFolders = splitPath(path).slice(0, -1)
+                    const allFullFolders = allFolders.map((_, index) => joinPath(allFolders.slice(0, index + 1)))
+                    const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project/' + f))
+
+                    for (const folder of nonExpandedFolders) {
+                        if (values.folderStates[folder] !== 'loaded' && values.folderStates[folder] !== 'loading') {
+                            actions.loadFolder(folder)
+                        }
+                    }
+                    actions.setExpandedFolders([
+                        ...values.expandedFolders,
+                        ...nonExpandedFolders.map((f) => 'project/' + f),
+                    ])
+                }
+            }
+        },
     })),
-    afterMount(({ actions }) => {
+    subscriptions(({ actions }) => ({
+        projectTreeRef: (newRef: ProjectTreeRef | null) => {
+            if (newRef) {
+                actions.assureVisibility(newRef)
+            }
+        },
+    })),
+    afterMount(({ actions, values }) => {
         actions.loadFolder('')
         actions.loadUnfiledItems()
+        if (values.projectTreeRef) {
+            actions.assureVisibility(values.projectTreeRef)
+        }
     }),
 ])

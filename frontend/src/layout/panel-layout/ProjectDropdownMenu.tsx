@@ -1,9 +1,9 @@
 import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
-import { LemonSnack } from '@posthog/lemon-ui'
+import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { Button } from 'lib/ui/Button/Button'
+import { Button, iconVariants } from 'lib/ui/Button/Button'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -12,6 +12,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -42,22 +43,20 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
 
     return (
         <DropdownMenuItem asChild>
-            <Button.Root menuItem to={relativeOtherProjectPath}>
-                <Button.Label>
-                    <ProjectName team={team} />
-                </Button.Label>
-                <Button.Icon
-                    isTrigger
-                    isTriggerRight
-                    onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        e.nativeEvent.stopImmediatePropagation()
-                        router.actions.push(urls.project(team.id, urls.settings()))
-                    }}
+            <Button.Root menuItem>
+                <Link to={relativeOtherProjectPath}>
+                    <Button.Label className="text-primary">
+                        <ProjectName team={team} />
+                    </Button.Label>
+                </Link>
+                <Link
+                    to={urls.project(team.id, urls.settings())}
+                    className={cn(iconVariants({ isTrigger: true, isTriggerRight: true }), 'ml-auto')}
                 >
-                    <IconGear />
-                </Button.Icon>
+                    <Button.Icon>
+                        <IconGear className="text-tertiary" />
+                    </Button.Icon>
+                </Link>
             </Button.Root>
         </DropdownMenuItem>
     )
@@ -69,7 +68,6 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { push } = useActions(router)
     const { currentOrganization } = useValues(organizationLogic)
 
     return isAuthenticatedTeam(currentTeam) ? (
@@ -94,9 +92,14 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                             <Button.Label menuItem>
                                 <ProjectName team={currentTeam} />
                             </Button.Label>
-                            <Button.Icon onClick={() => push(urls.settings('project'))} isTrigger isTriggerRight>
-                                <IconGear className="text-tertiary" />
-                            </Button.Icon>
+                            <Link
+                                to={urls.settings('project')}
+                                className={cn(iconVariants({ isTrigger: true, isTriggerRight: true }), 'ml-auto')}
+                            >
+                                <Button.Icon>
+                                    <IconGear className="text-tertiary" />
+                                </Button.Icon>
+                            </Link>
                         </Button.Root>
                     </DropdownMenuItem>
 

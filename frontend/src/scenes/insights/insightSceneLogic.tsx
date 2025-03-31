@@ -20,7 +20,15 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
+import {
+    ActivityScope,
+    Breadcrumb,
+    DashboardType,
+    InsightShortId,
+    InsightType,
+    ItemMode,
+    ProjectTreeRef,
+} from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
@@ -217,6 +225,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     },
                 ]
             },
+        ],
+        projectTreeRef: [
+            (s) => [s.insightId],
+            (insightId): ProjectTreeRef => ({ type: 'insight', ref: String(insightId) }),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.insight],

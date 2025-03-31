@@ -40,7 +40,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
-    MessagingProviders: () => import('../../products/messaging/frontend/Providers'),
     MessagingLibrary: () => import('../../products/messaging/frontend/Library'),
 }
 
@@ -112,7 +111,6 @@ export const productConfiguration: Record<string, any> = {
     },
     MessagingCampaigns: { name: 'Messaging', projectBased: true },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
-    MessagingProviders: { name: 'Messaging', projectBased: true },
     MessagingLibrary: { name: 'Messaging', projectBased: true },
 }
 
@@ -174,9 +172,6 @@ export const productUrls = {
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-    messagingProviders: (): string => '/messaging/providers',
-    messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
-    messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
     messagingLibrary: (): string => '/messaging/library',
     messagingLibraryNew: (): string => '/messaging/library/new',
     messagingLibraryTemplate: (id?: string): string => `/messaging/library/${id}`,
