@@ -35,6 +35,8 @@
 !plugin-server/tsconfig.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+!pyproject.toml
+!uv.lock
 !posthog
 !posthog.json
 !products

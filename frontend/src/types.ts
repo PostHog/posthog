@@ -3880,6 +3880,7 @@ export type IntegrationKind =
     | 'linkedin-ads'
     | 'snapchat'
     | 'intercom'
+    | 'mailjet'
 
 export interface IntegrationType {
     id: number
@@ -5139,4 +5140,9 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItems?: FileSystemImport[]
+}
+
+export interface ProjectTreeRef {
+    type: string
+    ref: string
 }

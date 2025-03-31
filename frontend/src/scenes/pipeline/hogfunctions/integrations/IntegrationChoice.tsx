@@ -27,7 +27,7 @@ export function IntegrationChoice({
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
-    const { newGoogleCloudKey } = useActions(integrationsLogic)
+    const { newGoogleCloudKey, newMailjetKey } = useActions(integrationsLogic)
     const kind = integration
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
@@ -65,6 +65,15 @@ export function IntegrationChoice({
         input.click()
     }
 
+    function collectMailjetKey(): void {
+        const apiKey = prompt('Enter your Mailjet API key')
+        const secretKey = prompt('Enter your Mailjet secret key')
+        if (!apiKey || !secretKey) {
+            return
+        }
+        newMailjetKey(apiKey, secretKey, (integration) => onChange?.(integration.id))
+    }
+
     const button = (
         <LemonMenu
             items={[
@@ -86,6 +95,15 @@ export function IntegrationChoice({
                               {
                                   onClick: () => uploadKey(kind),
                                   label: 'Upload Google Cloud .json key file',
+                              },
+                          ],
+                      }
+                    : ['mailjet'].includes(kind)
+                    ? {
+                          items: [
+                              {
+                                  onClick: () => collectMailjetKey(),
+                                  label: 'Configure Mailjet API key',
                               },
                           ],
                       }

@@ -72,9 +72,25 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
 
+// when we capture in a loop, we don't want to capture the same error twice
+// since we loop over large datasets we risk capturing the same error multiple times
+// so we use a set to throttle the errors
+const THROTTLE_CAPTURE_KEY = new Set<string>()
+function throttleCapture(key: string, fn: () => void): void {
+    if (!THROTTLE_CAPTURE_KEY.has(key)) {
+        fn()
+        THROTTLE_CAPTURE_KEY.add(key)
+    }
+}
+// only for testing
+export function clearThrottle(): void {
+    THROTTLE_CAPTURE_KEY.clear()
+}
+
 export function patchMetaEventIntoWebData(
     snapshots: RecordingSnapshot[],
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined
+    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
+    sessionRecordingId: string
 ): RecordingSnapshot[] {
     // Iterate in reverse order so we can modify the array while iterating
     for (let i = snapshots.length - 1; i >= 0; i--) {
@@ -92,8 +108,10 @@ export function patchMetaEventIntoWebData(
         const viewport = viewportForTimestamp(snapshot.timestamp)
         const thereIsNoViewport = !viewport || !viewport.width || !viewport.height
         if (thereIsNoViewport) {
-            posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
-                snapshot,
+            throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
+                posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
+                    snapshot,
+                })
             })
         } else {
             snapshots.splice(i, 0, {
@@ -117,7 +135,10 @@ export function patchMetaEventIntoWebData(
  rrweb player hides itself until it has seen the meta event 🤷
  but we can patch a meta event into the recording data to make it work
 */
-function patchMetaEventIntoMobileData(parsedLines: RecordingSnapshot[]): RecordingSnapshot[] {
+function patchMetaEventIntoMobileData(
+    parsedLines: RecordingSnapshot[],
+    sessionRecordingId: string
+): RecordingSnapshot[] {
     let fullSnapshotIndex: number = -1
     let metaIndex: number = -1
     try {
@@ -145,9 +166,11 @@ function patchMetaEventIntoMobileData(parsedLines: RecordingSnapshot[]): Recordi
             parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
         }
     } catch (e) {
-        captureException(e, {
-            tags: { feature: 'session-recording-missing-meta-patching' },
-            extra: { fullSnapshotIndex, metaIndex },
+        throttleCapture(`${sessionRecordingId}-missing-mobile-meta-patching`, () => {
+            posthog.captureException(e, {
+                tags: { feature: 'session-recording-missing-mobile-meta-patching' },
+                extra: { fullSnapshotIndex, metaIndex },
+            })
         })
     }
 
@@ -183,7 +206,7 @@ function unzip(compressedStr: string | undefined): any {
  *
  * KLUDGE: we shouldn't need so many type assertions on ev.data but TS is not smart enough to figure it out
  */
-function decompressEvent(ev: unknown): unknown {
+function decompressEvent(ev: unknown, sessionRecordingId: string): unknown {
     try {
         if (isCompressedEvent(ev)) {
             if (ev.cv === '2024-10') {
@@ -222,10 +245,12 @@ function decompressEvent(ev: unknown): unknown {
                     }
                 }
             } else {
-                posthog.captureException(new Error('Unknown compressed event version'), {
-                    feature: 'session-recording-compressed-event-decompression',
-                    compressedEvent: ev,
-                    compressionVersion: ev.cv,
+                throttleCapture(`${sessionRecordingId}-unknown-compressed-event-version`, () => {
+                    posthog.captureException(new Error('Unknown compressed event version'), {
+                        feature: 'session-recording-compressed-event-decompression',
+                        compressedEvent: ev,
+                        compressionVersion: ev.cv,
+                    })
                 })
                 // probably unplayable but we don't know how to decompress it
                 return ev
@@ -233,9 +258,11 @@ function decompressEvent(ev: unknown): unknown {
         }
         return ev
     } catch (e) {
-        posthog.captureException((e as Error) || new Error('Could not decompress event'), {
-            feature: 'session-recording-compressed-event-decompression',
-            compressedEvent: ev,
+        throttleCapture(`${sessionRecordingId}-unknown-compressed-event-version`, () => {
+            posthog.captureException((e as Error) || new Error('Could not decompress event'), {
+                feature: 'session-recording-compressed-event-decompression',
+                compressedEvent: ev,
+            })
         })
         return ev
     }
@@ -247,9 +274,9 @@ function decompressEvent(ev: unknown): unknown {
  *
  * If it can't be case as eventWithTime by this point then it's probably not a valid event anyway
  */
-function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): eventWithTime {
+function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean, sessionRecordingId: string): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in future
-    const currentEvent = decompressEvent(d)
+    const currentEvent = decompressEvent(d, sessionRecordingId)
     return withMobileTransformer
         ? postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
         : (currentEvent as eventWithTime)
@@ -353,7 +380,7 @@ export const parseEncodedSnapshots = async (
             }
 
             return snapshotData.flatMap((d: unknown) => {
-                const snap = coerceToEventWithTime(d, withMobileTransformer)
+                const snap = coerceToEventWithTime(d, withMobileTransformer, sessionId)
 
                 const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
@@ -378,13 +405,15 @@ export const parseEncodedSnapshots = async (
             unparseableLinesCount: unparseableLines.length,
             exampleLines: unparseableLines.slice(0, 3),
         }
-        posthog.capture('session recording had unparseable lines', {
-            ...extra,
-            feature: 'session-recording-snapshot-processing',
+        throttleCapture(`${sessionId}-unparseable-lines`, () => {
+            posthog.capture('session recording had unparseable lines', {
+                ...extra,
+                feature: 'session-recording-snapshot-processing',
+            })
         })
     }
 
-    return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines) : parsedLines
+    return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines, sessionId) : parsedLines
 }
 
 const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
@@ -1219,15 +1248,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshots: [
-            (s) => [s.snapshotSources, s.snapshotsBySource, s.viewportForTimestamp],
-            (sources, snapshotsBySource, viewportForTimestamp): RecordingSnapshot[] => {
+            (s, p) => [s.snapshotSources, s.snapshotsBySource, s.viewportForTimestamp, p.sessionRecordingId],
+            (sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId): RecordingSnapshot[] => {
                 const allSnapshots =
                     sources?.flatMap((source) => {
                         const sourceKey = getSourceKey(source)
                         return snapshotsBySource?.[sourceKey]?.snapshots || []
                     }) ?? []
 
-                return patchMetaEventIntoWebData(deduplicateSnapshots(allSnapshots), viewportForTimestamp)
+                return patchMetaEventIntoWebData(
+                    deduplicateSnapshots(allSnapshots),
+                    viewportForTimestamp,
+                    sessionRecordingId
+                )
             },
         ],
 

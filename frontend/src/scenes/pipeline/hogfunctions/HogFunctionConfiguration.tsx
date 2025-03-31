@@ -53,6 +53,7 @@ export interface HogFunctionConfigurationProps {
         showStatus?: boolean
         showEnabled?: boolean
         showTesting?: boolean
+        hideTestingConfiguration?: boolean
         canEditSource?: boolean
         showPersonsCount?: boolean
     }
@@ -544,12 +545,14 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? <HogFunctionTest /> : null}
+                            {showTesting ? (
+                                <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
+                            ) : null}
                             {type === 'broadcast' ? (
-                                id && id !== 'new' ? (
-                                    <HogFunctionTestPlaceholder
-                                        title="Send broadcast"
-                                        description={
+                                <HogFunctionTestPlaceholder
+                                    title="Send broadcast"
+                                    description={
+                                        id && id !== 'new' ? (
                                             <div className="mt-2 space-y-2">
                                                 <LemonButton
                                                     type="primary"
@@ -565,12 +568,7 @@ export function HogFunctionConfiguration({
                                                     usecases yet.
                                                 </div>
                                             </div>
-                                        }
-                                    />
-                                ) : (
-                                    <HogFunctionTestPlaceholder
-                                        title="Send broadcast"
-                                        description={
+                                        ) : (
                                             <div className="mt-2 space-y-2">
                                                 <LemonButton
                                                     type="primary"
@@ -580,9 +578,9 @@ export function HogFunctionConfiguration({
                                                 </LemonButton>
                                                 <div>Save your configuration to send a broadcast</div>
                                             </div>
-                                        }
-                                    />
-                                )
+                                        )
+                                    }
+                                />
                             ) : null}
                             <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
