@@ -102,7 +102,7 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: () => collectMailjetKey(kind),
+                                  onClick: () => collectMailjetKey(),
                                   label: 'Configure Mailjet API key',
                               },
                           ],
