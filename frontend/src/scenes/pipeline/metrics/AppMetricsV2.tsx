@@ -1,5 +1,14 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect, LemonSkeleton, Popover, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDropdown,
+    LemonSelect,
+    LemonSkeleton,
+    Popover,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
@@ -18,6 +27,18 @@ const METRICS_INFO = {
     disabled_permanently:
         'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
 }
+
+const ALL_METRIC_TYPES = [
+    'succeeded',
+    'failed',
+    'filtered',
+    'disabled_temporarily',
+    'disabled_permanently',
+    'masked',
+    'filtering_failed',
+    'inputs_failed',
+    'fetch',
+]
 
 export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
     const logic = appMetricsV2Logic({ id })
@@ -38,6 +59,47 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
                 <div className="flex items-center gap-2">
                     <h2 className="mb-0">Delivery trends</h2>
                     <div className="flex-1" />
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        matchWidth={false}
+                        placement="right-end"
+                        overlay={
+                            <div className="deprecated-space-y-2 overflow-hidden max-w-100">
+                                {ALL_METRIC_TYPES.map((type) => {
+                                    return (
+                                        <LemonButton
+                                            key={type}
+                                            fullWidth
+                                            sideIcon={
+                                                <LemonCheckbox checked={filters?.name?.split(',').includes(type)} />
+                                            }
+                                            onClick={() => {
+                                                setFilters({
+                                                    name: filters?.name?.split(',').includes(type)
+                                                        ? filters.name
+                                                              .split(',')
+                                                              .filter((t) => t != type)
+                                                              .join(',')
+                                                        : filters.name + ',' + type,
+                                                })
+                                            }}
+                                        >
+                                            {type.replace(/_/g, ' ').charAt(0).toUpperCase() +
+                                                type.replace(/_/g, ' ').slice(1)}
+                                        </LemonButton>
+                                    )
+                                })}
+                            </div>
+                        }
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            tooltip="Filtering for any log groups containing any of the selected levels"
+                        >
+                            Filters
+                        </LemonButton>
+                    </LemonDropdown>
                     <LemonSelect
                         options={[
                             { label: 'Hourly', value: 'hour' },

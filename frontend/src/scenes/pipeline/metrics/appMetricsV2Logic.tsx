@@ -10,12 +10,13 @@ export type AppMetricsV2LogicProps = {
     id: string
 }
 
-export type MetricsFilters = Pick<AppMetricsV2RequestParams, 'before' | 'after' | 'interval'>
+export type MetricsFilters = Pick<AppMetricsV2RequestParams, 'before' | 'after' | 'interval' | 'name'>
 
 const DEFAULT_FILTERS: MetricsFilters = {
     before: undefined,
     after: '-7d',
     interval: 'day',
+    name: 'succeeded,failed,disabled_temporarily,disabled_permanently,masked,filtering_failed,inputs_failed,fetch',
 }
 
 export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
