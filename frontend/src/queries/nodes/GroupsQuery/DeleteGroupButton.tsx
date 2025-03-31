@@ -1,9 +1,9 @@
 import { IconTrash } from '@posthog/icons'
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { groupDeleteModalLogic, GroupPartial } from 'scenes/groups/groupDeleteModalLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { groupDeleteModalLogic, GroupPartial } from '~/scenes/groups/groupDeleteModalLogic'
 
 interface DeleteGroupButtonProps {
     group: GroupPartial
