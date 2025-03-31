@@ -22,6 +22,7 @@ import { appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
     failed: 'Total number of events that had errors during processing',
+    filtered: 'Total number of events that were filtered out',
     disabled_temporarily:
         'Total number of events that were skipped due to the destination being temporarily disabled (due to issues such as the destination being down or rate-limited)',
     disabled_permanently:
