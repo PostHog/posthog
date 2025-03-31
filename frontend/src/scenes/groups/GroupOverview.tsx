@@ -1,11 +1,37 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 
-import { DashboardPlacement } from '~/types'
+import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
+
+function GroupOverviewDashboard({
+    groupTypeDetailDashboard,
+    groupData,
+}: {
+    groupTypeDetailDashboard: number
+    groupData: Group
+}): JSX.Element {
+    const { setProperties } = useActions(dashboardLogic({ id: groupTypeDetailDashboard }))
+
+    useEffect(() => {
+        if (groupTypeDetailDashboard && groupData) {
+            setProperties([
+                {
+                    type: PropertyFilterType.EventMetadata,
+                    key: `$group_${groupData.group_type_index}`,
+                    value: groupData.group_key,
+                    operator: PropertyOperator.Exact,
+                },
+            ])
+        }
+    }, [groupTypeDetailDashboard, groupData, setProperties])
+
+    return <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
+}
 
 export function GroupOverview(): JSX.Element {
     const { groupTypeName, groupData, groupTypeDetailDashboard } = useValues(groupLogic)
@@ -19,7 +45,7 @@ export function GroupOverview(): JSX.Element {
     }
 
     if (groupTypeDetailDashboard) {
-        return <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
+        return <GroupOverviewDashboard groupTypeDetailDashboard={groupTypeDetailDashboard} groupData={groupData} />
     }
 
     return (
