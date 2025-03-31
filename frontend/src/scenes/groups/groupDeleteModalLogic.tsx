@@ -48,7 +48,7 @@ export const groupDeleteModalLogic = kea<groupDeleteModalLogicType>([
                             group.group_type_index
                         }&group_key=${encodeURIComponent(group.group_key)}`
                     )
-                    await breakpoint(500)
+                    await breakpoint(1000)
                     lemonToast.success(
                         <>
                             The group <strong>{group.group_key}</strong> was removed from the project.
