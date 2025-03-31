@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"slices"
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
-	"golang.org/x/exp/slices"
 )
 
 type Subscription struct {
