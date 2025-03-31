@@ -151,3 +151,36 @@ Various libraries and services that manage PostHog webhooks
 ### cymbal
 Manages ingest for the PostHog Error Tracking.
 
+
+## Adding a new subproject to the Rust workspace
+Start out by `cd`ing into the `posthog/rust` workspace root directory. Use `cargo` to initialize your new project as [documented here](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html#creating-the-second-package-in-the-workspace).
+
+As noted above, there are 3 flavors of workspace project at the moment you can choose as templates for your new project. The bootstrap process for each is listed below:
+
+#### Project with no DB dependencies
+Just start coding! Your decision isn't permanent - you can easily adapt in flight to an `SQLX`-dependent project or not in the future. The only dependency you'll need right off the bat is to have the `posthog` Docker Compose rig up and running in local dev, and to code against those (non-DB!) backing stores if you require them.
+
+You can execute `bin/run_workspace_tests` as well as linting checks documented in `ci-rust.yml` locally just as CI will do when a PR is submitted.
+
+#### Project depends on Postgres + SQLX
+In your subproject directory root (`posthog/rust/<YOUR_SUBPROJECT>`) you'll need to set up a bit of boilerplate depending on how your new project will be deployed in production.
+
+* If the project _will manage it's own isolated database instance in prod_ you should:
+    1. Create a `migrations` subdirectory in your subproject root
+    1. Use `sqlx migrate add ...` to create migrations and add your table schemas to it
+    1. When writing tests, annotate each `fn test_*` with `sqlx::test(migrations = "<PATH>")` where `PATH` points to your `migrations` directory
+    1. Add an `sqlx migrate run ...` clause to `bin/migrate` and `bin/migrate_tests` where `--source` points to your `migrations` directory
+    1. Execute `bin/migrate_tests` and/or `bin/migrate` when making changes to SQL wrapped by `sqlx::query*` macros
+
+* If the project _will not manage its own DB in production_:
+    1. Verify that existing migrations (see `bin/migrate_test`) don't already cover the tables your queries will referece. If so, you're done! :tada:
+    1. If not, create a `tests/test_migrations` subdirectory in your subproject root
+    1. `cd` into `tests` and `sqlx migrate add ...` to create migrations and add the missing table schemas to it
+    1. When writing tests, annotate each `fn test_*` with `sqlx::test(migrations = "<PATH>")` where `PATH` points to your `test_migrations` directory
+    1. Add an `sqlx migrate run ...` clause to `bin/migrate` and `bin/migrate_tests` where `--source` points to your `test_migrations` directory
+    1. Execute `bin/migrate_tests` and/or `bin/migrate` when making changes to SQL wrapped by `sqlx::query*` macros
+
+#### Project depends on a database but not SQLX
+Here, the `feature-flags` project will be a good template for you. You'll need to manage things like test and dev migrations manually, including isolating DB namespaces per test case to avoid parallel test executions interfering with each other.
+
+Otherwise, as `feature-flags` does, use the repo root (`posthog`) Docker Compose to code and test against, and all the same `posthog/rust/bin` dev/test/CI scripts as described above to manage environment, testing, and DB lifecycle.
