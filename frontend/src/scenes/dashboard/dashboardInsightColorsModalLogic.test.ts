@@ -169,8 +169,8 @@ describe('extractBreakdownValues', () => {
         const tiles = [
             createTestTile({
                 result: [
-                    { action: { order: 0 }, breakdown_value: ['1'] },
-                    { action: { order: 0 }, breakdown_value: ['2'] },
+                    { action: { order: 0 }, breakdown_value: [1] },
+                    { action: { order: 0 }, breakdown_value: [2] },
                 ],
                 query: {
                     kind: NodeKind.InsightVizNode,
@@ -183,7 +183,7 @@ describe('extractBreakdownValues', () => {
                 } as InsightVizNode<InsightQueryNode>,
             }),
             createTestTile({
-                result: [{ action: { order: 0 }, breakdown_value: '3' }],
+                result: [{ action: { order: 0 }, breakdown_value: [3] }],
                 query: {
                     kind: NodeKind.InsightVizNode,
                     source: {
@@ -199,9 +199,9 @@ describe('extractBreakdownValues', () => {
         const result = extractBreakdownValues(tiles)
 
         expect(result).toEqual([
-            { breakdownValue: '1', breakdownType: 'cohort' },
-            { breakdownValue: '2', breakdownType: 'cohort' },
-            { breakdownValue: '3', breakdownType: 'cohort' },
+            { breakdownValue: 1, breakdownType: 'cohort' },
+            { breakdownValue: 2, breakdownType: 'cohort' },
+            { breakdownValue: 3, breakdownType: 'cohort' },
         ])
     })
 })

@@ -1,6 +1,7 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
-import { getFunnelDatasetKey, getTrendDatasetKey } from 'scenes/insights/utils'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { getFunnelDatasetKey, getTrendDatasetKey, sortCohorts } from 'scenes/insights/utils'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
@@ -11,7 +12,8 @@ import { dashboardLogic } from './dashboardLogic'
 type BreakdownValueAndType = Omit<BreakdownColorConfig, 'colorToken'>
 
 export function extractBreakdownValues(
-    insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
+    insightTiles: DashboardTile<QueryBasedInsightModel>[] | null,
+    cohorts: CohortType[] | null
 ): BreakdownValueAndType[] {
     if (insightTiles == null) {
         return []
@@ -66,11 +68,25 @@ export function extractBreakdownValues(
             }
             return acc
         }, [])
-        .sort((a, b) => a.breakdownValue.localeCompare(b.breakdownValue))
+        .sort((a, b) => {
+            if (a.breakdownType === 'cohort' && b.breakdownType === 'cohort') {
+                return sortCohorts(a.breakdownValue, b.breakdownValue, cohorts)
+            }
+
+            // put cohorts at the end
+            if (a.breakdownType === 'cohort' || b.breakdownType === 'cohort') {
+                return a.breakdownType === 'cohort' ? 1 : -1
+            }
+
+            return String(a.breakdownValue).localeCompare(String(b.breakdownValue))
+        })
 }
 
 export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardInsightColorsModalLogic']),
+    connect({
+        values: [cohortsModel, ['cohorts']],
+    }),
     actions({
         showInsightColorsModal: (id: number) => ({ id }),
         hideInsightColorsModal: true,
@@ -95,6 +111,9 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
             (itemsLoading): boolean | null => itemsLoading,
             { resultEqualityCheck: () => false, equalityCheck: () => false },
         ],
-        breakdownValues: [(s) => [s.insightTiles], (insightTiles) => extractBreakdownValues(insightTiles)],
+        breakdownValues: [
+            (s) => [s.insightTiles, s.cohorts],
+            (insightTiles, cohorts) => extractBreakdownValues(insightTiles, cohorts?.results),
+        ],
     }),
 ])
