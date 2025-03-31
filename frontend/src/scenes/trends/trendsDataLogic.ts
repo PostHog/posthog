@@ -279,12 +279,13 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
                     // dashboard color overrides
                     const key = getTrendDatasetKey(dataset)
-                    const breakdownValue = JSON.parse(key)['breakdown_value']
+                    let breakdownValue = JSON.parse(key)['breakdown_value']
+                    breakdownValue = Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
 
                     const colorOverride = temporaryBreakdownColors?.find(
                         (config) =>
                             config.breakdownValue === breakdownValue &&
-                            config.breakdownType === breakdownFilter?.breakdown_type
+                            config.breakdownType === (breakdownFilter?.breakdown_type ?? 'event')
                     )
 
                     if (colorOverride?.colorToken) {
