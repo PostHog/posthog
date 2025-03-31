@@ -64,4 +64,19 @@ describe('getDefaultMetricTitle', () => {
 
         expect(getDefaultMetricTitle(metric)).toBe('purchase')
     })
+
+    it('returns table name for ExperimentDataWarehouseMetricConfig', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: 'purchase_events',
+                timestamp_field: 'timestamp',
+                events_join_key: 'person_id',
+                data_warehouse_join_key: 'person_id',
+            },
+        }
+        expect(getDefaultMetricTitle(metric)).toBe('purchase_events')
+    })
 })
