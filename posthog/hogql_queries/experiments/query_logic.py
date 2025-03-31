@@ -36,4 +36,4 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
                 )
     # Else, we default to count
     # We then just emit 1 so we can easily sum it up
-    return parse_expr("1")
+    return ast.Constant(value=1)
