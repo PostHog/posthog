@@ -565,7 +565,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Error tracking',
                             icon: <IconWarning />,
                             to: urls.errorTracking(),
-                            tag: 'beta' as const,
                         },
                         {
                             identifier: Scene.SQLEditor,
