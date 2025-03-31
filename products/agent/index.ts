@@ -8,10 +8,17 @@ const cache = new Map<string, string>()
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
 
+const summaryPrompt = `Your goal is to read the code below and identify:
+1. The main functionality implemented.
+2. Any user-facing or product-facing features (in user-friendly terms)—things that an end user or customer would recognize. Summarize them as a short list of labels (2 to 5 keywords each). Output only the labels and keep them concise.
+Output in the following format:
+Main Functionality: <description>
+User-Facing Features:
+- Feature 1
+`
 const summarizationModel = genAI.getGenerativeModel({
     model: 'gemini-2.0-flash',
-    systemInstruction:
-        'Your goal is to summarize the provided code and generate a list of high level product features. Generate a single paragraph of text and a list of features.',
+    systemInstruction: summaryPrompt,
     generationConfig: {
         temperature: 0.2,
     },
@@ -46,24 +53,31 @@ async function summarizeFile(path: string, content: string): Promise<void> {
     cache.set(path, text)
 }
 
-const clusteringModel = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    systemInstruction:
-        'Your goal is to summarize the provided code descriptions and generate a list of high level product features. Generate a single paragraph of text and a list of features.',
-    generationConfig: {
-        temperature: 0.2,
-    },
-})
+const clusteringPrompt = `Your goal is to provide a consolidated view of what main feature(s) or functionality this directory contributes to the overall product, 
+and list any sub-features relevant for the product. Focus on user-facing or product-facing capabilities—things that an end user or customer would recognize. Format features as follows:
+Name: Feature 1
+Description: Description of the feature
+`
+const overviewPrompt = `Please create a high-level list of features and sub-features in user-friendly terms. 
+Also highlight how they relate to each other in the overall product.`
 
-async function summarizeFolder(folder: string, paths: string[]): Promise<void> {
+async function summarizeFolder(dir: string, paths: string[], rootDir = false): Promise<void> {
     const content = paths
         .filter((path) => cache.get(path))
-        .map((path) => `File path: ${path}\nFile summary:\n\`\`\`\n${cache.get(path)}\n\`\`\``)
+        .map((path) => `Summary for \`${path}\`\n\`\`\`\n${cache.get(path)}\n\`\`\``)
         .join('\n')
 
     if (!content) {
         return
     }
+
+    const clusteringModel = genAI.getGenerativeModel({
+        model: 'gemini-2.0-flash',
+        systemInstruction: rootDir ? overviewPrompt : clusteringPrompt,
+        generationConfig: {
+            temperature: 0.2,
+        },
+    })
 
     const { response } = await clusteringModel.generateContent({
         contents: [
@@ -71,14 +85,14 @@ async function summarizeFolder(folder: string, paths: string[]): Promise<void> {
                 role: 'user',
                 parts: [
                     {
-                        text: content,
+                        text: `Here are the summaries for files in directory \`${dir}\`\nSummaries:\n${content}`,
                     },
                 ],
             },
         ],
     })
     const text = response.text()
-    cache.set(folder, text)
+    cache.set(dir, text)
 }
 
 let jobs: Promise<void>[] = []
@@ -152,7 +166,7 @@ async function dfsGitTrackedFiles(gitPaths: string[], gitFilesSet: Set<string>, 
 
                 console.log('Summarizing folder', currentPath)
                 // Form a cluster of files
-                await summarizeFolder(currentPath, contents)
+                await summarizeFolder(currentPath, contents, currentPath === startDir)
 
                 return totalSize
             }
@@ -179,7 +193,7 @@ async function main(): Promise<void> {
         files: trackedFiles,
         characterSize,
         totalSize,
-    } = await dfsGitTrackedFiles(gitPaths, gitFilesSet, 'frontend/src')
+    } = await dfsGitTrackedFiles(gitPaths, gitFilesSet, 'products/early_access_features')
 
     console.log('Git tracked files:')
     trackedFiles.forEach((file) => console.log(`${file} (${characterSize.get(file)} characters)`))
