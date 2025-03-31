@@ -2,7 +2,7 @@ import json
 import threading
 import types
 from collections.abc import Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
@@ -92,12 +92,11 @@ def validated_client_query_id() -> Optional[str]:
 
 @cached(cache=TTLCache(maxsize=1, ttl=600))
 def get_api_queries_online_allow_list() -> set[int]:
-    try:
+    cfg = None
+    with suppress(Exception):
         cfg = posthoganalytics.get_remote_config_payload("api-queries-on-online-cluster")
-        return set(cfg.get("allowed_team_id", [])) if cfg else set()
-    finally:
-        pass
-    return set()
+        return set(cfg.get("allowed_team_id", [])) if cfg else set[int]()
+    return set[int]()
 
 
 @patchable
