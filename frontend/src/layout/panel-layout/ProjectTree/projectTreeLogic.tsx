@@ -212,6 +212,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             },
         ],
+        folderLoadCount: [
+            {} as Record<string, FolderState>,
+            {
+                loadFolderSuccess: (state, { folder, entries }) => {
+                    return { ...state, [folder]: entries.length + (state[folder] ?? 0) }
+                },
+            },
+        ],
         folderStates: [
             {} as Record<string, FolderState>,
             {
@@ -498,11 +506,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadFolderStart(folder)
             try {
                 const previousFiles = values.folders[folder] || []
+                const offset = values.folderLoadCount[folder] ?? 0
                 const response = await api.fileSystem.list({
                     parent: folder,
                     depth: splitPath(folder).length + 1,
                     limit: PAGINATION_LIMIT + 1,
-                    offset: previousFiles.length,
+                    offset: offset,
                 })
 
                 let files = response.results
@@ -511,7 +520,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     files = files.slice(0, PAGINATION_LIMIT)
                     hasMore = true
                 }
-                actions.loadFolderSuccess(folder, [...previousFiles, ...files], hasMore)
+                const fileIds = new Set(files.map((file) => file.id))
+                // TODO: remove from previousFiles the ones whose id is in files
+                const previousUniqueFiles = previousFiles.filter(
+                    (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
+                )
+                actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
             }
@@ -615,6 +629,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (resp.results && resp.results.length > 0) {
                         const result = resp.results[0]
                         path = result.path
+                        actions.createSavedItem(result)
                     }
                 }
                 if (path) {
@@ -632,6 +647,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ...values.expandedFolders,
                         ...nonExpandedFolders.map((f) => 'project/' + f),
                     ])
+
                     // TODO: scroll to item?
                 }
             }

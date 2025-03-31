@@ -1134,7 +1134,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             () => [(_, props: DashboardLogicProps) => props.id],
             (id): ProjectTreeRef => ({ type: 'dashboard', ref: String(id) }),
         ],
-
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.dashboard],
             (dashboard): SidePanelSceneContext | null => {
