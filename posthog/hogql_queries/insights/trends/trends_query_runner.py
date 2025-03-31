@@ -69,6 +69,7 @@ from posthog.schema import (
     Series,
     TrendsQuery,
     TrendsQueryResponse,
+    TrendsFormulaNode,
 )
 from posthog.utils import format_label_date, multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
@@ -404,41 +405,35 @@ class TrendsQueryRunner(QueryRunner):
             elif isinstance(result, dict):
                 returned_results.append([result])
 
-        if self.query.trendsFilter is not None and (
-            (self.query.trendsFilter.formulas is not None and len(self.query.trendsFilter.formulas) > 0)
-            or (self.query.trendsFilter.formula is not None and self.query.trendsFilter.formula != "")
-        ):
+        formula_nodes = self.query.trendsFilter.formulaNodes if self.query.trendsFilter.formulaNodes else []
+        if not formula_nodes:
+            if self.query.trendsFilter.formulas:
+                formula_nodes = [{"formula": formula} for formula in self.query.trendsFilter.formulas]
+            elif self.query.trendsFilter.formula:
+                formula_nodes = [{"formula": self.query.trendsFilter.formula}]
+
+        if self.query.trendsFilter is not None and formula_nodes:
             with self.timings.measure("apply_formula"):
                 has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
                 if has_compare:
                     current_results = returned_results[: len(returned_results) // 2]
                     previous_results = returned_results[len(returned_results) // 2 :]
 
-                    if self.query.trendsFilter.formulas is not None and len(self.query.trendsFilter.formulas) > 0:
-                        final_result = []
-                        for formula in self.query.trendsFilter.formulas:
-                            current_formula_results = self.apply_formula(formula, current_results)
-                            previous_formula_results = self.apply_formula(formula, previous_results)
-                            # Create a new list for each formula's results
-                            formula_results = []
-                            formula_results.extend(current_formula_results)
-                            formula_results.extend(previous_formula_results)
-                            final_result.extend(formula_results)
-                    else:
-                        assert isinstance(self.query.trendsFilter.formula, str)  # help mypy understand the type
-                        final_result = self.apply_formula(
-                            self.query.trendsFilter.formula, current_results
-                        ) + self.apply_formula(self.query.trendsFilter.formula, previous_results)
+                    final_result = []
+                    for formula_node in formula_nodes:
+                        current_formula_results = self.apply_formula(formula_node, current_results)
+                        previous_formula_results = self.apply_formula(formula_node, previous_results)
+                        # Create a new list for each formula's results
+                        formula_results = []
+                        formula_results.extend(current_formula_results)
+                        formula_results.extend(previous_formula_results)
+                        final_result.extend(formula_results)
                 else:
-                    if self.query.trendsFilter.formulas is not None and len(self.query.trendsFilter.formulas) > 0:
-                        final_result = []
-                        for formula in self.query.trendsFilter.formulas:
-                            formula_results = self.apply_formula(formula, returned_results)
-                            # Create a new list for each formula's results
-                            final_result.extend(formula_results)
-                    else:
-                        assert isinstance(self.query.trendsFilter.formula, str)  # help mypy understand the type
-                        final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
+                    final_result = []
+                    for formula_node in formula_nodes:
+                        formula_results = self.apply_formula(formula_node, returned_results)
+                        # Create a new list for each formula's results
+                        final_result.extend(formula_results)
         else:
             final_result = []
             for result in returned_results:
@@ -767,7 +762,7 @@ class TrendsQueryRunner(QueryRunner):
         return series_with_extras
 
     def apply_formula(
-        self, formula: str, results: list[list[dict[str, Any]]], in_breakdown_clause=False
+        self, formula_node: TrendsFormulaNode, results: list[list[dict[str, Any]]], in_breakdown_clause=False
     ) -> list[dict[str, Any]]:
         has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
         has_breakdown = self.breakdown_enabled
@@ -854,7 +849,7 @@ class TrendsQueryRunner(QueryRunner):
                             }
                         )
                 new_result = self.apply_formula_to_results_group(
-                    row_results, formula, breakdown_value=breakdown_value, aggregate_values=is_total_value
+                    row_results, formula_node, breakdown_value=breakdown_value, aggregate_values=is_total_value
                 )
                 computed_results.append(new_result)
 
@@ -864,11 +859,13 @@ class TrendsQueryRunner(QueryRunner):
             return sorted(
                 computed_results,
                 key=lambda s: (
-                    0
-                    if s.get("breakdown_value") not in (BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL)
-                    else -1
-                    if s["breakdown_value"] == BREAKDOWN_NULL_STRING_LABEL
-                    else -2,
+                    (
+                        0
+                        if s.get("breakdown_value") not in (BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL)
+                        else -1
+                        if s["breakdown_value"] == BREAKDOWN_NULL_STRING_LABEL
+                        else -2
+                    ),
                     s.get("aggregated_value", sum(s.get("data") or [])),
                     s.get("count"),
                     s.get("data"),
@@ -879,12 +876,14 @@ class TrendsQueryRunner(QueryRunner):
         else:
             # Create a deep copy of the results to avoid modifying shared data
             copied_results = [[deepcopy(r[0]) for r in results]]
-            return [self.apply_formula_to_results_group(copied_results[0], formula, aggregate_values=is_total_value)]
+            return [
+                self.apply_formula_to_results_group(copied_results[0], formula_node, aggregate_values=is_total_value)
+            ]
 
     @staticmethod
     def apply_formula_to_results_group(
         results_group: list[dict[str, Any]],
-        formula: str,
+        formula_node: TrendsFormulaNode,
         *,
         breakdown_value: Any = None,
         aggregate_values: Optional[bool] = False,
@@ -892,8 +891,9 @@ class TrendsQueryRunner(QueryRunner):
         """
         Applies the formula to a list of results, resulting in a single, computed result.
         """
+        formula = formula_node.formula
         base_result = results_group[0]
-        base_result["label"] = f"Formula ({formula})"
+        base_result["label"] = formula_node.custom_name or f"Formula ({formula})"
         base_result["action"] = None
 
         if aggregate_values:
