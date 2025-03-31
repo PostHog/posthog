@@ -106,8 +106,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
         ],
         projectTreeRef: [
             () => [
-                // We're effectively passing the selector through to the scene logic, and "recalculating"
-                // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
+                // Similar logic to the breadcrumbs above. This is used to find the object in the project tree.
                 (state, props): ProjectTreeRef | null => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
                     if (activeSceneLogic && 'projectTreeRef' in activeSceneLogic.selectors) {
