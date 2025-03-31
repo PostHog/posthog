@@ -50,9 +50,12 @@ class IntegrationSerializer(serializers.ModelSerializer):
             return instance
 
         elif validated_data["kind"] == "mailjet":
+            config = validated_data.get("config", {})
+            if not (config.get("api_key") and config.get("secret_key")):
+                raise ValidationError("Both api_key and secret_key are required for Mailjet integration")
             instance = MailjetIntegration.integration_from_keys(
-                validated_data["config"]["api_key"],
-                validated_data["config"]["secret_key"],
+                config["api_key"],
+                config["secret_key"],
                 team_id,
                 request.user,
             )
