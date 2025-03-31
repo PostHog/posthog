@@ -72,26 +72,45 @@ def get_person_ids_by_cohort_id(
 
 class TestCohort(ClickhouseTestMixin, BaseTest):
     def calculate_cohort_hogql_test_harness(self, cohort: Cohort, pending_version: int):
-        version = pending_version * 2 + 2
+        from unittest.mock import patch
 
-        with self.capture_queries_startswith(("INSERT", "insert")) as queries:
-            cohort.calculate_people_ch(version)
+        # First run: with hogql cohort calculation disabled
+        version_without_hogql = pending_version * 2 + 2
 
-        query = f"""
-            SELECT count() FROM
-            (SELECT person_id FROM cohortpeople as cp WHERE cp.version = {version} and cp.cohort_id = {cohort.pk}) as cp1
-            FULL OUTER JOIN (SELECT person_id FROM cohortpeople as cp WHERE cp.version = {version - 1} and cp.cohort_id = {cohort.pk}) as cp2
-            ON cp1.person_id = cp2.person_id
-            WHERE empty(cp1.person_id) or empty(cp2.person_id)
-        """
-        result = sync_execute(query)
-        assert 0 == result[0][0]
-        for query in queries:
-            if "LIMIT" in query:
-                assert all(
-                    limit == str(MAX_SELECT_COHORT_CALCULATION_LIMIT) for limit in re.findall(r"LIMIT (\d+)", query)
-                )
-        return version
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with self.capture_queries_startswith(("INSERT", "insert")) as queries_without_hogql:
+                cohort.calculate_people_ch(version_without_hogql)
+
+            results_without_hogql = self._get_cohortpeople(cohort)
+
+            # Check LIMIT in queries
+            for query in queries_without_hogql:
+                if "LIMIT" in query:
+                    assert all(
+                        limit == str(MAX_SELECT_COHORT_CALCULATION_LIMIT) for limit in re.findall(r"LIMIT (\d+)", query)
+                    )
+
+        # Second run: with hogql cohort calculation enabled
+        version_with_hogql = version_without_hogql + 1
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with self.capture_queries_startswith(("INSERT", "insert")) as queries_with_hogql:
+                cohort.calculate_people_ch(version_with_hogql)
+
+            results_with_hogql = self._get_cohortpeople(cohort)
+
+            # Check LIMIT in queries
+            for query in queries_with_hogql:
+                if "LIMIT" in query:
+                    assert all(
+                        limit == str(MAX_SELECT_COHORT_CALCULATION_LIMIT) for limit in re.findall(r"LIMIT (\d+)", query)
+                    )
+
+        # Assert the sets of person_ids are the same
+        self.assertCountEqual(results_without_hogql, results_with_hogql)
+
+        # Return the latest version
+        return version_with_hogql
 
     def _get_cohortpeople(self, cohort: Cohort, *, team_id: Optional[int] = None):
         team_id = team_id or cohort.team_id
@@ -540,7 +559,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )[0][0]
         self.assertEqual(results, 3)
 
-        #  If we accidentally call calculate_people it shouldn't erase people
+        #  If we accidentally call calculate_people it shouldn't erase people
         self.calculate_cohort_hogql_test_harness(cohort, 0)
         results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 3)
@@ -1477,12 +1496,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
             name="cohort1",
-            pending_version=3,
+            pending_version=None,
         )
         new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 6
+        assert new_version == 1
         new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 8
+        assert new_version == 2
+        new_version = get_and_update_pending_version(cohort1)
+        assert new_version == 3
 
     def test_cohortpeople_action_all_events(self):
         # Create an action that matches all events (no specific event defined)

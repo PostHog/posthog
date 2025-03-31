@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
@@ -37,13 +37,13 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, initIssue, assignIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
     const [activeTab, setActiveTab] = useState('stacktrace')
 
     useEffect(() => {
-        initIssue()
-    }, [initIssue])
+        loadIssue()
+    }, [loadIssue])
 
     return (
         <ErrorTrackingSetupPrompt>
@@ -51,18 +51,18 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 <PageHeader
                     buttons={
                         <div className="flex gap-x-2">
-                            {issue && issue.status == 'active' && (
+                            {!issueLoading && issue?.status == 'active' && (
                                 <AssigneeSelect
-                                    assignee={issue.assignee}
-                                    onChange={assignIssue}
+                                    assignee={issue?.assignee}
+                                    onChange={updateAssignee}
                                     type="secondary"
                                     showName
                                 />
                             )}
-                            {issue && (
+                            {!issueLoading && (
                                 <GenericSelect
                                     size="small"
-                                    current={issue.status}
+                                    current={issue?.status}
                                     values={['active', 'resolved', 'suppressed']}
                                     placeholder="Mark as"
                                     renderValue={(value) => (
@@ -72,47 +72,43 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             withTooltip={true}
                                         />
                                     )}
-                                    onChange={(value) => updateIssue({ status: value })}
+                                    onChange={updateStatus}
                                 />
                             )}
                         </div>
                     }
                 />
-                {issue ? (
-                    <div className="ErrorTrackingIssue">
-                        <Metadata />
-                        <LemonTabs
-                            activeKey={activeTab}
-                            onChange={(key) => setActiveTab(key)}
-                            tabs={[
-                                {
-                                    key: 'stacktrace',
-                                    label: 'Overview',
-                                    content: (
-                                        <div className="space-y-2">
-                                            <DetailsWidget />
-                                            <StacktraceWidget />
+                <div className="ErrorTrackingIssue">
+                    <Metadata />
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(key) => setActiveTab(key)}
+                        tabs={[
+                            {
+                                key: 'stacktrace',
+                                label: 'Overview',
+                                content: (
+                                    <div className="space-y-2">
+                                        <DetailsWidget />
+                                        <StacktraceWidget />
+                                    </div>
+                                ),
+                            },
+                            {
+                                key: 'events',
+                                label: 'Events',
+                                content: (
+                                    <div className="space-y-2">
+                                        <ErrorTrackingFilters />
+                                        <div className="border-1 overflow-hidden border-accent border-primary rounded bg-surface-primary relative">
+                                            <EventsTab />
                                         </div>
-                                    ),
-                                },
-                                {
-                                    key: 'events',
-                                    label: 'Events',
-                                    content: (
-                                        <div className="space-y-2">
-                                            <ErrorTrackingFilters />
-                                            <div className="border-1 overflow-hidden border-accent-primary border-primary rounded bg-surface-primary relative">
-                                                <EventsTab />
-                                            </div>
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </div>
-                ) : (
-                    <Spinner />
-                )}
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
             </>
         </ErrorTrackingSetupPrompt>
     )

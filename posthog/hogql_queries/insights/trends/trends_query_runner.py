@@ -6,6 +6,8 @@ from operator import itemgetter
 from typing import Any, Optional, Union
 
 from django.conf import settings
+from django.db import models
+from django.db.models.functions import Coalesce
 from natsort import natsorted, ns
 
 from posthog.caching.insights_api import (
@@ -986,12 +988,16 @@ class TrendsQueryRunner(QueryRunner):
     ) -> str:
         try:
             return (
-                PropertyDefinition.objects.get(
+                PropertyDefinition.objects.alias(
+                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+                )
+                .get(
+                    effective_project_id=self.team.project_id,  # type: ignore
                     name=field,
-                    team=self.team,
                     type=field_type,
                     group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
-                ).property_type
+                )
+                .property_type
                 or "String"
             )
         except PropertyDefinition.DoesNotExist:

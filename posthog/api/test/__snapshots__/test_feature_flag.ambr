@@ -431,6 +431,7 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.13
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -441,7 +442,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '83'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -622,6 +623,7 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.7
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -632,7 +634,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '83'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -846,6 +848,7 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.13
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -856,7 +859,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '87'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -1317,6 +1320,7 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.18
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1327,7 +1331,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '89'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -1529,6 +1533,7 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.8
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1539,7 +1544,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '88'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -1674,6 +1679,7 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.11
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1684,7 +1690,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '91'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -2251,6 +2257,7 @@
 # name: TestFeatureFlag.test_creating_static_cohort.20
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2261,7 +2268,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '71'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -2719,6 +2726,7 @@
 # name: TestFeatureFlag.test_creating_static_cohort.9
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2729,7 +2737,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '71'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -2917,6 +2925,7 @@
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."default_columns",
          "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
@@ -2931,6 +2940,7 @@
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."default_columns",
          "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
@@ -2945,6 +2955,7 @@
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."default_columns",
          "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999

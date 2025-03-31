@@ -26,7 +26,7 @@
     font-weight: 500;
     line-height: 1.25rem;
     color: var(--bg-surface-primary);
-    background: var(--accent-primary);
+    background: var(--accent);
     border-radius: var(--radius);
 
     &::selection {
@@ -78,7 +78,7 @@
     left: 0;
     width: calc(100% - var(--timeline-seekbar-arrow-width));
     height: var(--timeline-seekbar-thickness);
-    background: var(--accent-primary);
+    background: var(--accent);
 }
 
 .TimelineSeekbar__line-start,
@@ -92,7 +92,7 @@
         height: var(--timeline-seekbar-arrow-height);
         margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
         content: '';
-        background: var(--accent-primary);
+        background: var(--accent);
     }
 }
 

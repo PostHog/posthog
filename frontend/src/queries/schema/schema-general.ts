@@ -110,6 +110,8 @@ export enum NodeKind {
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
+    ExperimentFunnelMetricConfig = 'ExperimentFunnelMetricConfig',
+    ExperimentFunnelStepConfig = 'ExperimentFunnelStepConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
@@ -1797,7 +1799,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
-    customVolume?: ErrorTrackingSparklineConfig | null
+    volumeResolution: integer
     limit?: integer
     offset?: integer
 }
@@ -1807,18 +1809,12 @@ export interface ErrorTrackingIssueAssignee {
     id: integer | string
 }
 
-export type ErrorTrackingSparklineConfig = {
-    value: integer
-    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
-}
-
 export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
     volumeDay: number[]
-    volumeMonth: number[]
-    customVolume: number[] | null
+    volumeRange: number[]
 }
 
 export interface ErrorTrackingRelationalIssue {
@@ -1833,9 +1829,9 @@ export interface ErrorTrackingRelationalIssue {
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
-    last_seen?: string
+    last_seen: string
     earliest?: string
-    aggregations?: ErrorTrackingIssueAggregations
+    aggregations: ErrorTrackingIssueAggregations
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -1967,8 +1963,29 @@ export interface ExperimentMetric {
     name?: string
     metric_type: ExperimentMetricType
     inverse?: boolean
-    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+    metric_config:
+        | ExperimentEventMetricConfig
+        | ExperimentActionMetricConfig
+        | ExperimentDataWarehouseMetricConfig
+        | ExperimentFunnelMetricConfig
     time_window_hours?: number
+}
+
+export interface ExperimentFunnelStepConfig {
+    kind: NodeKind.ExperimentFunnelStepConfig
+    event: string
+    name?: string
+    order: integer
+    properties?: AnyPropertyFilter[]
+}
+
+export interface ExperimentFunnelMetricConfig {
+    kind: NodeKind.ExperimentFunnelMetricConfig
+    funnel: ExperimentFunnelStepConfig[]
+    // NOTE: Just to make the type system happy
+    math?: ExperimentMetricMathType
+    math_hogql?: string
+    math_property?: string
 }
 
 export interface ExperimentEventMetricConfig {
@@ -2773,6 +2790,7 @@ export interface RevenueTrackingEventItem {
 
 export interface RevenueTrackingDataWarehouseTable {
     tableName: string
+    distinctIdColumn: string
     timestampColumn: string
     revenueColumn: string
 

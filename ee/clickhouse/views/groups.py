@@ -30,7 +30,14 @@ from posthog.models.user import User
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupTypeMapping
-        fields = ["group_type", "group_type_index", "name_singular", "name_plural", "detail_dashboard"]
+        fields = [
+            "group_type",
+            "group_type_index",
+            "name_singular",
+            "name_plural",
+            "detail_dashboard",
+            "default_columns",
+        ]
         read_only_fields = ["group_type", "group_type_index"]
 
 
@@ -70,6 +77,19 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
         group_type_mapping.detail_dashboard = dashboard
+        group_type_mapping.save()
+        return response.Response(self.get_serializer(group_type_mapping).data)
+
+    @action(methods=["PUT"], detail=False)
+    def set_default_columns(self, request: request.Request, **kw):
+        try:
+            group_type_mapping = GroupTypeMapping.objects.get(
+                team=self.team, project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+            )
+        except GroupTypeMapping.DoesNotExist:
+            raise NotFound()
+
+        group_type_mapping.default_columns = request.data["default_columns"]
         group_type_mapping.save()
         return response.Response(self.get_serializer(group_type_mapping).data)
 
@@ -195,6 +215,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                         },
                         status=400,
                     )
+            try:
+                group_type_mapping = GroupTypeMapping.objects.get(
+                    team=self.team, project_id=self.team.project_id, group_type_index=group.group_type_index
+                )
+            except GroupTypeMapping.DoesNotExist:
+                raise NotFound()
             original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
@@ -217,7 +243,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 event={
                     "event": "$groupidentify",
                     "properties": {
-                        "$group_type_index": group.group_type_index,
+                        "$group_type": group_type_mapping.group_type,
                         "$group_key": group.group_key,
                         "$group_set": {request.data["key"]: request.data["value"]},
                     },
@@ -280,6 +306,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                         },
                         status=400,
                     )
+            try:
+                group_type_mapping = GroupTypeMapping.objects.get(
+                    team=self.team, project_id=self.team.project_id, group_type_index=group.group_type_index
+                )
+            except GroupTypeMapping.DoesNotExist:
+                raise NotFound()
             original_value = group.group_properties[request.data["$unset"]]
             del group.group_properties[request.data["$unset"]]
             group.save()
@@ -302,7 +334,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 event={
                     "event": "$delete_group_property",
                     "properties": {
-                        "$group_type_index": group.group_type_index,
+                        "$group_type": group_type_mapping.group_type,
                         "$group_key": group.group_key,
                         "$group_unset": [request.data["$unset"]],
                     },

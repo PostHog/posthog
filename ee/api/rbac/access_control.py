@@ -89,14 +89,11 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
-    """
-    Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
-    as the current users access level to any response.
-
-    This mixin does:
-        1. Adds an "access_controls" action to the viewset that handles access control for the given resource.
-        2. Adds user access control information to list responses without modifying the pagination behavior.
-    """
+    # Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
+    # as the current users access level to any response.
+    # This mixin does:
+    #    1. Adds an "access_controls" action to the viewset that handles access control for the given resource.
+    #    2. Adds user access control information to list responses without modifying the pagination behavior.
 
     def get_paginated_response_with_access_control(self, data):
         """
