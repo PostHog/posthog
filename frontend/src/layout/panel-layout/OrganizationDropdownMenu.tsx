@@ -35,7 +35,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button.Root>
+                <Button.Root className="max-w-[210px]">
                     <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
                         {currentOrganization ? (
                             <UploadedLogo
@@ -50,7 +50,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     </Button.Icon>
                     {!isLayoutNavCollapsed && (
                         <>
-                            <Button.Label className="font-semibold">
+                            <Button.Label className="font-semibold truncate">
                                 {currentOrganization ? currentOrganization.name : 'Select organization'}
                             </Button.Label>
                             <Button.Icon size="sm">
@@ -75,7 +75,9 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                 />
                             </Button.Icon>
                             <Button.Label>{currentOrganization.name}</Button.Label>
-                            <AccessLevelIndicator organization={currentOrganization} />
+                            <div className="ml-auto">
+                                <AccessLevelIndicator organization={currentOrganization} />
+                            </div>
                         </Button.Root>
                     </DropdownMenuItem>
                 )}
@@ -84,15 +86,16 @@ export function OrganizationDropdownMenu(): JSX.Element {
                         <Button.Root menuItem onClick={() => updateCurrentOrganization(otherOrganization.id)}>
                             <Button.Icon>
                                 <UploadedLogo
+                                    size="xsmall"
                                     name={otherOrganization.name}
                                     entityId={otherOrganization.id}
                                     mediaId={otherOrganization.logo_media_id}
                                 />
                             </Button.Icon>
                             <Button.Label>{otherOrganization.name}</Button.Label>
-                            <Button.Icon>
+                            <div className="ml-auto">
                                 <AccessLevelIndicator organization={otherOrganization} />
-                            </Button.Icon>
+                            </div>
                         </Button.Root>
                     </DropdownMenuItem>
                 ))}
