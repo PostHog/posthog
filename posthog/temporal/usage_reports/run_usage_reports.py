@@ -157,9 +157,12 @@ async def query_usage_reports(
             org_id = str(team.organization.id)
 
             # If we've moved to a new organization, process the previous one
-            if current_org_id is not None and current_org_id != org_id:
+            # The linter incorrectly thinks current_org_id is always None, but it's updated in the loop
+            if current_org_id is not None and current_org_id != org_id:  # type: ignore[unreachable]
+                # This is not unreachable because current_org_id is updated in the loop
                 org_count += 1
-                if org_count % 500 == 0:
+                # This line is flagged because it's inside the conditionals the linter thinks are unreachable
+                if org_count % 500 == 0:  # type: ignore[unreachable]
                     print(f"Processed {org_count} organizations...")  # noqa: T201
 
                 # Process the completed organization report
@@ -208,7 +211,8 @@ async def query_usage_reports(
                 # Safety check to ensure team belongs to the current organization (should never happen)
                 if str(team.organization.id) != current_org_id:
                     capture_message(f"Usage report: team organization mismatch: {team.id} {current_org_id}")
-                    continue
+                    # False positive: The linter doesn't understand the loop state changes
+                    continue  # type: ignore[unreachable]
 
                 current_org_report.teams[str(team.id)] = team_report
                 current_org_report.team_count += 1
