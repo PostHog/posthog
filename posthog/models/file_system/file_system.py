@@ -55,6 +55,7 @@ def generate_unique_path(team: Team, base_folder: str, name: str) -> str:
 def create_or_update_file(
     *,
     team: Team,
+    project_id: Optional[int] = None,
     base_folder: str,
     name: str,
     file_type: str,

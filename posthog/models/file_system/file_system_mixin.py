@@ -68,10 +68,11 @@ class FileSystemSyncMixin(models.Model):
                 fs_data = instance.get_file_system_representation()
                 team = instance.team  # type: ignore
                 if fs_data.should_delete:
-                    delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref)
+                    delete_file(team=team, project_id=fs_data.project_id, file_type=fs_data.type, ref=fs_data.ref)
                 else:
                     create_or_update_file(
                         team=team,
+                        project_id=fs_data.project_id,
                         base_folder=fs_data.base_folder,
                         name=fs_data.name,
                         file_type=fs_data.type,
@@ -91,7 +92,7 @@ class FileSystemSyncMixin(models.Model):
             try:
                 fs_data = instance.get_file_system_representation()
                 team = instance.team  # type: ignore
-                delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref)
+                delete_file(team=team, project_id=fs_data.project_id, file_type=fs_data.type, ref=fs_data.ref)
             except Exception as e:
                 # Don't raise exceptions in signals
                 posthoganalytics.capture_exception(e, properties=dataclasses.asdict(fs_data))

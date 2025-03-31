@@ -1,10 +1,7 @@
 # posthog/models/file_system/file_system_representation.py
 
 from dataclasses import dataclass
-from typing import Any, Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
+from typing import Any, Optional
 
 
 @dataclass
