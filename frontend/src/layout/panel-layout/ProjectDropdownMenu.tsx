@@ -3,7 +3,7 @@ import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { Button } from 'lib/ui/Button/Button'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -42,23 +42,14 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
 
     return (
         <DropdownMenuItem asChild>
-            <Button.Root menuItem to={relativeOtherProjectPath}>
-                <Button.Label>
+            <ButtonGroupPrimitive menuItem fullWidth>
+                <ButtonPrimitive menuItem href={relativeOtherProjectPath}>
                     <ProjectName team={team} />
-                </Button.Label>
-                <Button.Icon
-                    isTrigger
-                    isTriggerRight
-                    onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        e.nativeEvent.stopImmediatePropagation()
-                        router.actions.push(urls.project(team.id, urls.settings()))
-                    }}
-                >
+                </ButtonPrimitive>
+                <ButtonPrimitive href={urls.project(team.id, urls.settings('project'))} iconOnly>
                     <IconGear />
-                </Button.Icon>
-            </Button.Root>
+                </ButtonPrimitive>
+            </ButtonGroupPrimitive>
         </DropdownMenuItem>
     )
 }
@@ -69,35 +60,35 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { push } = useActions(router)
     const { currentOrganization } = useValues(organizationLogic)
 
     return isAuthenticatedTeam(currentTeam) ? (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button.Root>
-                    <Button.Icon>
-                        <IconFolderOpen className="text-tertiary" />
-                    </Button.Icon>
-                    <Button.Label>Project</Button.Label>
-                    <Button.Icon size="sm">
-                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
-                    </Button.Icon>
-                </Button.Root>
+                <ButtonPrimitive>
+                    <IconFolderOpen className="text-tertiary" />
+                    Project
+                    <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                </ButtonPrimitive>
             </DropdownMenuTrigger>
+
             <DropdownMenuContent loop align="start">
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <div className="flex flex-col gap-px">
                     <DropdownMenuItem asChild>
-                        <Button.Root menuItem active>
-                            <Button.Label menuItem>
+                        <ButtonGroupPrimitive fullWidth>
+                            <ButtonPrimitive menuItem active disabled>
                                 <ProjectName team={currentTeam} />
-                            </Button.Label>
-                            <Button.Icon onClick={() => push(urls.settings('project'))} isTrigger isTriggerRight>
+                            </ButtonPrimitive>
+                            <ButtonPrimitive
+                                active
+                                href={urls.project(currentTeam.id, urls.settings('project'))}
+                                iconOnly
+                            >
                                 <IconGear className="text-tertiary" />
-                            </Button.Icon>
-                        </Button.Root>
+                            </ButtonPrimitive>
+                        </ButtonGroupPrimitive>
                     </DropdownMenuItem>
 
                     {currentOrganization?.teams &&
@@ -116,12 +107,10 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 })
                             }
                         >
-                            <Button.Root menuItem data-attr="new-project-button">
-                                <Button.Icon>
-                                    <IconPlusSmall className="text-tertiary" />
-                                </Button.Icon>
-                                <Button.Label menuItem>New project</Button.Label>
-                            </Button.Root>
+                            <ButtonPrimitive menuItem data-attr="new-project-button">
+                                <IconPlusSmall className="text-tertiary" />
+                                New project
+                            </ButtonPrimitive>
                         </DropdownMenuItem>
                     )}
                 </div>

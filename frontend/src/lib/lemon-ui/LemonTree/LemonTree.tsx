@@ -235,7 +235,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 size="base"
                                                 // tooltip={displayName}
                                                 // tooltipPlacement="right"
-                                                to={item.record?.href ? item.record.href : undefined}
+                                                // to={item.record?.href ? item.record.href : undefined}
                                                 buttonWrapper={
                                                     enableDragAndDrop && isItemDraggable?.(item) && item.record?.path
                                                         ? (button) => (
@@ -293,7 +293,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 {itemSideAction && (
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
-                                                            <Button.Icon isTrigger customIconSize isTriggerRight>
+                                                            <Button.Icon isTrigger customIconSize>
                                                                 <IconEllipsis className="size-3" />
                                                             </Button.Icon>
                                                         </DropdownMenuTrigger>

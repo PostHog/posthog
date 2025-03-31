@@ -1,17 +1,9 @@
 import './Button.css'
 
 import { cva, type VariantProps } from 'cva'
-import { Link } from 'lib/lemon-ui/Link/Link'
+import { Link, LinkProps } from 'lib/lemon-ui/Link/Link'
 import { cn } from 'lib/utils/css-classes'
-import React, {
-    ComponentPropsWithoutRef,
-    createContext,
-    ElementType,
-    forwardRef,
-    ReactNode,
-    Ref,
-    useContext,
-} from 'react'
+import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 
 /* -------------------------------------------------------------------------- */
 /*                           Constants & Types                                */
@@ -28,8 +20,9 @@ type ButtonIntent = 'default' | 'outline'
 
 const BUTTON_INTENT: Record<ButtonIntent, string> = {
     default: `
-            border border-transparent
+            ring ring-transparent
             text-primary 
+            max-w-full
             not-disabled:hover:bg-fill-button-tertiary-hover 
             data-[focused=true]:bg-fill-button-tertiary-hover 
             data-[active=true]:bg-fill-button-tertiary-active 
@@ -38,28 +31,10 @@ const BUTTON_INTENT: Record<ButtonIntent, string> = {
             data-[state=checked]:bg-fill-button-tertiary-active
             
         `,
-    outline: 'border border-secondary not-disabled:hover:border-tertiary hover:bg-fill-button-tertiary-active',
+    outline: 'ring ring-secondary not-disabled:hover:ring-tertiary hover:bg-fill-button-tertiary-active',
 }
 
 export type ButtonSize = 'sm' | 'base' | 'lg'
-
-/* -------------------------------------------------------------------------- */
-/*                           Polymorphic Type Helpers                         */
-/* -------------------------------------------------------------------------- */
-
-type PolymorphicRef<E extends ElementType> = Ref<React.ElementRef<E>>
-
-/**
- * PolymorphicComponentProps
- * - E extends ElementType: The HTML element or React component to render.
- * - P: Additional props specific to our custom component logic.
- */
-type PolymorphicComponentProps<E extends ElementType, P> = P &
-    Omit<ComponentPropsWithoutRef<E>, keyof P> & {
-        as?: E
-        children?: ReactNode
-        ref?: PolymorphicRef<E>
-    }
 
 /* -------------------------------------------------------------------------- */
 /*                           Button Context & Hook                            */
@@ -68,6 +43,9 @@ type PolymorphicComponentProps<E extends ElementType, P> = P &
 interface ButtonContextValue {
     sizeContext: ButtonSize
     intentContext: ButtonIntent
+    rootLinkProps?: LinkProps
+    onClick?: React.MouseEventHandler
+    onKeyDown?: React.KeyboardEventHandler
 }
 
 const ButtonContext = createContext<ButtonContextValue | null>(null)
@@ -93,23 +71,13 @@ const buttonVariants = cva({
         w-fit 
         items-center 
         justify-center 
-        gap-1.5 
-        px-[5px] 
-        py-[3px] 
         rounded-md 
-        transition-colors 
-        duration-100
         cursor-default
     `,
     variants: {
         intent: {
             default: BUTTON_INTENT.default,
             outline: BUTTON_INTENT.outline,
-        },
-        size: {
-            sm: 'px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-sm)] ' + BUTTON_HEIGHT_SM,
-            base: 'px-[var(--button-padding-x-base)] py-[var(--button-padding-y-base)] ' + BUTTON_HEIGHT_BASE,
-            lg: 'px-[var(--button-padding-x-lg)] py-[var(--button-padding-y-lg)] ' + BUTTON_HEIGHT_LG,
         },
         fullWidth: {
             true: 'w-full',
@@ -126,7 +94,6 @@ const buttonVariants = cva({
     },
     defaultVariants: {
         intent: 'default',
-        size: 'base',
         disabled: false,
     },
 })
@@ -134,7 +101,7 @@ const buttonVariants = cva({
 export interface ButtonRootProps extends VariantProps<typeof buttonVariants> {
     fullWidth?: boolean
     menuItem?: boolean
-    to?: string
+    size?: ButtonSize
     disableClientSideRouting?: boolean
     targetBlank?: boolean
     disabled?: boolean
@@ -149,6 +116,7 @@ export interface ButtonRootProps extends VariantProps<typeof buttonVariants> {
     tabIndex?: number
     children: ReactNode
     className?: string
+    linkProps?: LinkProps
     onClick?: React.MouseEventHandler
     onKeyDown?: React.KeyboardEventHandler
 }
@@ -161,68 +129,52 @@ const ButtonRoot = forwardRef(
             size,
             className,
             fullWidth,
-            menuItem,
-            to,
             disabled,
-            disableClientSideRouting,
-            targetBlank,
             active,
             current,
             buttonWrapper,
+            linkProps,
+            menuItem,
             ...props
         }: ButtonRootProps,
         ref: React.ForwardedRef<HTMLButtonElement>
     ): JSX.Element => {
-        // const [isPressed, setIsPressed] = useState(false)
-        // const Component = as || 'button'
+        // const linkProps = to
+        //     ? {
+        //         role: menuItem ? 'menuitem' : 'link',
+        //         disableClientSideRouting,
+        //         target: targetBlank ? '_blank' : undefined,
+        //         to: !disabled ? to : undefined,
+        //     }
+        //     : undefined
 
-        const linkProps = to
-            ? {
-                  role: menuItem ? 'menuitem' : 'link',
-                  disableClientSideRouting,
-                  target: targetBlank ? '_blank' : undefined,
-                  to: !disabled ? to : undefined,
-              }
-            : undefined
-
-        const contextValue = {
+        const contextValue: ButtonContextValue = {
             sizeContext: size || 'base',
             intentContext: intent || 'default',
+            // We pass the link props to the label so it can be used as a link
+            rootLinkProps: linkProps,
+            ...props,
         }
 
-        let buttonComponent: JSX.Element
-
-        if (to) {
-            buttonComponent = (
-                <Link
-                    ref={ref}
-                    className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled }), className)}
-                    disableClientSideRouting={disableClientSideRouting}
-                    target={targetBlank ? '_blank' : undefined}
-                    to={!disabled ? to : undefined}
-                    {...props}
-                >
-                    {children}
-                </Link>
-            )
-        } else {
-            buttonComponent = (
-                <button
-                    ref={ref}
-                    className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled }), className)}
-                    // Used to identify the current item in a set of items
-                    aria-current={current ? 'true' : 'false'}
-                    // Used to identify active items in a set of items
-                    data-active={active}
-                    // Used to identify disabled items
-                    aria-disabled={disabled}
-                    {...linkProps}
-                    {...props}
-                >
-                    {children}
-                </button>
-            )
-        }
+        let buttonComponent = (
+            <span
+                ref={ref}
+                className={cn(buttonVariants({ intent, fullWidth, disabled, menuItem }), className, 'z-1')}
+                // Used to identify the current item in a set of items
+                aria-current={current ? 'true' : 'false'}
+                // Used to identify active items in a set of items
+                data-active={active}
+                // Used to identify disabled items
+                aria-disabled={disabled}
+                // Root is focusable by default
+                tabIndex={0}
+                // Root is a button by default
+                role="button"
+                {...props}
+            >
+                {children}
+            </span>
+        )
 
         if (buttonWrapper) {
             buttonComponent = buttonWrapper(buttonComponent)
@@ -248,6 +200,7 @@ const iconVariants = cva({
         transition-all
         duration-100
         rounded-md
+        text-current
     `,
     variants: {
         intent: {
@@ -255,9 +208,9 @@ const iconVariants = cva({
             outline: '',
         },
         size: {
-            sm: 'size-5 only:-mx-[calc(var(--button-padding-x-sm)/2)]',
-            base: 'size-6 only:-mx-[calc(var(--button-padding-x-base)/2+1px)]',
-            lg: 'size-7 only:-mx-[calc(var(--button-padding-x-lg)/2-1px)]',
+            sm: 'size-5',
+            base: 'size-6',
+            lg: 'size-7',
         },
         customIconSize: {
             true: '',
@@ -274,11 +227,11 @@ const iconVariants = cva({
             true: '',
             false: '',
         },
-        isTriggerLeft: {
+        start: {
             true: '',
             false: '',
         },
-        isTriggerRight: {
+        end: {
             true: '',
             false: '',
         },
@@ -288,17 +241,17 @@ const iconVariants = cva({
         {
             customIconSize: false,
             size: 'sm',
-            className: '[&_svg]:size-3',
+            className: 'size-[var(--button-height-sm)] [&_svg]:size-3',
         },
         {
             customIconSize: false,
             size: 'base',
-            className: '[&_svg]:size-4',
+            className: 'size-[var(--button-height-base)] [&_svg]:size-4',
         },
         {
             customIconSize: false,
             size: 'lg',
-            className: '[&_svg]:size-5',
+            className: 'size-[var(--button-height-lg)] [&_svg]:size-5',
         },
 
         // Only if trigger does it have styles
@@ -347,67 +300,60 @@ const iconVariants = cva({
             `,
         },
 
-        // Compensate for button padding
-        {
-            size: 'sm',
-            isTrigger: true,
-            isTriggerLeft: true,
-            className: `
-                -ml-[calc(var(--button-padding-x-sm)+1px)]
-            `,
-        },
-        {
-            size: 'sm',
-            isTrigger: true,
-            isTriggerRight: true,
-            className: `
-                -mr-[calc(var(--button-padding-x-sm)+1px)]
-            `,
-        },
-        {
-            size: 'base',
-            isTrigger: true,
-            isTriggerLeft: true,
-            className: `
-                -ml-[calc(var(--button-padding-x-base)+1px)]
-            `,
-        },
-        {
-            size: 'base',
-            isTrigger: true,
-            isTriggerRight: true,
-            className: `
-                -mr-[calc(var(--button-padding-x-base)+1px)]
-            `,
-        },
-        {
-            size: 'lg',
-            isTrigger: true,
-            isTriggerLeft: true,
-            className: `
-                -ml-[calc(var(--button-padding-x-lg)+1px)]
-            `,
-        },
-        {
-            size: 'lg',
-            isTrigger: true,
-            isTriggerRight: true,
-            className: `
-                -mr-[calc(var(--button-padding-x-lg)+1px)]
-            `,
-        },
+        // {
+        //     start: true,
+        //     size: 'sm',
+        //     className: `
+        //         pl-[var(--button-padding-x-sm)]
+        //     `,
+        // },
+        // {
+        //     start: true,
+        //     size: 'base',
+        //     className: `
+        //         pl-[var(--button-padding-x-base)]
+        //     `,
+        // },
+        // {
+        //     start: true,
+        //     size: 'lg',
+        //     className: `
+        //         pl-[var(--button-padding-x-lg)]
+        //     `,
+        // },
+        // {
+        //     end: true,
+        //     size: 'sm',
+        //     className: `
+        //         pr-[var(--button-padding-x-sm)]
+        //     `,
+        // },
+        // {
+        //     end: true,
+        //     size: 'base',
+        //     className: `
+        //         pr-[var(--button-padding-x-base)]
+        //     `,
+        // },
+        // {
+        //     end: true,
+        //     size: 'lg',
+        //     className: `                pr-[var(--button-padding-x-lg)]
+        //     `,
+        // },
+
         // Give a border to the icon when it's a trigger
         // Initial styles
-        {
-            isTrigger: true,
-            showTriggerDivider: true,
-            className: `
-                first:before:content-[''] first:before:absolute first:before:h-full first:before:w-px first:before:bg-fill-highlight-100
-                last:after:content-[''] last:after:absolute last:after:h-full last:after:w-px last:after:bg-fill-highlight-100
-                first:before:left-full
-                last:after:right-full
-            `,
-        },
+        // {
+        //     isTrigger: true,
+        //     showTriggerDivider: true,
+        //     className: `
+        //         first:before:content-[''] first:before:absolute first:before:h-full first:before:w-px first:before:bg-fill-highlight-100
+        //         last:after:content-[''] last:after:absolute last:after:h-full last:after:w-px last:after:bg-fill-highlight-100
+        //         first:before:left-full
+        //         last:after:right-full
+        //     `,
+        // },
     ],
     defaultVariants: {
         intent: 'default',
@@ -416,67 +362,148 @@ const iconVariants = cva({
 })
 
 interface ButtonIconProps extends VariantProps<typeof iconVariants> {
-    isTrigger?: boolean
-    showTriggerDivider?: boolean
-    to?: string
-    disableClientSideRouting?: boolean
-    targetBlank?: boolean
     className?: string
-    isTriggerLeft?: boolean
-    isTriggerRight?: boolean
+    children: ReactNode
+    start?: boolean
+    end?: boolean
+}
+
+const ButtonIcon = forwardRef(
+    (
+        { children, size, intent, isTrigger, customIconSize = false, className, start, end, ...props }: ButtonIconProps,
+        ref: React.ForwardedRef<HTMLSpanElement>
+    ): JSX.Element => {
+        const { sizeContext, intentContext } = useButtonContext()
+
+        return (
+            <span
+                ref={ref}
+                className={cn(
+                    iconVariants({
+                        size: size || sizeContext,
+                        intent: intent || intentContext,
+                        isTrigger,
+                        customIconSize,
+                        showTriggerDivider: false,
+                        start,
+                        end,
+                        className,
+                    }),
+                    className
+                )}
+                {...props}
+            >
+                {children}
+            </span>
+        )
+    }
+)
+
+ButtonIcon.displayName = 'Button.Icon'
+
+/* -------------------------------------------------------------------------- */
+/*                              Button.IconLink                                */
+/* -------------------------------------------------------------------------- */
+
+interface ButtonIconLinkProps extends ButtonIconProps, Omit<LinkProps, 'children' | 'subtle'> {
+    showTriggerDivider?: boolean
+}
+
+const ButtonIconLink = forwardRef(
+    (
+        {
+            children,
+            size,
+            intent,
+            customIconSize = false,
+            showTriggerDivider = false,
+            className,
+            start,
+            end,
+            ...props
+        }: ButtonIconLinkProps,
+        ref: React.ForwardedRef<HTMLAnchorElement>
+    ): JSX.Element => {
+        const { sizeContext, intentContext } = useButtonContext()
+
+        return (
+            <Link
+                ref={ref}
+                className={cn(
+                    iconVariants({
+                        size: size || sizeContext,
+                        intent: intent || intentContext,
+                        isTrigger: true,
+                        customIconSize,
+                        showTriggerDivider,
+                        start,
+                        end,
+                        className,
+                    }),
+                    className
+                )}
+                {...props}
+            >
+                {children}
+            </Link>
+        )
+    }
+)
+
+ButtonIconLink.displayName = 'Button.IconLink'
+
+/* -------------------------------------------------------------------------- */
+/*                              Button.IconButton                             */
+/* -------------------------------------------------------------------------- */
+
+interface ButtonIconButtonProps extends Omit<ButtonIconProps, 'isTrigger'> {
+    showTriggerDivider?: boolean
     onClick?: React.MouseEventHandler
     onKeyDown?: React.KeyboardEventHandler
 }
 
-function ButtonIconComponent<E extends ElementType = 'span'>(
-    {
-        as,
-        children,
-        size,
-        intent,
-        isTrigger,
-        customIconSize = false,
-        showTriggerDivider = false,
-        to,
-        disableClientSideRouting,
-        targetBlank,
-        className,
-        isTriggerLeft,
-        isTriggerRight,
-        ...props
-    }: PolymorphicComponentProps<E, ButtonIconProps>,
-    forwardedRef: PolymorphicRef<E>
-): JSX.Element {
-    const { sizeContext, intentContext } = useButtonContext()
-    const Component = as || 'span'
+const ButtonIconButton = forwardRef(
+    (
+        {
+            children,
+            size,
+            intent,
+            customIconSize = false,
+            showTriggerDivider = false,
+            className,
+            start,
+            end,
+            ...props
+        }: ButtonIconButtonProps,
+        ref: React.ForwardedRef<HTMLButtonElement>
+    ): JSX.Element => {
+        const { sizeContext, intentContext } = useButtonContext()
 
-    return (
-        <Component
-            {...(props as any)}
-            ref={forwardedRef as any}
-            className={cn(
-                iconVariants({
-                    size: size || sizeContext,
-                    intent: intent || intentContext,
-                    isTrigger,
-                    customIconSize,
-                    showTriggerDivider,
-                    isTriggerLeft,
-                    isTriggerRight,
-                }),
-                className
-            )}
-            tabIndex={isTrigger ? 0 : undefined}
-            aria-hidden={!isTrigger}
-        >
-            {children}
-        </Component>
-    )
-}
+        return (
+            <button
+                ref={ref}
+                className={cn(
+                    iconVariants({
+                        size: size || sizeContext,
+                        intent: intent || intentContext,
+                        isTrigger: true,
+                        customIconSize,
+                        showTriggerDivider,
+                        start,
+                        end,
+                        className,
+                    }),
+                    className
+                )}
+                {...props}
+            >
+                {children}
+            </button>
+        )
+    }
+)
 
-const ButtonIcon = forwardRef(ButtonIconComponent) as <E extends ElementType = 'span'>(
-    props: PolymorphicComponentProps<E, ButtonIconProps> & { ref?: PolymorphicRef<E> }
-) => JSX.Element
+ButtonIconButton.displayName = 'Button.IconButton'
 
 /* -------------------------------------------------------------------------- */
 /*                              Button.Label                                  */
@@ -484,25 +511,34 @@ const ButtonIcon = forwardRef(ButtonIconComponent) as <E extends ElementType = '
 
 const buttonLabelVariants = cva({
     base: `
-        select-none
+        button-label block select-none text-current
     `,
     variants: {
         size: {
-            sm: 'text-xs',
-            base: 'text-sm',
-            lg: 'text-base',
+            sm: 'text-xs px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-sm)] ' + BUTTON_HEIGHT_SM,
+            base: 'text-sm px-[var(--button-padding-x-base)] py-[var(--button-padding-y-base)] ' + BUTTON_HEIGHT_BASE,
+            lg: 'text-base px-[var(--button-padding-x-lg)] py-[var(--button-padding-y-lg)] ' + BUTTON_HEIGHT_LG,
         },
         menuItem: {
-            true: 'block truncate text-left w-full',
+            true: 'text-left w-full',
             false: '',
         },
         truncate: {
             true: 'block truncate',
             false: '',
         },
+        iconLeft: {
+            true: 'pl-0',
+            false: '',
+        },
+        iconRight: {
+            true: 'pr-0',
+            false: '',
+        },
     },
     defaultVariants: {
         size: 'base',
+        menuItem: false,
     },
 })
 
@@ -512,48 +548,66 @@ interface ButtonLabelProps extends VariantProps<typeof buttonLabelVariants> {
     truncate?: boolean
     disableClientSideRouting?: boolean
     targetBlank?: boolean
-    onClick?: React.MouseEventHandler
+    children: ReactNode
+    iconLeft?: boolean
+    iconRight?: boolean
 }
 
-function ButtonLabelComponent<E extends ElementType = 'span'>(
-    {
-        as,
-        children,
-        size,
-        menuItem,
-        truncate,
-        to,
-        disableClientSideRouting,
-        targetBlank,
-        ...props
-    }: PolymorphicComponentProps<E, ButtonLabelProps>,
-    forwardedRef: PolymorphicRef<E>
-): JSX.Element {
-    const Component = to ? Link : as || 'span'
+const ButtonLabel = forwardRef(
+    (
+        {
+            children,
+            menuItem,
+            truncate,
+            disableClientSideRouting,
+            targetBlank,
+            className,
+            iconLeft,
+            iconRight,
+            ...props
+        }: ButtonLabelProps,
+        ref: React.ForwardedRef<HTMLButtonElement>
+    ): JSX.Element => {
+        const { sizeContext, rootLinkProps, onClick } = useButtonContext()
 
-    const linkProps = to
-        ? {
-              role: 'link',
-              disableClientSideRouting,
-              target: targetBlank ? '_blank' : undefined,
-          }
-        : {}
+        const Component = rootLinkProps ? Link : 'button'
 
-    return (
-        <Component
-            ref={forwardedRef as any}
-            className={cn('button-label', buttonLabelVariants({ size, menuItem, truncate }), props.className)}
-            {...(props as any)}
-            {...linkProps}
-        >
-            {children}
-        </Component>
-    )
-}
+        const linkProps = rootLinkProps
+            ? {
+                  role: 'link',
+                  disableClientSideRouting,
+                  target: targetBlank ? '_blank' : undefined,
+                  ...rootLinkProps,
+              }
+            : undefined
 
-const ButtonLabel = forwardRef(ButtonLabelComponent) as <E extends ElementType = 'span'>(
-    props: PolymorphicComponentProps<E, ButtonLabelProps> & { ref?: PolymorphicRef<E> }
-) => JSX.Element
+        return (
+            <Component
+                ref={ref}
+                className={cn(
+                    buttonLabelVariants({
+                        size: sizeContext,
+                        menuItem,
+                        truncate,
+                        iconLeft,
+                        iconRight,
+                        className,
+                    })
+                )}
+                // We take root onClick and put it on label
+                onClick={onClick}
+                // Label is not focusable by default
+                tabIndex={-1}
+                {...linkProps}
+                {...props}
+            >
+                {children}
+            </Component>
+        )
+    }
+)
+
+ButtonLabel.displayName = 'Button.Label'
 
 /* -------------------------------------------------------------------------- */
 /*                             Export as Button                               */
@@ -563,4 +617,6 @@ export const Button = {
     Root: ButtonRoot,
     Icon: ButtonIcon,
     Label: ButtonLabel,
+    IconLink: ButtonIconLink,
+    IconButton: ButtonIconButton,
 }

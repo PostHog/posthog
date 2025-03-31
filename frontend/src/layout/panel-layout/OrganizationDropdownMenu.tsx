@@ -2,7 +2,7 @@ import { IconChevronRight, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { Button } from 'lib/ui/Button/Button'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -32,66 +32,61 @@ export function OrganizationDropdownMenu(): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button.Root>
-                    <Button.Icon>
-                        {currentOrganization ? (
+                <ButtonPrimitive className="max-w-[200px]">
+                    {currentOrganization ? (
+                        <UploadedLogo
+                            size="xsmall"
+                            name={currentOrganization.name}
+                            entityId={currentOrganization.id}
+                            mediaId={currentOrganization.logo_media_id}
+                        />
+                    ) : (
+                        <IconPlusSmall />
+                    )}
+                    <span className="truncate">
+                        {currentOrganization ? currentOrganization.name : 'Select organization'}
+                    </span>
+                    <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                </ButtonPrimitive>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent loop align="start" className="w-fit min-w-[240px]">
+                <DropdownMenuLabel>Organizations</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {currentOrganization && (
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive menuItem active>
                             <UploadedLogo
                                 size="xsmall"
                                 name={currentOrganization.name}
                                 entityId={currentOrganization.id}
                                 mediaId={currentOrganization.logo_media_id}
                             />
-                        ) : (
-                            <IconPlusSmall />
-                        )}
-                    </Button.Icon>
-                    <Button.Label>
-                        {currentOrganization ? currentOrganization.name : 'Select organization'}
-                    </Button.Label>
-                    <Button.Icon size="sm">
-                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
-                    </Button.Icon>
-                </Button.Root>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="start" className="w-fit max-w-[400px]">
-                <DropdownMenuLabel>Organizations</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {currentOrganization && (
-                    <DropdownMenuItem asChild>
-                        <Button.Root menuItem active>
-                            <Button.Icon>
-                                <UploadedLogo
-                                    size="xsmall"
-                                    name={currentOrganization.name}
-                                    entityId={currentOrganization.id}
-                                    mediaId={currentOrganization.logo_media_id}
-                                />
-                            </Button.Icon>
-                            <Button.Label>{currentOrganization.name}</Button.Label>
-                            <AccessLevelIndicator organization={currentOrganization} />
-                        </Button.Root>
+                            {currentOrganization.name}
+                            <div className="ml-auto">
+                                <AccessLevelIndicator organization={currentOrganization} />
+                            </div>
+                        </ButtonPrimitive>
                     </DropdownMenuItem>
                 )}
                 {otherOrganizations.map((otherOrganization) => (
                     <DropdownMenuItem key={otherOrganization.id} asChild>
-                        <Button.Root menuItem onClick={() => updateCurrentOrganization(otherOrganization.id)}>
-                            <Button.Icon>
-                                <UploadedLogo
-                                    name={otherOrganization.name}
-                                    entityId={otherOrganization.id}
-                                    mediaId={otherOrganization.logo_media_id}
-                                />
-                            </Button.Icon>
-                            <Button.Label>{otherOrganization.name}</Button.Label>
-                            <Button.Icon>
+                        <ButtonPrimitive menuItem onClick={() => updateCurrentOrganization(otherOrganization.id)}>
+                            <UploadedLogo
+                                size="xsmall"
+                                name={otherOrganization.name}
+                                entityId={otherOrganization.id}
+                                mediaId={otherOrganization.logo_media_id}
+                            />
+                            {otherOrganization.name}
+                            <div className="ml-auto">
                                 <AccessLevelIndicator organization={otherOrganization} />
-                            </Button.Icon>
-                        </Button.Root>
+                            </div>
+                        </ButtonPrimitive>
                     </DropdownMenuItem>
                 ))}
                 {preflight?.can_create_org && (
                     <DropdownMenuItem asChild>
-                        <Button.Root
+                        <ButtonPrimitive
                             menuItem
                             data-attr="new-organization-button"
                             onClick={() =>
@@ -107,11 +102,9 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                 )
                             }
                         >
-                            <Button.Icon>
-                                <IconPlusSmall />
-                            </Button.Icon>
-                            <Button.Label menuItem>New organization</Button.Label>
-                        </Button.Root>
+                            <IconPlusSmall />
+                            New organization
+                        </ButtonPrimitive>
                     </DropdownMenuItem>
                 )}
             </DropdownMenuContent>

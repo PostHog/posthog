@@ -21,7 +21,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Button } from 'lib/ui/Button/Button'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -183,11 +183,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <Button.Root size="base" onClick={() => toggleSearchBar()} data-attr="search-button">
-                            <Button.Icon>
-                                <IconSearch className="text-secondary" />
-                            </Button.Icon>
-                        </Button.Root>
+                        <ButtonPrimitive
+                            size="base"
+                            iconOnly
+                            onClick={() => toggleSearchBar()}
+                            data-attr="search-button"
+                        >
+                            <IconSearch className="text-secondary" />
+                        </ButtonPrimitive>
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
@@ -210,21 +213,19 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 }
                                             }}
                                         >
-                                            <Button.Root
+                                            <ButtonPrimitive
                                                 menuItem
                                                 active={item.id === 'Project' && isLayoutPanelVisible}
                                                 data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                             >
-                                                <Button.Icon className="text-tertiary">{item.icon}</Button.Icon>
-                                                <Button.Label menuItem>{item.id}</Button.Label>
+                                                <span className="text-tertiary">{item.icon}</span>
+                                                <span className="truncate">{item.id}</span>
                                                 {item.id === 'Project' && (
-                                                    <span className="flex items-center gap-px">
-                                                        <Button.Icon customIconSize>
-                                                            <IconChevronRight className="size-3 text-secondary" />
-                                                        </Button.Icon>
+                                                    <span className="ml-auto">
+                                                        <IconChevronRight className="size-3 text-secondary" />
                                                     </span>
                                                 )}
-                                            </Button.Root>
+                                            </ButtonPrimitive>
                                         </ListBox.Item>
                                     ))}
                                 </div>
@@ -265,50 +266,40 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 }
                                                             }}
                                                         >
-                                                            <Button.Root
-                                                                menuItem
-                                                                to={'to' in item ? item.to : undefined}
-                                                                data-attr={`menu-item-${item.identifier
-                                                                    .toString()
-                                                                    .toLowerCase()}`}
-                                                            >
-                                                                <Button.Icon className="text-tertiary">
-                                                                    {item.icon}
-                                                                </Button.Icon>
-                                                                <Button.Label menuItem>{item.label}</Button.Label>
+                                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                                <ButtonPrimitive
+                                                                    menuItem
+                                                                    href={'to' in item ? item.to : undefined}
+                                                                    data-attr={`menu-item-${item.identifier
+                                                                        .toString()
+                                                                        .toLowerCase()}`}
+                                                                >
+                                                                    <span className="text-tertiary">{item.icon}</span>
+                                                                    <span className="truncate">{item.label}</span>
 
-                                                                {item.tag && (
-                                                                    <LemonTag
-                                                                        type={
-                                                                            item.tag === 'alpha'
-                                                                                ? 'completion'
-                                                                                : item.tag === 'beta'
-                                                                                ? 'warning'
-                                                                                : 'success'
-                                                                        }
-                                                                        size="small"
-                                                                        className="ml-auto"
-                                                                    >
-                                                                        {item.tag.toUpperCase()}
-                                                                    </LemonTag>
-                                                                )}
-
+                                                                    {item.tag && (
+                                                                        <LemonTag
+                                                                            type={
+                                                                                item.tag === 'alpha'
+                                                                                    ? 'completion'
+                                                                                    : item.tag === 'beta'
+                                                                                    ? 'warning'
+                                                                                    : 'success'
+                                                                            }
+                                                                            size="small"
+                                                                            className="ml-auto"
+                                                                        >
+                                                                            {item.tag.toUpperCase()}
+                                                                        </LemonTag>
+                                                                    )}
+                                                                </ButtonPrimitive>
                                                                 {item.sideAction &&
                                                                     item.identifier === 'SavedInsights' && (
-                                                                        <Button.Icon
-                                                                            isTriggerRight
-                                                                            isTrigger
-                                                                            onClick={(e) => {
-                                                                                e.preventDefault()
-                                                                                e.stopPropagation()
-                                                                                e.nativeEvent.stopImmediatePropagation()
-                                                                                router.actions.push(urls.insightNew())
-                                                                            }}
-                                                                        >
+                                                                        <ButtonPrimitive href={urls.insightNew()}>
                                                                             {item.sideAction.icon}
-                                                                        </Button.Icon>
+                                                                        </ButtonPrimitive>
                                                                     )}
-                                                            </Button.Root>
+                                                            </ButtonGroupPrimitive>
                                                         </ListBox.Item>
                                                     )
                                                 })}
@@ -323,7 +314,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="pt-1 px-1 pb-2 flex flex-col gap-px">
                             {visibleTabs.includes(SidePanelTab.Activation) && (
-                                <Button.Root
+                                <ButtonPrimitive
                                     menuItem
                                     onClick={() =>
                                         sidePanelOpen && selectedTab === SidePanelTab.Activation
@@ -332,25 +323,23 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     }
                                     data-attr="activation-button"
                                 >
-                                    <Button.Icon>
-                                        <SidePanelActivationIcon size={16} />
-                                    </Button.Icon>
-                                    <Button.Label menuItem>Quick start</Button.Label>
-                                </Button.Root>
+                                    <SidePanelActivationIcon size={16} />
+                                    Quick start
+                                </ButtonPrimitive>
                             )}
-                            <Button.Root menuItem to={urls.toolbarLaunch()} data-attr={Scene.ToolbarLaunch}>
-                                <Button.Icon>
+                            <ButtonPrimitive menuItem href={urls.toolbarLaunch()} data-attr={Scene.ToolbarLaunch}>
+                                <span className="text-tertiary">
                                     <IconToolbar />
-                                </Button.Icon>
-                                <Button.Label menuItem>Toolbar</Button.Label>
-                            </Button.Root>
+                                </span>
+                                <span className="truncate">Toolbar</span>
+                            </ButtonPrimitive>
 
-                            <Button.Root menuItem to={urls.settings('project')} data-attr={Scene.Settings}>
-                                <Button.Icon>
+                            <ButtonPrimitive menuItem href={urls.settings('project')} data-attr={Scene.Settings}>
+                                <span className="text-tertiary">
                                     <IconGear />
-                                </Button.Icon>
-                                <Button.Label menuItem>Settings</Button.Label>
-                            </Button.Root>
+                                </span>
+                                <span className="truncate">Settings</span>
+                            </ButtonPrimitive>
 
                             <Popover
                                 overlay={<AccountPopoverOverlay />}
@@ -359,21 +348,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 placement="right-end"
                                 className="min-w-70"
                             >
-                                <Button.Root menuItem active={isAccountPopoverOpen} onClick={toggleAccountPopover}>
-                                    <Button.Icon>
-                                        <ProfilePicture user={user} size="sm" className="mr-1" />
-                                    </Button.Icon>
-                                    <Button.Label menuItem>
-                                        {user?.first_name ? (
-                                            <span>{user?.first_name}</span>
-                                        ) : (
-                                            <span>{user?.email}</span>
-                                        )}
-                                    </Button.Label>
-                                    <Button.Icon customIconSize>
-                                        <IconChevronRight className="size-3 text-secondary" />
-                                    </Button.Icon>
-                                </Button.Root>
+                                <ButtonPrimitive menuItem active={isAccountPopoverOpen} onClick={toggleAccountPopover}>
+                                    <ProfilePicture user={user} size="sm" className="mr-1" />
+                                    {user?.first_name ? <span>{user?.first_name}</span> : <span>{user?.email}</span>}
+                                    <IconChevronRight className="size-3 text-secondary" />
+                                </ButtonPrimitive>
                             </Popover>
                         </div>
                     </div>

@@ -1,4 +1,5 @@
-.button-root {
+.button-root,
+.button-primitive {
     --button-padding-x-sm: 4px;
     --button-padding-x-base: 6px;
     --button-padding-x-lg: 8px;

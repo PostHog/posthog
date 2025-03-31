@@ -11,6 +11,7 @@ import {
 
 // import { Button } from './Button'
 import { Button } from './Button'
+import { ButtonGroupPrimitive, ButtonPrimitive } from './ButtonPrimitives'
 
 const meta = {
     title: 'UI/Button',
@@ -22,14 +23,130 @@ export default meta
 
 export function Default(): JSX.Element {
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 max-w-lg">
+            <ButtonPrimitive variant="outline" size="base">
+                Button base
+            </ButtonPrimitive>
+
+            <ButtonPrimitive variant="outline" size="base">
+                <IconSearch />
+                Button base
+            </ButtonPrimitive>
+
+            <ButtonPrimitive variant="outline" size="base" className="max-w-[100px]">
+                <IconSearch />
+                <span className="truncate">Button base truncate</span>
+            </ButtonPrimitive>
+
+            <ButtonPrimitive variant="outline" size="base" iconOnly>
+                <IconSearch />
+            </ButtonPrimitive>
+
+            <ButtonGroupPrimitive size="base" variant="outline">
+                <ButtonPrimitive
+                    onClick={() => {
+                        alert('clicked')
+                    }}
+                >
+                    Button1
+                </ButtonPrimitive>
+                <ButtonPrimitive href="https://google.com">Link</ButtonPrimitive>
+                <ButtonPrimitive iconOnly>
+                    <IconSearch />
+                </ButtonPrimitive>
+                <ButtonPrimitive iconOnly>
+                    <IconSearch />
+                </ButtonPrimitive>
+            </ButtonGroupPrimitive>
+
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <ButtonPrimitive variant="outline" size="base">
+                        <IconSearch />
+                        is all dropdown
+                    </ButtonPrimitive>
+                </DropdownMenuTrigger>
+
+                <DropdownMenuContent loop align="start">
+                    <DropdownMenuLabel>Section 1</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive size="base" menuItem>
+                            Item 1
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive size="base" menuItem>
+                            Item 2
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+                <ButtonGroupPrimitive size="base" variant="outline" fullWidth>
+                    <ButtonPrimitive href="https://google.com" menuItem>
+                        Link here, dropdown on the right
+                    </ButtonPrimitive>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive variant="outline" size="base" iconOnly>
+                            <IconSearch />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                </ButtonGroupPrimitive>
+
+                <DropdownMenuContent loop align="start">
+                    <DropdownMenuLabel>Section 1</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive size="base" menuItem>
+                            Item 1
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive size="base" menuItem>
+                            Item 2
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+                <ButtonGroupPrimitive size="base" variant="default" fullWidth>
+                    <ButtonPrimitive href="https://google.com" menuItem>
+                        Link here, dropdown on the right
+                    </ButtonPrimitive>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive variant="outline" size="base" iconOnly>
+                            <IconSearch />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                </ButtonGroupPrimitive>
+
+                <DropdownMenuContent loop align="start">
+                    <DropdownMenuLabel>Section 1</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive size="base" menuItem>
+                            Item 1
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive size="base" menuItem>
+                            Item 2
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/*
             <Button.Root intent="outline">
                 <Button.Label>Regular button</Button.Label>
             </Button.Root>
 
             <Button.Root intent="outline" className="max-w-[105px]">
-                <Button.Label truncate>Truncated</Button.Label>
-                <Button.Icon>
+                <Button.Label truncate iconRight>Truncated</Button.Label>
+                <Button.Icon end>
                     <IconSearch />
                 </Button.Icon>
             </Button.Root>
@@ -45,53 +162,99 @@ export function Default(): JSX.Element {
             </Button.Root>
 
             <Button.Root intent="outline">
-                <Button.Label>with icon</Button.Label>
+                <Button.Icon>
+                    <IconSearch />
+                </Button.Icon>
+                <Button.Label iconLeft iconRight>with icon</Button.Label>
                 <Button.Icon>
                     <IconSearch />
                 </Button.Icon>
             </Button.Root>
 
-            <Button.Root intent="outline" fullWidth>
-                <Button.Label>full width</Button.Label>
+            <Button.Root intent="outline" fullWidth onClick={() => {
+                alert('clicked')
+            }}>
+                <Button.Label>full width button</Button.Label>
                 <Button.Icon>
                     <IconSearch />
                 </Button.Icon>
             </Button.Root>
 
-            <Button.Root intent="outline" menuItem>
+            <Button.Root intent="outline" fullWidth linkProps={{ to: "https://bing.com" }}>
+                <Button.Label>full width link</Button.Label>
                 <Button.Icon>
                     <IconSearch />
                 </Button.Icon>
-                <Button.Label menuItem as="mark">
-                    menu item with icons
+            </Button.Root>
+
+            <Button.Root intent="outline">
+                <Button.Icon start>
+                    <IconSearch />
+                </Button.Icon>
+                <Button.Label iconLeft iconRight>
+                    Icons both sides
                 </Button.Label>
                 <Button.Icon>
                     <IconSearch />
                 </Button.Icon>
             </Button.Root>
-
-            <Button.Root intent="outline" menuItem>
-                <Button.Icon isTrigger isTriggerLeft>
+            
+            <Button.Root intent="outline">
+                <Button.IconLink isTrigger to="https://bing.com">
                     <IconSearch />
-                </Button.Icon>
-                <Button.Label menuItem>menu item with trigger (side action)</Button.Label>
+                </Button.IconLink>
+                <Button.Label>
+                    Icons links both sides
+                </Button.Label>
+                <Button.IconLink isTrigger to="https://bing.com">
+                    <IconSearch />
+                </Button.IconLink>
             </Button.Root>
 
-            <Button.Root intent="outline" menuItem>
-                <Button.Label menuItem>menu item with trigger (side action)</Button.Label>
-                <Button.Icon isTrigger isTriggerRight>
+            <Button.Root intent="outline" linkProps={{ to: "https://bing.com" }}>
+                <Button.IconLink isTrigger to="https://google.com">
                     <IconSearch />
-                </Button.Icon>
+                </Button.IconLink>
+                <Button.Label>Links</Button.Label>
             </Button.Root>
 
-            <Button.Root intent="outline" menuItem>
-                <Button.Icon isTrigger isTriggerLeft>
+
+            <Button.Root intent="outline" onClick={() => {
+                alert('clicked main button')
+            }}>
+                <Button.IconButton 
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        alert('clicked left')
+                    }} 
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            alert('clicked left')
+                        }
+                    }}
+                >
                     <IconSearch />
-                </Button.Icon>
+                </Button.IconButton>
                 <Button.Label menuItem>menu item with trigger (side action)</Button.Label>
-                <Button.Icon isTrigger isTriggerRight>
+                <Button.IconButton 
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        alert('clicked right')
+                    }} 
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            alert('clicked right')
+                        }
+                    }}
+                >
                     <IconSearch />
-                </Button.Icon>
+                </Button.IconButton>
             </Button.Root>
 
             <DropdownMenu>
@@ -103,17 +266,16 @@ export function Default(): JSX.Element {
                     </Button.Root>
                 </DropdownMenuTrigger>
 
-                {/* The Dropdown content menu */}
                 <DropdownMenuContent loop align="start">
                     <DropdownMenuLabel>Projects</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
-                        <Button.Root size="sm" menuItem>
+                        <Button.Root menuItem>
                             <Button.Label>Project 1</Button.Label>
                         </Button.Root>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <Button.Root size="sm" menuItem>
+                        <Button.Root menuItem>
                             <Button.Label>Project 2</Button.Label>
                         </Button.Root>
                     </DropdownMenuItem>
@@ -130,7 +292,6 @@ export function Default(): JSX.Element {
                     </Button.Root>
                 </DropdownMenuTrigger>
 
-                {/* The Dropdown content menu */}
                 <DropdownMenuContent loop align="start">
                     <DropdownMenuLabel>Section 1</DropdownMenuLabel>
                     <DropdownMenuSeparator />
@@ -146,11 +307,12 @@ export function Default(): JSX.Element {
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
+ 
 
             <Button.Root>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button.Icon as="button" isTrigger showTriggerDivider isTriggerLeft>
+                        <Button.Icon isTrigger showTriggerDivider isTriggerLeft>
                             <IconSearch />
                         </Button.Icon>
                     </DropdownMenuTrigger>
@@ -175,7 +337,7 @@ export function Default(): JSX.Element {
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button.Icon as="button" isTrigger showTriggerDivider isTriggerRight>
+                        <Button.Icon isTrigger showTriggerDivider>
                             <IconSearch />
                         </Button.Icon>
                     </DropdownMenuTrigger>
@@ -195,7 +357,7 @@ export function Default(): JSX.Element {
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
-            </Button.Root>
+            </Button.Root> */}
         </div>
     )
 }
@@ -214,16 +376,18 @@ export function Sizes(): JSX.Element {
                     <Button.Icon>
                         <IconSearch />
                     </Button.Icon>
-                    <Button.Label>Small button</Button.Label>
+                    <Button.Label iconLeft>Small button</Button.Label>
                 </Button.Root>
                 <Button.Root intent="outline" size="sm">
-                    <Button.Icon isTrigger isTriggerLeft>
+                    <Button.IconLink isTrigger to="https://bing.com">
                         <IconSearch />
-                    </Button.Icon>
-                    <Button.Label>menu item with trigger (side action)</Button.Label>
-                    <Button.Icon isTrigger isTriggerRight>
+                    </Button.IconLink>
+                    <Button.Label iconLeft iconRight>
+                        menu item with trigger (side action)
+                    </Button.Label>
+                    <Button.IconLink isTrigger to="https://bing.com">
                         <IconSearch />
-                    </Button.Icon>
+                    </Button.IconLink>
                 </Button.Root>
                 <Button.Root size="sm">
                     <Button.Icon>
@@ -247,16 +411,16 @@ export function Sizes(): JSX.Element {
                     <Button.Icon>
                         <IconSearch />
                     </Button.Icon>
-                    <Button.Label>Base button</Button.Label>
+                    <Button.Label iconLeft>Base button</Button.Label>
                 </Button.Root>
                 <Button.Root intent="outline" size="base">
-                    <Button.Icon isTrigger isTriggerLeft>
+                    <Button.IconLink isTrigger to="https://bing.com">
                         <IconSearch />
-                    </Button.Icon>
+                    </Button.IconLink>
                     <Button.Label>menu item with trigger (side action)</Button.Label>
-                    <Button.Icon isTrigger isTriggerRight>
+                    <Button.IconLink isTrigger to="https://bing.com">
                         <IconSearch />
-                    </Button.Icon>
+                    </Button.IconLink>
                 </Button.Root>
                 <Button.Root size="base">
                     <Button.Icon>
@@ -281,16 +445,18 @@ export function Sizes(): JSX.Element {
                     <Button.Icon>
                         <IconSearch />
                     </Button.Icon>
-                    <Button.Label>Large button</Button.Label>
+                    <Button.Label iconLeft>Large button</Button.Label>
                 </Button.Root>
                 <Button.Root intent="outline" size="lg">
-                    <Button.Icon isTrigger isTriggerLeft>
+                    <Button.IconLink isTrigger to="https://bing.com">
                         <IconSearch />
-                    </Button.Icon>
-                    <Button.Label>menu item with trigger (side action)</Button.Label>
-                    <Button.Icon isTrigger isTriggerRight>
+                    </Button.IconLink>
+                    <Button.Label iconLeft iconRight>
+                        menu item with trigger (side action)
+                    </Button.Label>
+                    <Button.IconLink isTrigger to="https://bing.com">
                         <IconSearch />
-                    </Button.Icon>
+                    </Button.IconLink>
                 </Button.Root>
                 <Button.Root size="lg">
                     <Button.Icon>
