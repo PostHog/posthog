@@ -496,6 +496,12 @@ class TestFileSystemAPI(APIBaseTest):
         for item in data["results"]:
             self.assertEqual(item["type"], "doc")
 
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?type__startswith=d")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Expecting 2 items with type starting with 'd'
+        self.assertEqual(data["count"], 2)
+
     def test_search_files_by_ref(self):
         """
         Ensure that searching with the ?search= query param returns items matching on the 'ref' field.

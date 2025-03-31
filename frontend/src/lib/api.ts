@@ -1236,6 +1236,7 @@ const api = {
             search,
             ref,
             type,
+            type__startswith,
         }: {
             parent?: string
             depth?: number
@@ -1244,10 +1245,11 @@ const api = {
             search?: string
             ref?: string
             type?: string
+            type__startswith?: string
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
-                .withQueryString({ parent, depth, limit, offset, search, ref, type })
+                .withQueryString({ parent, depth, limit, offset, search, ref, type, type__startswith })
                 .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {

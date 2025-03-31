@@ -20,6 +20,7 @@ import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+
 const PAGINATION_LIMIT = 100
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -617,14 +618,22 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
         assureVisibility: async ({ projectTreeRef }, breakpoint) => {
             if (projectTreeRef) {
-                const treeItem = values.viableItems.find(
-                    (item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref
-                )
+                const treeItem = projectTreeRef.type.endsWith('/')
+                    ? values.viableItems.find(
+                          (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
+                      )
+                    : values.viableItems.find(
+                          (item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref
+                      )
                 let path: string | undefined
                 if (treeItem) {
                     path = treeItem.path
                 } else {
-                    const resp = await api.fileSystem.list({ ref: projectTreeRef.ref, type: projectTreeRef.type })
+                    const resp = await api.fileSystem.list(
+                        projectTreeRef.type.endsWith('/')
+                            ? { ref: projectTreeRef.ref, type__startswith: projectTreeRef.type }
+                            : { ref: projectTreeRef.ref, type: projectTreeRef.type }
+                    )
                     breakpoint() // bail if we opened some other item in the meanwhile
                     if (resp.results && resp.results.length > 0) {
                         const result = resp.results[0]
