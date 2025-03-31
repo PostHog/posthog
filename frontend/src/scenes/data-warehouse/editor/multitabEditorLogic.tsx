@@ -429,9 +429,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (values.activeModelUri?.view && values.queryInput !== values.sourceQuery.source.query) {
                 LemonDialog.open({
                     title: 'Close tab',
-                    description: 'Are you sure you want to close this tab? There are unsaved changes.',
+                    description: 'Are you sure you want to close this view? There are unsaved changes.',
                     primaryButton: {
-                        children: 'Close',
+                        children: 'Close without saving',
                         status: 'danger',
                         onClick: () => actions._deleteTab(tabToRemove),
                     },
@@ -439,19 +439,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } else if (values.updateInsightButtonEnabled) {
                 LemonDialog.open({
                     title: 'Close insight',
-                    description: 'Are you sure you want to close this tab? There are unsaved changes.',
+                    description: 'Are you sure you want to close this insight? There are unsaved changes.',
                     primaryButton: {
-                        children: 'Close',
+                        children: 'Close without saving',
                         status: 'danger',
                         onClick: () => actions._deleteTab(tabToRemove),
                     },
                 })
             } else if (values.queryInput !== '' && !values.activeModelUri?.view && !values.activeModelUri?.insight) {
                 LemonDialog.open({
-                    title: 'Delete query',
-                    description: 'There are unsaved changes. Are you sure you want to delete this query?',
+                    title: 'Unsaved query',
+                    description:
+                        "You're about to close a tab with an unsaved query. If you continue, your changes will be permanently lost.",
                     primaryButton: {
-                        children: 'Delete',
+                        children: 'Close without saving',
                         status: 'danger',
                         onClick: () => actions._deleteTab(tabToRemove),
                     },
@@ -854,11 +855,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     return false
                 }
 
+                const updatedName = activeModelUri.name !== activeModelUri.insight.name
+
                 const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
 
-                return !isEqual(
-                    sourceQueryWithoutUndefinedAndNullKeys,
-                    removeUndefinedAndNull(activeModelUri.insight.query)
+                return (
+                    updatedName ||
+                    !isEqual(
+                        sourceQueryWithoutUndefinedAndNullKeys,
+                        removeUndefinedAndNull(activeModelUri.insight.query)
+                    )
                 )
             },
         ],
@@ -900,6 +906,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(router.values.location.pathname)
                 } else if (searchParams.open_insight) {
+                    if (searchParams.open_insight === 'new') {
+                        // Add new blank tab
+                        actions.createTab()
+                        tabAdded = true
+                        router.actions.replace(router.values.location.pathname)
+                        return
+                    }
+
                     // Open Insight
                     const shortId = searchParams.open_insight
                     const insight = await insightsApi.getByShortId(shortId, undefined, 'async')

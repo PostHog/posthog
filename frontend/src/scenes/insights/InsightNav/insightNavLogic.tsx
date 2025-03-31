@@ -1,4 +1,6 @@
+import { IconExternal } from '@posthog/icons'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -6,6 +8,7 @@ import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { urls } from 'scenes/urls'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
@@ -34,6 +37,7 @@ import {
     getDisplay,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    isDataVisualizationNode,
     isFunnelsQuery,
     isHogQuery,
     isInsightQueryWithBreakdown,
@@ -183,7 +187,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         dataAttr: 'insight-lifecycle-tab',
                     },
                     {
-                        label: 'SQL',
+                        label: (
+                            <>
+                                SQL <IconExternal />
+                            </>
+                        ),
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
@@ -227,7 +235,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
         setActiveView: ({ view }) => {
             const query = getDefaultQuery(view, values.filterTestAccountsDefault)
 
-            if (isInsightVizNode(query)) {
+            if (isDataVisualizationNode(query)) {
+                router.actions.push(urls.sqlEditor(query.source.query))
+            } else if (isInsightVizNode(query)) {
                 actions.setQuery({
                     ...query,
                     source: values.queryPropertyCache

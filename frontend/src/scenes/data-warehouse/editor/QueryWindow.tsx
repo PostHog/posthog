@@ -67,16 +67,16 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     activeModelUri={activeModelUri}
                 />
             </div>
-            {editingView && (
+            {(editingView || editingInsight) && (
                 <div className="h-5 bg-warning-highlight">
-                    <span className="text-xs">
-                        Editing {editingView.last_run_at ? 'materialized view' : 'view'} "{editingView.name}"
+                    <span className="pl-2 text-xs">
+                        {editingView && (
+                            <>
+                                Editing {editingView.last_run_at ? 'materialized view' : 'view'} "{editingView.name}"
+                            </>
+                        )}
+                        {editingInsight && <>Editing insight "{editingInsight.name}"</>}
                     </span>
-                </div>
-            )}
-            {editingInsight && (
-                <div className="h-5 bg-warning-highlight">
-                    <span className="text-xs">Editing insight "{editingInsight.name}"</span>
                 </div>
             )}
             <div className="flex flex-row justify-start align-center w-full ml-2 mr-2">
