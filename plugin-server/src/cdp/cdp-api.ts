@@ -161,7 +161,6 @@ export class CdpApi {
             }
 
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
-            await this.hogFunctionManager.enrichWithSharedInputs([compoundConfiguration])
 
             let lastResponse: HogFunctionInvocationResult | null = null
             let logs: LogEntry[] = []

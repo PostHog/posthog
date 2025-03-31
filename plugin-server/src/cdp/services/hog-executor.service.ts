@@ -24,6 +24,7 @@ import {
 } from '../types'
 import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
+import { createMailjetRequest } from '../utils/hog-mailjet-request'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -537,67 +538,21 @@ export class HogExecutorService {
                         }
                         case 'sendEmail': {
                             // Sanitize the args
-                            const [inputs] = args as [
-                                | {
-                                      provider: string | undefined
-                                      api_key: string | undefined
-                                      secret_key: string | undefined
-                                      email: Record<string, any> | undefined
-                                  }
-                                | undefined
-                            ]
+                            const [inputs] = args
 
                             if (!inputs) {
                                 throw new Error('sendEmail: Invalid inputs')
                             }
 
-                            const { provider, api_key, secret_key, email } = inputs
-
-                            if (!provider || !api_key || !secret_key || !email) {
-                                throw new Error('sendEmail: Invalid inputs')
-                            }
+                            const { mailjet, email } = inputs
 
                             // TODO: Add support for other providers
-                            if (provider !== 'mailjet') {
-                                throw new Error('sendEmail: Invalid provider')
+                            if (!mailjet) {
+                                throw new Error('sendEmail: Must provide a Mailjet integration')
                             }
-
-                            if (!api_key || !secret_key) {
-                                throw new Error('sendEmail: Invalid credentials')
-                            }
-
-                            const url = 'https://api.mailjet.com/v3.1/send'
-
-                            const method = 'POST'
-                            const headers = {
-                                Authorization: `Basic ${Buffer.from(`${api_key}:${secret_key}`).toString('base64')}`,
-                                'Content-Type': 'application/json',
-                            }
-                            // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
-                            const body: string | undefined = JSON.stringify({
-                                Messages: [
-                                    {
-                                        From: {
-                                            Email: email.from,
-                                            Name: email.from_name || '',
-                                        },
-                                        To: [
-                                            {
-                                                Email: email.to,
-                                                Name: email.to_name || '',
-                                            },
-                                        ],
-                                        Subject: email.subject,
-                                        HTMLPart: email.html,
-                                    },
-                                ],
-                            })
 
                             const fetchQueueParameters = this.enrichFetchRequest({
-                                url,
-                                method,
-                                body,
-                                headers,
+                                ...createMailjetRequest(email, mailjet),
                                 return_queue: 'hog',
                             })
 

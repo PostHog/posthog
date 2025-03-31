@@ -27,8 +27,6 @@ const HOG_FUNCTION_FIELDS = [
     'updated_at',
 ]
 
-const SHARED_INPUT_FUNCTIONS: Record<string, HogFunctionTypeType> = { sendEmail: 'email' }
-
 export type HogFunctionTeamInfo = Pick<HogFunctionType, 'id' | 'team_id' | 'type'>
 
 // /**
@@ -238,7 +236,6 @@ export class HogFunctionManagerService {
 
         this.sanitize(hogFunctions)
         await this.enrichWithIntegrations(hogFunctions)
-        await this.enrichWithSharedInputs(hogFunctions)
 
         return hogFunctions.reduce<Record<string, HogFunctionType | undefined>>((acc, hogFunction) => {
             acc[hogFunction.id] = hogFunction
@@ -282,46 +279,6 @@ export class HogFunctionManagerService {
             }
             // For any other case (null, undefined, unexpected types), leave as-is
         })
-    }
-
-    public async enrichWithSharedInputs(items: HogFunctionType[]): Promise<void> {
-        logger.info('[HogFunctionManager]', 'Enriching with import functions', { functionCount: items.length })
-
-        for (const item of items) {
-            if (typeof item.bytecode !== 'object' || !item.bytecode.length) {
-                continue
-            }
-            // Grab all the global functions used in this function's bytecode
-            const sharedInputFunctionsUsed = (item.bytecode || []).filter(
-                (x) => Object.keys(SHARED_INPUT_FUNCTIONS).includes(x) && SHARED_INPUT_FUNCTIONS[x] !== item.type
-            )
-
-            for (const functionName of sharedInputFunctionsUsed) {
-                const functionType = SHARED_INPUT_FUNCTIONS[functionName]
-                let func = items.find((x) => x.type === functionType)
-
-                if (!func) {
-                    // If the function is not found in the local cache, fetch it from the database
-                    // This is typically only needed for new functions being tested in the PostHog UI
-                    const teamHogFunctions = await this.getHogFunctionsForTeam(item.team_id, [functionType])
-                    func = teamHogFunctions?.find((x) => x.type === functionType)
-                }
-
-                if (func) {
-                    item.inputs = {
-                        ...item.inputs,
-                        ...func.inputs,
-                        ...func.encrypted_inputs,
-                    }
-                    item.inputs_schema = [...(item.inputs_schema || []), ...(func.inputs_schema || [])]
-
-                    logger.info('[HogFunctionManager]', 'Enriched with shared input function', {
-                        sourceFunction: item.name,
-                        sharedInputFunction: functionName,
-                    })
-                }
-            }
-        }
     }
 
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {

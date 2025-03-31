@@ -21,6 +21,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
+    MailjetIntegration,
 )
 
 
@@ -45,6 +46,15 @@ class IntegrationSerializer(serializers.ModelSerializer):
             key_info = json.loads(key_file.read().decode("utf-8"))
             instance = GoogleCloudIntegration.integration_from_key(
                 validated_data["kind"], key_info, team_id, request.user
+            )
+            return instance
+
+        elif validated_data["kind"] == "mailjet":
+            instance = MailjetIntegration.integration_from_keys(
+                validated_data["config"]["api_key"],
+                validated_data["config"]["secret_key"],
+                team_id,
+                request.user,
             )
             return instance
 
