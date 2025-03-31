@@ -118,7 +118,7 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
     const { results } = useValues(errorTrackingDataNodeLogic)
-    const allSelected = results.length == selectedIssueIds.length
+    const allSelected = results.length == selectedIssueIds.length && selectedIssueIds.length > 0
 
     return (
         <div className="flex gap-2 items-center">
@@ -184,7 +184,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
 const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
     const aggregations = (record as ErrorTrackingIssue).aggregations
-    const count = aggregations[columnName as 'occurrences' | 'sessions' | 'users']
+    const count = aggregations ? aggregations[columnName as 'occurrences' | 'sessions' | 'users'] : 0
 
     return (
         <span className="text-lg font-medium">

@@ -164,7 +164,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         return {
             loadIssueSuccess: [
                 ({ issue }) => actions.loadProperties(getPropertiesDateRange(issue)),
-                ({ issue }) => actions.loadSummary(getSummaryDateRange(issue)),
+                ({ issue }) => actions.loadSummary(getIssueDateRange(issue)),
             ],
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
@@ -183,7 +183,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 ])
 
-function getSummaryDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
+function getIssueDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
     return {
         date_from: dayjs(issue.first_seen).startOf('day').toISOString(),
         date_to: dayjs().endOf('minute').toISOString(),
