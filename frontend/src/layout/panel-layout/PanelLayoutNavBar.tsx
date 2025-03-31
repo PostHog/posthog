@@ -25,6 +25,7 @@ import { Button } from 'lib/ui/Button/Button'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -67,6 +68,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { isDev } = useValues(preflightLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (!isLayoutPanelVisible) {
@@ -363,7 +365,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-primary h-px " />
 
-                        <div className="pt-1 px-1 pb-2 flex flex-col gap-px">
+                        {/* 
+                            Extra padding to compensate for dev mode debug notice... 
+                            not sure how better to do this other than lower the notices z-index.. 
+                        */}
+                        <div className={`pt-1 px-1 flex flex-col gap-px ${isDev ? 'pb-10' : 'pb-2'}`}>
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <Button.Root
                                     menuItem
@@ -403,7 +409,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             >
                                 <Button.Root menuItem active={isAccountPopoverOpen} onClick={toggleAccountPopover}>
                                     <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
-                                        <ProfilePicture user={user} size="sm" className="mr-1" />
+                                        <ProfilePicture
+                                            user={user}
+                                            size="sm"
+                                            className={!isLayoutNavCollapsed ? 'mr-1' : ''}
+                                        />
                                     </Button.Icon>
                                     {!isLayoutNavCollapsed && (
                                         <>
