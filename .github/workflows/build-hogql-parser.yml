@@ -125,11 +125,17 @@ jobs:
 
             - name: Update hogql-parser in requirements
               shell: bash
+              env:
+                  RETRIES: 20
               run: |
-                  # In case the version is not available yet, try up to 20 times
-                  for i in {1..20}; do
+                  # In case the version is not available yet, try up to $RETRIES times
+                  for i in {1..$RETRIES}; do
                       if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
                           break
+                      fi
+                      if [[ $i -eq $RETRIES ]]; then
+                        echo "Failed to update hogql-parser in requirements"
+                        exit 1
                       fi
                       sleep 0.5
                   done
