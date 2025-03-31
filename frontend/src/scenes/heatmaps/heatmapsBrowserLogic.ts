@@ -56,8 +56,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 type: AuthorizedUrlListType.TOOLBAR_URLS,
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
+            [heatmapDataLogic, ['heatmapEmpty']],
         ],
-        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setUrlMatch', 'heatmapEmpty']],
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setUrlMatch']],
     }),
 
     actions({
