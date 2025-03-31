@@ -163,6 +163,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation = request_serializer.validated_data.pop("aggregation")
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
+        placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
 
         raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
@@ -181,7 +182,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     filterTestAccounts=True,
                     dateRange=DateRange(
                         date_from=date_from.strftime("%Y-%m-%d"),
-                        date_to=date_to.strftime("%Y-%m-%d") if date_to else None,
+                        date_to=date_to.strftime("%Y-%m-%d") if date_to else (date.today()).strftime("%Y-%m-%d"),
                     ),
                 ),
                 self.team,
