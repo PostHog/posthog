@@ -74,6 +74,8 @@ class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.Mod
         # pydantic models are used to validate the query
         try:
             if metric_query["kind"] == "ExperimentMetric":
+                if "metric_type" not in metric_query:
+                    raise ValidationError("ExperimentMetric requires a metric_type")
                 if metric_query["metric_type"] == ExperimentMetricType.MEAN:
                     ExperimentMeanMetric(**metric_query)
                 elif metric_query["metric_type"] == ExperimentMetricType.FUNNEL:
