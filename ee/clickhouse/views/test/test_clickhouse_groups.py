@@ -511,9 +511,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_get_group_activities_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -541,9 +547,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_get_group_activities_invalid_group(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
