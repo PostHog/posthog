@@ -222,8 +222,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 const draftPayload = values.draftPayloads[flagKey]
                 if (!draftPayload || draftPayload.trim() === '') {
                     actions.setPayloadError(flagKey, null)
-                    actions.setPayloadOverride(flagKey, null)
-                    actions.setOverriddenUserFlag(flagKey, true)
+                    actions.deleteOverriddenUserFlag(flagKey)
                     actions.setPayloadEditorOpen(flagKey, false)
                     return
                 }
