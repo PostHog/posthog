@@ -2,8 +2,8 @@ import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
-import posthog from 'posthog-js'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { CSSProperties } from 'react'
 
 import {
