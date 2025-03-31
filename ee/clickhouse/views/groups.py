@@ -159,6 +159,30 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
         serializer = self.get_serializer(queryset, many=True)
         return response.Response(serializer.data)
 
+    @action(methods=["DELETE"], detail=False)
+    def delete_group(self, request: request.Request, *args, **kwargs):
+        """
+        Delete an individual group
+        """
+        try:
+            group = self.get_queryset().get()
+            group_id = group.id
+            group_key = group.group_key
+            group.delete()
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=group_id,
+                scope="Group",
+                activity="deleted",
+                detail=Detail(name=str(group_key)),
+            )
+            return response.Response(status=status.HTTP_202_ACCEPTED)
+        except Group.DoesNotExist:
+            raise NotFound()
+
     @extend_schema(
         parameters=[
             OpenApiParameter(

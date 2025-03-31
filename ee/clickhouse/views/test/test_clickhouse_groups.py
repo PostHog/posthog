@@ -11,6 +11,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import GroupTypeMapping, Person
+from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -1016,6 +1017,54 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             disabled_response.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+
+    def test_delete_group_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/groups/delete_group?group_key=org:5&group_type_index=0"
+        )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(
+            Group.objects.filter(
+                team_id=self.team.pk, group_type_index=group_type_mapping.group_type_index, group_key="org:5"
+            ).count(),
+            0,
+        )
+
+    def test_delete_group_not_found(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/groups/delete_group?group_key=org:5&group_type_index=1"
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            Group.objects.filter(
+                team_id=self.team.pk, group_type_index=group_type_mapping.group_type_index, group_key="org:5"
+            ).count(),
+            1,
         )
 
     def test_create_detail_dashboard_success(self):
