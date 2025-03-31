@@ -17,8 +17,8 @@ interface QuestionInputComponentProps {
     onStop?: () => void
     isLoading?: boolean
     isFloating?: boolean
-    disabled?: boolean
-    disabledReason?: string
+    inputDisabled?: boolean
+    buttonDisabledReason?: string
     placeholder?: string
     autoFocus?: boolean
 }
@@ -30,8 +30,8 @@ export function QuestionInputComponent({
     onStop,
     isLoading = false,
     isFloating = false,
-    disabled = false,
-    disabledReason,
+    inputDisabled = false,
+    buttonDisabledReason,
     placeholder = 'Ask away',
     autoFocus = false,
 }: QuestionInputComponentProps): JSX.Element {
@@ -58,11 +58,11 @@ export function QuestionInputComponent({
                 onChange={onChange}
                 placeholder={isLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : placeholder}
                 onPressEnter={() => {
-                    if (value && !disabledReason && !isLoading) {
+                    if (value && !buttonDisabledReason && !isLoading) {
                         onSubmit()
                     }
                 }}
-                disabled={disabled}
+                disabled={inputDisabled}
                 minRows={1}
                 maxRows={10}
                 className={clsx('p-3 pr-12', isFloating && 'border-primary')}
@@ -86,7 +86,7 @@ export function QuestionInputComponent({
                             </>
                         )
                     }
-                    disabledReason={disabledReason}
+                    disabledReason={buttonDisabledReason}
                     size="small"
                     icon={isLoading ? <IconStopFilled /> : <IconArrowRight />}
                 />
@@ -124,8 +124,8 @@ export function QuestionInput(): JSX.Element {
                     onStop={stopGeneration}
                     isLoading={threadLoading}
                     isFloating={isFloating}
-                    disabled={inputDisabled}
-                    disabledReason={submissionDisabledReason}
+                    inputDisabled={inputDisabled}
+                    buttonDisabledReason={submissionDisabledReason}
                     autoFocus={true}
                 />
                 {tools.length > 0 && (
