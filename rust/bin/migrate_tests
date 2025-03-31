@@ -13,13 +13,10 @@ if [[ -z "$(docker ps -q -f "name=posthog-db-1")" ]] ; then
   exit 1
 fi
 
-# this is the *test suite database* we're bootstrapping. local dev tables should either:
-# 1. already be bootstrapped by posthog (Django app) `bin/migrate` (run this if you haven't)
-# 2. can be bootstrapped manually into isolated DBs (non-Django owned tables)
-#    using `rust/bin/migrate` for local dev outside of unit test scope
-
-# pick up "default" test DB URL and namespace from posthog/rust/.env file.
-# NOTE: cargo and sqlx honor the .env file by default when developing locally
+# .env defines the DATABASE_URL of the *test suite database* we're bootstrapping.
+# This should be all you need for local dev or running your unit tests. Under
+# normal circumstances in a Rust subproject. See `posthog/rust/README.md` for more.
+# NOTE: cargo and SQLX honor the .env file by default when developing locally
 source "$SCRIPT_DIR/../.env"
 echo "Sourced rust/.env file - database URL is: $DATABASE_URL"
 
@@ -32,20 +29,18 @@ sqlx database create -D "$DATABASE_URL"
 
 # hop up to posthog repo root and bootstrap the test_posthog DB.
 # at the moment, rust/feature-flags subproject uses the top level
-# testing DB not sqlx::test migrations to avoid duplicate schemas
-# to maintain when the service only needs Django-owned tables.
-#
-# This is pretty nice - I may try to migrate other services that
-# aren't using isolated Postgres instances in production to this
-# but for now, let's just support it so we can run "cargo test"
-# from the workspace level (posthog/rust) and have it work.
+# testing DB and existing Django-managed tables exclusively.
+# This is an option when the service only touches Django tables
 pushd "$SCRIPT_DIR/../.."
 DEBUG=true TEST=true python manage.py setup_test_environment --only-postgres
 
-# these have matching tables in prod (and top-level dev Docker Compose)
-# already, so we only want to replicate the tables we need in sqlx::test
-# unit tests, under their own database namespaces. Add more package-level
-# migrations here as we add new services and test suites that touch the DB
+# most of the Rust workspace projects depend on a mix of existing Django-owned
+# DB tables and custom defined ones. In order for SQLX query cache and tests
+# to pass, we need to define all of them together in one single, test-scoped
+# DB namespace, as defined in `posthog/rust/.env`. This bit does that.
+#
+# New Rust workspace subprojects should add statements like this pointing to
+# their own dev and test migrations. Details in the `posthog/rust/README.md`
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../common/migrations"
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../hook-common/migrations"
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../batch-import-worker/migrations"

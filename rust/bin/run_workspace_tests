@@ -8,7 +8,10 @@ set -euo pipefail
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
-# pull DATABASE_URL for the test DB into the local env
+# pull DATABASE_URL for the shared test DB into the local env
+# SQLX query cache requires a single shared test DB with all
+# schemas defined, but this also works fine in test-scope for
+# non-SQLX subprojects
 source "$SCRIPT_DIR/../.env"
 
 # run the migrations (test schemas only!) and refresh SQLX query cache
