@@ -36,6 +36,10 @@ for (let key, value in inputs.properties) {
     }
 }
 
+if (not empty(inputs.mailingLists)) {
+    payload.mailingLists := inputs.mailingLists
+}
+
 let res := fetch('https://app.loops.so/api/v1/contacts/update', {
     'method': 'POST',
     'headers': {
@@ -134,6 +138,10 @@ for (let key, value in inputs.properties) {
     if (not empty(value)) {
         payload.eventProperties[key] := value
     }
+}
+
+if (not empty(inputs.mailingLists)) {
+    payload.mailingLists := inputs.mailingLists
 }
 
 let res := fetch('https://app.loops.so/api/v1/events/send', {
