@@ -97,8 +97,6 @@ const buttonVariants = cva({
         px-[5px] 
         py-[3px] 
         rounded-md 
-        transition-colors 
-        duration-100
         cursor-default
     `,
     variants: {
