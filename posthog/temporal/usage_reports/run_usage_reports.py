@@ -12,7 +12,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat import Heartbeater
 from asgiref.sync import sync_to_async
-
+from posthog.warehouse.util import database_sync_to_async
 from posthog.utils import (
     get_instance_region,
     get_previous_day,
@@ -21,8 +21,12 @@ from posthog.utils import (
 from posthog.tasks.usage_report import (
     get_instance_metadata,
     get_ph_client,
-    _get_all_org_reports,
+    _get_all_usage_data,
+    convert_team_usage_rows_to_dict,
+    _get_teams_for_usage_reports,
+    _get_team_report,
     _get_full_org_usage_report,
+    _add_team_report_to_org_reports,
     _get_full_org_usage_report_as_dict,
     has_non_zero_usage,
     _queue_report,
@@ -43,24 +47,13 @@ class RunUsageReportsInputs:
 @dataclasses.dataclass
 class QueryUsageReportsInputs:
     at: Optional[str] = None
-
-
-@dataclasses.dataclass
-class QueryUsageReportsResult:
-    org_reports: dict[str, OrgReport]
-
-
-@dataclasses.dataclass
-class SendUsageReportsInputs:
-    org_reports: dict[str, OrgReport]
     skip_capture_event: Optional[bool] = False
-    at: Optional[str] = None
 
 
 @activity.defn(name="query-usage-reports")
 async def query_usage_reports(
     inputs: QueryUsageReportsInputs,
-) -> QueryUsageReportsResult:
+) -> None:
     async with Heartbeater():
         import posthoganalytics
         from sentry_sdk import capture_message
@@ -70,37 +63,51 @@ async def query_usage_reports(
         )
         if are_usage_reports_disabled:
             capture_message(f"Usage reports are disabled for {inputs.at}")
-            return QueryUsageReportsResult(
-                org_reports={},
-            )
+            return None
 
         at_date = parser.parse(inputs.at) if inputs.at else None
         period = get_previous_day(at=at_date)
         period_start, period_end = period
 
-        @sync_to_async
-        def get_all_org_reports(ps, pe):
-            return _get_all_org_reports(ps, pe)
+        print(f"Querying all org reports {period_start} - {period_end}")  # noqa: T201
 
-        logger.info("Querying usage reports", period_start=period_start, period_end=period_end)
+        @database_sync_to_async
+        def async_get_all_usage_data(p_start, p_end):
+            return _get_all_usage_data(p_start, p_end)
 
-        org_reports = await get_all_org_reports(period_start, period_end)
+        def convert_to_team_rows(raw_data):
+            result = {}
+            for key, rows in raw_data.items():
+                result[key] = convert_team_usage_rows_to_dict(rows)
+            return result
 
-        logger.info("Querying usage reports complete", org_count=len(org_reports))
+        raw_data = await async_get_all_usage_data(period_start, period_end)
 
-        return QueryUsageReportsResult(
-            org_reports=org_reports,
-        )
+        all_data = convert_to_team_rows(raw_data)
 
+        print("Querying all teams")  # noqa: T201
 
-@activity.defn(name="send-usage-reports")
-async def send_usage_reports(
-    inputs: SendUsageReportsInputs,
-) -> None:
-    async with Heartbeater():
-        at_date = parser.parse(inputs.at) if inputs.at else None
-        period = get_previous_day(at=at_date)
-        period_start, period_end = period
+        @database_sync_to_async
+        def async_get_teams_for_usage_reports():
+            return _get_teams_for_usage_reports()
+
+        teams = await async_get_teams_for_usage_reports()
+
+        print(f"Querying all teams complete {len(teams)} teams")  # noqa: T201
+
+        org_reports: dict[str, OrgReport] = {}
+
+        print("Generating org reports")  # noqa: T201
+
+        @database_sync_to_async
+        def async_add_team_report_to_org_reports(o_r, t, t_r, p_start):
+            return _add_team_report_to_org_reports(o_r, t, t_r, p_start)
+
+        for team in teams:
+            team_report = _get_team_report(all_data, team)
+            await async_add_team_report_to_org_reports(org_reports, team, team_report, period_start)
+
+        print(f"Generating org reports complete {len(org_reports)} orgs")  # noqa: T201
 
         @sync_to_async
         def async_get_instance_metadata(p):
@@ -119,7 +126,7 @@ async def send_usage_reports(
 
         pha_client = get_ph_client(sync_mode=True)
 
-        total_orgs = len(inputs.org_reports)
+        total_orgs = len(org_reports)
         total_orgs_sent = 0
 
         pha_client.capture(
@@ -134,8 +141,15 @@ async def send_usage_reports(
             groups={"instance": settings.SITE_URL},
         )
 
-        for org_report in inputs.org_reports.values():
+        print(f"Sending usage reports {total_orgs} orgs")  # noqa: T201
+
+        org_count = 0
+        for org_report in org_reports.values():
             try:
+                org_count += 1
+                if org_count % 500 == 0:
+                    print(f"Processed {org_count}/{total_orgs} organizations...")  # noqa: T201
+
                 organization_id = org_report.organization_id
 
                 full_report = _get_full_org_usage_report(org_report, instance_metadata)
@@ -175,6 +189,9 @@ async def send_usage_reports(
             except Exception as loop_err:
                 logger.exception(f"Error processing organization report: {loop_err}")
 
+        print(f"Total orgs: {total_orgs}")  # noqa: T201
+        print(f"Total orgs sent: {total_orgs_sent}")  # noqa: T201
+
         pha_client.capture(
             "internal_billing_events",
             "usage reports - sending complete",
@@ -188,6 +205,8 @@ async def send_usage_reports(
             groups={"instance": settings.SITE_URL},
         )
         pha_client.flush()  # Flush and close the client
+
+        return None
 
 
 @workflow.defn(name="run-usage-reports")
@@ -203,36 +222,17 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         try:
             query_usage_reports_inputs = QueryUsageReportsInputs(
                 at=inputs.at,
-            )
-            query_usage_reports_result = await workflow.execute_activity(
-                query_usage_reports,
-                query_usage_reports_inputs,
-                start_to_close_timeout=timedelta(minutes=20),
-                retry_policy=common.RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=timedelta(minutes=1),
-                ),
-                heartbeat_timeout=timedelta(seconds=30),
-            )
-
-            if not query_usage_reports_result.org_reports:
-                logger.info("No org reports found - skipping send")
-                return
-
-            send_usage_reports_inputs = SendUsageReportsInputs(
-                org_reports=query_usage_reports_result.org_reports,
                 skip_capture_event=inputs.skip_capture_event,
-                at=inputs.at,
             )
             await workflow.execute_activity(
-                send_usage_reports,
-                send_usage_reports_inputs,
-                start_to_close_timeout=timedelta(minutes=30),
+                query_usage_reports,
+                query_usage_reports_inputs,
+                start_to_close_timeout=timedelta(minutes=40),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=3,
                     initial_interval=timedelta(minutes=1),
                 ),
-                heartbeat_timeout=timedelta(seconds=30),
+                heartbeat_timeout=timedelta(minutes=4),
             )
 
         except Exception as e:

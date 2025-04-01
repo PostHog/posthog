@@ -54,6 +54,7 @@ export interface HogFunctionConfigurationProps {
         showStatus?: boolean
         showEnabled?: boolean
         showTesting?: boolean
+        hideTestingConfiguration?: boolean
         canEditSource?: boolean
         showPersonsCount?: boolean
     }
@@ -543,7 +544,9 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? <HogFunctionTest /> : null}
+                            {showTesting ? (
+                                <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
+                            ) : null}
                             <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>

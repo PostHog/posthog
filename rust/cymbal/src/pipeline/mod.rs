@@ -15,7 +15,7 @@ use prep::prepare_events;
 use serde::Deserialize;
 
 use crate::{
-    app_context::AppContext,
+    app_context::{AppContext, FilterMode},
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
     metric_consts::{
         BILLING_LIMITS_TIME, CLEAN_PROPS_TIME, EMIT_INGESTION_WARNINGS_TIME,
@@ -65,6 +65,8 @@ pub async fn handle_batch(
     prepare_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
+    let buffer = filter_by_team_id(buffer, &context.filtered_teams, &context.filter_mode);
+
     let clean_props_time = common_metrics::timing_guard(CLEAN_PROPS_TIME, &[]);
     let (buffer, warnings) = clean_set_props(buffer);
     clean_props_time.label("outcome", "success").fin();
@@ -95,6 +97,26 @@ pub async fn handle_batch(
     emit_warning_time.label("outcome", "success").fin();
 
     Ok(buffer)
+}
+
+pub fn filter_by_team_id(
+    events: Vec<PipelineResult>,
+    team_ids: &[i32],
+    mode: &FilterMode,
+) -> Vec<PipelineResult> {
+    events
+        .into_iter()
+        .map(|e| {
+            let Ok(e) = e else { return e };
+
+            match (mode, team_ids.contains(&e.team_id)) {
+                (FilterMode::In, true) | (FilterMode::Out, false) => Ok(e),
+                (FilterMode::In, false) | (FilterMode::Out, true) => {
+                    Err(EventError::FilteredByTeamId)
+                }
+            }
+        })
+        .collect()
 }
 
 // Equivalent to the JS:'yyyy-MM-dd HH:mm:ss.u'
@@ -136,7 +158,9 @@ mod test {
     use common_types::{ClickHouseEvent, PersonMode};
     use uuid::Uuid;
 
-    use crate::pipeline::parse_ts_assuming_utc;
+    use crate::{app_context::FilterMode, pipeline::parse_ts_assuming_utc};
+
+    use super::filter_by_team_id;
 
     #[test]
     pub fn test_timestamp_parsing() {
@@ -173,5 +197,59 @@ mod test {
 
         let ts = parse_ts_assuming_utc(&event.timestamp);
         assert!(ts.is_err());
+    }
+
+    #[test]
+    pub fn test_team_filtering() {
+        let event = ClickHouseEvent {
+            uuid: Uuid::now_v7(),
+            team_id: 1,
+            project_id: Some(1),
+            event: "test".to_string(),
+            distinct_id: "test".to_string(),
+            properties: None,
+            person_id: None,
+            timestamp: "2021-08-02 12:34:56.789".to_string(),
+            created_at: "2021-08-02 12:34:56.789".to_string(),
+            elements_chain: None,
+            person_created_at: None,
+            person_properties: None,
+            group0_properties: None,
+            group1_properties: None,
+            group2_properties: None,
+            group3_properties: None,
+            group4_properties: None,
+            group0_created_at: None,
+            group1_created_at: None,
+            group2_created_at: None,
+            group3_created_at: None,
+            group4_created_at: None,
+            person_mode: PersonMode::Propertyless,
+        };
+
+        let buffer = vec![Ok(event)];
+
+        let filter_list = vec![1];
+
+        let result = filter_by_team_id(buffer.clone(), &filter_list, &FilterMode::In);
+        for event in result {
+            assert!(event.is_ok())
+        }
+
+        let result = filter_by_team_id(buffer.clone(), &filter_list, &FilterMode::Out);
+        for event in result {
+            assert!(event.is_err())
+        }
+
+        let filter_list = vec![2];
+        let result = filter_by_team_id(buffer.clone(), &filter_list, &FilterMode::In);
+        for event in result {
+            assert!(event.is_err())
+        }
+
+        let result = filter_by_team_id(buffer, &filter_list, &FilterMode::Out);
+        for event in result {
+            assert!(event.is_ok())
+        }
     }
 }

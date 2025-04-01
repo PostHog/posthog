@@ -30,7 +30,7 @@ from posthog.clickhouse.client.execute_async import (
     get_query_status,
     QueryStatusManager,
 )
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
@@ -129,7 +129,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user,
-                is_query_service=True,
+                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
@@ -289,6 +289,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user if not isinstance(request.user, AnonymousUser) else None,
+                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             )
         )
 
