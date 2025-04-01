@@ -7,6 +7,8 @@ import {
     IconGraph,
     IconMegaphone,
     IconNotebook,
+    IconPerson,
+    IconPieChart,
     IconRewindPlay,
     IconRocket,
     IconTestTube,
@@ -262,4 +264,28 @@ export const fileSystemTypes = {
 }
 
 /** This const is auto-generated, as is the whole file */
-export const treeItems = []
+export const treeItemsNew = [
+    { path: `Broadcast`, type: 'broadcast', href: () => urls.messagingBroadcastNew() },
+    { path: `Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
+    { path: `Experiment`, type: 'experiment', href: () => urls.experiment('new') },
+    { path: `Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
+    { path: `Insight - Funnels`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
+    { path: `Insight - Lifecycle`, type: 'insight', href: () => urls.insightNew({ type: InsightType.LIFECYCLE }) },
+    { path: `Insight - Retention`, type: 'insight', href: () => urls.insightNew({ type: InsightType.RETENTION }) },
+    { path: `Insight - Stickiness`, type: 'insight', href: () => urls.insightNew({ type: InsightType.STICKINESS }) },
+    { path: `Insight - Trends`, type: 'insight', href: () => urls.insightNew({ type: InsightType.TRENDS }) },
+    { path: `Insight - User paths`, type: 'insight', href: () => urls.insightNew({ type: InsightType.PATHS }) },
+    { path: `Notebook`, type: 'notebook', href: () => urls.notebook('new') },
+]
+
+/** This const is auto-generated, as is the whole file */
+export const treeItemsExplore = [
+    { path: 'Data management/Actions', icon: <IconRocket />, href: () => urls.actions() },
+    { path: 'Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
+    { path: 'People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
+    { path: 'Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
+    { path: 'Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
+    { path: 'Recordings/Settings', href: () => urls.replay(ReplayTabs.Settings), icon: <IconRewindPlay /> },
+    { path: 'Recordings/What to watch', href: () => urls.replay(ReplayTabs.Templates), icon: <IconRewindPlay /> },
+    { path: 'Web Analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
+]
