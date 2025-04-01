@@ -1265,4 +1265,105 @@ describe('HogTransformer', () => {
             )
         })
     })
+
+    describe('HogWatcher integration', () => {
+        beforeEach(() => {
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [teamId]
+        })
+
+        it('should skip HogWatcher operations when sample rate is 0', async () => {
+            // Set sample rate to 0
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+
+            // Create spies for HogWatcher methods
+            const observeResultsSpy = jest.spyOn(hogTransformer['hogWatcher'], 'observeResults')
+
+            // Create a simple transformation
+            const template = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A simple test template',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.test_property := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: template.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(template.hog),
+                id: '11111111-1111-4111-a111-111111111111',
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+
+            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event, [hogFunction])
+
+            // Verify HogWatcher methods were not called
+            expect(observeResultsSpy).not.toHaveBeenCalled()
+
+            // Verify no promises were added
+            expect(result.watcherPromises?.length).toBe(0)
+
+            observeResultsSpy.mockRestore()
+        })
+
+        it('should add watcher promise when sample rate is 1', async () => {
+            // Set sample rate to 1
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+
+            // Create spies for HogWatcher methods
+            const observeResultsSpy = jest
+                .spyOn(hogTransformer['hogWatcher'], 'observeResults')
+                .mockImplementation(() => Promise.resolve())
+
+            // Create a simple transformation
+            const template = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A simple test template',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.test_property := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: template.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(template.hog),
+                id: '11111111-1111-4111-a111-111111111111',
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+
+            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event, [hogFunction])
+
+            // Verify observeResults was called and a promise was added
+            expect(observeResultsSpy).toHaveBeenCalled()
+            expect(result.watcherPromises?.length).toBe(1)
+
+            observeResultsSpy.mockRestore()
+        })
+    })
 })

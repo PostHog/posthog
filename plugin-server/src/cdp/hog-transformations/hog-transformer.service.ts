@@ -256,21 +256,19 @@ export class HogTransformerService {
 
                 // Observe the results to update degraded state of HogFunctions
                 const watcherPromises: Promise<void>[] = []
-                if (results.length > 0 && this.hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS.includes(event.team_id)) {
-                    const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-                    if (shouldRunHogWatcher) {
-                        const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
-                        const watcherPromise = this.hogWatcher
-                            .observeResults(results)
-                            .then(() => {
-                                timer() // Stop the timer when the promise resolves
-                            })
-                            .catch((error) => {
-                                timer() // Make sure to stop the timer even if there's an error
-                                logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
-                            })
-                        watcherPromises.push(watcherPromise)
-                    }
+                const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+                if (shouldRunHogWatcher) {
+                    const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
+                    const watcherPromise = this.hogWatcher
+                        .observeResults(results)
+                        .then(() => {
+                            timer() // Stop the timer when the promise resolves
+                        })
+                        .catch((error) => {
+                            timer() // Make sure to stop the timer even if there's an error
+                            logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
+                        })
+                    watcherPromises.push(watcherPromise)
                 }
 
                 if (transformationsFailed.length > 0) {
