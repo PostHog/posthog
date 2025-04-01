@@ -78,10 +78,11 @@ runs:
               cache-dependency-path: '**/requirements*.txt'
               token: ${{ inputs.token }}
 
-        # uv is a fast pip alternative: https://github.com/astral-sh/uv/
         - name: Install uv
-          shell: bash
-          run: pip install uv
+          uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+          with:
+              enable-cache: true
+              pyproject-file: 'pyproject.toml'
 
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
@@ -120,7 +121,7 @@ runs:
         - name: Install Python dependencies
           shell: bash
           run: |
-              uv pip install --system -r requirements.txt -r requirements-dev.txt
+              UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
         - name: Install the working version of hogql-parser
           if: steps.hogql-parser-diff.outputs.changed == 'true'
@@ -146,7 +147,7 @@ runs:
               sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
               sudo ldconfig
               cd ..
-              uv pip install --system ./common/hogql_parser
+              uv pip install ./common/hogql_parser
 
         - name: Set up needed files
           shell: bash

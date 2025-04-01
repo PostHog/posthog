@@ -1,5 +1,10 @@
-import { IconClock, IconEllipsis, IconHourglass, IconMouse, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import { IconClock, IconEllipsis, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconHeatmap } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { humanFriendlyDuration } from 'lib/utils'
 import {
@@ -115,8 +120,9 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
     const {
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
-    const { showMouseTail, skipInactivitySetting, timestampFormat } = useValues(playerSettingsLogic)
-    const { setShowMouseTail, setSkipInactivitySetting, setTimestampFormat } = useActions(playerSettingsLogic)
+    const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
+    const { skipInactivitySetting, timestampFormat } = useValues(playerSettingsLogic)
+    const { setSkipInactivitySetting, setTimestampFormat } = useActions(playerSettingsLogic)
     const isSmall = size === 'small'
 
     const menuItems: LemonMenuItem[] = [
@@ -158,14 +164,6 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                   icon: <IconHourglass />,
               }
             : undefined,
-        {
-            // title: "Show a tail following the cursor to make it easier to see",
-            label: 'Show mouse tail',
-            active: showMouseTail,
-            'data-attr': 'show-mouse-tail-in-menu',
-            onClick: () => setShowMouseTail(!showMouseTail),
-            icon: <IconMouse className="text-lg" />,
-        },
     ].filter(Boolean) as LemonMenuItem[]
 
     return (
@@ -175,15 +173,30 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                     <SetPlaybackSpeed />
                     {!isSmall && <SetTimeFormat />}
                     {!isSmall && <SkipInactivity />}
-
-                    <SettingsMenu
-                        icon={<IconEllipsis />}
-                        items={menuItems}
-                        highlightWhenActive={false}
-                        closeOnClickInside={false}
-                    />
+                    {isSmall && (
+                        <SettingsMenu
+                            icon={<IconEllipsis />}
+                            items={menuItems}
+                            highlightWhenActive={false}
+                            closeOnClickInside={false}
+                        />
+                    )}
                 </div>
                 <div className="flex flex-row gap-0.5">
+                    <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
+                        <Tooltip title="Use the HTML from this point in the recording as the background for your heatmap data">
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconHeatmap />}
+                                onClick={() => {
+                                    setPause()
+                                    openHeatmap()
+                                }}
+                            >
+                                View heatmap
+                            </LemonButton>
+                        </Tooltip>
+                    </FlaggedFeature>
                     {noInspector ? null : <InspectDOM />}
                     <PlayerInspectorButton />
                 </div>
