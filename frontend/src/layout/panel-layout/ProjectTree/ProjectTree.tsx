@@ -1,8 +1,9 @@
 import { IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { Button } from 'lib/ui/Button/Button'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
+import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { RefObject, useEffect, useRef } from 'react'
 
@@ -47,13 +48,9 @@ export function ProjectTree(): JSX.Element {
         <PanelLayoutPanel
             searchPlaceholder="Search your project"
             panelActions={
-                <>
-                    <Button.Root onClick={() => createFolder('')}>
-                        <Button.Icon>
-                            <IconFolderPlus className="text-tertiary" />
-                        </Button.Icon>
-                    </Button.Root>
-                </>
+                <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
+                    <IconFolderPlus className="text-tertiary" />
+                </ButtonPrimitive>
             }
         >
             <LemonTree
@@ -155,16 +152,18 @@ export function ProjectTree(): JSX.Element {
                                         createFolder(item.record?.path)
                                     }}
                                 >
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>New folder</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
                             {item.record?.path ? (
-                                <ContextMenuItem asChild onClick={() => item.record?.path && rename(item.record.path)}>
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>Rename</Button.Label>
-                                    </Button.Root>
+                                <ContextMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        item.record?.path && rename(item.record.path)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
                             {item.record?.path ? (
@@ -175,9 +174,7 @@ export function ProjectTree(): JSX.Element {
                                         handleCopyPath(item.record?.path)
                                     }}
                                 >
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>Copy path</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
                             {item.record?.created_at ? (
@@ -188,9 +185,7 @@ export function ProjectTree(): JSX.Element {
                                         deleteItem(item.record as unknown as FileSystemEntry)
                                     }}
                                 >
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>Delete</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
                             {item.record?.type === 'folder' || item.id?.startsWith('empty-') ? (
@@ -205,9 +200,7 @@ export function ProjectTree(): JSX.Element {
                                                 treeItem.onClick?.()
                                             }}
                                         >
-                                            <Button.Root size="sm" menuItem>
-                                                <Button.Label>New {treeItem.name}</Button.Label>
-                                            </Button.Root>
+                                            <ButtonPrimitive menuItem>New {treeItem.name}</ButtonPrimitive>
                                         </ContextMenuItem>
                                     ))}
                                 </>
@@ -226,23 +219,17 @@ export function ProjectTree(): JSX.Element {
                                     asChild
                                     onClick={() => item.record?.path && createFolder(item.record.path)}
                                 >
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>New folder</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                             {item.record?.path ? (
                                 <DropdownMenuItem asChild onClick={() => item.record?.path && rename(item.record.path)}>
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>Rename</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                             {item.record?.path ? (
                                 <DropdownMenuItem asChild onClick={() => handleCopyPath(item.record?.path)}>
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>Copy path</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                             {item.record?.created_at ? (
@@ -250,9 +237,7 @@ export function ProjectTree(): JSX.Element {
                                     asChild
                                     onClick={() => deleteItem(item.record as unknown as FileSystemEntry)}
                                 >
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>Delete</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                             {item.record?.type === 'folder' || item.id?.startsWith('empty-') ? (
@@ -267,9 +252,7 @@ export function ProjectTree(): JSX.Element {
                                                 treeItem.onClick?.()
                                             }}
                                         >
-                                            <Button.Root size="sm" menuItem>
-                                                <Button.Label>New {treeItem.name}</Button.Label>
-                                            </Button.Root>
+                                            <ButtonPrimitive menuItem>New {treeItem.name}</ButtonPrimitive>
                                         </DropdownMenuItem>
                                     ))}
                                 </>

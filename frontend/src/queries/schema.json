@@ -16509,10 +16509,18 @@
                     "default": "ActionsLineGraph"
                 },
                 "formula": {
+                    "deprecated": "Use formulaNodes instead.",
                     "type": "string"
                 },
+                "formulaNodes": {
+                    "description": "List of formulas with optional custom names. Takes precedence over formula/formulas if set.",
+                    "items": {
+                        "$ref": "#/definitions/TrendsFormulaNode"
+                    },
+                    "type": "array"
+                },
                 "formulas": {
-                    "description": "List of formulas to apply to the data. Takes precedence over formula if both are set.",
+                    "deprecated": "Use formulaNodes instead.",
                     "items": {
                         "type": "string"
                     },
@@ -16660,6 +16668,20 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "TrendsFormulaNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "description": "Optional user-defined name for the formula",
+                    "type": "string"
+                },
+                "formula": {
+                    "type": "string"
+                }
+            },
+            "required": ["formula"],
             "type": "object"
         },
         "TrendsQuery": {
