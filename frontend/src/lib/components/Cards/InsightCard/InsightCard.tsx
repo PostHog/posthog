@@ -106,7 +106,6 @@ function InsightCardInternal(
         loadPriority,
         doNotLoad,
         variablesOverride,
-        breakdownColorOverride,
         children,
         ...divProps
     }: InsightCardProps,
