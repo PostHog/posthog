@@ -233,6 +233,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
+        reportGroupTypeDetailDashboardCreated: () => ({}),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -607,6 +608,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportTimeToSeeData: async ({ payload }) => {
             posthog.capture('time to see data', payload)
+        },
+        reportGroupTypeDetailDashboardCreated: async () => {
+            posthog.capture('group type detail dashboard created')
         },
         reportGroupPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`group property ${action}`, {

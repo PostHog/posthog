@@ -23,6 +23,10 @@ from posthog.temporal.batch_exports import (
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
 from posthog.temporal.common.worker import start_worker
+from posthog.temporal.compare_recording_metadata import (
+    ACTIVITIES as COMPARE_RECORDING_ACTIVITIES,
+    WORKFLOWS as COMPARE_RECORDING_WORKFLOWS,
+)
 from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
 from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import (
@@ -46,6 +50,7 @@ WORKFLOWS_DICT = {
     + DELETE_PERSONS_WORKFLOWS
     + AI_WORKFLOWS
     + USAGE_REPORTS_WORKFLOWS
+    + COMPARE_RECORDING_WORKFLOWS
     + QUOTA_LIMITING_WORKFLOWS,
     TEST_TASK_QUEUE: TEST_WORKFLOWS,
 }
@@ -58,6 +63,7 @@ ACTIVITIES_DICT = {
     + DELETE_PERSONS_ACTIVITIES
     + AI_ACTIVITIES
     + USAGE_REPORTS_ACTIVITIES
+    + COMPARE_RECORDING_ACTIVITIES
     + QUOTA_LIMITING_ACTIVITIES,
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
 }

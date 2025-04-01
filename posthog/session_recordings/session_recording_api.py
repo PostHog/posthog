@@ -8,8 +8,9 @@ from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
 
+import structlog
 from posthoganalytics.ai.openai import OpenAI
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 import posthoganalytics
 import requests
@@ -49,7 +50,6 @@ from posthog.session_recordings.models.session_recording_event import (
 )
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.queries.session_replay_events_v2_test import SessionReplayEventsV2Test
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
@@ -65,7 +65,8 @@ from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
 )
 from posthog.session_recordings.utils import clean_prompt_whitespace
-import snappy
+from posthog.session_recordings.session_recording_v2_service import list_blocks
+from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -93,6 +94,8 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
 )
+
+logger = structlog.get_logger(__name__)
 
 
 def filter_from_params_to_query(params: dict) -> RecordingsQuery:
@@ -693,29 +696,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_prefix = ""
 
         if is_v2_enabled:
-            v2_metadata = SessionReplayEventsV2Test().get_metadata(str(recording.session_id), self.team)
-            if v2_metadata:
-                blocks = sorted(
-                    zip(
-                        v2_metadata["block_first_timestamps"],
-                        v2_metadata["block_last_timestamps"],
-                        v2_metadata["block_urls"],
-                    ),
-                    key=lambda x: x[0],
+            blocks = list_blocks(recording)
+            for i, block in enumerate(blocks):
+                sources.append(
+                    {
+                        "source": "blob_v2",
+                        "start_timestamp": block["start_time"],
+                        "end_timestamp": block["end_time"],
+                        "blob_key": str(i),
+                    }
                 )
-                # If we started recording halfway through the session, we should not serve v2 sources
-                # as we don't have the complete recording from the start
-                if blocks and blocks[0][0] != v2_metadata["start_time"]:
-                    blocks = []
-                for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
-                    sources.append(
-                        {
-                            "source": "blob_v2",
-                            "start_timestamp": start_timestamp,
-                            "end_timestamp": end_timestamp,
-                            "blob_key": str(i),
-                        }
-                    )
+
         if recording.object_storage_path:
             blob_prefix = recording.object_storage_path
             blob_keys = object_storage.list_objects(cast(str, blob_prefix))
@@ -918,51 +909,24 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         )
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
-            # Get metadata for the session
-            metadata = SessionReplayEventsV2Test().get_metadata(recording.session_id, self.team)
-            if not metadata:
+            blocks = list_blocks(recording)
+            if not blocks:
                 raise exceptions.NotFound("Session recording not found")
 
-            # Sort blocks by first timestamp
-            blocks = sorted(
-                zip(metadata["block_first_timestamps"], metadata["block_last_timestamps"], metadata["block_urls"]),
-                key=lambda x: x[0],
-            )
-
-            # Validate block index
             if block_index >= len(blocks):
                 raise exceptions.NotFound("Block index out of range")
 
-            # Get the block URL
-            block_url = blocks[block_index][2]
-            if not block_url:
-                raise exceptions.NotFound("Block URL not found")
-
-            # Parse URL and extract key and byte range
-            parsed_url = urlparse(block_url)
-            key = parsed_url.path.lstrip("/")
-            query_params = parse_qs(parsed_url.query)
-            byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
-            start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
-
-            # Read and return the specific byte range from the object
-            if start_byte is None or end_byte is None:
-                raise exceptions.NotFound("Invalid byte range")
-
-            expected_length = end_byte - start_byte + 1
-            compressed_block = session_recording_v2_object_storage.client().read_bytes(
-                key, first_byte=start_byte, last_byte=end_byte
-            )
-
-            if not compressed_block:
-                raise exceptions.NotFound("Block content not found")
-
-            if len(compressed_block) != expected_length:
-                raise exceptions.APIException(
-                    f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes."
+            block = blocks[block_index]
+            try:
+                decompressed_block = session_recording_v2_object_storage.client().fetch_block(block["url"])
+            except BlockFetchError:
+                logger.exception(
+                    "Failed to fetch block",
+                    recording_id=recording.session_id,
+                    team_id=self.team.id,
+                    block_index=block_index,
                 )
-
-            decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
+                raise exceptions.APIException("Failed to load recording block")
 
             response = HttpResponse(
                 content=decompressed_block,

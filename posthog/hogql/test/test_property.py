@@ -85,7 +85,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr(Property(type="group", group_type_index=0, key="a", value=["b", "c"])),
-            self._parse_expr("group_0.properties.a = 'b' OR group_0.properties.a = 'c'"),
+            self._parse_expr("group_0.properties.a in ('b', 'c')"),
         )
 
         self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
@@ -102,7 +102,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 Property(type="group", group_type_index=0, key="a", value=["b", "c"]), scope="group"
             ),
-            self._parse_expr("properties.a = 'b' OR properties.a = 'c'"),
+            self._parse_expr("properties.a in ('b', 'c')"),
         )
 
         self.assertEqual(
@@ -244,7 +244,7 @@ class TestProperty(BaseTest):
         # positive
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "exact"}),
-            self._parse_expr("properties.a = 'b' OR properties.a = 'c'"),
+            self._parse_expr("properties.a in ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -269,7 +269,7 @@ class TestProperty(BaseTest):
         # negative
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
-            self._parse_expr("properties.a != 'b' AND properties.a != 'c'"),
+            self._parse_expr("properties.a not in ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -867,7 +867,7 @@ class TestProperty(BaseTest):
                 {"type": "event_metadata", "key": "distinct_id", "value": ["p3", "p4"], "operator": "exact"},
                 scope="event",
             ),
-            self._parse_expr("distinct_id = 'p3' OR distinct_id = 'p4'"),
+            self._parse_expr("distinct_id in ('p3', 'p4')"),
         )
 
     def test_property_to_expr_event_metadata_invalid_scope(self):
