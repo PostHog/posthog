@@ -16,7 +16,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTree } from './defaultTree'
+import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
@@ -58,10 +58,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setHelpNoticeVisibility: (visible: boolean) => ({ visible }),
         loadFolder: (folder: string) => ({ folder }),
         loadFolderStart: (folder: string) => ({ folder }),
-        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean = false) => ({
+        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean, offsetIncrease: number) => ({
             folder,
             entries,
             hasMore,
+            offsetIncrease,
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (path: string) => ({ path }),
@@ -266,11 +267,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             },
         ],
-        folderLoadCount: [
+        folderLoadOffset: [
             {} as Record<string, number>,
             {
-                loadFolderSuccess: (state, { folder, entries }) => {
-                    return { ...state, [folder]: entries.length + (state[folder] ?? 0) }
+                loadFolderSuccess: (state, { folder, offsetIncrease }) => {
+                    return { ...state, [folder]: offsetIncrease + (state[folder] ?? 0) }
                 },
             },
         ],
@@ -484,11 +485,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return groupNodes
             },
         ],
-        defaultTreeNodes: [
-            (s) => [s.featureFlags, s.groupNodes, s.folderStates],
-            (_featureFlags, groupNodes: FileSystemImport[], folderStates) =>
+        treeItemsNew: [
+            (s) => [s.featureFlags, s.folderStates],
+            (_featureFlags, folderStates): TreeDataItem[] =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
-                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), folderStates, 'root'),
+                convertFileSystemEntryToTreeDataItem(getDefaultTreeNew(), folderStates, 'root'),
+        ],
+        treeItemsExplore: [
+            (s) => [s.featureFlags, s.groupNodes, s.folderStates],
+            (_featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
+                // .filter(f => !f.flag || featureFlags[f.flag])
+                convertFileSystemEntryToTreeDataItem(getDefaultTreeExplore(groupNodes), folderStates, 'root'),
         ],
         searchedTreeItems: [
             (s) => [s.searchResults, s.searchResultsLoading],
@@ -559,7 +566,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadFolderStart(folder)
             try {
                 const previousFiles = values.folders[folder] || []
-                const offset = values.folderLoadCount[folder] ?? 0
+                const offset = values.folderLoadOffset[folder] ?? 0
                 const response = await api.fileSystem.list({
                     parent: folder,
                     depth: splitPath(folder).length + 1,
@@ -569,7 +576,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                 let files = response.results
                 let hasMore = false
-                if (files.length > PAGINATION_LIMIT) {
+                if (offset + files.length > PAGINATION_LIMIT) {
                     files = files.slice(0, PAGINATION_LIMIT)
                     hasMore = true
                 }
@@ -577,7 +584,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const previousUniqueFiles = previousFiles.filter(
                     (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
                 )
-                actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore)
+                actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore, files.length)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
             }
