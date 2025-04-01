@@ -2716,6 +2716,43 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[2]["reached_from_step_count"], 1)
         self.assertEqual(results[2]["reached_to_step_count"], 0)
 
+    def test_funnel_trends_with_out_of_order_completion(self):
+        journeys_for(
+            {
+                "user a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 19)},
+                    {"event": "step three", "timestamp": datetime(2021, 6, 7, 20)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 7, 21)},
+                ]
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-06-07 00:00:00",
+            "date_to": "2021-06-13 23:59:59",
+            "funnel_window_days": 7,
+            "funnel_from_step": 0,
+            "funnel_to_step": 1,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        runner = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True)
+        results = runner.calculate().results
+
+        self.assertEqual(len(results), 7)  # 7 days in the date range
+        self.assertEqual(results[0]["reached_to_step_count"], 1)
+        self.assertEqual(results[1]["reached_to_step_count"], 0)
+
 
 class TestFunnelTrends(BaseTestFunnelTrends):
     __test__ = True
