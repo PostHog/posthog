@@ -199,9 +199,9 @@ describe('extractBreakdownValues', () => {
         const result = extractBreakdownValues(tiles, null)
 
         expect(result).toEqual([
-            { breakdownValue: 1, breakdownType: 'cohort' },
-            { breakdownValue: 2, breakdownType: 'cohort' },
-            { breakdownValue: 3, breakdownType: 'cohort' },
+            { breakdownValue: '1', breakdownType: 'cohort' },
+            { breakdownValue: '2', breakdownType: 'cohort' },
+            { breakdownValue: '3', breakdownType: 'cohort' },
         ])
     })
 })
