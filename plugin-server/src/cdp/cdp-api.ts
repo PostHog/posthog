@@ -32,7 +32,7 @@ export class CdpApi {
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
+        this.hogExecutor = new HogExecutorService(hub)
         this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
@@ -183,11 +183,6 @@ export class CdpApi {
                     logs: filterLogs,
                     metrics: filterMetrics,
                 } = this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
-
-                if (['broadcast', 'campaign'].includes(compoundConfiguration?.type ?? '')) {
-                    // Preload any import-able functions for the team
-                    await this.hogFunctionManager.loadProviderFunctionsForTeam(parseInt(team_id))
-                }
 
                 // Add metrics to the logs
                 filterMetrics.forEach((metric) => {

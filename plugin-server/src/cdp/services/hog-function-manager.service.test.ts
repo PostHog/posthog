@@ -93,13 +93,6 @@ describe('HogFunctionManager', () => {
             })
         )
 
-        await insertHogFunction(hub.postgres, teamId1, {
-            name: 'provider/send_email',
-            type: 'email',
-            inputs_schema: [],
-            inputs: {},
-        })
-
         await manager.start()
     })
 
@@ -243,19 +236,6 @@ describe('HogFunctionManager', () => {
                 value: integrations[0].id,
             },
         })
-    })
-
-    it('loads provider functions for team', async () => {
-        const providerFunctions = await manager.loadProviderFunctionsForTeam(teamId1)
-
-        expect(providerFunctions).toEqual([
-            expect.objectContaining({
-                id: expect.any(String),
-                name: 'provider/send_email',
-                type: 'email',
-                team_id: teamId1,
-            }),
-        ])
     })
 })
 
