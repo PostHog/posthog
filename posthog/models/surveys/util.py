@@ -18,8 +18,7 @@ def get_survey_response_clickhouse_query(
     index_based_key = _build_index_based_key(question_index)
 
     if is_multiple_choice is True:
-        query = _build_multiple_choice_query(id_based_key, index_based_key)
-        return query
+        return _build_multiple_choice_query(id_based_key, index_based_key)
 
     return _build_coalesce_query(id_based_key, index_based_key)
 
