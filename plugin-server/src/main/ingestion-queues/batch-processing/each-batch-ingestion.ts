@@ -172,7 +172,7 @@ export async function eachBatchParallelIngestion(
                         // TODO: as we will switch to the new ingestion flow and this will be removed
                         const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent, null)
                         const result = (await retryIfRetriable(async () => {
-                            return await runner.runEventPipeline(pluginEvent)
+                            return await runner.runEventPipeline(pluginEvent, [])
                         })) as IngestResult
 
                         result.ackPromises?.forEach((promise) =>

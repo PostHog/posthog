@@ -31,7 +31,7 @@ describe('Event Pipeline integration test', () => {
 
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
-        const result = await runner.runEventPipeline(event)
+        const result = await runner.runEventPipeline(event, [])
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([
             processOnEventStep(runner.hub, postIngestionEvent),
@@ -254,13 +254,13 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event, [])
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
 
         // second time single fetch
-        await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event, [])
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
 
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 2)
@@ -338,7 +338,7 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        const result = await new EventPipelineRunner(hub, event).runEventPipeline(event, [])
         expect(result.lastStep).toEqual('cookielessServerHashStep') // rather than emitting the event
     })
 })
