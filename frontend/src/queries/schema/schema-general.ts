@@ -1861,8 +1861,9 @@ export interface FileSystemEntry {
     _loading?: boolean
 }
 
-export interface FileSystemImport extends Omit<FileSystemEntry, 'href'> {
+export interface FileSystemImport extends Omit<FileSystemEntry, 'href' | 'id'> {
     icon?: any // Setting as "any" to keep Python schema.py in check
+    id?: string
     flag?: string
     href: (ref?: string) => string
 }

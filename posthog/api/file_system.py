@@ -200,6 +200,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Get count of all files in a folder."""
         instance = self.get_object()
+        if instance.type != "folder":
+            return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
         count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
         return Response({"count": count}, status=status.HTTP_200_OK)
 

@@ -471,13 +471,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     ...(showGroupsIntroductionPage
                         ? [
                               {
-                                  id: 'create/Groups',
                                   path: 'Groups',
                                   href: () => urls.groups(0),
                               },
                           ]
                         : Array.from(groupTypes.values()).map((groupType) => ({
-                              id: `create/Groups/${groupType.group_type_index}`,
                               path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                               href: () => urls.groups(groupType.group_type_index),
                           }))),
