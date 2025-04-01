@@ -117,6 +117,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                       onClick: () => {
                           toggleSearchBar()
                       },
+                      tooltip: (
+                          <div className="flex flex-col gap-0.5">
+                              <span>
+                                  For search, press <KeyboardShortcut command k />
+                              </span>
+                              <span>
+                                  For commands, press <KeyboardShortcut command shift k />
+                              </span>
+                          </div>
+                      ),
                   },
               ]
             : []),
@@ -128,6 +138,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.projectHomepage(), true)
             },
+            tooltip: 'Home',
         },
         {
             identifier: 'Project',
@@ -148,6 +159,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.dashboards(), true)
             },
+            tooltip: 'Dashboards',
         },
         {
             identifier: 'Notebooks',
@@ -157,6 +169,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.notebooks(), true)
             },
+            tooltip: 'Notebooks',
         },
         {
             identifier: 'DataManagement',
@@ -166,6 +179,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.eventDefinitions(), true)
             },
+            tooltip: 'Data management',
         },
         {
             identifier: 'PersonsManagement',
@@ -175,6 +189,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.persons(), true)
             },
+            tooltip: 'Persons and groups',
         },
         {
             identifier: 'Activity',
@@ -184,6 +199,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.activity(), true)
             },
+            tooltip: 'Activity',
         },
     ]
 
@@ -256,7 +272,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 className="group"
                                                 href={item.to}
                                                 iconOnly={isLayoutNavCollapsed}
-                                                tooltip={isLayoutNavCollapsed ? item.id : undefined}
+                                                tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
                                                 tooltipPlacement="right"
                                             >
                                                 <span
@@ -440,6 +456,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     data-attr="activation-button"
                                     tooltip={isLayoutNavCollapsed ? 'Quick start' : undefined}
                                     tooltipPlacement="right"
+                                    iconOnly={isLayoutNavCollapsed}
                                 >
                                     <span className={`${isLayoutNavCollapsed ? 'size-5' : ''}`}>
                                         <SidePanelActivationIcon size={16} />
@@ -454,6 +471,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
                                 tooltipPlacement="right"
                                 className="group"
+                                iconOnly={isLayoutNavCollapsed}
                             >
                                 <span
                                     className={`flex text-tertiary group-hover:text-primary ${
@@ -472,6 +490,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
                                 tooltipPlacement="right"
                                 className="group"
+                                iconOnly={isLayoutNavCollapsed}
                             >
                                 <span
                                     className={`flex text-tertiary group-hover:text-primary ${
@@ -496,6 +515,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     onClick={toggleAccountPopover}
                                     tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
                                     tooltipPlacement="right"
+                                    iconOnly={isLayoutNavCollapsed}
                                 >
                                     <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
                                     {!isLayoutNavCollapsed && (
