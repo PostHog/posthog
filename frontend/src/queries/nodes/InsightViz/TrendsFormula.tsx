@@ -123,7 +123,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                     <div className="flex items-center gap-2">
                         <LemonInput
                             className="flex-1"
-                            placeholder="Formula series name (optional)"
+                            placeholder="Formula name (optional)"
                             size="small"
                             value={value.custom_name || ''}
                             onChange={(value) => handleCustomNameChange(index, value)}
