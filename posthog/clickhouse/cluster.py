@@ -512,6 +512,7 @@ class MutationRunner(abc.ABC):
             mutations_running = self.find_existing_mutations(client, expected_commands)
             if mutations_running.keys() == expected_commands:
                 return MutationWaiter(self.table, set(mutations_running.values()))
+            time.sleep(1.0)
 
         raise Exception(
             f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"

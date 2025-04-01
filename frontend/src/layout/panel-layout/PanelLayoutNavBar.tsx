@@ -8,39 +8,41 @@ import {
     IconHome,
     IconNotebook,
     IconPeople,
-    IconPinFilled,
     IconSearch,
     IconToolbar,
 } from '@posthog/icons'
-import { cva } from 'class-variance-authority'
-import clsx from 'clsx'
+import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
+import { Button } from 'lib/ui/Button/Button'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
+import { SidePanelTab } from '~/types'
 
-import { breadcrumbsLogic } from '../navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
+import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
-const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
+const panelStyles = cva({
+    base: 'z-[var(--z-project-panel-layout)] h-screen left-0',
     variants: {
         isLayoutPanelVisible: {
             true: 'block',
@@ -55,16 +57,18 @@ const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, activePanelIdentifier, mainContentRef, isLayoutPanelPinned } =
+    const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier, toggleLayoutNavCollapsed } =
+        useActions(panelLayoutLogic)
+    const { isLayoutPanelVisible, activePanelIdentifier, mainContentRef, isLayoutPanelPinned, isLayoutNavCollapsed } =
         useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { navbarItems } = useValues(navigation3000Logic)
-    const { activeScene } = useValues(sceneLogic)
+    const { mobileLayout: isMobileLayout, navbarItems } = useValues(navigation3000Logic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
-    const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
+    const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { isDev } = useValues(preflightLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (!isLayoutPanelVisible) {
@@ -103,6 +107,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         'PersonsManagement',
     ]
     const navItems = [
+        ...(isLayoutNavCollapsed
+            ? [
+                  {
+                      identifier: 'Search',
+                      id: 'Search',
+                      icon: <IconSearch />,
+                      onClick: () => {
+                          toggleSearchBar()
+                      },
+                  },
+              ]
+            : []),
         {
             identifier: 'ProjectHomepage',
             id: 'Home',
@@ -174,25 +190,25 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         <>
             <div className="flex gap-0 relative">
                 <nav
-                    className={clsx(
-                        'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-project-panel-layout)] w-[250px] border-r border-primary'
+                    className={cn(
+                        'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-project-panel-layout)] border-r border-primary',
+                        {
+                            'w-[var(--project-navbar-width-collapsed)]': isLayoutNavCollapsed,
+                            'w-[var(--project-navbar-width)]': !isLayoutNavCollapsed,
+                        }
                     )}
                     ref={containerRef}
                 >
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <LemonButton
-                            size="small"
-                            type="tertiary"
-                            tooltip="Search"
-                            onClick={() => toggleSearchBar()}
-                            icon={
-                                <IconWrapper>
-                                    <IconSearch />
-                                </IconWrapper>
-                            }
-                        />
+                        {!isLayoutNavCollapsed && (
+                            <Button.Root size="base" onClick={() => toggleSearchBar()} data-attr="search-button">
+                                <Button.Icon>
+                                    <IconSearch className="text-secondary" />
+                                </Button.Icon>
+                            </Button.Root>
+                        )}
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
@@ -215,53 +231,55 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 }
                                             }}
                                         >
-                                            <LemonButton
-                                                className={cn(
-                                                    activePanelIdentifier === item.identifier &&
-                                                        'bg-fill-button-tertiary-active'
-                                                )}
-                                                icon={<IconWrapper>{item.icon}</IconWrapper>}
-                                                fullWidth
-                                                size="small"
-                                                sideIcon={
-                                                    item.showChevron ? (
-                                                        <IconWrapper size="sm">
-                                                            <IconChevronRight />
-                                                        </IconWrapper>
-                                                    ) : undefined
-                                                }
-                                                to={item.to}
+                                            <Button.Root
+                                                menuItem
+                                                active={item.id === 'Project' && isLayoutPanelVisible}
+                                                data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
+                                                className="group"
                                             >
-                                                <span>{item.id}</span>
-                                                <span className="ml-auto">
-                                                    {item.id === 'Project' &&
-                                                        isLayoutPanelPinned &&
-                                                        isLayoutPanelVisible && (
-                                                            <IconWrapper size="sm">
-                                                                <IconPinFilled />
-                                                            </IconWrapper>
+                                                <Button.Icon
+                                                    className="text-tertiary group-hover:text-primary"
+                                                    size={isLayoutNavCollapsed ? 'lg' : 'base'}
+                                                >
+                                                    {item.icon}
+                                                </Button.Icon>
+                                                {!isLayoutNavCollapsed && (
+                                                    <>
+                                                        <Button.Label menuItem>{item.id}</Button.Label>
+                                                        {item.id === 'Project' && (
+                                                            <span className="flex items-center gap-px">
+                                                                <Button.Icon customIconSize>
+                                                                    <IconChevronRight className="size-3 text-secondary" />
+                                                                </Button.Icon>
+                                                            </span>
                                                         )}
-                                                </span>
-                                            </LemonButton>
+                                                    </>
+                                                )}
+                                            </Button.Root>
                                         </ListBox.Item>
                                     ))}
                                 </div>
 
-                                <div className="border-b border-secondary h-px my-1" />
+                                <div className="border-b border-primary h-px my-1" />
 
                                 <div className="pt-1 px-1">
-                                    <div className="flex justify-between items-center pl-2 pr-0 pb-2">
-                                        <span className="text-xs font-bold text-tertiary">Products</span>
-                                    </div>
+                                    {!isLayoutNavCollapsed && (
+                                        <div className="flex justify-between items-center pl-2 pr-0 pb-2">
+                                            <span className="text-xs font-semibold text-quaternary">Products</span>
+                                        </div>
+                                    )}
                                     <div className="flex flex-col gap-px">
                                         {navbarItems.map((section, index) => (
-                                            <ul key={index} className="flex flex-col gap-px">
+                                            <ul key={index} className="flex flex-col gap-px ">
                                                 {section.map((item) => {
                                                     if (filteredNavItemsIdentifiers.includes(item.identifier)) {
                                                         return null
                                                     }
-                                                    return item.featureFlag &&
-                                                        !featureFlags[item.featureFlag] ? null : (
+
+                                                    const notEnabled =
+                                                        item.featureFlag && !featureFlags[item.featureFlag]
+
+                                                    return notEnabled ? null : (
                                                         <ListBox.Item
                                                             asChild
                                                             key={item.identifier}
@@ -280,34 +298,61 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 }
                                                             }}
                                                         >
-                                                            <LemonButton
-                                                                key={item.identifier}
-                                                                icon={<IconWrapper>{item.icon}</IconWrapper>}
-                                                                sideIcon={
-                                                                    item.tag ? (
-                                                                        <LemonTag
-                                                                            type={
-                                                                                item.tag === 'alpha'
-                                                                                    ? 'completion'
-                                                                                    : item.tag === 'beta'
-                                                                                    ? 'warning'
-                                                                                    : 'success'
-                                                                            }
-                                                                            size="small"
-                                                                            className="ml-2"
-                                                                        >
-                                                                            {item.tag.toUpperCase()}
-                                                                        </LemonTag>
-                                                                    ) : undefined
-                                                                }
-                                                                fullWidth
-                                                                size="small"
-                                                                // This makes it a link if it has a to
-                                                                // we handle routing in the handleStaticNavbarItemClick function
+                                                            <Button.Root
+                                                                menuItem
                                                                 to={'to' in item ? item.to : undefined}
+                                                                className="group"
+                                                                data-attr={`menu-item-${item.identifier
+                                                                    .toString()
+                                                                    .toLowerCase()}`}
                                                             >
-                                                                {item.label}
-                                                            </LemonButton>
+                                                                <Button.Icon
+                                                                    className="text-tertiary group-hover:text-primary"
+                                                                    size={isLayoutNavCollapsed ? 'lg' : 'base'}
+                                                                >
+                                                                    {item.icon}
+                                                                </Button.Icon>
+                                                                {!isLayoutNavCollapsed && (
+                                                                    <>
+                                                                        <Button.Label menuItem>
+                                                                            {item.label}
+                                                                        </Button.Label>
+                                                                        {item.tag && (
+                                                                            <LemonTag
+                                                                                type={
+                                                                                    item.tag === 'alpha'
+                                                                                        ? 'completion'
+                                                                                        : item.tag === 'beta'
+                                                                                        ? 'warning'
+                                                                                        : 'success'
+                                                                                }
+                                                                                size="small"
+                                                                                className="ml-auto"
+                                                                            >
+                                                                                {item.tag.toUpperCase()}
+                                                                            </LemonTag>
+                                                                        )}
+
+                                                                        {item.sideAction &&
+                                                                            item.identifier === 'SavedInsights' && (
+                                                                                <Button.Icon
+                                                                                    isTriggerRight
+                                                                                    isTrigger
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault()
+                                                                                        e.stopPropagation()
+                                                                                        e.nativeEvent.stopImmediatePropagation()
+                                                                                        router.actions.push(
+                                                                                            urls.insightNew()
+                                                                                        )
+                                                                                    }}
+                                                                                >
+                                                                                    {item.sideAction.icon}
+                                                                                </Button.Icon>
+                                                                            )}
+                                                                    </>
+                                                                )}
+                                                            </Button.Root>
                                                         </ListBox.Item>
                                                     )
                                                 })}
@@ -318,64 +363,42 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        <div className="border-b border-secondary h-px " />
+                        <div className="border-b border-primary h-px " />
 
-                        <div className="pt-1 px-1 pb-2 flex flex-col gap-px">
-                            <LemonButton
-                                className={cn(
-                                    (activeScene === Scene.ToolbarLaunch ||
-                                        sceneBreadcrumbKeys.includes(Scene.ToolbarLaunch)) &&
-                                        'bg-fill-button-tertiary-active'
-                                )}
-                                icon={
-                                    <IconWrapper>
-                                        <IconToolbar />
-                                    </IconWrapper>
-                                }
-                                fullWidth
-                                size="small"
-                                to={urls.toolbarLaunch()}
-                                onClick={() => {
-                                    handleStaticNavbarItemClick(urls.toolbarLaunch(), false)
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
+                        {/* 
+                            Extra padding to compensate for dev mode debug notice... 
+                            not sure how better to do this other than lower the notices z-index.. 
+                        */}
+                        <div className={`pt-1 px-1 flex flex-col gap-px ${isDev ? 'pb-10' : 'pb-2'}`}>
+                            {visibleTabs.includes(SidePanelTab.Activation) && (
+                                <Button.Root
+                                    menuItem
+                                    onClick={() =>
+                                        sidePanelOpen && selectedTab === SidePanelTab.Activation
+                                            ? closeSidePanel()
+                                            : openSidePanel(SidePanelTab.Activation)
                                     }
-                                }}
-                                active={
-                                    activeScene === Scene.ToolbarLaunch ||
-                                    sceneBreadcrumbKeys.includes(Scene.ToolbarLaunch)
-                                }
-                            >
-                                Toolbar
-                            </LemonButton>
+                                    data-attr="activation-button"
+                                >
+                                    <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
+                                        <SidePanelActivationIcon size={isLayoutNavCollapsed ? 20 : 16} />
+                                    </Button.Icon>
+                                    {!isLayoutNavCollapsed && <Button.Label menuItem>Quick start</Button.Label>}
+                                </Button.Root>
+                            )}
+                            <Button.Root menuItem to={urls.toolbarLaunch()} data-attr={Scene.ToolbarLaunch}>
+                                <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
+                                    <IconToolbar />
+                                </Button.Icon>
+                                {!isLayoutNavCollapsed && <Button.Label menuItem>Toolbar</Button.Label>}
+                            </Button.Root>
 
-                            <LemonButton
-                                className={cn(
-                                    (activeScene === Scene.Settings || sceneBreadcrumbKeys.includes(Scene.Settings)) &&
-                                        'bg-fill-button-tertiary-active'
-                                )}
-                                icon={
-                                    <IconWrapper>
-                                        <IconGear />
-                                    </IconWrapper>
-                                }
-                                to={urls.settings('project')}
-                                onClick={() => {
-                                    handleStaticNavbarItemClick(urls.settings('project'), false)
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        handleStaticNavbarItemClick(urls.settings('project'), true)
-                                    }
-                                }}
-                                fullWidth
-                                size="small"
-                                active={activeScene === Scene.Settings || sceneBreadcrumbKeys.includes(Scene.Settings)}
-                            >
-                                Settings
-                            </LemonButton>
+                            <Button.Root menuItem to={urls.settings('project')} data-attr={Scene.Settings}>
+                                <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
+                                    <IconGear />
+                                </Button.Icon>
+                                {!isLayoutNavCollapsed && <Button.Label menuItem>Settings</Button.Label>}
+                            </Button.Root>
 
                             <Popover
                                 overlay={<AccountPopoverOverlay />}
@@ -384,25 +407,44 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 placement="right-end"
                                 className="min-w-70"
                             >
-                                <LemonButton
-                                    className={cn(isAccountPopoverOpen && 'bg-fill-button-tertiary-active')}
-                                    fullWidth
-                                    size="small"
-                                    sideIcon={
-                                        <IconWrapper size="sm">
-                                            <IconChevronRight />
-                                        </IconWrapper>
-                                    }
-                                    icon={<ProfilePicture user={user} size="sm" className="mr-1" />}
-                                    title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
-                                    onClick={toggleAccountPopover}
-                                >
-                                    {user?.first_name ? <span>{user?.first_name}</span> : <span>{user?.email}</span>}
-                                </LemonButton>
+                                <Button.Root menuItem active={isAccountPopoverOpen} onClick={toggleAccountPopover}>
+                                    <Button.Icon size={isLayoutNavCollapsed ? 'lg' : 'base'}>
+                                        <ProfilePicture
+                                            user={user}
+                                            size="sm"
+                                            className={!isLayoutNavCollapsed ? 'mr-1' : ''}
+                                        />
+                                    </Button.Icon>
+                                    {!isLayoutNavCollapsed && (
+                                        <>
+                                            <Button.Label menuItem>
+                                                {user?.first_name ? (
+                                                    <span>{user?.first_name}</span>
+                                                ) : (
+                                                    <span>{user?.email}</span>
+                                                )}
+                                            </Button.Label>
+                                            <Button.Icon customIconSize>
+                                                <IconChevronRight className="size-3 text-secondary" />
+                                            </Button.Icon>
+                                        </>
+                                    )}
+                                </Button.Root>
                             </Popover>
                         </div>
                     </div>
+                    {!isMobileLayout && (
+                        <Resizer
+                            logicKey="panel-layout-navbar"
+                            placement="right"
+                            containerRef={containerRef}
+                            closeThreshold={100}
+                            onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
+                            onDoubleClick={() => toggleLayoutNavCollapsed()}
+                        />
+                    )}
                 </nav>
+
                 <div
                     className={cn(
                         panelStyles({

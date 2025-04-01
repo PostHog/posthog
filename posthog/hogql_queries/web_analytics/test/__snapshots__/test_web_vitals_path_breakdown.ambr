@@ -24,7 +24,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_limit_of_20_paths
@@ -52,7 +53,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_crash_when_no_data
@@ -80,7 +82,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_metric
@@ -108,7 +111,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_period
@@ -136,7 +140,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied
@@ -164,7 +169,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.1
@@ -192,7 +198,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.2
@@ -220,7 +227,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_properties_are_applied
@@ -248,6 +256,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
