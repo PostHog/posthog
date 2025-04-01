@@ -216,7 +216,7 @@ impl AggregateFunnelRow {
                             .unwrap()
                     {
                         let mut entered_timestamp =
-                            vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.to_step + 1];
+                            vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
                         entered_timestamp[1] = entered_timestamp_one;
                         let interval_data = IntervalData {
                             max_step: MaxStep {
