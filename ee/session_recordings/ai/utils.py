@@ -47,52 +47,53 @@ class SessionSummaryPromptData:
     window_id_mapping: dict[str, int] = dataclasses.field(default_factory=dict)
     url_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
 
-    def _get_column_index(self, column_name: str) -> int | None:
-        for i, c in enumerate(self.columns):
-            if c == column_name:
-                return i
-        return None
-
-    def populate_through_session_data(
+    def load_session_data(
         self, raw_session_events: list[list[Any]], raw_session_metadata: dict[str, Any], raw_session_columns: list[str]
-    ) -> None:
+    ) -> dict[str, list[Any]]:
+        """
+        Create session summary prompt data from session data, and return a mapping of event ids to events
+        to combine events data with the LLM output (avoid LLM returning/hallucinating the event data in the output).
+        """
         if not raw_session_events or not raw_session_metadata:
             return
-        self.columns = [*raw_session_columns, "event_id"]
+        self.columns = [*raw_session_columns, "milliseconds_since_start", "event_id"]
         self.metadata = self._prepare_metadata(raw_session_metadata)
-        simplified_session_events: list[list[Any]] = []
-        event_hexes = set()
+        events_mapping: dict[str, list[Any]] = {}
         # Pick indexes as we iterate over arrays
-        window_id_index = self._get_column_index("$window_id", self.columns)
-        url_index = self._get_column_index("$current_url", self.columns)
-        timestamp_index = self._get_column_index("timestamp", self.columns)
+        window_id_index = self._get_column_index("$window_id")
+        current_url_index = self._get_column_index("$current_url")
+        timestamp_index = self._get_column_index("timestamp")
+        ms_since_start_index = len(self.columns) - 2
+        event_id_index = len(self.columns) - 1
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
         for event in raw_session_events:
             # Copy the event to avoid mutating the original
-            simplified_event = list(event)
+            simplified_event = [*list(event), None, None]
             # Simplify Window IDs
             if window_id_index is not None:
-                simplified_event["$window_id"] = self._simplify_window_id(event[window_id_index])
+                simplified_event[window_id_index] = self._simplify_window_id(event[window_id_index])
             # Simplify URLs
-            if url_index is not None:
-                simplified_event["$current_url"] = self._simplify_url(event[url_index])
-            # simplified_session_events.append(simplified_event)
+            if current_url_index is not None:
+                simplified_event[current_url_index] = self._simplify_url(event[current_url_index])
             # Calculate time since start to jump to the right place in the player
             if timestamp_index is not None:
-                simplified_event["milliseconds_since_start"] = self._calculate_time_since_start(
+                simplified_event[ms_since_start_index] = self._calculate_time_since_start(
                     event[timestamp_index], self.metadata.start_time
                 )
-                # Remove timestamp as we don't need it anymore
-                del simplified_event[timestamp_index]
-            # Generate a hex for each event to make sure we can identify repeated events.
-            event_hex = self._get_deterministic_hex(simplified_event)
-            if event_hex in event_hexes:
+            # Generate a hex for each event to make sure we can identify repeated events, and identify the event
+            event_id = self._get_deterministic_hex(simplified_event)
+            if event_id in events_mapping:
                 # Skip repeated events
                 continue
-            event_hexes.add(event_hex)
             # Generate a unique id for each event, after hexing (as event id will be unique)
-            simplified_event["event_id"] = uuid.uuid4().hex[:8]
-        return simplified_session_events
+            simplified_event[event_id_index] = uuid.uuid4().hex[:8]
+            # Remove timestamp as we don't need it anymore
+            del simplified_event[timestamp_index]
+            events_mapping[event_id] = simplified_event[event_id_index]
+        # Remove timestamp column (as we don't store timestamps)
+        del self.columns[timestamp_index]
+        self.results = events_mapping.values()
+        return events_mapping
 
     def _prepare_metadata(self, raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
         # Remove excessive data
@@ -133,6 +134,12 @@ class SessionSummaryPromptData:
             self.url_mapping[url] = f"url_{len(self.url_mapping) + 1}"
         return self.url_mapping[url]
 
+    def _get_column_index(self, column_name: str) -> int | None:
+        for i, c in enumerate(self.columns):
+            if c == column_name:
+                return i
+        return None
+
     @staticmethod
     def _prepare_datetime(raw_time: datetime | str | None) -> datetime | None:
         if not raw_time:
@@ -144,9 +151,9 @@ class SessionSummaryPromptData:
     @staticmethod
     def _calculate_time_since_start(session_timestamp: str, session_start_time: datetime | None) -> str:
         if not session_start_time or not session_timestamp:
-            return None, None
+            return None
         timestamp_datetime = datetime.fromisoformat(session_timestamp)
-        return timestamp_datetime, int((timestamp_datetime - session_start_time).total_seconds() * 1000)
+        return int((timestamp_datetime - session_start_time).total_seconds() * 1000)
 
     @staticmethod
     def _get_deterministic_hex(event: list[Any], length: int = 8) -> str:

@@ -98,13 +98,13 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         #     )
         # )
         prompt_data = SessionSummaryPromptData()
-        prompt_data.populate_through_session_data(session_events, session_metadata, session_events_columns)
+        prompt_data.load_session_data(session_events, session_metadata, session_events_columns)
         template = get_template(f"session_summaries/single-replay_base-prompt.md")
         rendered_template = template.render(
             {
                 "EVENTS_COLUMNS": prompt_data.columns,
                 "EVENTS_DATA": prompt_data.results,
-                "SESSION_METADATA": prompt_data.metadata,
+                "SESSION_METADATA": prompt_data.metadata.to_dict(),
                 "URL_MAPPING": prompt_data.url_mapping,
                 "WINDOW_ID_MAPPING": prompt_data.window_id_mapping,
             }
