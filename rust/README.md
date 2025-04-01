@@ -27,17 +27,17 @@ This is the typical flow for working locally and running test suites. CI now beh
 
 # from posthog/rust (Rust workspace root)
 
-# Bootstraps posthog Docker Compose DB schemas and test-scoped Rust workspace defined migrations
-> bin/migrate_tests
+# Option 1: run the test migrations and test suites for all workspace projects (CI does this)
+> bin/run_workspace_tests
+
+# Option 2: test a particular subproject only
 
 # Execute individual Rust workspace subproject directly
+> bin/migrate_tests
 > cargo test -p <SUBPACKAGE_NAME>
 
 # ...or, the workspace test script acccepts any subpackage listed by `cargo test -p`
 > bin/run_workspace_tests <SUBPACKAGE_NAME>
-
-# Run the test migrations and test suites for all workspace projects (CI does this)
-> bin/run_workspace_tests
 ```
 
 ## Rust Workspace Local Dev, Test, and CI components
