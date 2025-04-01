@@ -20,7 +20,7 @@ export function QueryAI({ codeEditorKey }: QueryAIProps): JSX.Element {
 export function QueryAIInstance(): JSX.Element {
     const { question, threadLoading, threadGrouped, animationId } = useValues(queryAILogic)
     const { setQuestion, askQueryAI } = useActions(queryAILogic)
-    const [hasSubmitted, setHasSubmitted] = useState(false)
+    const [hasSubmitted, setHasSubmitted] = useState(threadGrouped.length > 0)
 
     const handleSubmit = (): void => {
         if (!question) {
