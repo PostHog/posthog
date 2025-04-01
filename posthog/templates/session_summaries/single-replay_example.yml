@@ -1,0 +1,44 @@
+summary: User started on the pricing page, compared different plan features, and signed up for a trial. They completed the registration form, but encountered an error during payment submission. After retrying, they successfully activated their account and began exploring the dashboard features.
+
+key_events:
+    - event_id: 'ev_123abc'
+      description: 'Landed on pricing page from Google Ads enterprise campaign. Direct click-through from search results.'
+      error: false
+      tags:
+          where: ['pricing_page']
+          what: ['page_view']
+
+    - event_id: 'ev_456def'
+      description: "Clicked 'Compare Plans' button and spent 2 minutes reviewing enterprise vs business tier features."
+      error: false
+      tags:
+          where: ['pricing_page', 'feature_modal']
+          what: ['feature_comparison', 'plan_selection']
+
+    - event_id: 'ev_789ghi'
+      description: 'Started trial registration by selecting enterprise plan with annual billing. Filled out company information form.'
+      error: false
+      tags:
+          where: ['signup_page']
+          what: ['signup_start']
+
+    - event_id: 'ev_012jkl'
+      description: 'Payment submission failed with error 422. Card validation failed due to API error. User shown validation error message.'
+      error: true
+      tags:
+          where: ['checkout_page']
+          what: ['payment']
+
+    - event_id: 'ev_345mno'
+      description: 'Second payment attempt. Payment validation successful after user updated payment information.'
+      error: false
+      tags:
+          where: ['checkout_page']
+          what: ['payment']
+
+    - event_id: 'ev_678pqr'
+      description: 'Accessed main dashboard post-payment. Began onboarding flow by selecting initial preferences and workspace settings.'
+      error: false
+      tags:
+          where: ['dashboard', 'onboarding_flow']
+          what: ['page_view', 'onboarding', 'workspace_setup']

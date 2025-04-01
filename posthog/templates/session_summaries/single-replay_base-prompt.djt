@@ -1,0 +1,98 @@
+<base_task>
+Generate a summary of a user session on a website based on a series of events. Events columns explain what each value of the event means based on the index in the event array. Events data includes user activity in a chronolical order to summarize.
+</base_task>
+
+<events_columns>
+{% for column in EVENTS_COLUMNS %}
+    {{ forloop.counter0 }}. {{ column }} -
+    {%- if forloop.counter == 0 -%}
+        Event type
+    {%- elif forloop.counter == 1 -%}
+        Elements chain href
+    {%- elif forloop.counter == 2 -%}
+        Elements chain texts
+    {%- elif forloop.counter == 3 -%}
+        Elements chain elements
+    {%- elif forloop.counter == 4 -%}
+        Window/browser tab id
+    {%- elif forloop.counter == 5 -%}
+        Current URL
+    {%- elif forloop.counter == 6 -%}
+        Event subtype (if applicable)
+    {%- elif forloop.counter == 7 -%}
+        Time in ms since session start
+    {%- elif forloop.counter == 8 -%}
+        Unique event id
+    {%- endif %}
+{% endfor %}
+</events_columns>
+
+<events_data>
+{{EVENTS_DATA}}
+</events_data>
+
+<summary_instructions>
+Your task is to analyze these events chronologically and create a concise, readable summary of the user's session. Follow these steps:
+
+1. Examine the events in the order they occurred.
+
+2. Interpret the different event types:
+   - '$pageview': Indicates the user visited a new page
+   - '$autocapture': Represents user interactions like clicks or form submissions
+   - 'client_request_failure': Suggests an error or failed request
+   - And others, get their meaning from the context
+
+3. Pay special attention to:
+   - The URLs visited (found in the 'current_url' field)
+   - User interactions (clicks, form submissions) in '$autocapture' events
+   - Any error events (mark them as `error: true` in the event list)
+
+4. Create a narrative of the user's journey through the site, focusing on:
+   - Pages visited
+   - Actions taken (clicks, form submissions)
+   - Any errors or issues encountered
+
+5. Generate a concise summary of the session, highlighting the key events and user actions.
+</summary_instructions>
+
+<tag_categorization>
+For each event, you must assign appropriate tags in two categories:
+
+1. "where" tags - describe the location/page/section where the event occurred. For example:
+   - `landing_page`
+   - `pricing_page`
+   - `feature_modal`
+   - `signup_page`
+   - `checkout_page`
+   - `dashboard`
+   - `settings_page`
+   - `documentation_page`
+   - `billing_page`
+   - and any other you see fit
+
+2. "what" tags - describe the action/interaction that occurred:
+   - `feature_comparison`
+   - `plan_selection`
+   - `signup_start`
+   - `payment`
+   - `workspace_setup`
+   - `documentation_search`
+   - `feature_enable`
+   - `export_data`
+   - `settings_update`
+   - and any other you see fit
+
+Notes on tagging:
+- Most events will have one tag per category
+- About 25% of events may have multiple tags in either category when the event spans multiple areas or actions
+- Tags should be specific enough to be useful but generic enough to be reusable
+- Avoid creating new tags unless absolutely necessary - use existing ones when possible
+</tag_categorization>
+
+<output_details>
+Provide your summary in YAML format using the provided example. Don't replicate the data of the example, or the number of example entries, use it for formatting only.
+</output_details>
+
+<output_example>
+
+</output_example>
