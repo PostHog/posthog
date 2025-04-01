@@ -1853,6 +1853,8 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+    /** Used to indicate pending actions */
+    loading?: boolean
 }
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'href'> {
