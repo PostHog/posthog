@@ -1,9 +1,9 @@
 import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
-import { LemonSnack, Link } from '@posthog/lemon-ui'
+import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { Button, iconVariants } from 'lib/ui/Button/Button'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -12,7 +12,6 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -43,21 +42,14 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
 
     return (
         <DropdownMenuItem asChild>
-            <Button.Root menuItem>
-                <Link to={relativeOtherProjectPath}>
-                    <Button.Label className="text-primary">
-                        <ProjectName team={team} />
-                    </Button.Label>
-                </Link>
-                <Link
-                    to={urls.project(team.id, urls.settings())}
-                    className={cn(iconVariants({ isTrigger: true, isTriggerRight: true }), 'ml-auto')}
-                >
-                    <Button.Icon>
-                        <IconGear className="text-tertiary" />
-                    </Button.Icon>
-                </Link>
-            </Button.Root>
+            <ButtonGroupPrimitive menuItem fullWidth groupVariant="side-action-group">
+                <ButtonPrimitive menuItem href={relativeOtherProjectPath} sideActionLeft>
+                    <ProjectName team={team} />
+                </ButtonPrimitive>
+                <ButtonPrimitive href={urls.project(team.id, urls.settings('project'))} iconOnly sideActionRight>
+                    <IconGear />
+                </ButtonPrimitive>
+            </ButtonGroupPrimitive>
         </DropdownMenuItem>
     )
 }
@@ -73,34 +65,31 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     return isAuthenticatedTeam(currentTeam) ? (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button.Root>
-                    <Button.Icon>
-                        <IconFolderOpen className="text-tertiary" />
-                    </Button.Icon>
-                    <Button.Label>Project</Button.Label>
-                    <Button.Icon size="sm">
-                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
-                    </Button.Icon>
-                </Button.Root>
+                <ButtonPrimitive>
+                    <IconFolderOpen className="text-tertiary" />
+                    Project
+                    <IconChevronRight className="size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                </ButtonPrimitive>
             </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="start">
+
+            <DropdownMenuContent loop align="start" className="min-w-[200px]">
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <div className="flex flex-col gap-px">
                     <DropdownMenuItem asChild>
-                        <Button.Root menuItem active>
-                            <Button.Label menuItem>
+                        <ButtonGroupPrimitive fullWidth groupVariant="side-action-group">
+                            <ButtonPrimitive menuItem active disabled sideActionLeft>
                                 <ProjectName team={currentTeam} />
-                            </Button.Label>
-                            <Link
-                                to={urls.settings('project')}
-                                className={cn(iconVariants({ isTrigger: true, isTriggerRight: true }), 'ml-auto')}
+                            </ButtonPrimitive>
+                            <ButtonPrimitive
+                                active
+                                href={urls.project(currentTeam.id, urls.settings('project'))}
+                                iconOnly
+                                sideActionRight
                             >
-                                <Button.Icon>
-                                    <IconGear className="text-tertiary" />
-                                </Button.Icon>
-                            </Link>
-                        </Button.Root>
+                                <IconGear className="text-tertiary" />
+                            </ButtonPrimitive>
+                        </ButtonGroupPrimitive>
                     </DropdownMenuItem>
 
                     {currentOrganization?.teams &&
@@ -119,12 +108,10 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 })
                             }
                         >
-                            <Button.Root menuItem data-attr="new-project-button">
-                                <Button.Icon>
-                                    <IconPlusSmall className="text-tertiary" />
-                                </Button.Icon>
-                                <Button.Label menuItem>New project</Button.Label>
-                            </Button.Root>
+                            <ButtonPrimitive menuItem data-attr="new-project-button">
+                                <IconPlusSmall className="text-tertiary" />
+                                New project
+                            </ButtonPrimitive>
                         </DropdownMenuItem>
                     )}
                 </div>
