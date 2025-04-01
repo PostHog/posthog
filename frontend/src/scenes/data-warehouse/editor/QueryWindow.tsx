@@ -52,7 +52,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 {sidebarWidth === 0 && (
                     <LemonButton
                         onClick={() => resetDefaultSidebarWidth()}
-                        className="mt-1 mr-1"
+                        className="rounded-none"
                         icon={<IconSidebarClose />}
                         type="tertiary"
                         size="small"
