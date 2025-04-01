@@ -533,10 +533,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         activityPerSecond: [
             (s) => [s.sessionPlayerData, s.hasSnapshots],
-            (sessionPlayerData: SessionPlayerData, hasSnapshots: boolean) => {
+            (
+                sessionPlayerData: SessionPlayerData,
+                hasSnapshots: boolean
+            ): { smoothedPoints: Record<number, { y: number }>; maxY: number; durationSeconds: number } => {
                 const start = sessionPlayerData.start
                 if (start === null || !hasSnapshots) {
-                    return {}
+                    return { smoothedPoints: {}, maxY: 0, durationSeconds: (sessionPlayerData?.durationMs ?? 0) / 1000 }
                 }
 
                 // First add a 0 for every second in the recording
@@ -578,6 +581,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 const smoothedActivity: typeof rawActivity = {}
 
+                let maxY = 0
                 sortedSeconds.forEach((second) => {
                     let smoothedY = 0
                     for (let i = -7; i <= 7; i++) {
@@ -589,9 +593,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     smoothedActivity[second] = {
                         y: smoothedY,
                     }
+                    maxY = Math.max(maxY, smoothedY)
                 })
 
-                return smoothedActivity
+                return {
+                    smoothedPoints: smoothedActivity,
+                    maxY,
+                    durationSeconds: (sessionPlayerData?.durationMs ?? 0) / 1000,
+                }
             },
         ],
 
