@@ -38,7 +38,7 @@ describe('extractBreakdownValues', () => {
     })
 
     it('returns empty array for null input', () => {
-        expect(extractBreakdownValues(null)).toEqual([])
+        expect(extractBreakdownValues(null, null)).toEqual([])
     })
 
     it('handles funnel insights with steps visualization', () => {
@@ -69,7 +69,7 @@ describe('extractBreakdownValues', () => {
             }),
         ]
 
-        const result = extractBreakdownValues(tiles)
+        const result = extractBreakdownValues(tiles, null)
 
         expect(result).toEqual([
             { breakdownValue: 'Baseline', breakdownType: 'event' },
@@ -104,7 +104,7 @@ describe('extractBreakdownValues', () => {
             }),
         ]
 
-        const result = extractBreakdownValues(tiles)
+        const result = extractBreakdownValues(tiles, null)
 
         expect(result).toEqual([
             { breakdownValue: 'Chrome', breakdownType: 'event' },
@@ -141,7 +141,7 @@ describe('extractBreakdownValues', () => {
             }),
         ]
 
-        const result = extractBreakdownValues(tiles)
+        const result = extractBreakdownValues(tiles, null)
 
         expect(result).toEqual([
             { breakdownValue: 'Chrome', breakdownType: 'event' },
@@ -162,7 +162,7 @@ describe('extractBreakdownValues', () => {
                 } as InsightVizNode<InsightQueryNode>,
             }),
         ]
-        expect(extractBreakdownValues(tiles)).toEqual([])
+        expect(extractBreakdownValues(tiles, null)).toEqual([])
     })
 
     it('handles cohort breakdowns', () => {
@@ -196,7 +196,7 @@ describe('extractBreakdownValues', () => {
             }),
         ]
 
-        const result = extractBreakdownValues(tiles)
+        const result = extractBreakdownValues(tiles, null)
 
         expect(result).toEqual([
             { breakdownValue: 1, breakdownType: 'cohort' },

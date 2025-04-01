@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
+import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
