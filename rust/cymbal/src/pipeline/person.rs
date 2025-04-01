@@ -82,6 +82,7 @@ pub async fn add_person_properties(
         };
 
         event.person_created_at = Some(format_ch_timestamp(person.created_at));
+        event.person_id = Some(person.uuid.to_string());
         event.person_properties =
             Some(serde_json::to_string(&person.properties).map_err(|e| (i, e.into()))?);
     }

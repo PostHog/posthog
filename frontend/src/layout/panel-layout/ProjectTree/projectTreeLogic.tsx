@@ -22,6 +22,8 @@ import { FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
 
 const PAGINATION_LIMIT = 100
+const MOVE_ALERT_LIMIT = 50
+const DELETE_ALERT_LIMIT = 0
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -46,8 +48,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
-        applyPendingActions: true,
-        cancelPendingActions: true,
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         updateSavedItem: (savedItem: FileSystemEntry, oldPath: string) => ({ savedItem, oldPath }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
@@ -121,32 +121,85 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         pendingLoader: [
             false,
             {
-                applyPendingActions: async () => {
-                    for (const action of values.pendingActions) {
-                        if (action.type === 'move' && action.newPath) {
-                            // TODO: move all in folder
-                            if (!action.item.id) {
-                                const response = await api.fileSystem.create({ ...action.item, path: action.newPath })
-                                actions.createSavedItem(response)
-                            } else {
-                                await api.fileSystem.move(action.item.id, action.newPath)
-                                actions.movedItem(action.item, action.item.path, action.newPath)
+                queueAction: async ({ action }) => {
+                    if (action.type === 'prepare-move' && action.newPath) {
+                        try {
+                            const response = await api.fileSystem.count(action.item.id)
+                            if (response && response.count > MOVE_ALERT_LIMIT) {
+                                const confirmMessage = `You're about to move ${response.count} items. Are you sure?`
+                                if (!confirm(confirmMessage)) {
+                                    actions.removeQueuedAction(action)
+                                    return false
+                                }
                             }
-                        } else if (action.type === 'create') {
+                            actions.queueAction({ ...action, type: 'move' })
+                        } catch (error) {
+                            console.error('Error moving item:', error)
+                            lemonToast.error(`Error moving item: ${error}`)
+                        }
+                    }
+                    if (action.type === 'move' && action.newPath) {
+                        try {
+                            const oldPath = action.item.path
+                            const newPath = action.newPath
+                            await api.fileSystem.move(action.item.id, newPath)
+                            actions.movedItem(action.item, oldPath, newPath)
+                            lemonToast.success('Item moved successfully', {
+                                button: {
+                                    label: 'Undo',
+                                    dataAttr: 'undo-project-tree-move',
+                                    action: () => {
+                                        actions.moveItem(newPath, oldPath)
+                                    },
+                                },
+                            })
+                        } catch (error) {
+                            console.error('Error moving item:', error)
+                            lemonToast.error(`Error moving item: ${error}`)
+                        }
+                    } else if (action.type === 'create') {
+                        try {
                             const response = await api.fileSystem.create(action.item)
                             actions.createSavedItem(response)
-                        } else if (action.type === 'delete' && action.item.id) {
+                            lemonToast.success('Folder created successfully', {
+                                button: {
+                                    label: 'Undo',
+                                    dataAttr: 'undo-project-tree-move',
+                                    action: () => {
+                                        actions.deleteItem(response)
+                                    },
+                                },
+                            })
+                        } catch (error) {
+                            console.error('Error creating folder:', error)
+                            lemonToast.error(`Error creating folder: ${error}`)
+                        }
+                    } else if (action.type === 'prepare-delete' && action.item.id) {
+                        try {
+                            const response = await api.fileSystem.count(action.item.id)
+                            if (response && response.count > DELETE_ALERT_LIMIT) {
+                                const confirmMessage = `You're about to delete ${response.count} items. This can't be undone. Are you sure?`
+                                if (!confirm(confirmMessage)) {
+                                    actions.removeQueuedAction(action)
+                                    return false
+                                }
+                            }
+                            actions.queueAction({ ...action, type: 'delete' })
+                        } catch (error) {
+                            console.error('Error deleting item:', error)
+                            lemonToast.error(`Error deleting item: ${error}`)
+                        }
+                    } else if (action.type === 'delete' && action.item.id) {
+                        try {
                             await api.fileSystem.delete(action.item.id)
                             actions.deleteSavedItem(action.item)
+                            lemonToast.success('Item deleted successfully')
+                        } catch (error) {
+                            console.error('Error deleting item:', error)
+                            lemonToast.error(`Error deleting item: ${error}`)
                         }
-                        actions.removeQueuedAction(action)
                     }
-                    return true
-                },
-                cancelPendingActions: async () => {
-                    for (const action of values.pendingActions) {
-                        actions.removeQueuedAction(action)
-                    }
+                    actions.removeQueuedAction(action)
                     return true
                 },
             },
@@ -237,7 +290,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {
                 queueAction: (state, { action }) => [...state, action],
                 removeQueuedAction: (state, { action }) => state.filter((a) => a !== action),
-                cancelPendingActions: () => [],
             },
         ],
         expandedFolders: [
@@ -321,7 +373,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                                 }
                                                 itemsByPath[newPath] = [
                                                     ...itemsByPath[newPath],
-                                                    { ...loopItem, path: newPath },
+                                                    { ...loopItem, path: newPath, _loading: true },
                                                 ]
                                             }
                                             delete itemsByPath[path]
@@ -331,7 +383,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 if (!itemTarget) {
                                     itemsByPath[action.newPath] = [
                                         ...(itemsByPath[action.newPath] ?? []),
-                                        { ...item, path: action.newPath },
+                                        { ...item, path: action.newPath, _loading: true },
                                     ]
                                 }
                                 delete itemsByPath[action.path]
@@ -339,7 +391,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 if (!itemsByPath[action.newPath]) {
                                     itemsByPath[action.newPath] = [
                                         ...(itemsByPath[action.newPath] ?? []),
-                                        { ...item, path: action.newPath },
+                                        { ...item, path: action.newPath, _loading: true },
                                     ]
                                     delete itemsByPath[action.path]
                                 } else {
@@ -351,13 +403,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         if (!itemsByPath[action.newPath]) {
                             itemsByPath[action.newPath] = [
                                 ...(itemsByPath[action.newPath] ?? []),
-                                { ...action.item, path: action.newPath },
+                                { ...action.item, path: action.newPath, _loading: true },
                             ]
                         } else {
                             console.error("Item already exists, can't create", action.item)
                         }
-                    } else if (action.type === 'delete' && action.path) {
-                        delete itemsByPath[action.path]
+                    } else if (action.path) {
+                        itemsByPath[action.path] = itemsByPath[action.path].map((i) => ({ ...i, loading: true }))
                     }
                 }
                 return Object.values(itemsByPath).flatMap((a) => a)
@@ -369,7 +421,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (pendingActions) => {
                 const unappliedPaths: Record<string, boolean> = {}
                 for (const action of pendingActions) {
-                    if (action.type === 'move-create' || action.type === 'move' || action.type === 'create') {
+                    if (action.type === 'move' || action.type === 'create') {
                         if (action.newPath) {
                             unappliedPaths[action.newPath] = true
                             const split = splitPath(action.newPath)
@@ -545,8 +597,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
             const item = values.viableItems.find((item) => item.path === oldPath)
             if (item && item.path === oldPath) {
+                if (!item.id) {
+                    lemonToast.error("Sorry, can't move an unsaved item (no id)")
+                    return
+                }
                 actions.queueAction({
-                    type: 'move',
+                    type: item.type === 'folder' ? 'prepare-move' : 'move',
                     item,
                     path: item.path,
                     newPath: newPath + item.path.slice(oldPath.length),
@@ -554,7 +610,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         deleteItem: async ({ item }) => {
-            actions.queueAction({ type: 'delete', item, path: item.path })
+            actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
         addFolder: ({ folder }) => {
             if (values.viableItems.find((item) => item.path === folder)) {
@@ -585,12 +641,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         folder && actions.loadFolder(folder.record?.path)
                     }
                 }
-            }
-        },
-        cancelPendingActions: () => {
-            // Clear all pending actions without applying them
-            for (const action of values.pendingActions) {
-                actions.removeQueuedAction(action)
             }
         },
         rename: ({ path }) => {
