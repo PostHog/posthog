@@ -1136,8 +1136,12 @@ class _Printer(Visitor):
                         ):
                             raise QueryError("getSurveyResponse first argument must be a valid integer")
                         second_arg = node_args[1] if len(node_args) > 1 else None
+                        third_arg = node_args[2] if len(node_args) > 2 else None
                         question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                        return get_survey_response_clickhouse_query(int(question_index_obj.value), question_id)
+                        is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
+                        return get_survey_response_clickhouse_query(
+                            int(question_index_obj.value), question_id, is_multiple_choice
+                        )
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
