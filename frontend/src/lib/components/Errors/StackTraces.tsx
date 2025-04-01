@@ -207,7 +207,7 @@ function useFingerprintRecords(fingerprintRecords: FingerprintRecordPart[]): {
                 return !!fingerprintRecords.find((record) => record.type === 'frame' && record.raw_id === frame_id)
             },
             isFrameHighlighted(frame_id: string) {
-                return (
+                return !!(
                     highlightedRecordPart &&
                     highlightedRecordPart.type === 'frame' &&
                     highlightedRecordPart.raw_id === frame_id
