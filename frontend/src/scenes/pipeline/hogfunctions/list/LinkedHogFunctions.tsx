@@ -1,8 +1,10 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { HogFunctionFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
+import { AvailableFeature, HogFunctionFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
 
+import { hogFunctionListLogic } from './hogFunctionListLogic'
 import { HogFunctionList } from './HogFunctionsList'
 import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
@@ -12,6 +14,7 @@ export type LinkedHogFunctionsProps = {
     filters: HogFunctionFiltersType
     subTemplateId?: HogFunctionSubTemplateIdType
     newDisabledReason?: string
+    feature?: AvailableFeature
 }
 
 export function LinkedHogFunctions({
@@ -20,7 +23,11 @@ export function LinkedHogFunctions({
     filters,
     subTemplateId,
     newDisabledReason,
+    feature,
 }: LinkedHogFunctionsProps): JSX.Element | null {
+    const logicProps = { logicKey, forceFilters: { filters }, type }
+
+    const { hogFunctions } = useValues(hogFunctionListLogic(logicProps))
     const [showNewDestination, setShowNewDestination] = useState(false)
 
     return showNewDestination ? (
@@ -29,6 +36,8 @@ export function LinkedHogFunctions({
             type={type}
             subTemplateId={subTemplateId}
             forceFilters={{ filters }}
+            feature={feature}
+            currentUsage={hogFunctions.length}
             extraControls={
                 <>
                     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
@@ -39,9 +48,7 @@ export function LinkedHogFunctions({
         />
     ) : (
         <HogFunctionList
-            logicKey={logicKey}
-            forceFilters={{ filters }}
-            type={type}
+            {...logicProps}
             extraControls={
                 <>
                     <LemonButton

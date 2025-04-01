@@ -279,3 +279,17 @@ const DocsLink = ({ url }: { url: string }): JSX.Element => {
         </div>
     )
 }
+
+export const OptionalPayGateMini = ({
+    feature,
+    children,
+    ...props
+}: Omit<PayGateMiniProps, 'feature'> & Partial<Pick<PayGateMiniProps, 'feature'>>): JSX.Element | null => {
+    return feature ? (
+        <PayGateMini feature={feature} {...props}>
+            {children}
+        </PayGateMini>
+    ) : (
+        <>{children}</>
+    )
+}
