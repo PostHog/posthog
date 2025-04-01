@@ -65,6 +65,9 @@ The Rust workspace dev/test/CI environment has a bunch of moving parts. Here's a
     * Can be run directly in local dev _if_ `bin/migrate_tests` has already run successfully
 * `posthog/plugin-server/package.json`
     * Includes a test target that bootstraps the `cyclotron` dev database
+* `posthog/rust/migrations`
+    * Consolidated home for all subproject migrations that are duplicated from the `posthog` schemas
+    * New subproject uses of `posthog` schemas should be created here with `sqlx migrate add ...`
 * `posthog/rust/.sqlx/`
     * Single unified query cache for all `sqlx`-dependent Rust workspace subprojects
     * Must be updated when queries constructed by `sqlx::query*` macros change and checked into your PR
