@@ -29,7 +29,7 @@ pub enum Stacktrace {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Exception {
-    #[serde(rename = "id")]
+    #[serde(rename = "id", skip_serializing_if = "Option::is_none")]
     pub exception_id: Option<String>,
     #[serde(rename = "type")]
     pub exception_type: String,
