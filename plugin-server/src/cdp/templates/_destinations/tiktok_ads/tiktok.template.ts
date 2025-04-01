@@ -271,16 +271,16 @@ if (res.status >= 400) {
             ],
         },
         {
-            name: 'Order Completed',
+            name: 'Order Placed',
             include_by_default: true,
-            filters: { events: [{ id: 'Order Completed', type: 'events' }] },
+            filters: { events: [{ id: 'Order Placed', type: 'events' }] },
             inputs_schema: [
                 {
                     key: 'eventName',
                     type: 'string',
                     label: 'Event name',
                     description: 'A standard event or custom event name.',
-                    default: 'CompletePayment',
+                    default: 'PlaceAnOrder',
                     secret: false,
                     required: true,
                 },
@@ -331,7 +331,7 @@ if (res.status >= 400) {
                     type: 'string',
                     label: 'Event name',
                     description: 'A standard event or custom event name.',
-                    default: 'PlaceAnOrder',
+                    default: 'CompletePayment',
                     secret: false,
                     required: true,
                 },
