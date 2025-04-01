@@ -1,4 +1,4 @@
-import './Button.css'
+import './ButtonPrimitives.css'
 
 import { cva, type VariantProps } from 'cva'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
