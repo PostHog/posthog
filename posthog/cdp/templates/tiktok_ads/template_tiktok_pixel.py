@@ -283,9 +283,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Place an Order",
+            name="Order Placed",
             include_by_default=True,
-            filters={"events": [{"id": "Place an Order", "type": "events"}]},
+            filters={"events": [{"id": "Order Placed", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
