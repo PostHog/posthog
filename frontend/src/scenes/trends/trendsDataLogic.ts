@@ -293,6 +293,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
                     // use the dashboard theme, or fallback to the insight theme, or the default theme
                     const theme = logic?.values.dataColorTheme || getTheme(querySource?.dataColorTheme)
+                    if (!theme) {
+                        return [null, null]
+                    }
+
                     return [
                         theme,
                         getTrendResultCustomizationColorToken(

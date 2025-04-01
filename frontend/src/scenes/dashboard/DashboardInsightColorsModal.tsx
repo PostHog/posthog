@@ -19,7 +19,7 @@ import { dashboardLogic } from './dashboardLogic'
 export type BreakdownColorConfig = {
     colorToken: DataColorToken | null
     breakdownValue: string
-    breakdownType: Extract<BreakdownFilter, 'breakdown_type'>
+    breakdownType: BreakdownFilter['breakdown_type']
 }
 
 export function DashboardInsightColorsModal(): JSX.Element {

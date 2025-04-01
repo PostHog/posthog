@@ -416,7 +416,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         getFunnelsColorToken: [
             (s) => [s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
             (resultCustomizations, getTheme, breakdownFilter, querySource) => {
-                return (dataset: FlattenedFunnelStepByBreakdown): [DataColorTheme | null, DataColorToken | null] => {
+                return (
+                    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
+                ): [DataColorTheme | null, DataColorToken | null] => {
                     // stringified breakdown value
                     const key = getFunnelDatasetKey(dataset)
                     let breakdownValue = JSON.parse(key)['breakdown_value']
@@ -439,6 +441,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
                     // use the dashboard theme, or fallback to the insight theme, or the default theme
                     const theme = logic?.values.dataColorTheme || getTheme(querySource?.dataColorTheme)
+                    if (!theme) {
+                        return [null, null]
+                    }
+
                     return [
                         theme,
                         getFunnelResultCustomizationColorToken(
@@ -454,7 +460,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         getFunnelsColor: [
             (s) => [s.getFunnelsColorToken],
             (getFunnelsColorToken) => {
-                return (dataset: FlattenedFunnelStepByBreakdown) => {
+                return (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => {
                     const [colorTheme, colorToken] = getFunnelsColorToken(dataset)
                     return colorTheme && colorToken ? colorTheme[colorToken] : '#000000'
                 }

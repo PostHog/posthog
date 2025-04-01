@@ -3,13 +3,13 @@ import { getFunnelDatasetKey, getTrendDatasetKey, sortCohorts } from 'scenes/ins
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
+import { CohortType, DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardInsightColorsModalLogicType } from './dashboardInsightColorsModalLogicType'
 import { dashboardLogic } from './dashboardLogic'
 
-type BreakdownValueAndType = Omit<BreakdownColorConfig, 'colorToken'>
+export type BreakdownValueAndType = Omit<BreakdownColorConfig, 'colorToken'>
 
 export function extractBreakdownValues(
     insightTiles: DashboardTile<QueryBasedInsightModel>[] | null,
