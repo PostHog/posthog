@@ -244,19 +244,6 @@ describe('HogFunctionManager', () => {
             },
         })
     })
-
-    it('loads provider functions for team', async () => {
-        const providerFunctions = await manager.loadProviderFunctionsForTeam(teamId1)
-
-        expect(providerFunctions).toEqual([
-            expect.objectContaining({
-                id: expect.any(String),
-                name: 'provider/send_email',
-                type: 'email',
-                team_id: teamId1,
-            }),
-        ])
-    })
 })
 
 describe('Hogfunction Manager - Execution Order', () => {

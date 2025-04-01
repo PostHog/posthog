@@ -245,28 +245,6 @@ export class HogFunctionManagerService {
         }, {})
     }
 
-    // Fetches the provider functions for a team and caches them. Mostly used for the CDP API postFunctionInvocation endpoint.
-    public async loadProviderFunctionsForTeam(teamId: Team['id']): Promise<HogFunctionType[]> {
-        return (await this.getHogFunctionsForTeams([teamId], HogFunctionManagerService.PROVIDER_FUNCTION_TYPES))[teamId]
-    }
-
-    /**
-     * Synchronously get email provider function for a team from local cache, if it has been preloaded.
-     * @param teamId - The team ID to get the email provider for.
-     * @returns The email provider for the team, or null if no email provider is loaded.
-     */
-    public getTeamHogEmailProvider(teamId: Team['id']): HogFunctionType | null {
-        const teamFunctions = this.lazyLoaderByTeam.cache[teamId.toString()]
-        if (!teamFunctions) {
-            return null
-        }
-        const functionId = teamFunctions.find((f) => f.type === 'email')?.id
-        if (!functionId) {
-            return null
-        }
-        return this.lazyLoader.cache[functionId] ?? null
-    }
-
     public sanitize(items: HogFunctionType[]): void {
         items.forEach((item) => {
             const encryptedInputs = item.encrypted_inputs
