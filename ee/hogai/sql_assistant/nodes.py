@@ -11,10 +11,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.sql_assistant.prompts import SQL_ASSISTANT_SYSTEM_PROMPT
+from ee.hogai.sql_assistant.prompts import SQL_ASSISTANT_SYSTEM_PROMPT, SQL_ASSISTANT_HOGQL_QUERY_PROMPT
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantMessage, HumanMessage, AssistantToolCall
+from posthog.schema import AssistantMessage, HumanMessage, AssistantToolCall, AssistantContextualTool
 from pydantic import BaseModel
 
 
@@ -38,6 +38,7 @@ class SQLAssistantNode(AssistantNode):
             ChatPromptTemplate.from_messages(
                 [
                     ("system", SQL_ASSISTANT_SYSTEM_PROMPT),
+                    ("human", SQL_ASSISTANT_HOGQL_QUERY_PROMPT),
                 ],
                 template_format="mustache",
             )
@@ -47,6 +48,10 @@ class SQLAssistantNode(AssistantNode):
         # Get the model
         model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True)
         model = model.bind_tools([generate_hogql_query])
+
+        generate_hogql_query_config = self._get_contextual_tools(config).get(
+            AssistantContextualTool.GENERATE_HOGQL_QUERY, {}
+        )
 
         # Create the chain
         chain = prompt | model
@@ -61,6 +66,7 @@ class SQLAssistantNode(AssistantNode):
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
+                **generate_hogql_query_config,
             },
             config,
         )

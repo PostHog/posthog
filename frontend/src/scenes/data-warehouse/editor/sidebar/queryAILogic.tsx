@@ -130,9 +130,17 @@ export const queryAILogic = kea<queryAILogicType>([
 
                 cache.generationController = new AbortController()
 
+                // Get current query from editor
+                const currentQuery = multitabEditorLogic({ key: props.codeEditorKey }).values.queryInput
+
                 const response = await api.conversations.stream(
                     {
                         content: prompt,
+                        contextual_tools: {
+                            generate_hogql_query: {
+                                current_query: currentQuery,
+                            },
+                        },
                         conversation: values.conversation?.id,
                         trace_id: traceId,
                         type: 'hogql',

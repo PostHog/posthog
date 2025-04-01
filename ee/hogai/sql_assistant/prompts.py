@@ -13,3 +13,10 @@ You have access to one tool:
 generate_hogql_query: Use this tool to generate a hogQL query to answer the user's question.
 </basic_functionality>
 """
+
+SQL_ASSISTANT_HOGQL_QUERY_PROMPT = """
+The current query in the editor is:
+{{{current_query}}}
+
+Write a new query to answer the user's question.
+"""
