@@ -266,10 +266,24 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         onAcceptSuggestedQueryInput: () => {
             actions.setQueryInput(values.suggestedQueryInput)
+            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
+            if (props.monaco && values.activeModelUri) {
+                const newModel = props.monaco.editor.createModel(
+                    values.suggestedQueryInput,
+                    'hogQL',
+                    values.activeModelUri.uri
+                )
+                props.editor?.setModel(newModel)
+            }
             actions.setSuggestedQueryInput('')
         },
         onRejectSuggestedQueryInput: () => {
             actions.setSuggestedQueryInput('')
+            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
+            if (props.monaco && values.activeModelUri) {
+                const newModel = props.monaco.editor.createModel(values.queryInput, 'hogQL', values.activeModelUri.uri)
+                props.editor?.setModel(newModel)
+            }
         },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
