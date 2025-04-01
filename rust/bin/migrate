@@ -38,5 +38,5 @@ sqlx migrate run -D "$CYCLOTRON_DB" --source "$SCRIPT_DIR/../cyclotron-core/migr
 # the old Django-owned schemas. Stay tuned for more updates here...
 PROPDEFS_DB="$DB_URL/propdefs"
 sqlx database create -D "$PROPDEFS_DB"
-sqlx migrate run -D "$PROPDEFS_DB" --source "$SCRIPT_DIR/../property-defs-rs/tests/test_migrations"
+sqlx migrate run -D "$PROPDEFS_DB" --source "$SCRIPT_DIR/../property-defs-rs/migrations"
 
