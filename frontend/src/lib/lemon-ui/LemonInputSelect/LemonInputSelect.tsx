@@ -27,7 +27,7 @@ export interface LemonInputSelectOption {
 export type LemonInputSelectProps = Pick<
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     LemonInputProps,
-    'autoFocus'
+    'autoFocus' | 'autoWidth' | 'fullWidth'
 > & {
     options?: LemonInputSelectOption[]
     value?: string[] | null
@@ -72,6 +72,8 @@ export function LemonInputSelect({
     'data-attr': dataAttr,
     size = 'medium',
     transparentBackground,
+    autoWidth = true,
+    fullWidth = false,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -464,7 +466,8 @@ export function LemonInputSelect({
                         ? 'Add value'
                         : 'Pick value'
                 }
-                autoWidth
+                autoWidth={autoWidth}
+                fullWidth={fullWidth}
                 prefix={valuesPrefix}
                 suffix={valuesAndEditButtonSuffix}
                 onFocus={_onFocus}

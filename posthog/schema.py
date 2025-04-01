@@ -61,6 +61,11 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
+class AssistantContextualTool(StrEnum):
+    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
+    FIELD_ = "_"
+
+
 class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -225,6 +230,13 @@ class AssistantToolCallMessage(BaseModel):
     id: Optional[str] = None
     tool_call_id: str
     type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
+    )
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -864,12 +876,11 @@ class ErrorTrackingIssueAggregations(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    customVolume: Optional[list[float]] = None
     occurrences: float
     sessions: float
     users: float
     volumeDay: list[float]
-    volumeMonth: list[float]
+    volumeRange: list[float]
 
 
 class Type2(StrEnum):
@@ -905,14 +916,6 @@ class Status2(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
-
-
-class Interval(StrEnum):
-    MINUTE = "minute"
-    HOUR = "hour"
-    DAY = "day"
-    WEEK = "week"
-    MONTH = "month"
 
 
 class EventDefinition(BaseModel):
@@ -980,6 +983,15 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
+class ExperimentMetricBaseProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    name: Optional[str] = None
+    time_window_hours: Optional[float] = None
+
+
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
@@ -1026,15 +1038,25 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+
+
 class FileSystemEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    field_loading: Optional[bool] = Field(
+        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
     )
     created_at: Optional[str] = Field(
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     href: Optional[str] = Field(default=None, description="Object's URL")
-    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
+    id: str = Field(..., description="Unique UUID for tree entry")
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
@@ -1058,13 +1080,16 @@ class FileSystemImport(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    field_loading: Optional[bool] = Field(
+        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
+    )
     created_at: Optional[str] = Field(
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     flag: Optional[str] = None
     href: Href
     icon: Optional[Any] = None
-    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
+    id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
@@ -1383,11 +1408,9 @@ class NodeKind(StrEnum):
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
-    EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
-    EXPERIMENT_ACTION_METRIC_CONFIG = "ExperimentActionMetricConfig"
-    EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
+    EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
@@ -1459,6 +1482,7 @@ class PersonType(BaseModel):
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     PERSON = "person"
     ELEMENT = "element"
     FEATURE = "feature"
@@ -1561,6 +1585,17 @@ class ReasoningMessage(BaseModel):
     type: Literal["ai/reasoning"] = "ai/reasoning"
 
 
+class RecordingDurationFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: DurationType
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["recording"] = "recording"
+    value: float
+
+
 class RecordingOrder(StrEnum):
     DURATION = "duration"
     RECORDING_DURATION = "recording_duration"
@@ -1658,6 +1693,7 @@ class RevenueTrackingDataWarehouseTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinctIdColumn: str
     revenueColumn: str
     revenueCurrencyColumn: Optional[RevenueCurrencyPropertyConfig] = Field(
         default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
@@ -1675,6 +1711,23 @@ class RevenueTrackingEventItem(BaseModel):
         default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
     )
     revenueProperty: str
+
+
+class RootAssistantMessage1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    tool_call_id: str
+    type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
+    )
 
 
 class SamplingRate(BaseModel):
@@ -1779,6 +1832,7 @@ class TaxonomicFilterGroupType(StrEnum):
     EVENTS = "events"
     EVENT_PROPERTIES = "event_properties"
     EVENT_FEATURE_FLAGS = "event_feature_flags"
+    EVENT_METADATA = "event_metadata"
     NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
     PERSON_PROPERTIES = "person_properties"
     PAGEVIEW_URLS = "pageview_urls"
@@ -2596,12 +2650,15 @@ class ErrorTrackingRelationalIssue(BaseModel):
     status: Status2
 
 
-class ErrorTrackingSparklineConfig(BaseModel):
+class EventMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    interval: Interval
-    value: int
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["event_metadata"] = "event_metadata"
+    value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
 class EventOddsRatioSerialized(BaseModel):
@@ -2633,21 +2690,6 @@ class EventTaxonomyItem(BaseModel):
     property: str
     sample_count: int
     sample_values: list[str]
-
-
-class ExperimentDataWarehouseMetricConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    data_warehouse_join_key: str
-    events_join_key: str
-    kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
-    math: Optional[ExperimentMetricMathType] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-    name: Optional[str] = None
-    table_name: str
-    timestamp_field: str
 
 
 class ExperimentExposureQueryResponse(BaseModel):
@@ -4844,6 +4886,7 @@ class DashboardFilter(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5074,6 +5117,7 @@ class DataWarehouseNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5116,6 +5160,7 @@ class DataWarehouseNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5169,6 +5214,7 @@ class EntityNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5209,6 +5255,7 @@ class EntityNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5229,13 +5276,13 @@ class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregations: Optional[ErrorTrackingIssueAggregations] = None
+    aggregations: ErrorTrackingIssueAggregations
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
     earliest: Optional[str] = None
     first_seen: datetime
     id: str
-    last_seen: Optional[datetime] = None
+    last_seen: datetime
     name: Optional[str] = None
     status: Status
 
@@ -5298,6 +5345,7 @@ class EventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5340,6 +5388,7 @@ class EventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5382,15 +5431,53 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
-class ExperimentActionMetricConfig(BaseModel):
+class ExperimentDataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    action: float
-    kind: Literal["ExperimentActionMetricConfig"] = "ExperimentActionMetricConfig"
-    math: Optional[ExperimentMetricMathType] = None
+    custom_name: Optional[str] = None
+    data_warehouse_join_key: str
+    events_join_key: str
+    fixedProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: Literal["ExperimentDataWarehouseNode"] = "ExperimentDataWarehouseNode"
+    math: Optional[
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -5398,6 +5485,7 @@ class ExperimentActionMetricConfig(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5411,6 +5499,9 @@ class ExperimentActionMetricConfig(BaseModel):
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[dict[str, Any]] = None
+    table_name: str
+    timestamp_field: str
 
 
 class ExperimentEventExposureConfig(BaseModel):
@@ -5424,6 +5515,7 @@ class ExperimentEventExposureConfig(BaseModel):
             EventPropertyFilter,
             PersonPropertyFilter,
             ElementPropertyFilter,
+            EventMetadataPropertyFilter,
             SessionPropertyFilter,
             CohortPropertyFilter,
             RecordingPropertyFilter,
@@ -5436,37 +5528,6 @@ class ExperimentEventExposureConfig(BaseModel):
             DataWarehousePersonPropertyFilter,
         ]
     ]
-
-
-class ExperimentEventMetricConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event: str
-    kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
-    math: Optional[ExperimentMetricMathType] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-    name: Optional[str] = None
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = Field(default=None, description="Properties configurable in the interface")
 
 
 class ExperimentExposureCriteria(BaseModel):
@@ -5487,34 +5548,6 @@ class ExperimentExposureQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[ExperimentExposureQueryResponse] = None
-
-
-class ExperimentMetric(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    inverse: Optional[bool] = None
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]
-    metric_type: ExperimentMetricType
-    name: Optional[str] = None
-    time_window_hours: Optional[float] = None
-
-
-class ExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMetric
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
 
 
 class FunnelCorrelationResponse(BaseModel):
@@ -5554,6 +5587,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5597,6 +5631,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5625,6 +5660,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5669,6 +5705,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5761,6 +5798,7 @@ class HogQLFilters(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5893,6 +5931,7 @@ class PersonsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5921,6 +5960,7 @@ class PersonsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5950,6 +5990,7 @@ class PropertyGroupFilterValue(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -6159,22 +6200,6 @@ class QueryResponseAlternative13(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class QueryResponseAlternative16(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMetric
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
 
 
 class QueryResponseAlternative18(BaseModel):
@@ -6751,6 +6776,7 @@ class RetentionEntity(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -6918,6 +6944,7 @@ class TracesQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7124,6 +7151,7 @@ class ActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7165,6 +7193,7 @@ class ActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7253,34 +7282,6 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class CachedExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    is_cached: bool
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: datetime
-    metric: ExperimentMetric
-    next_allowed_client_refresh: datetime
-    p_value: float
-    probability: dict[str, float]
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    timezone: str
-    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
 
 
 class CachedHogQLQueryResponse(BaseModel):
@@ -7477,18 +7478,12 @@ class EventTaxonomyQuery(BaseModel):
     response: Optional[EventTaxonomyQueryResponse] = None
 
 
-class ExperimentQuery(BaseModel):
+class ExperimentFunnelMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    experiment_id: Optional[int] = None
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMetric
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    name: Optional[str] = None
-    response: Optional[ExperimentQueryResponse] = None
+    metric_type: Literal["funnel"] = "funnel"
+    series: list[Union[EventsNode, ActionsNode]]
 
 
 class FunnelsFilter(BaseModel):
@@ -7594,6 +7589,34 @@ class InsightFilter(
     root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
+class MaxInnerUniversalFiltersGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: FilterLogicalOperator
+    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]]
+
+
+class MaxOuterUniversalFiltersGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: FilterLogicalOperator
+    values: list[MaxInnerUniversalFiltersGroup]
+
+
+class MaxRecordingUniversalFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    duration: list[RecordingDurationFilter]
+    filter_group: MaxOuterUniversalFiltersGroup
+    filter_test_accounts: Optional[bool] = None
+    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+
+
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7639,6 +7662,7 @@ class RecordingsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7667,6 +7691,7 @@ class RecordingsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7707,9 +7732,20 @@ class RetentionQueryResponse(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
+    RootModel[
+        Union[
+            VisualizationMessage,
+            ReasoningMessage,
+            AssistantMessage,
+            HumanMessage,
+            FailureMessage,
+            RootAssistantMessage1,
+        ]
+    ]
 ):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
+    root: Union[
+        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
+    ]
 
 
 class StickinessQuery(BaseModel):
@@ -7740,6 +7776,7 @@ class StickinessQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -7806,6 +7843,7 @@ class TrendsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -7951,7 +7989,6 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
-    customVolume: Optional[ErrorTrackingSparklineConfig] = None
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
@@ -7967,6 +8004,57 @@ class ErrorTrackingQuery(BaseModel):
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
     status: Optional[Status1] = None
+    volumeResolution: int
+
+
+class ExperimentFunnelMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["funnel"] = "funnel"
+    name: Optional[str] = None
+    series: list[Union[EventsNode, ActionsNode]]
+    time_window_hours: Optional[float] = None
+
+
+class ExperimentMeanMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["mean"] = "mean"
+    name: Optional[str] = None
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    time_window_hours: Optional[float] = None
+
+
+class ExperimentMeanMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric_type: Literal["mean"] = "mean"
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+
+
+class ExperimentMetricTypeProps(RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]]):
+    root: Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]
+
+
+class ExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
 
 
 class ExperimentTrendsQueryResponse(BaseModel):
@@ -8014,6 +8102,7 @@ class FunnelsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8057,6 +8146,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8097,6 +8187,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8137,6 +8228,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8177,6 +8269,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8217,6 +8310,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8264,6 +8358,7 @@ class LifecycleQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8317,6 +8412,22 @@ class QueryResponseAlternative15(BaseModel):
     significant: bool
     stats_version: Optional[int] = None
     variants: list[ExperimentVariantTrendsBaseStats]
+
+
+class QueryResponseAlternative16(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
 
 
 class QueryResponseAlternative36(BaseModel):
@@ -8374,6 +8485,7 @@ class RetentionQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8422,6 +8534,34 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
+class CachedExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    is_cached: bool
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: datetime
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    next_allowed_client_refresh: datetime
+    p_value: float
+    probability: dict[str, float]
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    timezone: str
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
 class Response13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8452,6 +8592,20 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     significant: bool
     stats_version: Optional[int] = None
     variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class ExperimentQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: Optional[int] = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    name: Optional[str] = None
+    response: Optional[ExperimentQueryResponse] = None
 
 
 class ExperimentTrendsQuery(BaseModel):
@@ -8541,6 +8695,7 @@ class PathsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8816,6 +8971,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -8928,6 +9084,7 @@ class EventsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8959,6 +9116,7 @@ class EventsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,

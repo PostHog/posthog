@@ -5,7 +5,6 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
-import { ChatCompletionUserMessageParam } from 'openai/resources/chat/completions'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -18,6 +17,7 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
+    FileSystemCount,
     FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
@@ -385,6 +385,12 @@ class ApiRequest {
     }
     public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id)
+    }
+    public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('move')
+    }
+    public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
     }
 
     // # Plugins
@@ -794,16 +800,8 @@ class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
-    public errorTrackingStackFrames({
-        raw_ids,
-        symbol_set,
-    }: {
-        raw_ids?: ErrorTrackingStackFrame['raw_id'][]
-        symbol_set?: ErrorTrackingSymbolSet['id']
-    }): ApiRequest {
-        return this.errorTracking()
-            .addPathComponent('stack_frames')
-            .withQueryString(toParams({ raw_ids, symbol_set }, true))
+    public errorTrackingStackFrames(): ApiRequest {
+        return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
     // # Warehouse
@@ -1240,14 +1238,23 @@ const api = {
             limit,
             offset,
             search,
+            ref,
+            type,
+            type__startswith,
         }: {
             parent?: string
             depth?: number
             limit?: number
             offset?: number
             search?: string
+            ref?: string
+            type?: string
+            type__startswith?: string
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset, search }).get()
+            return await new ApiRequest()
+                .fileSystem()
+                .withQueryString({ parent, depth, limit, offset, search, ref, type, type__startswith })
+                .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
@@ -1260,6 +1267,12 @@ const api = {
         },
         async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).delete()
+        },
+        async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
+        },
+        async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
+            return await new ApiRequest().fileSystemCount(id).create()
         },
     },
 
@@ -2191,13 +2204,13 @@ const api = {
         async symbolSetStackFrames(
             id: ErrorTrackingSymbolSet['id']
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
-            return await new ApiRequest().errorTrackingStackFrames({ symbol_set: id }).get()
+            return await new ApiRequest().errorTrackingStackFrames().create({ data: { symbol_set: id } })
         },
 
         async stackFrames(
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
-            return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
+            return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
         },
     },
 
@@ -2345,10 +2358,6 @@ const api = {
                 .withAction('recordings')
                 .withAction(session_recording_id)
                 .delete()
-        },
-
-        async aiFilters(messages: ChatCompletionUserMessageParam[]): Promise<{ result: string; data: any }> {
-            return await new ApiRequest().recordings().withAction('ai/filters').create({ data: { messages } })
         },
 
         async aiRegex(regex: string): Promise<{ result: string; data: any }> {
@@ -3016,7 +3025,12 @@ const api = {
 
     conversations: {
         async stream(
-            data: { content: string; conversation?: string | null; trace_id: string },
+            data: {
+                content: string
+                contextual_tools?: Record<string, any>
+                conversation?: string | null
+                trace_id: string
+            },
             options?: ApiMethodOptions
         ): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)

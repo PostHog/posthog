@@ -417,7 +417,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), ifNull(lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), plus(today(), toIntervalDay(3))), 0))
+        and(equals(sessions.team_id, <TEAM_ID>), lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), plus(today(), toIntervalDay(3))))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)
@@ -500,12 +500,12 @@ FROM
         sessions.session_id,
         sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
 WHERE
-    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_21)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_22)s, %(hogql_val_23)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_24)s), assumeNotNull(toDateTime(%(hogql_val_25)s, %(hogql_val_26)s))), equals(e.event, %(hogql_val_27)s), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
+    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_21)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_22)s, %(hogql_val_23)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_24)s), assumeNotNull(toDateTime(%(hogql_val_25)s, %(hogql_val_26)s))), equals(e.event, %(hogql_val_27)s), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
                     cohortpeople.person_id AS person_id
                 FROM
                     cohortpeople
                 WHERE
-                    and(equals(cohortpeople.team_id, <TEAM_ID>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0))))), 0)))
+                    and(equals(cohortpeople.team_id, <TEAM_ID>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))))))
 GROUP BY
     day_start,
     breakdown_value
@@ -542,7 +542,7 @@ FROM
         sessions.session_id,
         sessions.session_id) AS s__session ON equals(s.session_id, s__session.session_id)
 WHERE
-    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_7)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), %(hogql_val_9)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_10)s), now64(6, %(hogql_val_11)s)), 0))
+    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_7)s), 0), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), %(hogql_val_9)s), less(toTimeZone(s.min_first_timestamp, %(hogql_val_10)s), now64(6, %(hogql_val_11)s)))
 GROUP BY
     s.session_id
 LIMIT 50000\

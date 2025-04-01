@@ -27,6 +27,7 @@ from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.schema import (
+    EventMetadataPropertyFilter,
     FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -249,6 +250,11 @@ def _expr_to_compare_op(
             left=apply_path_cleaning(expr, team),
             right=apply_path_cleaning(ast.Constant(value=value), team),
         )
+    elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
+        if not isinstance(value, list):
+            raise Exception("IN and NOT IN operators require a list of values")
+        op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
+        return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
@@ -283,6 +289,7 @@ def property_to_expr(
         | PersonPropertyFilter
         | ElementPropertyFilter
         | SessionPropertyFilter
+        | EventMetadataPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
         | LogEntryPropertyFilter
@@ -358,6 +365,7 @@ def property_to_expr(
         return parse_expr(property.key)
     elif (
         property.type == "event"
+        or property.type == "event_metadata"
         or property.type == "feature"
         or property.type == "person"
         or property.type == "group"
@@ -367,7 +375,11 @@ def property_to_expr(
         or property.type == "recording"
         or property.type == "log_entry"
     ):
-        if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
+        if (
+            (scope == "person" and property.type != "person")
+            or (scope == "session" and property.type != "session")
+            or (scope != "event" and property.type == "event_metadata")
+        ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
@@ -415,7 +427,7 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type in ["recording", "data_warehouse", "log_entry"]:
+        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
             chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
@@ -441,7 +453,20 @@ def property_to_expr(
             elif len(value) == 1:
                 value = value[0]
             else:
-                # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
+                if operator in (
+                    PropertyOperator.EXACT,
+                    PropertyOperator.IS_NOT,
+                    PropertyOperator.IN_,
+                    PropertyOperator.NOT_IN,
+                ):
+                    op = (
+                        ast.CompareOperationOp.In
+                        if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
+                        else ast.CompareOperationOp.NotIn
+                    )
+                    return ast.CompareOperation(
+                        op=op, left=field, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+                    )
                 exprs = [
                     property_to_expr(
                         Property(

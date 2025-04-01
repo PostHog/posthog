@@ -1,3 +1,4 @@
+import typing as t
 import uuid
 from unittest.mock import patch
 
@@ -16,7 +17,9 @@ from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from posthog.warehouse.models.external_data_schema import (
+    sync_frequency_interval_to_sync_frequency,
+)
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -1030,3 +1033,96 @@ class TestExternalDataSource(APIBaseTest):
         assert ssh_tunnel["auth_type"]["password"] == "testpass"
         assert ssh_tunnel["auth_type"]["passphrase"] == "testphrase"
         assert ssh_tunnel["auth_type"]["private_key"] == "testkey"
+
+    def test_snowflake_auth_type_create_and_update(self):
+        """Test that we can create and update the auth type for a Snowflake source"""
+        with patch("posthog.warehouse.api.external_data_source.get_snowflake_schemas") as mocked_get_snowflake_schemas:
+            mocked_get_snowflake_schemas.return_value = {"my_table": "something"}
+
+            # Create a Snowflake source with password auth
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/",
+                data={
+                    "prefix": "",
+                    "payload": {
+                        "source_type": "Snowflake",
+                        "account_id": "my_account_id",
+                        "database": "my_database",
+                        "warehouse": "my_warehouse",
+                        "auth_type": {
+                            "selection": "password",
+                            "username": "my_username",
+                            "password": "my_password",
+                            "private_key": "",
+                            "passphrase": "",
+                        },
+                        "role": "my_role",
+                        "schema": "my_schema",
+                        "schemas": [
+                            {
+                                "name": "my_table",
+                                "should_sync": True,
+                                "sync_type": "full_refresh",
+                                "incremental_field": None,
+                                "incremental_field_type": None,
+                            },
+                        ],
+                    },
+                    "source_type": "Snowflake",
+                },
+            )
+        assert response.status_code == 201, response.json()
+        assert len(ExternalDataSource.objects.all()) == 1
+
+        source = response.json()
+        source_model = ExternalDataSource.objects.get(id=source["id"])
+
+        assert source_model.job_inputs is not None
+        job_inputs: dict[str, t.Any] = source_model.job_inputs
+        assert job_inputs["account_id"] == "my_account_id"
+        assert job_inputs["database"] == "my_database"
+        assert job_inputs["warehouse"] == "my_warehouse"
+        assert job_inputs["auth_type"] == "password"
+        assert job_inputs["user"] == "my_username"
+        assert job_inputs["password"] == "my_password"
+        assert job_inputs["passphrase"] == ""
+        assert job_inputs["private_key"] == ""
+        assert job_inputs["role"] == "my_role"
+        assert job_inputs["schema"] == "my_schema"
+
+        # Update the source with a new auth type
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source_model.pk}/",
+            data={
+                "job_inputs": {
+                    "role": "my_role",
+                    "user": "my_username",
+                    "schema": "my_schema",
+                    "database": "my_database",
+                    "warehouse": "my_warehouse",
+                    "account_id": "my_account_id",
+                    "auth_type": {
+                        "selection": "keypair",
+                        "username": "my_username",
+                        "private_key": "my_private_key",
+                        "passphrase": "my_passphrase",
+                    },
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+
+        source_model.refresh_from_db()
+
+        assert source_model.job_inputs is not None
+        job_inputs = source_model.job_inputs
+        assert job_inputs["account_id"] == "my_account_id"
+        assert job_inputs["database"] == "my_database"
+        assert job_inputs["warehouse"] == "my_warehouse"
+        assert job_inputs["auth_type"] == "keypair"
+        assert job_inputs["user"] == "my_username"
+        assert job_inputs["passphrase"] == "my_passphrase"
+        assert job_inputs["private_key"] == "my_private_key"
+        assert job_inputs["role"] == "my_role"
+        assert job_inputs["schema"] == "my_schema"

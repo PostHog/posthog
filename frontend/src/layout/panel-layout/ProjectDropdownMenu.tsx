@@ -1,8 +1,9 @@
 import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonSnack } from '@posthog/lemon-ui'
+import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { Button, iconVariants } from 'lib/ui/Button/Button'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -11,10 +12,9 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -42,22 +42,23 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
     }, [location.pathname, team.id, team.project_id, currentTeam?.project_id])
 
     return (
-        <LemonButton
-            to={relativeOtherProjectPath}
-            sideAction={{
-                icon: (
-                    <IconWrapper>
-                        <IconGear />
-                    </IconWrapper>
-                ),
-                tooltip: `Go to ${team.name} settings`,
-                to: urls.project(team.id, urls.settings()),
-            }}
-            title={`Switch to project ${team.name}`}
-            fullWidth
-        >
-            <ProjectName team={team} />
-        </LemonButton>
+        <DropdownMenuItem asChild>
+            <Button.Root menuItem>
+                <Link to={relativeOtherProjectPath}>
+                    <Button.Label className="text-primary">
+                        <ProjectName team={team} />
+                    </Button.Label>
+                </Link>
+                <Link
+                    to={urls.project(team.id, urls.settings())}
+                    className={cn(iconVariants({ isTrigger: true, isTriggerRight: true }), 'ml-auto')}
+                >
+                    <Button.Icon>
+                        <IconGear className="text-tertiary" />
+                    </Button.Icon>
+                </Link>
+            </Button.Root>
+        </DropdownMenuItem>
     )
 }
 
@@ -67,88 +68,63 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { push } = useActions(router)
     const { currentOrganization } = useValues(organizationLogic)
 
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-
     return isAuthenticatedTeam(currentTeam) ? (
-        <DropdownMenu
-            onOpenChange={(open) => {
-                setIsDropdownOpen(open)
-            }}
-        >
+        <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <LemonButton
-                    icon={
-                        <IconWrapper>
-                            <IconFolderOpen />
-                        </IconWrapper>
-                    }
-                    size="small"
-                    className="hover:bg-fill-highlight-100"
-                    sideIcon={
-                        <IconWrapper
-                            size="sm"
-                            className={cn(
-                                'transition-transform duration-200 prefers-reduced-motion:transition-none',
-                                isDropdownOpen ? 'rotate-270' : 'rotate-90'
-                            )}
-                        >
-                            <IconChevronRight />
-                        </IconWrapper>
-                    }
-                >
-                    <span>Project</span>
-                </LemonButton>
+                <Button.Root>
+                    <Button.Icon>
+                        <IconFolderOpen className="text-tertiary" />
+                    </Button.Icon>
+                    <Button.Label>Project</Button.Label>
+                    <Button.Icon size="sm">
+                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                    </Button.Icon>
+                </Button.Root>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="start">
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <div className="flex flex-col gap-px">
-                    <LemonButton
-                        active
-                        sideAction={{
-                            icon: (
-                                <IconWrapper size="sm">
-                                    <IconGear />
-                                </IconWrapper>
-                            ),
-                            tooltip: `Go to ${currentTeam.name} settings`,
-                            onClick: () => {
-                                push(urls.settings('project'))
-                            },
-                        }}
-                        title={`Switch to project ${currentTeam.name}`}
-                        fullWidth
-                    >
-                        <ProjectName team={currentTeam} />
-                    </LemonButton>
+                    <DropdownMenuItem asChild>
+                        <Button.Root menuItem active>
+                            <Button.Label menuItem>
+                                <ProjectName team={currentTeam} />
+                            </Button.Label>
+                            <Link
+                                to={urls.settings('project')}
+                                className={cn(iconVariants({ isTrigger: true, isTriggerRight: true }), 'ml-auto')}
+                            >
+                                <Button.Icon>
+                                    <IconGear className="text-tertiary" />
+                                </Button.Icon>
+                            </Link>
+                        </Button.Root>
+                    </DropdownMenuItem>
+
                     {currentOrganization?.teams &&
                         currentOrganization.teams
                             .filter((team) => team.id !== currentTeam?.id)
                             .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
                             .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+
                     {preflight?.can_create_org && (
-                        <DropdownMenuItem asChild>
-                            <LemonButton
-                                icon={
-                                    <IconWrapper>
-                                        <IconPlusSmall />
-                                    </IconWrapper>
-                                }
-                                onClick={() =>
-                                    guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
-                                        closeAccountPopover()
-                                        showCreateProjectModal()
-                                    })
-                                }
-                                fullWidth
-                                size="small"
-                                data-attr="new-organization-button"
-                            >
-                                New project
-                            </LemonButton>
+                        <DropdownMenuItem
+                            asChild
+                            onClick={() =>
+                                guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
+                                    closeAccountPopover()
+                                    showCreateProjectModal()
+                                })
+                            }
+                        >
+                            <Button.Root menuItem data-attr="new-project-button">
+                                <Button.Icon>
+                                    <IconPlusSmall className="text-tertiary" />
+                                </Button.Icon>
+                                <Button.Label menuItem>New project</Button.Label>
+                            </Button.Root>
                         </DropdownMenuItem>
                     )}
                 </div>

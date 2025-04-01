@@ -297,8 +297,10 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         new_job_inputs = validated_data.get("job_inputs", {})
         self._normalize_ssh_tunnel_structure(new_job_inputs)
 
+        if instance.source_type == ExternalDataSource.Type.SNOWFLAKE:
+            new_job_inputs = parse_snowflake_job_inputs(new_job_inputs)
+
         if existing_job_inputs:
-            new_job_inputs = validated_data.get("job_inputs", {})
             validated_data["job_inputs"] = {**existing_job_inputs, **new_job_inputs}
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
@@ -761,18 +763,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        account_id = payload.get("account_id")
-        database = payload.get("database")
-        warehouse = payload.get("warehouse")
-        role = payload.get("role")
-        schema = payload.get("schema")
-
-        auth_type_obj = payload.get("auth_type", {})
-        auth_type = auth_type_obj.get("selection", None)
-        auth_type_username = auth_type_obj.get("username", None)
-        auth_type_password = auth_type_obj.get("password", None)
-        auth_type_passphrase = auth_type_obj.get("passphrase", None)
-        auth_type_private_key = auth_type_obj.get("private_key", None)
+        job_inputs = parse_snowflake_job_inputs(payload)
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -782,32 +773,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={
-                "account_id": account_id,
-                "database": database,
-                "warehouse": warehouse,
-                "role": role,
-                "schema": schema,
-                "auth_type": auth_type,
-                "user": auth_type_username,
-                "password": auth_type_password,
-                "passphrase": auth_type_passphrase,
-                "private_key": auth_type_private_key,
-            },
+            job_inputs=job_inputs,
             prefix=prefix,
         )
 
         schemas = get_snowflake_schemas(
-            account_id=account_id,
-            database=database,
-            warehouse=warehouse,
-            user=auth_type_username,
-            password=auth_type_password,
-            schema=schema,
-            role=role,
-            passphrase=auth_type_passphrase,
-            private_key=auth_type_private_key,
-            auth_type=auth_type,
+            account_id=job_inputs["account_id"],
+            database=job_inputs["database"],
+            warehouse=job_inputs["warehouse"],
+            user=job_inputs["user"],
+            password=job_inputs["password"],
+            schema=job_inputs["schema"],
+            role=job_inputs["role"],
+            passphrase=job_inputs["passphrase"],
+            private_key=job_inputs["private_key"],
+            auth_type=job_inputs["auth_type"],
         )
 
         return new_source_model, list(schemas.keys())
@@ -1441,3 +1421,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 class InternalPostgresError(Exception):
     pass
+
+
+def parse_snowflake_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
+    account_id = payload.get("account_id")
+    database = payload.get("database")
+    warehouse = payload.get("warehouse")
+    role = payload.get("role")
+    schema = payload.get("schema")
+
+    auth_type_obj = payload.get("auth_type", {})
+    auth_type = auth_type_obj.get("selection", None)
+    auth_type_username = auth_type_obj.get("username", None)
+    auth_type_password = auth_type_obj.get("password", None)
+    auth_type_passphrase = auth_type_obj.get("passphrase", None)
+    auth_type_private_key = auth_type_obj.get("private_key", None)
+
+    return {
+        "account_id": account_id,
+        "database": database,
+        "warehouse": warehouse,
+        "role": role,
+        "schema": schema,
+        "auth_type": auth_type,
+        "user": auth_type_username,
+        "password": auth_type_password,
+        "passphrase": auth_type_passphrase,
+        "private_key": auth_type_private_key,
+    }

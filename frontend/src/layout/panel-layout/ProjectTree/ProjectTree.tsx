@@ -1,10 +1,9 @@
-import { IconPlusSmall, IconSort } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { Button } from 'lib/ui/Button/Button'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
+import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -15,7 +14,8 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const { treeData, lastViewedId, viableItems, pendingActions } = useValues(projectTreeLogic)
+    const { treeData, lastViewedId, viableItems, expandedFolders, expandedSearchFolders, searchTerm } =
+        useValues(projectTreeLogic)
 
     const {
         createFolder,
@@ -25,9 +25,8 @@ export function ProjectTree(): JSX.Element {
         toggleFolderOpen,
         setLastViewedId,
         setExpandedFolders,
+        setExpandedSearchFolders,
         loadFolder,
-        applyPendingActions,
-        cancelPendingActions,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -49,60 +48,11 @@ export function ProjectTree(): JSX.Element {
             searchPlaceholder="Search your project"
             panelActions={
                 <>
-                    {pendingActions.length > 0 ? (
-                        <div className="flex gap-1">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={cancelPendingActions}
-                                tooltip={`Cancel ${pendingActions.length} ${
-                                    pendingActions.length === 1 ? 'change' : 'changes'
-                                }`}
-                                tooltipPlacement="bottom"
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                size="xsmall"
-                                type="primary"
-                                status="danger"
-                                onClick={applyPendingActions}
-                                tooltip={`Save ${pendingActions.length} ${
-                                    pendingActions.length === 1 ? 'change' : 'changes'
-                                }`}
-                                tooltipPlacement="bottom"
-                            >
-                                Save
-                            </LemonButton>
-                        </div>
-                    ) : (
-                        <>
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                tooltip="Sort by name"
-                                onClick={() => alert('Sort by name')}
-                                className="hover:bg-fill-highlight-100 shrink-0"
-                                icon={
-                                    <IconWrapper>
-                                        <IconSort />
-                                    </IconWrapper>
-                                }
-                            />
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                tooltip="Create new root folder"
-                                onClick={() => createFolder('')}
-                                className="hover:bg-fill-highlight-100 shrink-0"
-                                icon={
-                                    <IconWrapper>
-                                        <IconPlusSmall />
-                                    </IconWrapper>
-                                }
-                            />
-                        </>
-                    )}
+                    <Button.Root onClick={() => createFolder('')}>
+                        <Button.Icon>
+                            <IconFolderPlus className="text-tertiary" />
+                        </Button.Icon>
+                    </Button.Root>
                 </>
             }
         >
@@ -116,7 +66,7 @@ export function ProjectTree(): JSX.Element {
                     if (!item.record?.href) {
                         return false
                     }
-                    return window.location.href.includes(item.record?.href) ? true : false
+                    return window.location.href.endsWith(item.record?.href)
                 }}
                 onNodeClick={(node) => {
                     if (!isLayoutPanelPinned) {
@@ -139,7 +89,8 @@ export function ProjectTree(): JSX.Element {
                         toggleFolderOpen(folder?.id || '', isExpanded)
                     }
                 }}
-                onSetExpandedItemIds={setExpandedFolders}
+                expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+                onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
                 enableDragAndDrop={true}
                 onDragEnd={(dragEvent) => {
                     const oldPath = dragEvent.active.id as string
@@ -197,39 +148,49 @@ export function ProjectTree(): JSX.Element {
                     return (
                         <ContextMenuGroup>
                             <ContextMenuItem
+                                asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     createFolder(item.record?.path)
                                 }}
                             >
-                                New Folder
+                                <Button.Root size="sm" menuItem>
+                                    <Button.Label>New folder</Button.Label>
+                                </Button.Root>
                             </ContextMenuItem>
                             {item.record?.path ? (
-                                <ContextMenuItem onClick={() => item.record?.path && rename(item.record.path)}>
-                                    Rename
+                                <ContextMenuItem asChild onClick={() => item.record?.path && rename(item.record.path)}>
+                                    <Button.Root size="sm" menuItem>
+                                        <Button.Label>Rename</Button.Label>
+                                    </Button.Root>
                                 </ContextMenuItem>
                             ) : null}
                             {item.record?.path ? (
                                 <ContextMenuItem
+                                    asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         handleCopyPath(item.record?.path)
                                     }}
                                 >
-                                    Copy Path
+                                    <Button.Root size="sm" menuItem>
+                                        <Button.Label>Copy path</Button.Label>
+                                    </Button.Root>
                                 </ContextMenuItem>
                             ) : null}
                             {item.record?.created_at ? (
                                 <ContextMenuItem
+                                    asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         deleteItem(item.record as unknown as FileSystemEntry)
                                     }}
                                 >
-                                    Delete
+                                    <Button.Root size="sm" menuItem>
+                                        <Button.Label>Delete</Button.Label>
+                                    </Button.Root>
                                 </ContextMenuItem>
                             ) : null}
-                            {/* Add more menu items as needed */}
                         </ContextMenuGroup>
                     )
                 }}
@@ -237,64 +198,36 @@ export function ProjectTree(): JSX.Element {
                     if (!item.id.startsWith('project/')) {
                         return undefined
                     }
-                    return {
-                        icon: (
-                            <More
-                                size="xsmall"
-                                onClick={(e) => e.stopPropagation()}
-                                overlay={
-                                    <>
-                                        {item.record?.type === 'folder' || item.record?.type === 'project' ? (
-                                            <LemonButton
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    item.record?.path && createFolder(item.record.path)
-                                                }}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                New Folder
-                                            </LemonButton>
-                                        ) : null}
-                                        {item.record?.path ? (
-                                            <LemonButton
-                                                onClick={() => item.record?.path && rename(item.record.path)}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                Rename
-                                            </LemonButton>
-                                        ) : null}
-                                        {item.record?.path ? (
-                                            <LemonButton
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    handleCopyPath(item.record?.path)
-                                                }}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                Copy Path
-                                            </LemonButton>
-                                        ) : null}
-                                        {item.record?.created_at ? (
-                                            <LemonButton
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    deleteItem(item.record as unknown as FileSystemEntry)
-                                                }}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                Delete
-                                            </LemonButton>
-                                        ) : null}
-                                    </>
-                                }
-                            />
-                        ),
-                        identifier: item.record?.path || 'more',
-                    }
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={() => item.record?.path && createFolder(item.record.path)}
+                            >
+                                <Button.Root size="sm" menuItem>
+                                    <Button.Label>New folder</Button.Label>
+                                </Button.Root>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild onClick={() => item.record?.path && rename(item.record.path)}>
+                                <Button.Root size="sm" menuItem>
+                                    <Button.Label>Rename</Button.Label>
+                                </Button.Root>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild onClick={() => handleCopyPath(item.record?.path)}>
+                                <Button.Root size="sm" menuItem>
+                                    <Button.Label>Copy path</Button.Label>
+                                </Button.Root>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={() => deleteItem(item.record as unknown as FileSystemEntry)}
+                            >
+                                <Button.Root size="sm" menuItem>
+                                    <Button.Label>Delete</Button.Label>
+                                </Button.Root>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
                 }}
             />
         </PanelLayoutPanel>

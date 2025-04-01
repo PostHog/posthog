@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
+from django.urls import reverse
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
@@ -19,7 +20,7 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
     @admin.display(description="Team")
     def team_link(self, group_type_mapping: GroupTypeMapping):
         return format_html(
-            '<a href="/admin/posthog/team/{}/change/">{}</a>',
-            group_type_mapping.team.pk,
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[group_type_mapping.team.pk]),
             group_type_mapping.team.name,
         )

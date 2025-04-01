@@ -313,7 +313,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
 
-    // cookieless
+    // cookieless, should match the values in rust/feature-flags/src/config.rs
     COOKIELESS_DISABLED: boolean
     COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
@@ -341,6 +341,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
     PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
     PROPERTY_DEFS_WRITE_DISABLED: boolean
+
+    CDP_HOG_WATCHER_SAMPLE_RATE: number
 }
 
 export interface Hub extends PluginsServerConfig {
