@@ -69,6 +69,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createFolder: (parentPath: string) => ({ parentPath }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
+        setLastNewOperation: (objectType: string | null, folder: string | null) => ({ objectType, folder }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -284,6 +285,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+            },
+        ],
+        lastNewOperation: [
+            null as { objectType: string; folder: string } | null,
+            {
+                setLastNewOperation: (_, { folder, objectType }) => {
+                    if (folder && objectType) {
+                        return { folder, objectType }
+                    }
+                    return null
+                },
             },
         ],
         pendingActions: [
@@ -695,8 +707,23 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         const result = resp.results[0]
                         path = result.path
                         actions.createSavedItem(result)
+                        const { lastNewOperation } = values
+
+                        // TODO: check that this was created by you... and not an accident by hitting "back"
+                        // const createdBy = result.meta?.created_by
+
+                        if (lastNewOperation && lastNewOperation.objectType === result.type) {
+                            const newPath = joinPath([
+                                ...splitPath(lastNewOperation.folder),
+                                ...splitPath(path).slice(-1),
+                            ])
+                            actions.moveItem(path, newPath)
+                        }
+
+                        actions.setLastNewOperation(null, null)
                     }
                 }
+
                 if (path) {
                     const expandedSet = new Set(values.expandedFolders)
                     const allFolders = splitPath(path).slice(0, -1)
