@@ -82,7 +82,21 @@ jobs:
         strategy:
             matrix:
                 package:
-                    - workspace
+                    - feature-flags
+                    - property-defs-rs
+                    - batch-import-worker
+                    - capture
+                    - cymbal
+                    - hook-api
+                    - hook-common
+                    - hook-janitor
+                    - hook-worker
+                    - cyclotron-core
+                    - cyclotron-node
+                    - cyclotron-worker
+                    - cyclotron-janitor
+                    - cyclotron-fetch
+
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
@@ -155,7 +169,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
               run: |
                   echo "Starting Cargo test suite..."
-                  ./bin/run_workspace_tests
+                  ./bin/run_workspace_tests ${{ matrix.package }}
                   echo "Cargo test completed"
 
     linting:
