@@ -432,11 +432,11 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
     },
     email: {
         inputs_schema: [
-            { key: 'mailjet', type: 'dictionary', label: 'Mailjet', secret: false, required: true },
+            { key: 'mail', type: 'dictionary', label: 'Mailjet', secret: false, required: true },
             { key: 'email', type: 'string', label: 'Email', secret: false, required: true },
         ],
         inputs: {
-            mailjet: {
+            mail: {
                 value: {
                     api_key: 'test_api_key',
                     secret_key: 'test_secret_key',
