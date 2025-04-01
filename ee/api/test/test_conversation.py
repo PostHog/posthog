@@ -38,6 +38,20 @@ class TestConversation(APIBaseTest):
             self.assertEqual(conversation.team, self.team)
             stream_mock.assert_called_once()
 
+    def test_create_conversation_type(self):
+        with patch.object(Assistant, "_stream", return_value=["test response"]) as stream_mock:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"content": "test query", "trace_id": str(uuid.uuid4()), "type": "hogql"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(self._get_streaming_content(response), b"test response")
+            self.assertEqual(Conversation.objects.count(), 1)
+            conversation: Conversation = Conversation.objects.first()
+            self.assertEqual(conversation.user, self.user)
+            self.assertEqual(conversation.team, self.team)
+            stream_mock.assert_called_once()
+
     def test_add_message_to_existing_conversation(self):
         with patch.object(Assistant, "_stream", return_value=["test response"]) as stream_mock:
             conversation = Conversation.objects.create(user=self.user, team=self.team)

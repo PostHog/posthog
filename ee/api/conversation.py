@@ -15,13 +15,15 @@ from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.schema import HumanMessage
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from ee.hogai.hogql_graph import HogQLGraph
 
 
 class MessageSerializer(serializers.Serializer):
     content = serializers.CharField(required=True, max_length=1000)
     conversation = serializers.UUIDField(required=False)
+    type = serializers.ChoiceField(choices=["hogql", "max"], required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
 
@@ -73,6 +75,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             conversation = self.get_queryset().create(user=request.user, team=self.team)
         if conversation.is_locked:
             raise Conflict("Conversation is locked.")
+
+        if serializer.validated_data.get("type") == "hogql":
+            graph = HogQLGraph(self.team).compile_full_graph()
+        else:
+            graph = None  # default will be applied in Assistant
+
         assistant = Assistant(
             self.team,
             conversation,
@@ -81,6 +89,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=not conversation_id,
             trace_id=serializer.validated_data["trace_id"],
+            graph=graph,
         )
         return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
 

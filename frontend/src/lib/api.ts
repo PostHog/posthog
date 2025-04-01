@@ -3030,6 +3030,7 @@ const api = {
                 contextual_tools?: Record<string, any>
                 conversation?: string | null
                 trace_id: string
+                type?: string | null
             },
             options?: ApiMethodOptions
         ): Promise<Response> {

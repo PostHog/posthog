@@ -60,6 +60,7 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
 
 STREAMING_NODES: set[AssistantNodeName] = {
     AssistantNodeName.ROOT,
+    AssistantNodeName.SQL_ASSISTANT,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
@@ -99,6 +100,7 @@ class Assistant:
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
+        graph: Optional[CompiledStateGraph] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -106,7 +108,7 @@ class Assistant:
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
         self._is_new_conversation = is_new_conversation
-        self._graph = AssistantGraph(team).compile_full_graph()
+        self._graph = graph or AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
         self._callback_handler = (

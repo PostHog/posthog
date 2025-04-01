@@ -119,6 +119,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         updateQueryTabState: true,
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
+        setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
+        _setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
+        onAcceptSuggestedQueryInput: true,
+        onRejectSuggestedQueryInput: true,
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -245,8 +249,42 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         editorKey: [props.key],
+        suggestedQueryInput: [
+            '',
+            {
+                _setSuggestedQueryInput: (_, { suggestedQueryInput }) => suggestedQueryInput,
+            },
+        ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
+        setSuggestedQueryInput: ({ suggestedQueryInput }) => {
+            if (values.queryInput) {
+                actions._setSuggestedQueryInput(suggestedQueryInput)
+            } else {
+                actions.setQueryInput(suggestedQueryInput)
+            }
+        },
+        onAcceptSuggestedQueryInput: () => {
+            actions.setQueryInput(values.suggestedQueryInput)
+            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
+            if (props.monaco && values.activeModelUri) {
+                const newModel = props.monaco.editor.createModel(
+                    values.suggestedQueryInput,
+                    'hogQL',
+                    values.activeModelUri.uri
+                )
+                props.editor?.setModel(newModel)
+            }
+            actions.setSuggestedQueryInput('')
+        },
+        onRejectSuggestedQueryInput: () => {
+            actions.setSuggestedQueryInput('')
+            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
+            if (props.monaco && values.activeModelUri) {
+                const newModel = props.monaco.editor.createModel(values.queryInput, 'hogQL', values.activeModelUri.uri)
+                props.editor?.setModel(newModel)
+            }
+        },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
             if (maybeExistingTab) {

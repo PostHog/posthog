@@ -1,5 +1,7 @@
+import { IconCheck, IconX } from '@posthog/icons'
 import { useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
@@ -12,6 +14,9 @@ interface QueryPaneProps {
     promptError: string | null
     codeEditorProps: Partial<CodeEditorProps>
     sourceQuery: HogQLQuery
+    originalValue?: string
+    onAccept?: () => void
+    onReject?: () => void
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -34,6 +39,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                 language="hogQL"
                                 value={props.queryInput}
                                 sourceQuery={props.sourceQuery}
+                                originalValue={props.originalValue}
                                 height={height}
                                 width={width}
                                 {...props.codeEditorProps}
@@ -54,6 +60,44 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         )}
                     </AutoSizer>
                 </div>
+                {props.originalValue && (
+                    <div
+                        className="absolute"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            bottom: '16px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            zIndex: 10,
+                            backgroundColor: 'white',
+                            padding: '4px 6px',
+                            borderRadius: '6px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                            border: '1px solid var(--border)',
+                        }}
+                    >
+                        <div className="flex gap-1">
+                            <LemonButton
+                                type="primary"
+                                icon={<IconCheck color="var(--success)" />}
+                                onClick={props.onAccept}
+                                tooltipPlacement="top"
+                                size="small"
+                            >
+                                Accept
+                            </LemonButton>
+                            <LemonButton
+                                status="danger"
+                                icon={<IconX />}
+                                onClick={props.onReject}
+                                tooltipPlacement="top"
+                                size="small"
+                            >
+                                Reject
+                            </LemonButton>
+                        </div>
+                    </div>
+                )}
                 <Resizer {...queryPaneResizerProps} />
             </div>
         </>

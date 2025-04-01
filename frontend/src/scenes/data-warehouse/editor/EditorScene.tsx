@@ -24,6 +24,7 @@ import { multitabEditorLogic } from './multitabEditorLogic'
 import { dataNodeKey } from './multitabEditorLogic'
 import { QueryWindow } from './QueryWindow'
 import { EditorSidebar } from './sidebar/EditorSidebar'
+import { queryAILogic } from './sidebar/queryAILogic'
 
 export function EditorScene(): JSX.Element {
     const ref = useRef(null)
@@ -113,14 +114,22 @@ export function EditorScene(): JSX.Element {
                         <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                                 <BindLogic logic={multitabEditorLogic} props={{ key: codeEditorKey, monaco, editor }}>
-                                    <div className="EditorScene w-full h-full flex flex-row overflow-hidden" ref={ref}>
-                                        <EditorSidebar sidebarRef={sidebarRef} codeEditorKey={codeEditorKey} />
-                                        <QueryWindow
-                                            onSetMonacoAndEditor={(monaco, editor) =>
-                                                setMonacoAndEditor([monaco, editor])
-                                            }
-                                        />
-                                    </div>
+                                    <BindLogic
+                                        logic={queryAILogic}
+                                        props={{ logicKey: logicKey, codeEditorKey: codeEditorKey }}
+                                    >
+                                        <div
+                                            className="EditorScene w-full h-full flex flex-row overflow-hidden"
+                                            ref={ref}
+                                        >
+                                            <EditorSidebar sidebarRef={sidebarRef} codeEditorKey={codeEditorKey} />
+                                            <QueryWindow
+                                                onSetMonacoAndEditor={(monaco, editor) =>
+                                                    setMonacoAndEditor([monaco, editor])
+                                                }
+                                            />
+                                        </div>
+                                    </BindLogic>
                                     <ViewLinkModal />
                                 </BindLogic>
                             </BindLogic>
