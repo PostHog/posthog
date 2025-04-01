@@ -41,7 +41,7 @@ class TeamAdmin(admin.ModelAdmin):
     ]
     autocomplete_fields = ["project"]
 
-    inlines = [GroupTypeMappingInline, ActionInline]
+    inlines = [GroupTypeMappingInline]
     fieldsets = [
         (
             None,

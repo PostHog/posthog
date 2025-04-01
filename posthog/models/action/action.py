@@ -9,7 +9,6 @@ from django.utils import timezone
 from posthog.hogql.errors import BaseHogQLError
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import TeamProjectMixin
 from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
@@ -37,11 +36,10 @@ class ActionStepJSON:
     properties: Optional[list[dict]] = None
 
 
-class Action(FileSystemSyncMixin, TeamProjectMixin, models.Model):
+class Action(FileSystemSyncMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
+    project = models.ForeignKey("Project", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
@@ -69,7 +67,7 @@ class Action(FileSystemSyncMixin, TeamProjectMixin, models.Model):
     last_calculated_at = models.DateTimeField(default=timezone.now, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team_id", "-updated_at"])]
+        indexes = [models.Index(fields=["project_id", "-updated_at"])]
 
     def __str__(self):
         return self.name
@@ -80,7 +78,7 @@ class Action(FileSystemSyncMixin, TeamProjectMixin, models.Model):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Action"]:
-        base_qs = cls.objects.filter(team=team, deleted=False)
+        base_qs = cls.objects.filter(project__team=team, deleted=False)
         return cls._filter_unfiled_queryset(base_qs, team, type="action", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
@@ -145,9 +143,11 @@ class Action(FileSystemSyncMixin, TeamProjectMixin, models.Model):
 
 @receiver(post_save, sender=Action)
 def action_saved(sender, instance: Action, created, **kwargs):
-    reload_action_on_workers(team_id=instance.team_id, action_id=instance.id)
+    # TODO: What to do about project_id
+    reload_action_on_workers(team_id=instance.project_id, action_id=instance.id)
 
 
 @mutable_receiver(post_delete, sender=Action)
 def action_deleted(sender, instance: Action, **kwargs):
-    drop_action_on_workers(team_id=instance.team_id, action_id=instance.id)
+    # TODO: What to do about project_id
+    drop_action_on_workers(team_id=instance.project_id, action_id=instance.id)
