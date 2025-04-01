@@ -192,6 +192,7 @@ describe('tiktok template', () => {
         ['Products Searched', 'Search'],
         ['Product Viewed', 'ViewContent'],
         ['Signed Up', 'CompleteRegistration'],
+        ['Order Placed', 'PlaceAnOrder'],
     ])('correctly maps event names: %s', async (event, expectedEvent) => {
         const response = await tester.invoke(
             {
