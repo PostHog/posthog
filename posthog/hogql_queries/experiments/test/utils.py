@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
@@ -64,7 +65,7 @@ def create_data_warehouse_table(team: Team, table_name: str, table_data: list[di
 
 
 def create_standard_group_test_events(team: Team, feature_flag: FeatureFlag):
-    group_type_index = 0
+    group_type_index: GroupTypeIndex = 0
     GroupTypeMapping.objects.create(
         team=team,
         project_id=team.project_id,
