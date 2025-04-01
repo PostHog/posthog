@@ -18,11 +18,11 @@ class ExperimentAdminForm(ModelForm):
         # which is a lot and quite slow.
         if self.instance and self.instance.pk:
             if "exposure_cohort" in self.fields:
-                self.fields["exposure_cohort"].queryset = Cohort.objects.filter(team=self.instance.team)
+                self.fields["exposure_cohort"].queryset = Cohort.objects.filter(team=self.instance.team)  # type: ignore
             if "holdout" in self.fields:
-                self.fields["holdout"].queryset = ExperimentHoldout.objects.filter(team=self.instance.team)
+                self.fields["holdout"].queryset = ExperimentHoldout.objects.filter(team=self.instance.team)  # type: ignore
             if "feature_flag" in self.fields:
-                self.fields["feature_flag"].queryset = FeatureFlag.objects.filter(team=self.instance.team)
+                self.fields["feature_flag"].queryset = FeatureFlag.objects.filter(team=self.instance.team)  # type: ignore
 
 
 class ExperimentAdmin(admin.ModelAdmin):
