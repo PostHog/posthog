@@ -58,7 +58,7 @@ class Integration(models.Model):
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         INTERCOM = "intercom"
-        MAILJET = "mailjet"
+        MAIL = "mail"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -734,7 +734,7 @@ class LinkedInAdsIntegration:
         return response.json()
 
 
-class MailjetIntegration:
+class MailIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -746,11 +746,13 @@ class MailjetIntegration:
     ) -> Integration:
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
-            kind="mailjet",
+            kind="mail",
             integration_id=api_key,
             defaults={
                 "config": {
                     "api_key": api_key,
+                    # TODO: Add support for other vendors
+                    "vendor": "mailjet",
                 },
                 "sensitive_config": {
                     "secret_key": secret_key,

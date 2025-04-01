@@ -21,7 +21,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
-    MailjetIntegration,
+    MailIntegration,
 )
 
 
@@ -49,11 +49,11 @@ class IntegrationSerializer(serializers.ModelSerializer):
             )
             return instance
 
-        elif validated_data["kind"] == "mailjet":
+        elif validated_data["kind"] == "mail":
             config = validated_data.get("config", {})
-            if not (config.get("api_key") and config.get("secret_key")):
-                raise ValidationError("Both api_key and secret_key are required for Mailjet integration")
-            instance = MailjetIntegration.integration_from_keys(
+            if config.get("vendor") == "mailjet" and not (config.get("api_key") and config.get("secret_key")):
+                raise ValidationError("Both api_key and secret_key are required for Mail integration")
+            instance = MailIntegration.integration_from_keys(
                 config["api_key"],
                 config["secret_key"],
                 team_id,
