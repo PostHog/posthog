@@ -108,6 +108,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     if (!values.href) {
                         return null
                     }
+                    await breakpoint(150)
 
                     const { href, match } = values.href
                     const { date_from, date_to, filter_test_accounts } = values.commonFilters
