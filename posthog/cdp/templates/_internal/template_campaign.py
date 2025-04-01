@@ -9,8 +9,16 @@ template_new_campaign: HogFunctionTemplate = HogFunctionTemplate(
     description="Automated email campaign triggered by your event",
     icon_url="/static/hedgehog/explorer-hog.png",
     category=["Email Marketing"],
-    hog="""import('provider/email').sendEmail(inputs.email)""".strip(),
+    hog="""sendEmail(inputs)""".strip(),
     inputs_schema=[
+        {
+            "key": "mail",
+            "type": "integration",
+            "integration": "mail",
+            "label": "Mail integration",
+            "secret": False,
+            "required": True,
+        },
         {
             "key": "email",
             "type": "email",
