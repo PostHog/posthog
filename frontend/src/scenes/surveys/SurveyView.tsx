@@ -23,9 +23,15 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
 
-import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL, SURVEY_EVENT_NAME } from './constants'
-import { surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
+import {
+    NPS_DETRACTOR_LABEL,
+    NPS_DETRACTOR_VALUES,
+    NPS_PASSIVE_LABEL,
+    NPS_PASSIVE_VALUES,
+    NPS_PROMOTER_LABEL,
+    NPS_PROMOTER_VALUES,
+    SURVEY_EVENT_NAME,
+} from './constants'
 import {
     MultipleChoiceQuestionBarChart,
     NPSStackedBar,
@@ -541,10 +547,15 @@ function SurveyNPSResults({
                                     : dayjs().add(1, 'day').format('YYYY-MM-DD'),
                             },
                             series: [
-                                createNPSTrendSeries(['9', '10'], NPS_PROMOTER_LABEL, questionIndex, questionId),
-                                createNPSTrendSeries(['7', '8'], NPS_PASSIVE_LABEL, questionIndex, questionId),
                                 createNPSTrendSeries(
-                                    ['0', '1', '2', '3', '4', '5', '6'],
+                                    NPS_PROMOTER_VALUES,
+                                    NPS_PROMOTER_LABEL,
+                                    questionIndex,
+                                    questionId
+                                ),
+                                createNPSTrendSeries(NPS_PASSIVE_VALUES, NPS_PASSIVE_LABEL, questionIndex, questionId),
+                                createNPSTrendSeries(
+                                    NPS_DETRACTOR_VALUES,
                                     NPS_DETRACTOR_LABEL,
                                     questionIndex,
                                     questionId
