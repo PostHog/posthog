@@ -93,7 +93,6 @@ jobs:
                     - hook-worker
                     - cyclotron-core
                     - cyclotron-node
-                    - cyclotron-worker
                     - cyclotron-janitor
                     - cyclotron-fetch
 
