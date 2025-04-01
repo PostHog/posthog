@@ -8,7 +8,7 @@ set -euo pipefail
 
 # single, optional argument: the name of a subpackage to test.
 # if empty, defaults to full-workspace test run
-SUBPKG_NAME="${1:-}"
+SUBPKG_NAME="${1:-workspace}"
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 source "$SCRIPT_DIR/util"
@@ -27,9 +27,10 @@ $SCRIPT_DIR/migrate_tests
 
 # if a workspace subpackage name was provided, only
 # execute the test suite for that package (used in CI)
-if [[ -n "$SUBPKG_NAME" ]]; then
+OPTIONAL_SUBPKG_TARGET=""
+if [[ "$SUBPKG_NAME" != "workspace" ]]; then
   OPTIONAL_SUBPKG_TARGET="-p $SUBPKG_NAME"
 fi
 
-log "Executing cargo test with target: ${SUBPKG_NAME:-workspace}"
+log "Executing cargo test with target: $SUBPKG_NAME"
 cargo test $OPTIONAL_SUBPKG_TARGET -- --test-threads=4

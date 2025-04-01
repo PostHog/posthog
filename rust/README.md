@@ -51,17 +51,13 @@ The Rust workspace dev/test/CI environment has a bunch of moving parts. Here's a
     * Runs `cargo test` at the workspace level for all subprojects
 * `posthog/rust/bin/migrate_tests`
     * Sources the current test DB namespace and URL from `posthog/rust/.env`
-    * Runs the Django `setup_test_environment` automation for Rust projects that share the `posthog` and `test_posthog` databases
-    * Runs all Rust workspace migrations against single shared `rust_test_database` DB namespace
-        * :point_up: this is required to curate single query cache for all `sqlx`-dependent subprojects
+    * Exevutes `setup_test_environment` for Rust projects that depend on `posthog` (Django-owned) tables in dev/test/CI
+    * Executes all Rust workspace migrations against unified DB namespace: `rust_test_database`
+        * :point_up: this is required to support our workspace-level `sqlx` query cache
     * Executes `bin/update_sqlx_query_cache`
 * `/posthog/rust/bin/migrate`
-    * Bootstraps and migrates isolated DB namespaces for Rust services that depend on an isolated Postgres instance in production
+    * Creates, migrates DB namespaces for Rust services that depend on an isolated Postgres instance in production
         * Currently, this is `cyclotron-*` and (soon) `property-defs-rs`
-    * Does *not* do the following (use `bin/migrate_tests` if you need this):
-        * Bootstrap `setup_test_environment` for `posthog` Docker Compose DB instance (required by non-`sqlx` projects too!)
-        * Migrate Rust workspace project schemas into consolidated single test-scoped DB namespace that `sqlx` requires
-        * Update the `sqlx` query cache
 * `posthog/rust/bin/update_sqlx_query_cache`
     * Runs `cargo sqlx prepare` for the entire workspace, curating a unified query cache at `posthog/rust/.sqlx`
     * Can be run directly in local dev _if_ `bin/migrate_tests` has already run successfully
@@ -104,17 +100,6 @@ This is required when making changes to any production (dev) or test-scoped quer
 
 The Rust workspace and subprojects diverge in how they manage their development, test, and CI lifecycles. In order to consolidate and automate management of these environments, these differences had to be taken into account. This motivated some special-case handling in the new `posthog/rust/bin/` scripts and related repo root automation `posthog/bin/migrate` and related CI Actions and scripts they call.
 
-I'll attempt to provide some brief context on this below:
-
-#### The subprojects dev/test divergences
-The subprojects in the workspace fall into several categories:
-
-* Projects that don't depend on a Postgres database
-* Those that depend on [sqlx](https://github.com/launchbadge/sqlx) and [sqlx-cli](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md) to manage the DB
-   * Some of these rely on tables that currently exist in the `posthog` (Django-managed) DB in dev/test, and could be refactored to behave as `feature-flags` project does
-   * Some of these rely on isolated, self-managed database instances in production and local dev, but in order to depend on `sqlx` at the workspace level, must apply migrations into a shared test-scoped DB namespace when executing test suites in local dev or CI
-* Those that depend on the `posthog` (Django-managed) database and internal scripting to manage the DB
-   * Currently, the `feature-flags` subproject is the most mature example of this approach
 
 #### SQLX is useful but opinionated
 `sqlx` provides a lot of useful features for projects that depend on it:
@@ -130,7 +115,6 @@ These friction points inform the choices and special cases in the `posthog/rust/
 
 
 ## Rust Subprojects
-TODO: write up a brief intro for all of them.
 
 ### capture
 
@@ -139,14 +123,17 @@ This is a rewrite of [capture.py](https://github.com/PostHog/posthog/blob/master
 _TODO: complete the transition from legacy `capture` implementations into the Rust version hosted here._
 
 ### common
+
 Shared boilerplate code (metrics publishing, k8s health endpoints, kafka client wrappers, etc.) that many of the other subprojects depend on.
 
 ### property-defs-rs
+
 Consumes the `clickhouse_events_json` (post-processed events) topic, scanning for new event definitions and properties. Attempts to classify the value type of each property and update the `posthog_propertydefinition`, `posthog_eventproperty`, and `posthog_eventdefinition` tables accordingly.
 
 This data is queried by the Django taxonomy API to display event property types and metadata used in filter and query building in the product.
 
 ### feature-flags
+
 Manages PostHog Feature Flags. **IMPORTANT** this project does not rely on `sqlx` for database management. It utilizes the `posthog` (Django-managed) database setup `manage.py setup_test_environment` and it's own internal project scripts to handle local dev and test flows. It *does* share the `posthog` (repo root) Docker Compose with the rest of the Rust workspace, and utilizes the same common `posthog/rust/bin` database and test suite management scripts, which are special-cased in places to accommodate it.
 
 See the `posthog/rust/feature-flags/README.md` for details.
@@ -154,38 +141,45 @@ See the `posthog/rust/feature-flags/README.md` for details.
 If you're starting a new Rust project and do not intend to depend on `sqlx`, this project is a good template to start with.
 
 ### hook-\*
+
 Various libraries and services that manage PostHog webhooks
 
 ### cymbal
+
 Manages ingest for the PostHog Error Tracking.
 
 
 ## Adding a new subproject to the Rust workspace
+
 Start out by `cd`ing into the `posthog/rust` workspace root directory. Use `cargo` to initialize your new project as [documented here](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html#creating-the-second-package-in-the-workspace).
 
 As noted above, there are 3 flavors of workspace project at the moment you can choose as templates for your new project. The bootstrap process for each is listed below:
 
 #### Project with no DB dependencies
+
 Just start coding! Your decision isn't permanent - you can easily adapt in flight to an `SQLX`-dependent project or not in the future. The only dependency you'll need right off the bat is to have the `posthog` Docker Compose rig up and running in local dev, and to code against those (non-DB!) backing stores if you require them.
 
 Remember you should still use `bin/run_workspace_tests` as well as linting checks documented in `ci-rust.yml` locally just as CI will do when a PR is submitted.
 
-#### Project depends on Postgres + SQLX
-In your subproject directory root (`posthog/rust/<YOUR_SUBPROJECT>`) you'll need to set up a bit of boilerplate depending on how your new project will be deployed in production.
+#### Project depends on Postgres and SQLX
+
+In your subproject directory root (`posthog/rust/<SUBPROJECT>`) you'll need to set up a bit of boilerplate depending on how your new project will be deployed in production.
 
 * If the project _will manage it's own isolated database instance in prod_ you should:
-    1. Create a `migrations` subdirectory in your subproject root
-    1. Use `sqlx migrate add ...` to create migrations and add your table schemas to it
-    1. When writing tests, annotate each `fn test_*` with `sqlx::test(migrations = "<PATH>")` where `PATH` points to your `migrations` directory
+    1. Create a `posthog/rust/<SUBPROJECT>/migrations` directory
+    1. Execute `sqlx migrate add <MIGRATION_NAME>` from your subproject root directory
+    1. Define the schema of all tables referenced in SQL wrapped by `sqlx::query\*` macros in your code
+    1. When writing tests, annotate each `fn test_*` with `sqlx::test(migrations = "<PATH>")` where `PATH` points to the `<SUBPROJECT>/migrations` directory
     1. Add an `sqlx migrate run ...` clause to `bin/migrate` and `bin/migrate_tests` where `--source` points to your `migrations` directory
     1. Execute `bin/migrate_tests` and/or `bin/migrate` when making changes to SQL wrapped by `sqlx::query*` macros
 
 * If the project _will not manage its own DB in production_:
-    1. Verify that existing migrations (see `bin/migrate_test`) don't already cover the tables your queries will referece. If so, you're done! :tada:
-    1. If not, create a `tests/test_migrations` subdirectory in your subproject root
-    1. `cd` into `tests` and `sqlx migrate add ...` to create migrations and add the missing table schemas to it
-    1. When writing tests, annotate each `fn test_*` with `sqlx::test(migrations = "<PATH>")` where `PATH` points to your `test_migrations` directory
-    1. Add an `sqlx migrate run ...` clause to `bin/migrate` and `bin/migrate_tests` where `--source` points to your `test_migrations` directory
+    1. Are the tables your code references already defined in `posthog/rust/migrations` or a subproject `migrations` directory?
+    1. If so, you won't need to create any new migrations :tada:
+    1. If not, create a `posthog/rust/<SUBPROJECT>/migrations` directory
+        * Execute `sqlx migrate add <MIGRATION_NAME>` from your subproject root directory
+        * Define schemas for all undefined tables referenced in SQL wrapped by `sqlx::query\*` macros in your code
+    1. When writing tests, annotate each with `sqlx::test(migrations = "<PATH>")` where `PATH` points to  `posthog/rust/migrations` directory
     1. Execute `bin/migrate_tests` and/or `bin/migrate` when making changes to SQL wrapped by `sqlx::query*` macros
 
 #### Project depends on a database but not SQLX

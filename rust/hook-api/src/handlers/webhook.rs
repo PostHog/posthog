@@ -245,7 +245,7 @@ mod tests {
     const MAX_BODY_SIZE: usize = 1_000_000;
     const CONCURRENCY_LIMIT: usize = 10;
 
-    #[sqlx::test(migrations = "../hook-common/migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn webhook_success(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(&body[..], b"{}");
     }
 
-    #[sqlx::test(migrations = "../hook-common/migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn webhook_bad_url(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[sqlx::test(migrations = "../hook-common/migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn webhook_payload_missing_fields(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
@@ -366,7 +366,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[sqlx::test(migrations = "../hook-common/migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn webhook_payload_not_json(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
@@ -394,7 +394,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[sqlx::test(migrations = "../hook-common/migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn webhook_payload_body_too_large(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
@@ -448,7 +448,7 @@ mod tests {
         target: String,
     }
 
-    #[sqlx::test(migrations = "../hook-common/migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn hoghook_success(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db.clone()).await;
         let hog_mode = true;
@@ -539,7 +539,7 @@ mod tests {
         }
     }
 
-    #[sqlx::test(migrations = "../hook-common/migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn hoghook_bad_requests(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db.clone()).await;
         let hog_mode = true;

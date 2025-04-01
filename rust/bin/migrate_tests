@@ -42,11 +42,8 @@ DEBUG=true TEST=true python manage.py setup_test_environment --only-postgres
 # New Rust workspace subprojects should add statements like this pointing to
 # their own dev and test migrations. Details in the `posthog/rust/README.md`
 log "Migrating workspace projects..."
-sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../common/migrations"
-sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../hook-common/migrations"
-sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../batch-import-worker/migrations"
+sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../migrations"
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../cyclotron-core/migrations"
-sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../cymbal/tests/test_migrations"
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../property-defs-rs/tests/test_migrations"
 
 # trigger the SQLX query cache refresh while the schemas are migrated and tables are empty

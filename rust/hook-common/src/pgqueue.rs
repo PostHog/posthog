@@ -702,7 +702,7 @@ mod tests {
         "https://myhost/endpoint".to_owned()
     }
 
-    #[sqlx::test(migrations = "./migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_can_dequeue_tx_job(db: PgPool) {
         let job_target = job_target();
         let job_metadata = JobMetadata::default();
@@ -737,7 +737,7 @@ mod tests {
         batch.commit().await.expect("failed to commit transaction");
     }
 
-    #[sqlx::test(migrations = "./migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_can_dequeue_multiple_tx_jobs(db: PgPool) {
         let job_target = job_target();
         let job_metadata = JobMetadata::default();
@@ -788,7 +788,7 @@ mod tests {
         batch.commit().await.expect("failed to commit transaction");
     }
 
-    #[sqlx::test(migrations = "./migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_dequeue_tx_returns_none_on_no_jobs(db: PgPool) {
         let worker_id = worker_id();
         let queue = PgQueue::new_from_pool("test_dequeue_tx_returns_none_on_no_jobs", db).await;
@@ -801,7 +801,7 @@ mod tests {
         assert!(batch.is_none());
     }
 
-    #[sqlx::test(migrations = "./migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_can_retry_job_with_remaining_attempts(db: PgPool) {
         let job_target = job_target();
         let job_parameters = JobParameters::default();
@@ -857,7 +857,7 @@ mod tests {
         assert_eq!(retried_job.job.target, job_target);
     }
 
-    #[sqlx::test(migrations = "./migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_can_retry_job_to_different_queue(db: PgPool) {
         let job_target = job_target();
         let job_parameters = JobParameters::default();
@@ -923,7 +923,7 @@ mod tests {
         assert_eq!(retried_job.job.target, job_target);
     }
 
-    #[sqlx::test(migrations = "./migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     #[should_panic(expected = "failed to retry job")]
     async fn test_cannot_retry_job_without_remaining_attempts(db: PgPool) {
         let job_target = job_target();

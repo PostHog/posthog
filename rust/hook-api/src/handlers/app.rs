@@ -54,7 +54,7 @@ mod tests {
     use sqlx::PgPool;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
-    #[sqlx::test(migrations = "../hook-common/migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn index(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
