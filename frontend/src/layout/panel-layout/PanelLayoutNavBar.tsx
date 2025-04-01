@@ -216,7 +216,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     )}
                     ref={containerRef}
                 >
-                    <div className="flex justify-between p-1">
+                    <div className={`flex justify-between p-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}>
                         <OrganizationDropdownMenu />
 
                         {!isLayoutNavCollapsed && (
