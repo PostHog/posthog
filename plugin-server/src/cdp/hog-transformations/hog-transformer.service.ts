@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionType } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
@@ -36,6 +36,12 @@ export const hogTransformationCompleted = new Counter({
     name: 'hog_transformation_completed_total',
     help: 'Number of successfully completed transformations',
     labelNames: ['type'],
+})
+
+export const hogWatcherLatency = new Histogram({
+    name: 'hog_watcher_latency_seconds',
+    help: 'Time spent in HogWatcher operations in seconds during ingestion',
+    labelNames: ['operation'],
 })
 
 export interface TransformationResultPure {
@@ -251,13 +257,20 @@ export class HogTransformerService {
                 // Observe the results to update degraded state of HogFunctions
                 const watcherPromises: Promise<void>[] = []
                 if (results.length > 0 && this.hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS.includes(event.team_id)) {
-                    const watcherPromise = this.hogWatcher
-                        .observeResults(results)
-                        .then(() => {})
-                        .catch((error) => {
-                            logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
-                        })
-                    watcherPromises.push(watcherPromise)
+                    const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+                    if (shouldRunHogWatcher) {
+                        const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
+                        const watcherPromise = this.hogWatcher
+                            .observeResults(results)
+                            .then(() => {
+                                timer() // Stop the timer when the promise resolves
+                            })
+                            .catch((error) => {
+                                timer() // Make sure to stop the timer even if there's an error
+                                logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
+                            })
+                        watcherPromises.push(watcherPromise)
+                    }
                 }
 
                 if (transformationsFailed.length > 0) {

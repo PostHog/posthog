@@ -1,7 +1,7 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
-import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { HogTransformerService, hogWatcherLatency } from '../cdp/hog-transformations/hog-transformer.service'
 import { CdpRedis, createCdpRedisPool } from '../cdp/redis'
 import { HogFunctionManagerService } from '../cdp/services/hog-function-manager.service'
 import { HogWatcherService, HogWatcherState } from '../cdp/services/hog-watcher.service'
@@ -209,8 +209,13 @@ export class IngestionConsumer {
                         'transformation',
                     ])
                     if (teamHogFunctions.length > 0) {
-                        const filteredFunctions = await this.filterDegradedHogFunctions(teamHogFunctions)
-                        teamHogFunctionsMap.set(teamId, filteredFunctions)
+                        const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+                        if (shouldRunHogWatcher) {
+                            const filteredFunctions = await this.filterDegradedHogFunctions(teamHogFunctions)
+                            teamHogFunctionsMap.set(teamId, filteredFunctions)
+                        } else {
+                            teamHogFunctionsMap.set(teamId, teamHogFunctions)
+                        }
                     }
                 })
             )
@@ -561,7 +566,9 @@ export class IngestionConsumer {
         try {
             // Get states for all functions at once - this is more efficient than individual calls
             const functionIds = hogFunctions.map((func) => func.id)
+            const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
             const states = await this.hogWatcher.getStates(functionIds)
+            timer()
 
             // Just log which functions would be filtered, but return all of them for now
             hogFunctions.forEach((func) => {

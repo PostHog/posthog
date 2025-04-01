@@ -363,17 +363,20 @@ describe('eachBatchX', () => {
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)
             await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
 
-            expect(runEventPipeline).toHaveBeenCalledWith({
-                distinct_id: 'id',
-                event: 'event',
-                properties: {},
-                ip: null,
-                now: null,
-                sent_at: null,
-                site_url: '',
-                team_id: 1,
-                uuid: 'uuid1',
-            })
+            expect(runEventPipeline).toHaveBeenCalledWith(
+                {
+                    distinct_id: 'id',
+                    event: 'event',
+                    properties: {},
+                    ip: null,
+                    now: null,
+                    sent_at: null,
+                    site_url: '',
+                    team_id: 1,
+                    uuid: 'uuid1',
+                },
+                []
+            )
         })
 
         it("doesn't fail the batch if runEventPipeline rejects once then succeeds on retry", async () => {
