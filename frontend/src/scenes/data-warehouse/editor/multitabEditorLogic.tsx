@@ -868,6 +868,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 )
             },
         ],
+        showLegacyFilters: [
+            (s) => [s.sourceQuery],
+            (sourceQuery) => {
+                return sourceQuery.source.query.indexOf('{filters}') !== -1
+            },
+        ],
         dataLogicKey: [
             (s) => [s.activeModelUri, s.editingInsight],
             (activeModelUri, editingInsight) => {
