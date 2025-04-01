@@ -10,6 +10,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { privilegeLevelToName } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -75,6 +76,8 @@ export function DashboardHeader(): JSX.Element | null {
     const { tags } = useValues(tagsModel)
 
     const { push } = useActions(router)
+
+    const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
 
     const exportOptions: ExportButtonItem[] = [
         {
@@ -189,12 +192,12 @@ export function DashboardHeader(): JSX.Element | null {
                                                     <LemonDivider />
                                                 </>
                                             )}
-                                            {canEditDashboard && (
+                                            {canEditDashboard && hasDashboardColors && (
                                                 <LemonButton
                                                     onClick={() => showInsightColorsModal(dashboard.id)}
                                                     fullWidth
                                                 >
-                                                    Customize Colors
+                                                    Customize colors
                                                 </LemonButton>
                                             )}
                                             {canEditDashboard && (
