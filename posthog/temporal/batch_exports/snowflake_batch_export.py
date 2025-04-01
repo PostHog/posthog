@@ -57,6 +57,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
+# One batch export allowed to connect at a time (in theory) per worker.
+CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
+
 NON_RETRYABLE_ERROR_TYPES = [
     # Raised when we cannot connect to Snowflake.
     "DatabaseError",
@@ -266,7 +269,7 @@ class SnowflakeClient:
         Methods that require a connection should be ran within this block.
         """
         try:
-            async with asyncio.timeout(delay=3.0):
+            async with CONNECTION_SEMAPHORE:
                 connection = await asyncio.to_thread(
                     snowflake.connector.connect,
                     user=self.user,
@@ -290,8 +293,6 @@ class SnowflakeClient:
 
         except InterfaceError as err:
             raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
-        except TimeoutError as err:
-            raise SnowflakeRetryableConnectionError("Connection to Snowflake timed out") from err
 
         self._connection = connection
 
