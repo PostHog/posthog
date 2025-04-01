@@ -1,6 +1,7 @@
 {
     "name": "@posthog/agent",
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.39.0",
         "@google/generative-ai": "^0.24.0",
         "@types/async": "^3.2.24",
         "@types/node": "^18.11.9",

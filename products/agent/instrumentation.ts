@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import Anthropic from '@anthropic-ai/sdk'
 import { mapLimit } from 'async'
 import * as fg from 'fast-glob'
 import * as fsSync from 'fs'
@@ -21,15 +21,11 @@ interface FileModification {
 }
 
 interface EventParsingConfig {
-  importPattern: string
   capturePattern: RegExp
-  propertiesExtractor: (match: RegExpExecArray) => Record<string, any> | undefined
-  descriptionFromContext: () => string
 }
 
 interface DocsConfig {
   pattern: string
-  productDescription: string
   analyticsDoc: string
   parsing: EventParsingConfig
 }
@@ -47,6 +43,7 @@ interface AgentOptions {
     outputTokenRate: number // USD per million tokens
   }
   ignore: string[]
+  model: string
 }
 
 const PRODUCT_CONFIG: ProductConfig = {
@@ -76,8 +73,8 @@ Key features:
 const AGENT_OPTIONS: AgentOptions = {
   concurrency: 5,
   costs: {
-    inputTokenRate: 0.1,  // $0.1 per million tokens
-    outputTokenRate: 0.4  // $0.4 per million tokens
+    inputTokenRate: 3,   // $3 per million tokens for Claude 3.7
+    outputTokenRate: 15   // $15 per million tokens for Claude 3.7
   },
   ignore: [
     '**/node_modules/**',
@@ -87,17 +84,22 @@ const AGENT_OPTIONS: AgentOptions = {
     '**/*.spec.*',
     '**/__tests__/**',
     '**/*.d.ts'
-  ]
+  ],
+  model: 'claude-3-7-sonnet-20250219'
 }
 
 // Configuration for different file types
 const DOCS_BY_TYPE: DocsConfig[] = [
   {
-    pattern: '**/*.tsx',
-    productDescription: 'React/TypeScript frontend code that handles user interactions and UI components.',
+    pattern: '**/*.{tsx,jsx}',
     analyticsDoc: `
 Setup:
 import posthog from 'posthog-js'
+
+Integration Specific Rules:
+- Focus on click handlers and other props you know will exist - do not add props that are not known to exist for a component (e.g. a custom component might not have a click handler).
+- Make sure events are as a result of user interaction e.g. a button click or a form submission and not something that happens as a result of a component mounting / rendering which could cause a lot of noise.
+- Do not add properties to a custom component that are not known to exist
 
 Example events to track:
 
@@ -110,30 +112,18 @@ Example events to track:
 2. Error States
    posthog.capture('upload_file_error')`,
     parsing: {
-      importPattern: "import posthog from 'posthog-js'",
       capturePattern: /posthog\.capture\(['"]([^'"]+)['"](?:,\s*({[^}]+}))?\)/g,
-      propertiesExtractor: (match) => {
-        if (!match[2]) { return undefined }
-        try {
-          const cleaned = match[2]
-            .replace(/(\w+):/g, '"$1":')
-            .replace(/'/g, '"')
-            .replace(/,\s*}/g, '}')
-          return JSON.parse(cleaned)
-        } catch (e) {
-          return undefined
-        }
-      },
-      descriptionFromContext: () => 'Event'
     }
   },
   {
     pattern: '**/*.py',
-    productDescription: 'Python backend code that handles business logic and API endpoints.',
     analyticsDoc: `
 Setup:
 from posthog import Posthog
 posthog = Posthog(project_api_key='<ph_project_api_key>')
+
+Integration Specific Rules:
+- 
 
 Example events to track:
 
@@ -153,22 +143,7 @@ Example events to track:
        event='model_inference_failed'
    )`,
     parsing: {
-      importPattern: 'from posthog import Posthog',
       capturePattern: /posthog\.capture\(\s*(?:distinct_id=['"]\w+['"],\s*)?event=['"]([^'"]+)['"](?:,\s*properties=({[^}]+}))?\)/g,
-      propertiesExtractor: (match) => {
-        if (!match[2]) { return undefined }
-        try {
-          const cleaned = match[2]
-            .replace(/'/g, '"')
-            .replace(/True/g, 'true')
-            .replace(/False/g, 'false')
-            .replace(/None/g, 'null')
-          return JSON.parse(cleaned)
-        } catch (e) {
-          return undefined
-        }
-      },
-      descriptionFromContext: () => 'Event'
     }
   }
 ]
@@ -181,21 +156,20 @@ Analyze the code and determine what events would be valuable to track based on:
 3. Important state changes and operations
 4. Error cases and edge conditions
 
-Guidelines:
+General Rules:
 - Event names should be snake_case
 - Include relevant properties that provide context
 - Don't track sensitive information
 - Don't duplicate existing capture calls
 - Place capture calls in appropriate locations (handlers, effects, etc.)
 - Return ONLY the exact code that should be written to the file. Do not include any markdown formatting, code block markers, or explanation. The output should be exactly what will be written to the file, nothing more and nothing less.
-- Make minimal changes to the code, avoid adding new code focus on simple modifications to existing code to add analytics events.`
+- Make minimal changes to the code, avoid adding new code focus on simple modifications to existing code to add analytics events.
+- You should avoid breaking the code, so if you are unsure whether a change will break the code, ask the user for clarification.
+- You should avoid adding analytics events that will break the code, so if you are unsure whether an event will break the code, just skip it.
+- Make sure events are not duplicated, if an event is already being tracked, do not add another one.`
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
-const model = genAI.getGenerativeModel({
-  model: 'gemini-2.0-flash',
-  generationConfig: {
-    temperature: 0.2,
-  }
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY
 })
 
 let inputTokens = 0
@@ -216,22 +190,26 @@ Analytics Setup and Examples:
 ${analyticsDoc}`
 
   const userPrompt = `Analyze and add analytics events to this file:
-${filePath}
 
+Current file path: ${filePath}
 Current file content:
 ${content}`
 
-  const { response } = await model.generateContent({
-    contents: [
-      { role: 'model', parts: [{ text: systemPrompt }] },
-      { role: 'user', parts: [{ text: userPrompt }] }
+  const message = await anthropic.messages.create({
+    model: AGENT_OPTIONS.model,
+    system: systemPrompt,
+    messages: [
+      { role: 'user', content: userPrompt }
     ],
+    max_tokens: 4096,
+    temperature: 0.1
   })
 
-  inputTokens += response.usageMetadata.promptTokenCount
-  outputTokens += response.usageMetadata.candidatesTokenCount
+  inputTokens += message.usage?.input_tokens || 0
+  outputTokens += message.usage?.output_tokens || 0
 
-  const modifiedContent = response.text().replace(/^(```[^\n]*\n|```)|```$/g, '')
+  // Get the text content, handling potential text/image content blocks
+  const modifiedContent = message.content.find(block => block.type === 'text')?.text || ''
   const addedEvents = extractAddedEvents(content, modifiedContent, filePath)
 
   return {
