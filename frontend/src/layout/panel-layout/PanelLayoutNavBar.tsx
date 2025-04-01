@@ -260,7 +260,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 tooltipPlacement="right"
                                             >
                                                 <span
-                                                    className={`text-tertiary group-hover:text-primary ${
+                                                    className={`flex text-tertiary group-hover:text-primary ${
                                                         isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                                     }`}
                                                 >
@@ -346,7 +346,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                     tooltipPlacement="right"
                                                                 >
                                                                     <span
-                                                                        className={`text-tertiary group-hover:text-primary ${
+                                                                        className={`flex text-tertiary group-hover:text-primary ${
                                                                             isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                                                         }`}
                                                                     >
@@ -453,8 +453,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 data-attr={Scene.ToolbarLaunch}
                                 tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
                                 tooltipPlacement="right"
+                                className="group"
                             >
-                                <span className={`text-tertiary ${isLayoutNavCollapsed ? '[&_svg]:size-5' : ''}`}>
+                                <span
+                                    className={`flex text-tertiary group-hover:text-primary ${
+                                        isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
+                                    }`}
+                                >
                                     <IconToolbar />
                                 </span>
                                 {!isLayoutNavCollapsed && 'Toolbar'}
@@ -466,8 +471,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 data-attr={Scene.Settings}
                                 tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
                                 tooltipPlacement="right"
+                                className="group"
                             >
-                                <span className={`text-tertiary ${isLayoutNavCollapsed ? '[&_svg]:size-5' : ''}`}>
+                                <span
+                                    className={`flex text-tertiary group-hover:text-primary ${
+                                        isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
+                                    }`}
+                                >
                                     <IconGear />
                                 </span>
                                 {!isLayoutNavCollapsed && 'Settings'}
