@@ -31,4 +31,6 @@ pub enum VmError {
     InvalidNumber(String),
     #[error("Not implemented: {0}")]
     NotImplemented(String),
+    #[error("Heap index out of bounds")]
+    HeapIndexOutOfBounds,
 }

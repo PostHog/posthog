@@ -16,8 +16,70 @@ pub struct ExecutionContext<'a> {
     max_stack_depth: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct HeapValue {
+    epoch: usize,
+    value: HogValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HeapReference {
+    idx: usize,
+    epoch: usize, // Used to allow heap values to be freed, and their
+}
+
+#[derive(Default)]
+pub struct VmHeap {
+    inner: Vec<HeapValue>,
+    freed: Vec<HeapReference>, // Indices of freed heap values, for reuse
+}
+
+impl VmHeap {
+    pub fn alloc(&mut self, value: HogValue) -> Result<HeapReference, VmError> {
+        let (next_idx, next_epoch) = match self.freed.pop() {
+            Some(ptr) => (ptr.idx, ptr.epoch + 1),
+            None => (self.inner.len(), 0),
+        };
+
+        if self.inner.len() <= next_idx {
+            self.inner.push(HeapValue {
+                epoch: next_epoch,
+                value,
+            });
+        } else {
+            self.inner[next_idx] = HeapValue {
+                epoch: next_epoch,
+                value,
+            };
+        }
+
+        Ok(HeapReference {
+            idx: next_idx,
+            epoch: next_epoch,
+        })
+    }
+
+    pub fn free(&mut self, ptr: HeapReference) -> Result<(), VmError> {
+        if self.inner.len() < ptr.idx {
+            return Err(VmError::HeapIndexOutOfBounds);
+        }
+
+        let to_free = &mut self.inner[ptr.idx];
+
+        if to_free.epoch != ptr.epoch {
+            return Err(VmError::HeapEpochMismatch);
+        }
+
+
+        self.freed.push(ref);
+        Ok(())
+    }
+
+}
+
 pub struct VmState<'a> {
     stack: Vec<HogValue>,
+    heap: Vec<HeapValue>,
     stack_frames: Vec<usize>,
     ip: usize,
 
