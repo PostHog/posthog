@@ -1,3 +1,5 @@
+import { IconAsterisk } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { XRayHog2 } from 'lib/components/hedgehogs'
@@ -62,15 +64,9 @@ export function PageReportsFilters(): JSX.Element {
                     />
                 </div>
                 <Tooltip title="Strip query parameters from URLs (e.g. '?utm_source=...'). This will match the base URL regardless of query parameters.">
-                    <div className="inline-block">
-                        <LemonSwitch
-                            checked={stripQueryParams}
-                            onChange={toggleStripQueryParams}
-                            label="Strip query params"
-                            size="small"
-                            bordered
-                        />
-                    </div>
+                    <LemonButton icon={<IconAsterisk />} onClick={toggleStripQueryParams} type="secondary" size="small">
+                        Strip query parameters: <LemonSwitch checked={stripQueryParams} className="ml-1" />
+                    </LemonButton>
                 </Tooltip>
                 <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
                 <WebAnalyticsCompareFilter />
