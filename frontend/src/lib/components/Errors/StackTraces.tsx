@@ -23,7 +23,7 @@ export function ChainedStackTraces({
     fingerprintRecords = [],
 }: {
     exceptionList: ErrorTrackingException[]
-    fingerprintRecords: FingerprintRecordPart[]
+    fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded?: boolean
 }): JSX.Element {
