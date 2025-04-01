@@ -30,7 +30,8 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
-    HumanMessage,FailureMessage
+    HumanMessage,
+    FailureMessage,
 )
 
 RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters"]
