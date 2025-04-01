@@ -2,7 +2,7 @@ import openai
 
 from prometheus_client import Histogram
 
-from ee.session_recordings.ai.utils import SessionSummaryPromptData
+from ee.session_recordings.ai.utils import SessionSummaryPromptData, shorten_url
 from ee.session_recordings.session_summary.utils import (
     load_session_metadata_from_json,
     load_sesssion_recording_events_from_csv,
@@ -91,9 +91,11 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     with timer("generate_prompt"):
         prompt_data = SessionSummaryPromptData()
         prompt_data.load_session_data(session_events, session_metadata, session_events_columns)
-        # Reverse mappings for easier reference in the prompt
-        url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
+        # Reverse mappings for easier reference in the prompt.
+        full_url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
         window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
+        # Keep shortened URLs for the prompt to reduce the number of tokens
+        url_mapping_reversed = {k: shorten_url(v) for k, v in full_url_mapping_reversed.items()}
         # Render all templates
         summary_template = get_template(f"session_summaries/single-replay_base-prompt.djt")
         summary_example = get_template(f"session_summaries/single-replay_example.yml").render()
@@ -120,6 +122,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         combined_sesssion_events.append(combined_session)
 
     with timer("openai_completion"):
+        assistant_start_text = "summary: "
         result = openai.chat.completions.create(
             model="gpt-4o-mini",  # allows 128k tokens
             temperature=0.5,
@@ -127,6 +130,10 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
                 {
                     "role": "user",
                     "content": rendered_summary_template,
+                },
+                {
+                    "role": "assistant",
+                    "content": assistant_start_text,
                 },
                 #     {
                 #         "role": "system",
@@ -175,5 +182,8 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         if usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
 
-    content: str = result.choices[0].message.content or ""
+    if result.choices[0].message.content:
+        content: str = assistant_start_text + result.choices[0].message.content
+    else:
+        content = ""
     return {"content": content, "timings": timer.get_all_timings()}
