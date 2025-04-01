@@ -12,8 +12,10 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     category=["Customer Success"],
     hog="""
 if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*') and
-    not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+')) {
-    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...) or Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...)')
+    not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') and
+    not match(inputs.webhookUrl, '^https://[^/]+.powerautomate.com/[^/]+') and
+    not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+')) {
+    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), or Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...)')
 }
 
 let res := fetch(inputs.webhookUrl, {
@@ -53,7 +55,7 @@ if (res.status >= 400) {
             "key": "webhookUrl",
             "type": "string",
             "label": "Webhook URL",
-            "description": "You can use either Azure Logic Apps (see: https://support.microsoft.com/en-us/office/create-incoming-webhooks-with-workflows-for-microsoft-teams-8ae491c7-0394-4861-ba59-055e33f75498) or a Power Platform webhook (create through Microsoft Teams by adding an incoming webhook connector to your channel)",
+            "description": "You can use any of these options: Azure Logic Apps (logic.azure.com), Power Platform webhooks (create through Microsoft Teams by adding an incoming webhook connector to your channel), or Power Automate (powerautomate.com or flow.microsoft.com)",
             "secret": False,
             "required": True,
         },
