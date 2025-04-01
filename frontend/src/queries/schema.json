@@ -14689,6 +14689,12 @@
                 "date_to": {
                     "type": ["string", "null"]
                 },
+                "distinct_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "events": {
                     "items": {
                         "type": "object"
