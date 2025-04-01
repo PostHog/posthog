@@ -14,13 +14,15 @@ from langgraph.errors import GraphRecursionError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
-from ee.hogai.funnels.nodes import FunnelGeneratorNode
-from ee.hogai.graph import AssistantGraph
-from ee.hogai.memory.nodes import MemoryInitializerNode
-from ee.hogai.retention.nodes import RetentionGeneratorNode
-from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
-from ee.hogai.sql.nodes import SQLGeneratorNode
-from ee.hogai.trends.nodes import TrendsGeneratorNode
+from ee.hogai.graph import (
+    AssistantGraph,
+    FunnelGeneratorNode,
+    MemoryInitializerNode,
+    RetentionGeneratorNode,
+    SchemaGeneratorNode,
+    SQLGeneratorNode,
+    TrendsGeneratorNode,
+)
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.state import (

@@ -1,6 +1,6 @@
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.nodes import AssistantNode
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
 from posthog.test.base import BaseTest

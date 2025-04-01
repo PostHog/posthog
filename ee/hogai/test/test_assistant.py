@@ -15,11 +15,11 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
-from ee.hogai.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.memory import prompts as memory_prompts
-from ee.hogai.retention.nodes import RetentionSchemaGeneratorOutput
-from ee.hogai.root.nodes import search_documentation
-from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
+from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
+from ee.hogai.graph.memory import prompts as memory_prompts
+from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
+from ee.hogai.graph.root.nodes import search_documentation
+from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
@@ -110,7 +110,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertDictContainsSubset(msg_dict, output_msg, f"Message content mismatch at index {i}")
 
     @patch(
-        "ee.hogai.trends.nodes.TrendsPlannerNode.run",
+        "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
         return_value=PartialAssistantState(
             intermediate_steps=[
                 (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
@@ -118,7 +118,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ),
     )
     @patch(
-        "ee.hogai.query_executor.nodes.QueryExecutorNode.run",
+        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run",
         return_value=PartialAssistantState(
             messages=[AssistantMessage(content="Foobar")],
         ),
@@ -159,7 +159,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(output, expected_output)
 
     @patch(
-        "ee.hogai.trends.nodes.TrendsPlannerNode.run",
+        "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
         return_value=PartialAssistantState(
             intermediate_steps=[
                 # Compare with toolkit.py to see supported AgentAction shapes. The list below is supposed to include ALL
@@ -229,7 +229,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         action = Action.objects.create(team=self.team, name="Marius Tech Tips")
 
         with patch(
-            "ee.hogai.trends.nodes.TrendsPlannerNode.run",
+            "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
             return_value=PartialAssistantState(
                 intermediate_steps=[
                     (
@@ -309,8 +309,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         with (
-            patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock,
-            patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as planner_mock,
+            patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock,
+            patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as planner_mock,
         ):
             config: RunnableConfig = {
                 "configurable": {
@@ -376,7 +376,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self._test_human_in_the_loop("retention", AssistantNodeName.RETENTION_PLANNER)
 
     def test_ai_messages_appended_after_interrupt(self):
-        with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
+        with patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
             graph = (
                 AssistantGraph(self.team)
                 .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
@@ -494,10 +494,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 actual_output.append(self._parse_stringified_message(message))
         self.assertConversationEqual(actual_output, expected_output)
 
-    @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_trends_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
         res1 = FakeRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
@@ -557,10 +557,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
-    @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_funnel_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
         res1 = FakeChatOpenAI(
             responses=[
@@ -627,10 +627,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
-    @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_retention_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
         action = Action.objects.create(team=self.team, name="Marius Tech Tips")
 
@@ -697,10 +697,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
-    @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_sql_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
         res1 = FakeRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
@@ -750,8 +750,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output)
         self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
-    @patch("ee.hogai.memory.nodes.MemoryInitializerInterruptNode._model")
-    @patch("ee.hogai.memory.nodes.MemoryInitializerNode._model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryInitializerInterruptNode._model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
     def test_onboarding_flow_accepts_memory(self, model_mock, interruption_model_mock):
         self._set_up_onboarding_tests()
 
@@ -798,7 +798,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.COMPLETED)
         self.assertIsNotNone(core_memory.text)
 
-    @patch("ee.hogai.memory.nodes.MemoryInitializerNode._model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
     def test_onboarding_flow_rejects_memory(self, model_mock):
         self._set_up_onboarding_tests()
 
@@ -846,7 +846,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.SKIPPED)
         self.assertEqual(core_memory.text, "")
 
-    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model")
     def test_memory_collector_flow(self, model_mock):
         # Create a graph with just memory collection
         graph = (
@@ -888,10 +888,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.core_memory.refresh_from_db()
         self.assertIn("The product uses a subscription model.", self.core_memory.text)
 
-    @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_exits_infinite_loop_after_fourth_attempt(
         self, memory_collector_mock, get_model_mock, planner_mock, generator_mock
     ):
@@ -958,7 +958,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile()
         )
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
-        with patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock:
+        with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock:
 
             def assert_lock_status(_):
                 self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
@@ -978,8 +978,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
         with (
-            patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock,
-            patch("ee.hogai.root.nodes.RootNodeTools.run") as root_tool_mock,
+            patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock,
+            patch("ee.hogai.graph.root.nodes.RootNodeTools.run") as root_tool_mock,
         ):
 
             def assert_lock_status(_):
@@ -1003,7 +1003,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertEqual(snapshot.values["messages"][-1].content, "")
             root_tool_mock.assert_not_called()
 
-        with patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock:
+        with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock:
             # The graph must start from the root node despite being cancelled on the root tools node.
             root_mock.return_value = FakeRunnableLambdaWithTokenCounter(
                 lambda _: messages.AIMessage(content="Finished")
@@ -1016,8 +1016,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertConversationEqual(actual_output, expected_output)
 
     @override_settings(INKEEP_API_KEY="test")
-    @patch("ee.hogai.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.inkeep_docs.nodes.InkeepDocsNode._get_model")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model")
     def test_inkeep_docs_basic_search(self, inkeep_docs_model_mock, root_model_mock):
         """Test basic documentation search functionality using Inkeep."""
         graph = (
