@@ -16,6 +16,7 @@ import {
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
+import { isValidRegexPattern } from 'lib/utils/regexp'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -290,6 +291,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
                 actions.setHref(replayIframeData.url)
+                actions.setUrlMatch(isValidRegexPattern(replayIframeData.url) ? 'regex' : 'exact')
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
@@ -421,6 +423,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
                 actions.setHref(url)
+                actions.setUrlMatch(isValidRegexPattern(url) ? 'regex' : 'exact')
                 actions.loadHeatmap()
             }
         },
