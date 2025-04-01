@@ -182,9 +182,9 @@ const buttonVariants = cva({
             `,
         },
         size: {
-            sm: `${BUTTON_HEIGHT_SM} text-xs pl-[var(--button-padding-x-sm)] pr-[var(--button-padding-x-sm)] [&_svg]:size-3`,
-            base: `${BUTTON_HEIGHT_BASE} text-sm pl-[var(--button-padding-x-base)] pr-[var(--button-padding-x-base)] [&_svg]:size-4`,
-            lg: `${BUTTON_HEIGHT_LG} text-base pl-[var(--button-padding-x-lg)] pr-[var(--button-padding-x-lg)] [&_svg]:size-5`,
+            sm: `button-primitive-size-sm ${BUTTON_HEIGHT_SM} text-xs pl-[var(--button-padding-x-sm)] pr-[var(--button-padding-x-sm)]`,
+            base: `button-primitive-size-base ${BUTTON_HEIGHT_BASE} text-sm pl-[var(--button-padding-x-base)] pr-[var(--button-padding-x-base)]`,
+            lg: `button-primitive-size-lg ${BUTTON_HEIGHT_LG} text-base pl-[var(--button-padding-x-lg)] pr-[var(--button-padding-x-lg)]`,
             fit: 'px-0',
         },
         iconOnly: {

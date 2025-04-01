@@ -266,17 +266,18 @@ class SnowflakeClient:
         Methods that require a connection should be ran within this block.
         """
         try:
-            connection = await asyncio.to_thread(
-                snowflake.connector.connect,
-                user=self.user,
-                password=self.password,
-                account=self.account,
-                warehouse=self.warehouse,
-                database=self.database,
-                schema=self.schema,
-                role=self.role,
-                private_key=self.private_key,
-            )
+            async with asyncio.timeout(delay=3.0):
+                connection = await asyncio.to_thread(
+                    snowflake.connector.connect,
+                    user=self.user,
+                    password=self.password,
+                    account=self.account,
+                    warehouse=self.warehouse,
+                    database=self.database,
+                    schema=self.schema,
+                    role=self.role,
+                    private_key=self.private_key,
+                )
 
         except OperationalError as err:
             if err.errno == 251012:
@@ -289,6 +290,8 @@ class SnowflakeClient:
 
         except InterfaceError as err:
             raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
+        except TimeoutError as err:
+            raise SnowflakeRetryableConnectionError("Connection to Snowflake timed out") from err
 
         self._connection = connection
 

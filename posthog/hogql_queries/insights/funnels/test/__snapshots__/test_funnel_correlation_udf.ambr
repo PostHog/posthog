@@ -115,7 +115,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties
@@ -179,14 +180,14 @@
           (SELECT person.id AS id,
                   person.properties AS properties
            FROM person
-           WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                (SELECT person.id AS id, max(person.version) AS version
-                                                                 FROM person
-                                                                 WHERE equals(person.team_id, 99999)
-                                                                 GROUP BY person.id
-                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
+           WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 99999)
+                                                          GROUP BY person.id
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -243,7 +244,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.1
@@ -300,12 +302,12 @@
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
-                 WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                                       FROM person
-                                                                       WHERE equals(person.team_id, 99999)
-                                                                       GROUP BY person.id
-                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -324,7 +326,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.2
@@ -338,7 +341,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.3
@@ -395,12 +399,12 @@
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
-                 WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                                       FROM person
-                                                                       WHERE equals(person.team_id, 99999)
-                                                                       GROUP BY person.id
-                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -419,7 +423,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.4
@@ -433,7 +438,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.5
@@ -490,12 +496,12 @@
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
-                 WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                                       FROM person
-                                                                       WHERE equals(person.team_id, 99999)
-                                                                       GROUP BY person.id
-                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -514,7 +520,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.6
@@ -528,7 +535,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.7
@@ -585,12 +593,12 @@
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
-                 WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                                       FROM person
-                                                                       WHERE equals(person.team_id, 99999)
-                                                                       GROUP BY person.id
-                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -609,7 +617,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.8
@@ -623,7 +632,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized
@@ -687,14 +697,14 @@
           (SELECT person.id AS id,
                   person.properties AS properties
            FROM person
-           WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                (SELECT person.id AS id, max(person.version) AS version
-                                                                 FROM person
-                                                                 WHERE equals(person.team_id, 99999)
-                                                                 GROUP BY person.id
-                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
+           WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 99999)
+                                                          GROUP BY person.id
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -751,7 +761,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.1
@@ -808,12 +819,12 @@
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                  FROM person
-                 WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                                       FROM person
-                                                                       WHERE equals(person.team_id, 99999)
-                                                                       GROUP BY person.id
-                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -832,7 +843,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.2
@@ -846,7 +858,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.3
@@ -903,12 +916,12 @@
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                  FROM person
-                 WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                                       FROM person
-                                                                       WHERE equals(person.team_id, 99999)
-                                                                       GROUP BY person.id
-                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -927,7 +940,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.4
@@ -941,7 +955,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.5
@@ -998,12 +1013,12 @@
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                  FROM person
-                 WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                                       FROM person
-                                                                       WHERE equals(person.team_id, 99999)
-                                                                       GROUP BY person.id
-                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1022,7 +1037,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.6
@@ -1036,7 +1052,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.7
@@ -1093,12 +1110,12 @@
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                  FROM person
-                 WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                                       FROM person
-                                                                       WHERE equals(person.team_id, 99999)
-                                                                       GROUP BY person.id
-                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1117,7 +1134,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.8
@@ -1131,7 +1149,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_event_properties_and_groups
@@ -1186,7 +1205,7 @@
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
   GROUP BY name,
            prop
-  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), ifNull(notIn((prop).1, []), 0))
+  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), notIn((prop).1, []))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -1236,7 +1255,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_event_properties_and_groups_materialized
@@ -1291,7 +1311,7 @@
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
   GROUP BY name,
            prop
-  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), ifNull(notIn((prop).1, []), 0))
+  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), notIn((prop).1, []))
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -1341,7 +1361,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups
@@ -1439,7 +1460,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.1
@@ -1502,7 +1524,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.2
@@ -1565,7 +1588,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.3
@@ -1628,7 +1652,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.4
@@ -1691,7 +1716,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.5
@@ -1805,7 +1831,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.6
@@ -1868,7 +1895,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.7
@@ -1931,7 +1959,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2
@@ -2029,7 +2058,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.1
@@ -2092,7 +2122,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.2
@@ -2155,7 +2186,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.3
@@ -2218,7 +2250,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.4
@@ -2281,7 +2314,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.5
@@ -2395,7 +2429,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.6
@@ -2458,7 +2493,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.7
@@ -2521,7 +2557,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups
@@ -2584,7 +2621,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -2634,7 +2671,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.1
@@ -2704,7 +2742,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.2
@@ -2774,7 +2813,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.3
@@ -2844,7 +2884,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.4
@@ -2914,7 +2955,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.5
@@ -2977,7 +3019,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -3027,7 +3069,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized
@@ -3090,7 +3133,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -3140,7 +3183,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.1
@@ -3210,7 +3254,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.2
@@ -3280,7 +3325,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.3
@@ -3350,7 +3396,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.4
@@ -3420,7 +3467,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.5
@@ -3483,7 +3531,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -3533,7 +3581,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events
@@ -3596,7 +3645,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -3646,7 +3695,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.1
@@ -3716,7 +3766,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.2
@@ -3786,7 +3837,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.3
@@ -3856,7 +3908,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.4
@@ -3926,7 +3979,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.5
@@ -3989,7 +4043,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -4039,7 +4093,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
@@ -4102,7 +4157,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -4152,7 +4207,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
@@ -4222,7 +4278,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
@@ -4292,7 +4349,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
@@ -4362,7 +4420,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
@@ -4432,7 +4491,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
@@ -4495,7 +4555,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -4545,7 +4605,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
@@ -4608,7 +4669,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -4658,7 +4719,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
@@ -4728,7 +4790,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
@@ -4798,7 +4861,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
@@ -4868,7 +4932,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
@@ -4938,7 +5003,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
@@ -5001,7 +5067,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -5051,6 +5117,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
