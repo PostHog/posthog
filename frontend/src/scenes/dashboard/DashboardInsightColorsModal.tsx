@@ -94,7 +94,13 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 className="mt-2"
                 value={dataColorThemeId || null}
                 placeholder="Defined by insight"
-                onChange={setDataColorThemeId}
+                onChange={(id) => {
+                    if (dashboardMode !== DashboardMode.Edit) {
+                        setDashboardMode(DashboardMode.Edit, null)
+                    }
+
+                    setDataColorThemeId(id)
+                }}
                 loading={themesLoading}
                 options={themes.map((theme) => ({ value: theme.id, label: theme.name }))}
             />
