@@ -22,6 +22,8 @@ import { FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
 
 const PAGINATION_LIMIT = 100
+const MOVE_ALERT_LIMIT = 50
+const DELETE_ALERT_LIMIT = 10
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -126,6 +128,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 const response = await api.fileSystem.create({ ...action.item, path: action.newPath })
                                 actions.createSavedItem(response)
                             } else {
+                                if (action.item.type === 'folder') {
+                                    const response = await api.fileSystem.count(action.item.id)
+                                    if (response && response.count > MOVE_ALERT_LIMIT) {
+                                        const confirmMessage = `This folder contains ${response.count} items. Are you sure you want to move it?`
+                                        if (!confirm(confirmMessage)) {
+                                            actions.removeQueuedAction(action)
+                                            return false
+                                        }
+                                    }
+                                }
+
                                 await api.fileSystem.move(action.item.id, action.newPath)
                                 actions.movedItem(action.item, action.item.path, action.newPath)
                             }
@@ -143,6 +156,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         }
                     } else if (action.type === 'delete' && action.item.id) {
                         try {
+                            if (action.item.type === 'folder') {
+                                const response = await api.fileSystem.count(action.item.id)
+                                if (response && response.count > DELETE_ALERT_LIMIT) {
+                                    const confirmMessage = `This folder contains ${response.count} items. Are you sure you want to delete it?`
+                                    if (!confirm(confirmMessage)) {
+                                        actions.removeQueuedAction(action)
+                                        return false
+                                    }
+                                }
+                            }
                             await api.fileSystem.delete(action.item.id)
                             actions.deleteSavedItem(action.item)
                         } catch (error) {

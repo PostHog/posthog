@@ -196,6 +196,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(methods=["POST"], detail=True)
+    def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get count of all files in a folder."""
+        instance = self.get_object()
+        count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
+        return Response({"count": count}, status=status.HTTP_200_OK)
+
 
 def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
     """
