@@ -2,34 +2,56 @@
 Generate a summary of a user session on a website based on a series of events. Events columns explain what each value of the event means based on the index in the event array. Events data includes user activity in a chronolical order to summarize.
 </base_task>
 
+<session_metadata>
+The following metadata provides an overview of the session:
+
+```
+{{ SESSION_METADATA|safe }}
+```
+
+Use this metadata to understand:
+- Session duration and user engagement level
+- Error frequency and potential technical issues
+- Overall interaction intensity
+- Starting point of the user journey
+</session_metadata>
+
 <events_columns>
 {% for column in EVENTS_COLUMNS %}
-    {{ forloop.counter0 }}. {{ column }} -
-    {%- if forloop.counter == 0 -%}
-        Event type
-    {%- elif forloop.counter == 1 -%}
-        Elements chain href
-    {%- elif forloop.counter == 2 -%}
-        Elements chain texts
-    {%- elif forloop.counter == 3 -%}
-        Elements chain elements
-    {%- elif forloop.counter == 4 -%}
-        Window/browser tab id
-    {%- elif forloop.counter == 5 -%}
-        Current URL
-    {%- elif forloop.counter == 6 -%}
-        Event subtype (if applicable)
-    {%- elif forloop.counter == 7 -%}
-        Time in ms since session start
-    {%- elif forloop.counter == 8 -%}
-        Unique event id
-    {%- endif %}
+{{ forloop.counter0 }}. `{{ column }}` - {% if forloop.counter0 == 0 %}Event type{% elif forloop.counter0 == 1 %}Href of the element user interacted with{% elif forloop.counter0 == 2 %}Text of the element user interacted with{% elif forloop.counter0 == 3 %}Tag of the element user interacted with{% elif forloop.counter0 == 4 %}Window/browser tab id (uses simplified references from window_mapping){% elif forloop.counter0 == 5 %}Current URL (uses simplified references from url_mapping){% elif forloop.counter0 == 6 %}Event subtype (if applicable){% elif forloop.counter0 == 7 %}Time (in ms) since the session start{% elif forloop.counter0 == 8 %}Unique `event_id`{% endif %}
 {% endfor %}
 </events_columns>
 
 <events_data>
-{{EVENTS_DATA}}
+```
+{{ EVENTS_DATA|safe }}
+```
 </events_data>
+
+<url_mapping>
+The following mapping table shows the actual URLs for simplified URL references in the events data:
+
+```
+{{ URL_MAPPING|safe }}
+```
+
+When analyzing events, use these mappings to understand the actual pages visited. For example, if an event shows 'url_1', refer to this mapping to find the actual URL. In your summary and tags, always use the actual page/feature names, not the URL references.
+</url_mapping>
+
+<window_mapping>
+The following mapping table shows browser windows/tabs used during the session:
+
+```
+{{ WINDOW_ID_MAPPING|safe }}
+```
+
+Window IDs help track user activity across different browser windows or tabs. For example:
+- If events switch from 'window_1' to 'window_2', the user switched to a different browser window/tab
+- Multiple events with the same window ID indicate continuous activity in the same window/tab
+- Frequent window switches might indicate comparing content or multitasking
+
+Use this information to understand user navigation patterns and parallel browsing behavior.
+</window_mapping>
 
 <summary_instructions>
 Your task is to analyze these events chronologically and create a concise, readable summary of the user's session. Follow these steps:
@@ -43,12 +65,12 @@ Your task is to analyze these events chronologically and create a concise, reada
    - And others, get their meaning from the context
 
 3. Pay special attention to:
-   - The URLs visited (found in the 'current_url' field)
+   - The URLs visited (use url_mapping to find actual URLs)
    - User interactions (clicks, form submissions) in '$autocapture' events
    - Any error events (mark them as `error: true` in the event list)
 
 4. Create a narrative of the user's journey through the site, focusing on:
-   - Pages visited
+   - Pages visited (use actual URLs from mapping)
    - Actions taken (clicks, form submissions)
    - Any errors or issues encountered
 
@@ -87,12 +109,15 @@ Notes on tagging:
 - About 25% of events may have multiple tags in either category when the event spans multiple areas or actions
 - Tags should be specific enough to be useful but generic enough to be reusable
 - Avoid creating new tags unless absolutely necessary - use existing ones when possible
+- When determining tags, use the actual URLs from url_mapping, not the simplified references
 </tag_categorization>
 
 <output_details>
 Provide your summary in YAML format using the provided example. Don't replicate the data of the example, or the number of example entries, use it for formatting only.
 </output_details>
 
-<output_example>
-
-</output_example>
+<summary_example>
+```
+{{SUMMARY_EXAMPLE|safe}}
+```
+</summary_example>
