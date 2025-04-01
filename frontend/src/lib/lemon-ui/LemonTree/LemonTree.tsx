@@ -3,7 +3,6 @@ import { IconEllipsis, IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-// import { Button } from 'lib/ui/Button/Button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import {
