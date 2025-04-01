@@ -559,19 +559,6 @@ function SurveyNPSResults({
                                 },
                             ],
                             trendsFilter: {
-                                /**
-                                 * We now have two response fields to consider: both index-based and id-based.
-                                 * So we need to sum up the promoters and detractors from both fields.
-                                 * A+B is promoters
-                                 * C+D is passives
-                                 * E+F is detractors
-                                 *
-                                 * A+B+C+D+E+F is total responses
-                                 *
-                                 * The old formula is formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
-                                 *
-                                 * The new formula is formula: '((A+B) / (A+B+C+D+E+F) * 100) - ((E+F) / (A+B+C+D+E+F) * 100)',
-                                 */
                                 formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
                                 display: 'ActionsBar',
                             },
