@@ -67,7 +67,7 @@ export function convertFileSystemEntryToTreeDataItem(
             id: `${root}/${item.type === 'folder' ? item.path : item.id || item.path}`,
             name: itemName,
             displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm} />,
-            icon: ('icon' in item && item.icon) || iconForType(item.type),
+            icon: item._loading ? <Spinner /> : ('icon' in item && item.icon) || iconForType(item.type),
             record: item,
             onClick: () => {
                 if (item.href) {

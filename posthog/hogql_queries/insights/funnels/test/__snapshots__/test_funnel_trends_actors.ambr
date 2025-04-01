@@ -152,21 +152,23 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recordings.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s1b']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1b']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_drop_off
@@ -322,21 +324,23 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_drop_off.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s1a']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1a']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_no_to_step
@@ -492,20 +496,22 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_no_to_step.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s1c']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1c']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
   '''
 # ---

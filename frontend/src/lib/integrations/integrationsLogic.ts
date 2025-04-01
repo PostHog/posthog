@@ -31,7 +31,7 @@ const ICONS: Record<IntegrationKind, any> = {
     snapchat: IconSnapchat,
     intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
-    mailjet: IconMailjet,
+    mail: IconMailjet,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
@@ -103,10 +103,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 newMailjetKey: async ({ apiKey, secretKey, callback }) => {
                     try {
                         const response = await api.integrations.create({
-                            kind: 'mailjet',
+                            kind: 'mail',
                             config: { api_key: apiKey, secret_key: secretKey },
                         })
-                        const responseWithIcon = { ...response, icon_url: ICONS['mailjet'] }
+                        const responseWithIcon = { ...response, icon_url: ICONS['mail'] }
 
                         // run onChange after updating the integrations loader
                         window.setTimeout(() => callback?.(responseWithIcon), 0)

@@ -3880,7 +3880,7 @@ export type IntegrationKind =
     | 'linkedin-ads'
     | 'snapchat'
     | 'intercom'
-    | 'mailjet'
+    | 'mail'
 
 export interface IntegrationType {
     id: number
