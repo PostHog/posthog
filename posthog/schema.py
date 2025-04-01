@@ -8534,7 +8534,7 @@ class CachedExperimentQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[datetime] = None
+    cache_target_age: Optional[AwareDatetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -8542,9 +8542,9 @@ class CachedExperimentQueryResponse(BaseModel):
     insight: list[dict[str, Any]]
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     p_value: float
     probability: dict[str, float]
     query_status: Optional[QueryStatus] = Field(
