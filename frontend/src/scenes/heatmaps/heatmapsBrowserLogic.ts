@@ -60,7 +60,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             heatmapDataLogic,
             ['heatmapEmpty'],
         ],
-        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setUrlMatch']],
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref']],
     }),
 
     actions({
@@ -290,8 +290,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (replayIframeData && replayIframeData.url) {
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
-                actions.setHref(replayIframeData.url)
-                actions.setUrlMatch(isValidRegexPattern(replayIframeData.url) ? 'regex' : 'exact')
+                actions.setHref(replayIframeData.url, isValidRegexPattern(replayIframeData.url) ? 'regex' : 'exact')
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
@@ -418,13 +417,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
         },
 
-        setReplayIframeDataURL: ({ url }) => {
+        setReplayIframeDataURL: async ({ url }, breakpoint) => {
+            await breakpoint(150)
             if (url?.trim().length) {
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
-                actions.setHref(url)
-                actions.setUrlMatch(isValidRegexPattern(url) ? 'regex' : 'exact')
-                actions.loadHeatmap()
+                actions.setHref(url, isValidRegexPattern(url) ? 'regex' : 'exact')
             }
         },
 
