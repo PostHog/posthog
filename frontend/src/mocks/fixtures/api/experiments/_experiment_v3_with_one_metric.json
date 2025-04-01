@@ -81,8 +81,8 @@
         {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
-            "metric_config": {
-                "kind": "ExperimentEventMetricConfig",
+            "source": {
+                "kind": "EventsNode",
                 "event": "storybook-click"
             }
         }
