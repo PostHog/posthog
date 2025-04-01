@@ -66,7 +66,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: () => urls.earlyAccessFeature('new'),
         },
         {
-            path: `Repl`,
+            path: `Hog repl`,
             type: 'repl',
             href: () => urls.debugHog() + '#repl=[]&code=',
         },
@@ -81,22 +81,22 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: () => urls.sqlEditor(),
         },
         {
-            path: `Data pipeline - Source`,
+            path: `Data source`,
             type: 'source',
             href: () => urls.pipelineNodeNew(PipelineStage.Source),
         },
         {
-            path: `Data pipeline -Destination`,
+            path: `Data destination`,
             type: 'destination',
             href: () => urls.pipelineNodeNew(PipelineStage.Destination),
         },
         {
-            path: `Data pipeline - Transformation`,
+            path: `Data transformation`,
             type: 'transformation',
             href: () => urls.pipelineNodeNew(PipelineStage.Transformation),
         },
         {
-            path: `Data pipeline - Site app`,
+            path: `Site app`,
             type: 'site_app',
             href: () => urls.pipelineNodeNew(PipelineStage.SiteApp),
         },
