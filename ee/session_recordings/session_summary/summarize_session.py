@@ -1,6 +1,8 @@
+import json
 import openai
 
 from prometheus_client import Histogram
+import yaml
 
 from ee.session_recordings.ai.utils import SessionSummaryPromptData, shorten_url
 from ee.session_recordings.session_summary.utils import (
@@ -122,7 +124,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         combined_sesssion_events.append(combined_session)
 
     with timer("openai_completion"):
-        assistant_start_text = "summary: "
+        # assistant_start_text = "```yaml\nsummary: "
         result = openai.chat.completions.create(
             model="gpt-4o-mini",  # allows 128k tokens
             temperature=0.5,
@@ -131,10 +133,10 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
                     "role": "user",
                     "content": rendered_summary_template,
                 },
-                {
-                    "role": "assistant",
-                    "content": assistant_start_text,
-                },
+                # {
+                #     "role": "assistant",
+                #     "content": assistant_start_text,
+                # },
                 #     {
                 #         "role": "system",
                 #         "content": """
@@ -183,7 +185,11 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
 
     if result.choices[0].message.content:
-        content: str = assistant_start_text + result.choices[0].message.content
+        raw_content: str = result.choices[0].message.content
+        # Strip the first and the last line of the content
+        # TODO Work on a more robust solution
+        yaml_content = yaml.safe_load(raw_content.strip("```yaml\n").strip("```").strip())  # noqa: B005
+        content = json.dumps(yaml_content)
     else:
         content = ""
     return {"content": content, "timings": timer.get_all_timings()}
