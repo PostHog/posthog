@@ -29,6 +29,7 @@ export function DashboardItems(): JSX.Element {
         itemsLoading,
         temporaryVariables,
         temporaryBreakdownColors,
+        dataColorThemeId,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -155,7 +156,9 @@ export function DashboardItems(): JSX.Element {
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     variablesOverride={temporaryVariables}
+                                    // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
+                                    dataColorThemeId={dataColorThemeId}
                                     {...commonTileProps}
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />

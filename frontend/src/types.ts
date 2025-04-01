@@ -1993,6 +1993,7 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
     breakdown_colors?: BreakdownColorConfig[]
+    data_color_theme_id?: number | null
 }
 
 export enum TemplateAvailabilityContext {
