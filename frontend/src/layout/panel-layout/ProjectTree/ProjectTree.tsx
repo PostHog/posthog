@@ -14,8 +14,17 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const { treeData, lastViewedId, viableItems, expandedFolders, expandedSearchFolders, searchTerm, treeItemsNew } =
-        useValues(projectTreeLogic)
+    const {
+        treeData,
+        lastViewedId,
+        viableItems,
+        expandedFolders,
+        expandedSearchFolders,
+        searchTerm,
+        treeItemsNew,
+        copyBuffer,
+        copyBufferType,
+    } = useValues(projectTreeLogic)
 
     const {
         createFolder,
@@ -27,17 +36,14 @@ export function ProjectTree(): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
+        copy,
+        cut,
+        paste,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
-
-    const handleCopyPath = (path?: string): void => {
-        if (path) {
-            void navigator.clipboard.writeText(path)
-        }
-    }
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -165,15 +171,39 @@ export function ProjectTree(): JSX.Element {
                                     <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
-                            {item.record?.path ? (
+                            {item.record?.type !== 'folder' && item.record?.id ? (
                                 <ContextMenuItem
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        handleCopyPath(item.record?.path)
+                                        copy(item.record?.id)
                                     }}
                                 >
-                                    <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
+                                    <ButtonPrimitive menuItem>Copy</ButtonPrimitive>
+                                </ContextMenuItem>
+                            ) : null}
+                            {item.record?.type !== 'folder' && item.record?.id ? (
+                                <ContextMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        cut(item.record?.id)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Cut</ButtonPrimitive>
+                                </ContextMenuItem>
+                            ) : null}
+                            {item.record?.type === 'folder' && copyBuffer ? (
+                                <ContextMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        paste(copyBuffer, item.record?.path)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>
+                                        Paste into{copyBufferType === 'cut' ? ' & move' : ''}
+                                    </ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
                             {item.record?.created_at ? (
@@ -226,9 +256,39 @@ export function ProjectTree(): JSX.Element {
                                     <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
-                            {item.record?.path ? (
-                                <DropdownMenuItem asChild onClick={() => handleCopyPath(item.record?.path)}>
-                                    <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
+                            {item.record?.type !== 'folder' && item.record?.id ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        copy(item.record?.id)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Copy</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record?.type !== 'folder' && item.record?.id ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        cut(item.record?.id)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Cut</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record?.type === 'folder' && copyBuffer ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        paste(copyBuffer, item.record?.path)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>
+                                        Paste into{copyBufferType === 'cut' ? ' & move' : ''}
+                                    </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                             {item.record?.created_at ? (

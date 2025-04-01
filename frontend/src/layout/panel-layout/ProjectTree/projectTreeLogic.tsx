@@ -44,6 +44,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadUnfiledItems: true,
         addFolder: (folder: string) => ({ folder }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
+        copyItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
         moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
         queueAction: (action: ProjectTreeAction) => ({ action }),
@@ -69,6 +70,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createFolder: (parentPath: string) => ({ parentPath }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
+        copy: (id: string) => ({ id }),
+        cut: (id: string) => ({ id }),
+        paste: (ids: string[], targetFolder: string) => ({ ids, targetFolder }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -160,17 +164,23 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         }
                     } else if (action.type === 'create') {
                         try {
-                            const response = await api.fileSystem.create(action.item)
-                            actions.createSavedItem(response)
-                            lemonToast.success('Folder created successfully', {
-                                button: {
-                                    label: 'Undo',
-                                    dataAttr: 'undo-project-tree-move',
-                                    action: () => {
-                                        actions.deleteItem(response)
-                                    },
-                                },
+                            const response = await api.fileSystem.create({
+                                ...action.item,
+                                path: action.path || action.item.path,
                             })
+                            actions.createSavedItem(response)
+                            lemonToast.success(
+                                action.item.type === 'folder' ? 'Folder created successfully' : 'Copied successfully',
+                                {
+                                    button: {
+                                        label: 'Undo',
+                                        dataAttr: 'undo-project-tree-move',
+                                        action: () => {
+                                            actions.deleteItem(response)
+                                        },
+                                    },
+                                }
+                            )
                         } catch (error) {
                             console.error('Error creating folder:', error)
                             lemonToast.error(`Error creating folder: ${error}`)
@@ -334,6 +344,20 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setHelpNoticeVisibility: (_, { visible }) => visible,
             },
         ],
+        copyBuffer: [
+            [] as string[],
+            {
+                copy: (_, { id }) => [id],
+                cut: (_, { id }) => [id],
+            },
+        ],
+        copyBufferType: [
+            'copy' as 'copy' | 'cut',
+            {
+                copy: () => 'copy',
+                cut: () => 'cut',
+            },
+        ],
     }),
     selectors({
         savedItems: [
@@ -400,11 +424,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 }
                             }
                         }
-                    } else if (action.type === 'create' && action.newPath) {
-                        if (!itemsByPath[action.newPath]) {
-                            itemsByPath[action.newPath] = [
-                                ...(itemsByPath[action.newPath] ?? []),
-                                { ...action.item, path: action.newPath, _loading: true },
+                    } else if (action.type === 'create' && action.path) {
+                        if (!itemsByPath[action.path]) {
+                            itemsByPath[action.path] = [
+                                ...(itemsByPath[action.path] ?? []),
+                                { ...action.item, path: action.path, _loading: true },
                             ]
                         } else {
                             console.error("Item already exists, can't create", action.item)
@@ -616,6 +640,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 })
             }
         },
+        copyItem: async ({ oldPath, newPath }) => {
+            if (newPath.startsWith(oldPath + '/')) {
+                lemonToast.error('Cannot move folder into itself')
+                return
+            }
+            const item = values.viableItems.find((item) => item.path === oldPath)
+            if (!item) {
+                lemonToast.error("Can't find item to copy")
+                return
+            }
+            if (item.type === 'folder') {
+                lemonToast.error('Copying folders not yet implemented')
+                return
+            }
+            actions.queueAction({
+                type: 'create',
+                item,
+                path: newPath + item.path.slice(oldPath.length),
+            })
+        },
         deleteItem: async ({ item }) => {
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
@@ -627,7 +671,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 type: 'create',
                 item: { id: `project/${folder}`, path: folder, type: 'folder' },
                 path: folder,
-                newPath: folder,
             })
         },
         toggleFolderOpen: ({ folderId }) => {
@@ -712,6 +755,24 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ...values.expandedFolders,
                         ...nonExpandedFolders.map((f) => 'project/' + f),
                     ])
+                }
+            }
+        },
+        paste: ({ ids, targetFolder }) => {
+            for (const id of ids) {
+                const item = values.viableItems.find((item) => item.id === id)
+                if (item) {
+                    if (values.copyBufferType === 'cut') {
+                        actions.moveItem(
+                            item.path,
+                            joinPath([...splitPath(targetFolder), splitPath(item.path).pop() || ''])
+                        )
+                    } else {
+                        actions.copyItem(
+                            item.path,
+                            joinPath([...splitPath(targetFolder), splitPath(item.path).pop() || ''])
+                        )
+                    }
                 }
             }
         },
