@@ -1,6 +1,10 @@
-use crate::error::InputError;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+use crate::error::VmError;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "Value")]
 pub enum Operation {
     GetGlobal = 1,
     CallGlobal = 2,
@@ -9,8 +13,8 @@ pub enum Operation {
     Not = 5,
     Plus = 6,
     Minus = 7,
-    Multiply = 8,
-    Divide = 9,
+    Mult = 8,
+    Div = 9,
     Mod = 10,
     Eq = 11,
     NotEq = 12,
@@ -61,21 +65,25 @@ pub enum Operation {
     CloseUpvalue = 57,
 }
 
-impl From<Operation> for u32 {
+impl From<Operation> for Value {
     fn from(op: Operation) -> Self {
-        op as u32
+        Value::Number((op as u8).into())
     }
 }
 
-impl TryFrom<u32> for Operation {
-    type Error = InputError;
+impl TryFrom<Value> for Operation {
+    type Error = VmError;
 
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        if value <= Self::CloseUpvalue as u32 {
-            // TODO - this is unhinged
-            Ok(unsafe { std::mem::transmute(value as u8) })
+    fn try_from(val: Value) -> Result<Self, Self::Error> {
+        let Some(num) = val.as_i64() else {
+            return Err(VmError::NotAnOperation(val))?;
+        };
+
+        if num <= Self::CloseUpvalue as i64 && num > Self::GetGlobal as i64 {
+            // TODO - this is deeply unhinged
+            Ok(unsafe { std::mem::transmute(num as u8) })
         } else {
-            Err(InputError::InvalidOperation(value))
+            Err(VmError::InvalidOperation(val))
         }
     }
 }
@@ -83,8 +91,6 @@ impl TryFrom<u32> for Operation {
 #[cfg(test)]
 mod test {
     use serde_json::Value;
-
-    use super::Operation;
 
     #[test]
     pub fn parse_bytecode() {
