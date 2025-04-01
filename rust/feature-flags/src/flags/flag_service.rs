@@ -97,8 +97,7 @@ impl FlagService {
                         1,
                     );
                     // If we have the team in postgres, but not redis, update redis so we're faster next time
-                    if let Err(_) = Team::update_redis_cache(self.redis_client.clone(), &team).await
-                    {
+                    if (Team::update_redis_cache(self.redis_client.clone(), &team).await).is_err() {
                         inc(
                             TEAM_CACHE_ERRORS_COUNTER,
                             &[("reason".to_string(), "redis_update_failed".to_string())],
@@ -142,12 +141,13 @@ impl FlagService {
                                 &[("project_id".to_string(), project_id.to_string())],
                                 1,
                             );
-                            if let Err(_) = FeatureFlagList::update_flags_in_redis(
+                            if (FeatureFlagList::update_flags_in_redis(
                                 self.redis_client.clone(),
                                 project_id,
                                 &flags,
                             )
-                            .await
+                            .await)
+                                .is_err()
                             {
                                 inc(
                                     FLAG_CACHE_ERRORS_COUNTER,
