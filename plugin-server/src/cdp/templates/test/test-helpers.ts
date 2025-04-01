@@ -5,6 +5,7 @@ import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
+    HogFunctionFilterGlobals,
     HogFunctionInputType,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
@@ -13,6 +14,7 @@ import {
     HogFunctionType,
 } from '../../types'
 import { createInvocation } from '../../utils'
+import { checkHogFunctionFilters } from '../../utils/hog-function-filtering'
 import { compileHog } from '../compiler'
 import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
@@ -119,7 +121,47 @@ export class TemplateTester {
             return acc
         }, {} as Record<string, HogFunctionInputType>)
 
-        const allInputs = { ...defaultInputs, ..._inputs }
+        let mappingInputs: Record<string, HogFunctionInputType> = {}
+
+        if (this.template.mapping_templates && _globals) {
+            this.template.mapping_templates.forEach((mapping) => {
+                const filterResults = checkHogFunctionFilters({
+                    hogFunction: {
+                        ...this.template,
+                        team_id: 1,
+                        enabled: true,
+                        created_at: '2024-01-01T00:00:00Z',
+                        updated_at: '2024-01-01T00:00:00Z',
+                        deleted: false,
+                    },
+                    filters: mapping.filters,
+                    filterGlobals: _globals as HogFunctionFilterGlobals,
+                    eventUuid: _globals?.event?.uuid,
+                    enabledTelemetry: true,
+                })
+
+                console.log(filterResults, 'filterResults')
+                console.log(mapping.filters, 'mapping.filters')
+                console.log(_globals, 'globals')
+
+                if (!mapping.inputs_schema) {
+                    return
+                }
+
+                mappingInputs = mapping.inputs_schema.reduce((acc, input) => {
+                    if (typeof input.default !== 'undefined') {
+                        acc[input.key] = input.default
+                    }
+                    return acc
+                }, {} as Record<string, HogFunctionInputType>)
+            })
+        }
+
+        const allInputs = { ...defaultInputs, ..._inputs, ...mappingInputs }
+
+        console.log(allInputs, 'allInputs')
+
+        console.log(this.template.mapping_templates, 'mappings')
 
         const compiledEntries = await Promise.all(
             Object.entries(allInputs).map(async ([key, value]) => [key, await this.compileObject(value)])
