@@ -384,11 +384,15 @@
     --bg-fill-primary: var(--color-white);
     --bg-fill-secondary: var(--primitive-3000-25);
     --bg-fill-tertiary: var(--primitive-3000-50);
+    --bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
     --bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
     --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
     --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
     --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
@@ -410,8 +414,9 @@
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
 
     // Buttons
-    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-100);
-    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-100);
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-25);
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-75);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
     --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
     --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
 
@@ -811,11 +816,15 @@
     --bg-fill-primary: var(--primitive-neutral-cool-900);
     --bg-fill-secondary: var(--primitive-neutral-cool-850);
     --bg-fill-tertiary: var(--primitive-neutral-cool-800);
+    --bg-fill-highlight-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
     --bg-fill-highlight-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --bg-fill-highlight-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-white) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
     --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
     --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
@@ -831,8 +840,9 @@
     --bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
-    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-100);
-    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-100);
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-25);
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-75);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
     --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
     --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
     --bg-fill-input: var(--primitive-neutral-cool-850);
