@@ -759,6 +759,109 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_variant.failure_count, 0)
         self.assertEqual(test_variant.failure_count, 0)
 
+    @snapshot_clickhouse_queries
+    def test_query_runner_group_aggregation_data_warehouse_mean_metric(self):
+        feature_flag = self.create_feature_flag()
+        feature_flag.filters["aggregation_group_type_index"] = 0
+        feature_flag.save()
+
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMeanMetric(
+            source=ExperimentDataWarehouseNode(
+                table_name=table_name,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.TOTAL,
+                math_property=None,
+            ),
+        )
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "org 1"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:2",
+            properties={"name": "org 2"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:3",
+            properties={"name": "org 3"},
+        )
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                if variant == "test":
+                    group_key = "org:2" if i > 5 else "org:3"
+                else:
+                    group_key = "org:1"
+
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                        "$group_0": group_key,
+                        "$groups": {
+                            "organization": group_key,
+                        },
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+        self.assertEqual(control_result.absolute_exposure, 1)
+        self.assertEqual(test_result.absolute_exposure, 2)
+        self.assertEqual(control_result.count, 1)
+        self.assertEqual(test_result.count, 3)
+
     @parameterized.expand(
         [
             ###
