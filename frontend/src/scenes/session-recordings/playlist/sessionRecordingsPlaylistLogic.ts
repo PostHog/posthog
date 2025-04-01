@@ -14,6 +14,7 @@ import {
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -87,7 +88,7 @@ export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
-    date_to: null,
+    date_to: dayjs().format('YYYY-MM-DD'),
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
     duration: [defaultRecordingDurationFilter],
     order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
