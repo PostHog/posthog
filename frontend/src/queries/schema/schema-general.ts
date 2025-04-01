@@ -109,13 +109,9 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
-    ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
-    ExperimentFunnelMetricConfig = 'ExperimentFunnelMetricConfig',
-    ExperimentFunnelStepConfig = 'ExperimentFunnelStepConfig',
-    ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
-    ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -1799,7 +1795,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
-    customVolume?: ErrorTrackingSparklineConfig | null
+    volumeResolution: integer
     limit?: integer
     offset?: integer
 }
@@ -1809,18 +1805,12 @@ export interface ErrorTrackingIssueAssignee {
     id: integer | string
 }
 
-export type ErrorTrackingSparklineConfig = {
-    value: integer
-    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
-}
-
 export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
     volumeDay: number[]
-    volumeMonth: number[]
-    customVolume: number[] | null
+    volumeRange: number[]
 }
 
 export interface ErrorTrackingRelationalIssue {
@@ -1835,9 +1825,9 @@ export interface ErrorTrackingRelationalIssue {
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
-    last_seen?: string
+    last_seen: string
     earliest?: string
-    aggregations?: ErrorTrackingIssueAggregations
+    aggregations: ErrorTrackingIssueAggregations
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -1959,74 +1949,44 @@ export interface ExperimentEventExposureConfig {
     properties: AnyPropertyFilter[]
 }
 
-export enum ExperimentMetricType {
+export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
 }
 
-export interface ExperimentMetric {
+export type ExperimentMetricBaseProperties = {
     kind: NodeKind.ExperimentMetric
     name?: string
-    metric_type: ExperimentMetricType
-    inverse?: boolean
-    metric_config:
-        | ExperimentEventMetricConfig
-        | ExperimentActionMetricConfig
-        | ExperimentDataWarehouseMetricConfig
-        | ExperimentFunnelMetricConfig
     time_window_hours?: number
 }
 
-export interface ExperimentFunnelStepConfig {
-    kind: NodeKind.ExperimentFunnelStepConfig
-    event: string
-    name?: string
-    order: integer
-    properties?: AnyPropertyFilter[]
-}
-
-export interface ExperimentFunnelMetricConfig {
-    kind: NodeKind.ExperimentFunnelMetricConfig
-    funnel: ExperimentFunnelStepConfig[]
-    // NOTE: Just to make the type system happy
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-}
-
-export interface ExperimentEventMetricConfig {
-    kind: NodeKind.ExperimentEventMetricConfig
-    event: string
-    name?: string
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-    /** Properties configurable in the interface */
-    properties?: AnyPropertyFilter[]
-}
-
-export interface ExperimentActionMetricConfig {
-    kind: NodeKind.ExperimentActionMetricConfig
-    action: number
-    name?: string
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-    /** Properties configurable in the interface */
-    properties?: AnyPropertyFilter[]
-}
-
-export interface ExperimentDataWarehouseMetricConfig {
-    kind: NodeKind.ExperimentDataWarehouseMetricConfig
-    name?: string
+export interface ExperimentDataWarehouseNode extends EntityNode {
+    kind: NodeKind.ExperimentDataWarehouseNode
     table_name: string
     timestamp_field: string
     events_join_key: string
     data_warehouse_join_key: string
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
 }
+
+export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
+
+export type ExperimentMeanMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.MEAN
+    source: ExperimentMetricSource
+}
+
+export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.FUNNEL
+    series: ExperimentFunnelMetricStep[]
+}
+
+export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentMetricTypeProps = ExperimentMeanMetricTypeProps | ExperimentFunnelMetricTypeProps
+
+export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
