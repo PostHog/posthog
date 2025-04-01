@@ -110,6 +110,12 @@ pub struct Config {
 
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
+
+    #[envconfig(default = "")]
+    pub filtered_teams: String, // Comma seperated list of teams to either filter in (process) or filter out (ignore)
+
+    #[envconfig(default = "out")]
+    pub filter_mode: String, // in/out - in means drop all teams not in the list, out means drop all teams in the list
 }
 
 impl Config {

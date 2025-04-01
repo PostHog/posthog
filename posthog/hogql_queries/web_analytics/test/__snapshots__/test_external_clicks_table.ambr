@@ -49,7 +49,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_custom_order_by
@@ -91,7 +92,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_custom_order_by.1
@@ -133,7 +135,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_dont_filter_test_accounts
@@ -175,7 +178,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_filter_test_accounts
@@ -207,12 +211,12 @@
        (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)))
      GROUP BY events.`$session_id`,
@@ -227,7 +231,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_increase_in_users
@@ -269,7 +274,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_no_crash_when_no_data
@@ -311,7 +317,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_under_root
@@ -353,7 +360,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_with_shared_root
@@ -395,7 +403,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_strip_query_params
@@ -437,7 +446,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_strip_query_params.1
@@ -479,6 +489,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---

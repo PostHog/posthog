@@ -1231,7 +1231,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             {({ value, onChange }) => {
                                                 return (
                                                     <JSONEditorInput
-                                                        onChange={onChange}
+                                                        onChange={(newValue) => {
+                                                            onChange(newValue === '' ? undefined : newValue)
+                                                        }}
                                                         value={value}
                                                         placeholder='{"key": "value"}'
                                                     />
