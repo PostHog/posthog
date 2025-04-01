@@ -1,6 +1,7 @@
 import dataclasses
 from datetime import datetime
 
+import hashlib
 from typing import Any
 import uuid
 
@@ -56,14 +57,15 @@ class SessionSummaryPromptData:
         return None
 
     def populate_through_session_data(
-        self, raw_session_events: list[Any], raw_session_metadata: dict[str, Any], columns: list[str]
+        self, raw_session_events: list[list[Any]], raw_session_metadata: dict[str, Any], columns: list[str]
     ) -> None:
         if not raw_session_events or not raw_session_metadata:
             return
         self.columns = [*columns, "event_id"]
         self.metadata = self._prepare_metadata(raw_session_metadata)
-        simplified_session_events = []
-        # Pick indexes as we iterate over tuples
+        simplified_session_events: list[list[Any]] = []
+        event_hexes = set()
+        # Pick indexes as we iterate over arrays
         window_id_index = self._get_column_index("$window_id", columns)
         url_index = self._get_column_index("$current_url", columns)
         timestamp_index = self._get_column_index("timestamp", columns)
@@ -77,15 +79,21 @@ class SessionSummaryPromptData:
             # Simplify URLs
             if url_index is not None:
                 simplified_event["$current_url"] = self._simplify_url(event[url_index])
-            simplified_session_events.append(simplified_event)
+            # simplified_session_events.append(simplified_event)
             # Calculate time since start to jump to the right place in the player
             if timestamp_index is not None:
-                simplified_event["milliseconds_since_start"] = self._format_date(
+                simplified_event["milliseconds_since_start"] = self._calculate_time_since_start(
                     event[timestamp_index], self.metadata.start_time
                 )
                 # Remove timestamp as we don't need it anymore
                 del simplified_event[timestamp_index]
-            # Each event needs a unique id to link them properly
+            # Generate a hex for each event to make sure we can identify repeated events.
+            event_hex = self._get_deterministic_hex(simplified_event)
+            if event_hex in event_hexes:
+                # Skip repeated events
+                continue
+            event_hexes.add(event_hex)
+            # Generate a unique id for each event, after hexing (as event id will be unique)
             simplified_event["event_id"] = uuid.uuid4().hex[:8]
         return simplified_session_events
 
@@ -96,8 +104,8 @@ class SessionSummaryPromptData:
                 continue
             del raw_session_metadata[ef]
         # Adjust the format of the time fields
-        start_time = self._prepare_time(raw_session_metadata.get("start_time"))
-        end_time = self._prepare_time(raw_session_metadata.get("end_time"))
+        start_time = self._prepare_datetime(raw_session_metadata.get("start_time"))
+        end_time = self._prepare_datetime(raw_session_metadata.get("end_time"))
         return SessionSummaryMetadata(
             id=raw_session_metadata["id"],  # Expect id to always be present
             active_seconds=raw_session_metadata.get("active_seconds"),
@@ -114,13 +122,6 @@ class SessionSummaryPromptData:
             activity_score=raw_session_metadata.get("activity_score"),
         )
 
-    def _prepare_time(self, raw_time: datetime | str | None) -> datetime | None:
-        if not raw_time:
-            return None
-        if isinstance(raw_time, str):
-            return datetime.fromisoformat(raw_time)
-        return raw_time
-
     def _simplify_window_id(self, window_id: str | None) -> str | None:
         if not window_id:
             return None
@@ -135,70 +136,32 @@ class SessionSummaryPromptData:
             self.url_mapping[url] = f"url_{len(self.url_mapping) + 1}"
         return self.url_mapping[url]
 
-    def _format_date(self, session_timestamp: str, session_start_time: datetime | None) -> str:
+    @staticmethod
+    def _prepare_datetime(raw_time: datetime | str | None) -> datetime | None:
+        if not raw_time:
+            return None
+        if isinstance(raw_time, str):
+            return datetime.fromisoformat(raw_time)
+        return raw_time
+
+    @staticmethod
+    def _calculate_time_since_start(session_timestamp: str, session_start_time: datetime | None) -> str:
         if not session_start_time or not session_timestamp:
             return None, None
         timestamp_datetime = datetime.fromisoformat(session_timestamp)
         return timestamp_datetime, int((timestamp_datetime - session_start_time).total_seconds() * 1000)
 
+    @staticmethod
+    def _get_deterministic_hex(event: list[Any], length: int = 8) -> str:
+        """
+        Generate a hex for each event to make sure we can identify repeated events.
+        """
 
-def collapse_sequence_of_events(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
-    # assumes the list is ordered by timestamp
-    if session_events.is_empty():
-        return session_events
+        def format_value(val: Any) -> str:
+            if isinstance(val, datetime):
+                return val.isoformat()
+            return str(val)
 
-    # find the event column index
-    event_index = session_events.column_index("event")
-
-    # find the window id column index
-    window_id_index = session_events.column_index("$window_id")
-
-    event_repetition_count_index: int | None = None
-    # we only append this new column, if we need to add it below
-
-    # now enumerate the results finding sequences of events with the same event and collapsing them to a single item
-    collapsed_results = []
-    for i, result in enumerate(session_events.results):
-        if event_index is None:
-            collapsed_results.append(result)
-            continue
-
-        event: str | None = result[event_index]
-        if not event:
-            collapsed_results.append(result)
-            continue
-
-        if i == 0:
-            collapsed_results.append(result)
-            continue
-
-        # we need to collapse into the last item added into collapsed results
-        # as we're going to amend it in place
-        previous_result = collapsed_results[len(collapsed_results) - 1]
-        previous_event: str | None = previous_result[event_index]
-        if not previous_event:
-            collapsed_results.append(result)
-            continue
-
-        event_matches = previous_event == event
-        window_matches = previous_result[window_id_index] == result[window_id_index] if window_id_index else True
-
-        if event_matches and window_matches:
-            # collapse the event into the previous result
-            if event_repetition_count_index is None:
-                # we need to add the column
-                event_repetition_count_index = len(session_events.columns)
-                session_events.columns.append("event_repetition_count")
-            previous_result_list = list(previous_result)
-            try:
-                existing_repetition_count = previous_result_list[event_repetition_count_index] or 0
-                previous_result_list[event_repetition_count_index] = existing_repetition_count + 1
-            except IndexError:
-                previous_result_list.append(2)
-
-            collapsed_results[len(collapsed_results) - 1] = previous_result_list
-        else:
-            result.append(None)  # there is no event repetition count
-            collapsed_results.append(result)
-
-    return dataclasses.replace(session_events, results=collapsed_results)
+        # Join with a null byte as delimiter since it won't appear in normal strings
+        event_string = "\0".join(format_value(x) for x in event)
+        return hashlib.sha256(event_string.encode()).hexdigest()[:length]
