@@ -405,7 +405,7 @@ class TrendsQueryRunner(QueryRunner):
             elif isinstance(result, dict):
                 returned_results.append([result])
 
-        final_result = []
+        final_result: list[dict] = []
         formula_nodes = self.formula_nodes
 
         if formula_nodes:
