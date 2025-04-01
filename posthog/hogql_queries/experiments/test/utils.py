@@ -103,7 +103,7 @@ def create_standard_group_test_events(team: Team, feature_flag: FeatureFlag):
                     },
                 },
             )
-            if i < purchase_count and group_idx < 3:
+            if i < purchase_count:
                 _create_event(
                     team=team,
                     event="purchase",
@@ -115,5 +115,6 @@ def create_standard_group_test_events(team: Team, feature_flag: FeatureFlag):
                         "$groups": {
                             "organization": f"org:{group_idx}",
                         },
+                        "amount": 10 * i if i % 2 == 0 else "",
                     },
                 )
