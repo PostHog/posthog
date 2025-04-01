@@ -89,24 +89,22 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         session_events_columns, session_events = _get_session_events(recording.session_id, team)
 
     with timer("generate_prompt"):
-        # prompt_data = deduplicate_urls(
-        #     collapse_sequence_of_events(
-        #         format_dates(
-        #             simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1])),
-        #             start=start_time,
-        #         )
-        #     )
-        # )
         prompt_data = SessionSummaryPromptData()
         prompt_data.load_session_data(session_events, session_metadata, session_events_columns)
-        template = get_template(f"session_summaries/single-replay_base-prompt.md")
-        rendered_template = template.render(
+        # Reverse mappings for easier reference in the prompt
+        url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
+        window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
+        # Render all templates
+        summary_template = get_template(f"session_summaries/single-replay_base-prompt.djt")
+        summary_example = get_template(f"session_summaries/single-replay_example.yml").render()
+        rendered_summary_template = summary_template.render(
             {
                 "EVENTS_COLUMNS": prompt_data.columns,
                 "EVENTS_DATA": prompt_data.results,
                 "SESSION_METADATA": prompt_data.metadata.to_dict(),
-                "URL_MAPPING": prompt_data.url_mapping,
-                "WINDOW_ID_MAPPING": prompt_data.window_id_mapping,
+                "URL_MAPPING": url_mapping_reversed,
+                "WINDOW_ID_MAPPING": window_mapping_reversed,
+                "SUMMARY_EXAMPLE": summary_example,
             }
         )
 
@@ -128,7 +126,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             messages=[
                 {
                     "role": "user",
-                    "content": rendered_template,
+                    "content": rendered_summary_template,
                 },
                 #     {
                 #         "role": "system",

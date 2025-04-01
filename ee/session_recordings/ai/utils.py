@@ -3,12 +3,10 @@ from datetime import datetime
 
 import hashlib
 from typing import Any
-import uuid
 
 
 @dataclasses.dataclass(frozen=True)
 class SessionSummaryMetadata:
-    id: str
     active_seconds: int | None
     inactive_seconds: int | None
     start_time: datetime | None
@@ -85,14 +83,13 @@ class SessionSummaryPromptData:
             if event_id in events_mapping:
                 # Skip repeated events
                 continue
-            # Generate a unique id for each event, after hexing (as event id will be unique)
-            simplified_event[event_id_index] = uuid.uuid4().hex[:8]
+            simplified_event[event_id_index] = event_id
             # Remove timestamp as we don't need it anymore
             del simplified_event[timestamp_index]
-            events_mapping[event_id] = simplified_event[event_id_index]
+            events_mapping[event_id] = simplified_event
         # Remove timestamp column (as we don't store timestamps)
         del self.columns[timestamp_index]
-        self.results = events_mapping.values()
+        self.results = list(events_mapping.values())
         return events_mapping
 
     def _prepare_metadata(self, raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
@@ -105,7 +102,6 @@ class SessionSummaryPromptData:
         start_time = self._prepare_datetime(raw_session_metadata.get("start_time"))
         end_time = self._prepare_datetime(raw_session_metadata.get("end_time"))
         return SessionSummaryMetadata(
-            id=raw_session_metadata["id"],  # Expect id to always be present
             active_seconds=raw_session_metadata.get("active_seconds"),
             inactive_seconds=raw_session_metadata.get("inactive_seconds"),
             start_time=start_time,
