@@ -193,7 +193,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             variableDataLogic,
             ['variables'],
             dataThemeLogic,
-            ['themes'],
+            ['getTheme'],
         ],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
@@ -241,17 +241,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
-        setDataColorTheme: (theme: DataColorTheme | null) => ({ theme }),
+        setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
         setFiltersAndLayoutsAndVariables: (
             filters: DashboardFilter,
             variables: Record<string, HogQLVariable>,
             breakdownColors: BreakdownColorConfig[],
-            dataColorTheme: DataColorTheme | null
+            dataColorThemeId: number | null
         ) => ({
             filters,
             variables,
             breakdownColors,
-            dataColorTheme,
+            dataColorThemeId,
         }),
         previewTemporaryFilters: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
@@ -366,7 +366,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 filters: values.filters,
                                 variables: values.insightVariables,
                                 breakdown_colors: values.temporaryBreakdownColors,
-                                data_color_theme_id: values.dataColorTheme?.id,
+                                data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -636,7 +636,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dataColorThemeId: [
             null as number | null,
             {
-                setDataColorTheme: (_, { theme }) => theme?.id || null,
+                setDataColorThemeId: (_, { dataColorThemeId }) => dataColorThemeId || null,
                 loadDashboardSuccess: (_, { dashboard }) => dashboard?.data_color_theme_id || null,
             },
         ],
@@ -1212,9 +1212,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         dataColorTheme: [
-            (s) => [s.dataColorThemeId, s.themes],
-            (dataColorThemeId, themes) =>
-                dataColorThemeId ? themes.find((theme) => theme.id === dataColorThemeId) : null,
+            (s) => [s.dataColorThemeId, s.getTheme],
+            (dataColorThemeId, getTheme): DataColorTheme | null => getTheme(dataColorThemeId),
         ],
     })),
     events(({ actions, cache, props }) => ({
@@ -1545,7 +1544,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         values.temporaryFilters,
                         values.temporaryVariables,
                         values.temporaryBreakdownColors,
-                        values.dataColorTheme
+                        values.dataColorThemeId
                     )
                 }
             }

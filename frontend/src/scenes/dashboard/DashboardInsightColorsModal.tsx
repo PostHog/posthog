@@ -30,10 +30,10 @@ export function DashboardInsightColorsModal(): JSX.Element {
 
     const {
         temporaryBreakdownColors: dashboardBreakdownColors,
-        dataColorTheme,
+        dataColorThemeId,
         dashboardMode,
     } = useValues(dashboardLogic)
-    const { setBreakdownColorConfig, setDataColorTheme, setDashboardMode } = useActions(dashboardLogic)
+    const { setBreakdownColorConfig, setDataColorThemeId, setDashboardMode } = useActions(dashboardLogic)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { cohorts } = useValues(cohortsModel)
@@ -78,7 +78,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                         customButton={
                             colorToken === null ? <LemonButton type="tertiary">Customize color</LemonButton> : undefined
                         }
-                        themeId={dataColorTheme?.id}
+                        themeId={dataColorThemeId}
                     />
                 )
             },
@@ -92,12 +92,9 @@ export function DashboardInsightColorsModal(): JSX.Element {
             </LemonLabel>
             <LemonSelect
                 className="mt-2"
-                value={dataColorTheme?.id || null}
+                value={dataColorThemeId || null}
                 placeholder="Defined by insight"
-                onChange={(value) => {
-                    const theme = themes.find((theme) => theme.id === value)
-                    setDataColorTheme(theme)
-                }}
+                onChange={setDataColorThemeId}
                 loading={themesLoading}
                 options={themes.map((theme) => ({ value: theme.id, label: theme.name }))}
             />
