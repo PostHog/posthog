@@ -43,6 +43,7 @@ def process_query_dict(
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
+    is_query_service: bool = False,
 ) -> dict | BaseModel:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
@@ -63,6 +64,7 @@ def process_query_dict(
         query_id=query_id,
         insight_id=insight_id,
         dashboard_id=dashboard_id,
+        is_query_service=is_query_service,
     )
 
 
@@ -97,6 +99,7 @@ def process_query_model(
                 query_id=query_id,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
+                is_query_service=is_query_service,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss

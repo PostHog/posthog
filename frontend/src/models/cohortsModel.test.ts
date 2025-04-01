@@ -70,8 +70,8 @@ describe('cohortsModel', () => {
 
     describe('core assumptions', () => {
         it('loads cohorts on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['loadCohorts', 'loadCohortsSuccess'])
-            expect(logic.values.cohorts.results).toHaveLength(2)
+            await expectLogic(logic).toDispatchActions(['loadAllCohorts', 'loadAllCohortsSuccess'])
+            expect(logic.values.allCohorts.results).toHaveLength(2)
         })
 
         it('sets polling timeout for calculating cohorts when on cohorts page', async () => {
@@ -96,7 +96,7 @@ describe('cohortsModel', () => {
                 },
             })
 
-            await expectLogic(logic).toDispatchActions(['loadCohorts', 'loadCohortsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAllCohorts', 'loadAllCohortsSuccess'])
             expect(logic.values.pollTimeout).toBeNull()
         })
     })
@@ -201,7 +201,7 @@ describe('cohortsModel', () => {
 
         it('correctly maps cohorts by id', async () => {
             await expectLogic(logic)
-                .toDispatchActions(['loadCohortsSuccess'])
+                .toDispatchActions(['loadAllCohortsSuccess'])
                 .toMatchValues({
                     cohortsById: expect.objectContaining({
                         1: expect.objectContaining({ id: 1, name: 'Cohort one' }),

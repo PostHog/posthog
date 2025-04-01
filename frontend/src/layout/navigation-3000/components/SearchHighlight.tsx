@@ -115,7 +115,7 @@ export function SearchHighlightMultiple({ string, substring, className }: Props)
     return (
         <div className={`truncate ${className}`}>
             {highlightedParts.map((part, index) => (
-                <span key={index} className={`text-xs ${part.highlight ? 'bg-accent-highlight-primary' : ''}`}>
+                <span key={index} className={part.highlight ? 'bg-accent-highlight-primary' : ''}>
                     {part.text}
                 </span>
             ))}

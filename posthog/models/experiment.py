@@ -21,7 +21,7 @@ class Experiment(FileSystemSyncMixin, models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # Filters define the target metric of an Experiment
-    filters = models.JSONField(default=dict)
+    filters = models.JSONField(default=dict, blank=True)
 
     # Parameters include configuration fields for the experiment: What the control & test variant are called,
     # and any test significance calculation parameters
@@ -34,15 +34,15 @@ class Experiment(FileSystemSyncMixin, models.Model):
     parameters = models.JSONField(default=dict, null=True)
 
     # A list of filters for secondary metrics
-    secondary_metrics = models.JSONField(default=list, null=True)
+    secondary_metrics = models.JSONField(default=list, null=True, blank=True)
 
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     feature_flag = models.ForeignKey("FeatureFlag", blank=False, on_delete=models.RESTRICT)
-    exposure_cohort = models.ForeignKey("Cohort", on_delete=models.SET_NULL, null=True)
-    holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null=True)
+    exposure_cohort = models.ForeignKey("Cohort", on_delete=models.SET_NULL, null=True, blank=True)
+    holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null=True, blank=True)
 
-    start_date = models.DateTimeField(null=True)
-    end_date = models.DateTimeField(null=True)
+    start_date = models.DateTimeField(null=True, blank=True)
+    end_date = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)

@@ -210,7 +210,6 @@ export const FEATURE_FLAGS = {
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
-    FEATURE_MANAGEMENT_UI: 'feature-management-ui', // owner: @haven #team-feature-flags
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
     METALYTICS: 'metalytics', // owner: @surbhi
     REMOTE_CONFIG: 'remote-config', // owner: @benjackwhite
@@ -256,6 +255,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-cdp
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS: 'web-analytics-data-warehouse-revenue-settings', // owner: @rafaeelaudibert #team-web-analytics
+    SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -532,6 +532,7 @@
 # name: TestNotebooks.test_updates_notebook.19
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -974,6 +975,7 @@
 # name: TestNotebooks.test_updates_notebook.6
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
