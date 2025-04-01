@@ -533,7 +533,7 @@ function SurveyNPSResults({
                         source: {
                             kind: NodeKind.TrendsQuery,
                             interval: interval ?? defaultInterval,
-                            compareFilter: compareFilter ?? { compare: true },
+                            compareFilter: compareFilter,
                             dateRange: dateRange ?? {
                                 date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
                                 date_to: survey.end_date
@@ -564,6 +564,7 @@ function SurveyNPSResults({
                             },
                         },
                     }}
+                    readOnly
                 />
             </div>
         </div>
