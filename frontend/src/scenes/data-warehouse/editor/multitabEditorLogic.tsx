@@ -602,7 +602,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                 actions.updateState()
 
-                // Saved Queries are unique by name
+                // Saved queries are unique by team,name
                 const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
 
                 if (materializeAfterSave && savedQuery) {

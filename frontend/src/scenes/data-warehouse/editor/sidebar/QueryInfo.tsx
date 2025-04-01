@@ -144,7 +144,6 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                     lifecycle: 'create',
                                                 })
                                         } else {
-                                            // save and materialize
                                             saveAsView({ materializeAfterSave: true })
                                         }
                                     }}
