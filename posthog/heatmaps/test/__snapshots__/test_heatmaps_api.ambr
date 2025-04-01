@@ -22,7 +22,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_exact_url.1
@@ -103,7 +104,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*
@@ -129,7 +131,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*.1
@@ -155,7 +158,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*
@@ -181,7 +185,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*.1
@@ -207,7 +212,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*
@@ -233,7 +239,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*.1
@@ -259,7 +266,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*
@@ -285,7 +293,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*.1
@@ -311,7 +320,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*
@@ -337,7 +347,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*.1
@@ -363,7 +374,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*
@@ -389,7 +401,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*.1
@@ -415,7 +428,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_where_end_is_anchored
@@ -441,7 +455,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_0_min_150
@@ -467,7 +482,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_1_min_161
@@ -493,7 +509,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_2_min_177
@@ -519,7 +536,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_3_min_201
@@ -545,7 +563,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_4_min_161_and_max_192
@@ -571,7 +590,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_all_data_response
@@ -597,7 +617,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation
@@ -623,7 +644,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation.1
@@ -649,7 +671,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_empty_response
@@ -675,7 +698,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click
@@ -701,7 +725,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click.1
@@ -727,7 +752,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_date_from
@@ -753,7 +779,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date
@@ -779,7 +806,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date.1
@@ -805,7 +833,8 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_scrolldepth_counts
@@ -857,6 +886,7 @@
                          format_csv_allow_double_quotes=0,
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1
   '''
 # ---
