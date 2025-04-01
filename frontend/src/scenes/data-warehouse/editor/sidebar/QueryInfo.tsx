@@ -136,13 +136,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 <LemonButton
                                     onClick={() => {
                                         if (editingView) {
-                                            editingView &&
-                                                updateDataWarehouseSavedQuery({
-                                                    id: editingView.id,
-                                                    sync_frequency: '24hour',
-                                                    types: [[]],
-                                                    lifecycle: 'create',
-                                                })
+                                            updateDataWarehouseSavedQuery({
+                                                id: editingView.id,
+                                                sync_frequency: '24hour',
+                                                types: [[]],
+                                                lifecycle: 'create',
+                                            })
                                         } else {
                                             saveAsView({ materializeAfterSave: true })
                                         }
