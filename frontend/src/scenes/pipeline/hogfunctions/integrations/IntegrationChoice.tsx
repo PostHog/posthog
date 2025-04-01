@@ -29,6 +29,7 @@ export function IntegrationChoice({
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { newGoogleCloudKey, newMailjetKey } = useActions(integrationsLogic)
     const kind = integration
+
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
 
@@ -49,6 +50,8 @@ export function IntegrationChoice({
             ? 'Google Ads'
             : kind == 'linkedin-ads'
             ? 'LinkedIn Ads'
+            : kind == 'mail'
+            ? 'Mailjet'
             : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
@@ -98,7 +101,7 @@ export function IntegrationChoice({
                               },
                           ],
                       }
-                    : ['mailjet'].includes(kind)
+                    : ['mail'].includes(kind)
                     ? {
                           items: [
                               {
