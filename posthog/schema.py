@@ -1857,7 +1857,6 @@ class TrendsFilterLegacy(BaseModel):
     decimal_places: Optional[float] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
-    formulas: Optional[list[str]] = None
     hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     show_alert_threshold_lines: Optional[bool] = None
     show_labels_on_series: Optional[bool] = None

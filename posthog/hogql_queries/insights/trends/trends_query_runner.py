@@ -405,37 +405,39 @@ class TrendsQueryRunner(QueryRunner):
             elif isinstance(result, dict):
                 returned_results.append([result])
 
-        formula_nodes = self.query.trendsFilter.formulaNodes if self.query.trendsFilter.formulaNodes else []
-        if not formula_nodes:
-            if self.query.trendsFilter.formulas:
-                formula_nodes = [{"formula": formula} for formula in self.query.trendsFilter.formulas]
-            elif self.query.trendsFilter.formula:
-                formula_nodes = [{"formula": self.query.trendsFilter.formula}]
+        final_result = []
+        if self.query.trendsFilter is not None:
+            formula_nodes = self.query.trendsFilter.formulaNodes if self.query.trendsFilter.formulaNodes else []
 
-        if self.query.trendsFilter is not None and formula_nodes:
-            with self.timings.measure("apply_formula"):
-                has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
-                if has_compare:
-                    current_results = returned_results[: len(returned_results) // 2]
-                    previous_results = returned_results[len(returned_results) // 2 :]
+            # for backwards compatibility
+            if not formula_nodes:
+                if self.query.trendsFilter.formulas:
+                    formula_nodes = [{"formula": formula} for formula in self.query.trendsFilter.formulas]
+                elif self.query.trendsFilter.formula:
+                    formula_nodes = [{"formula": self.query.trendsFilter.formula}]
 
-                    final_result = []
-                    for formula_node in formula_nodes:
-                        current_formula_results = self.apply_formula(formula_node, current_results)
-                        previous_formula_results = self.apply_formula(formula_node, previous_results)
-                        # Create a new list for each formula's results
-                        formula_results = []
-                        formula_results.extend(current_formula_results)
-                        formula_results.extend(previous_formula_results)
-                        final_result.extend(formula_results)
-                else:
-                    final_result = []
-                    for formula_node in formula_nodes:
-                        formula_results = self.apply_formula(formula_node, returned_results)
-                        # Create a new list for each formula's results
-                        final_result.extend(formula_results)
+            if formula_nodes:
+                with self.timings.measure("apply_formula"):
+                    has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
+                    if has_compare:
+                        current_results = returned_results[: len(returned_results) // 2]
+                        previous_results = returned_results[len(returned_results) // 2 :]
+
+                        final_result = []
+                        for formula_node in formula_nodes:
+                            current_formula_results = self.apply_formula(formula_node, current_results)
+                            previous_formula_results = self.apply_formula(formula_node, previous_results)
+                            # Create a new list for each formula's results
+                            formula_results = []
+                            formula_results.extend(current_formula_results)
+                            formula_results.extend(previous_formula_results)
+                            final_result.extend(formula_results)
+            else:
+                for formula_node in formula_nodes:
+                    formula_results = self.apply_formula(formula_node, returned_results)
+                    # Create a new list for each formula's results
+                    final_result.extend(formula_results)
         else:
-            final_result = []
             for result in returned_results:
                 if isinstance(result, list):
                     final_result.extend(result)
@@ -792,7 +794,9 @@ class TrendsQueryRunner(QueryRunner):
                 for i in range(cohort_count):
                     cohort_series = results[(i * results_per_cohort) : ((i + 1) * results_per_cohort)]
                     cohort_results = self.apply_formula(
-                        self.query.trendsFilter.formula, cohort_series, in_breakdown_clause=True
+                        TrendsFormulaNode(formula=self.query.trendsFilter.formula),
+                        cohort_series,
+                        in_breakdown_clause=True,
                     )
                     conjoined_results.append(cohort_results)
                 results = conjoined_results

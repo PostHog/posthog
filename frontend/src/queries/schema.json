@@ -16481,6 +16481,7 @@
                     "default": "ActionsLineGraph"
                 },
                 "formula": {
+                    "deprecated": "Use formulaNodes instead.",
                     "type": "string"
                 },
                 "formulaNodes": {
@@ -16491,6 +16492,7 @@
                     "type": "array"
                 },
                 "formulas": {
+                    "deprecated": "Use formulaNodes instead.",
                     "items": {
                         "type": "string"
                     },
@@ -16598,12 +16600,6 @@
                 },
                 "formula": {
                     "type": "string"
-                },
-                "formulas": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
                 },
                 "hidden_legend_keys": {
                     "additionalProperties": {
