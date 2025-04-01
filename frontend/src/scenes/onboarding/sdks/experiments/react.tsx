@@ -8,7 +8,7 @@ import { ExperimentsImplementationSnippet } from './ExperimentsImplementationSni
 export function ExperimentsReactInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallReactInstructions />
+            <SDKInstallReactInstructions hideWizard />
             <LemonDivider thick dashed className="my-4" />
             <ExperimentsImplementationSnippet sdkKey={SDKKey.REACT} />
         </>
