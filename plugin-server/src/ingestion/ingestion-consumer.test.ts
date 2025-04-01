@@ -688,6 +688,7 @@ describe('IngestionConsumer', () => {
                 name: 'GeoIP Transformation',
                 hog: geoipTemplate.hog,
                 bytecode: hogByteCode,
+                team_id: team.id,
             })
 
             ingester = new IngestionConsumer(hub)
@@ -699,6 +700,7 @@ describe('IngestionConsumer', () => {
             async () => {
                 // make the geoip lookup fail
                 const event = createEvent({
+                    team_id: team.id,
                     ip: '256.256.256.256',
                     properties: { $ip: '256.256.256.256' },
                 })
@@ -779,6 +781,7 @@ describe('IngestionConsumer', () => {
                 const event = createEvent({
                     ip: '89.160.20.129',
                     properties: { $ip: '89.160.20.129' },
+                    team_id: team.id,
                 })
                 const messages = createKafkaMessages([event])
 
