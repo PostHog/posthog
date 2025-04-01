@@ -1,6 +1,5 @@
 import { IconCheck } from '@posthog/icons'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
-import { Button } from 'lib/ui/Button/Button'
 import { cn } from 'lib/utils/css-classes'
 import * as React from 'react'
 
@@ -98,7 +97,7 @@ const DropdownMenuItem = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.Item>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & {
         inset?: boolean
-    } & React.ComponentPropsWithoutRef<typeof Button.Root>
+    }
 >(({ className, inset, ...props }, ref): JSX.Element => {
     return <DropdownMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
 })

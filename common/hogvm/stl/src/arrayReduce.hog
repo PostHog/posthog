@@ -1,0 +1,7 @@
+fun arrayReduce(func, arr, initial) {
+  let result := initial
+  for (let i in arr) {
+    result := func(result, i)
+  }
+  return result
+}
