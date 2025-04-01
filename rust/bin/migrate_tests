@@ -3,13 +3,13 @@
 set -euxo pipefail
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+source "$SCRIPT_DIR/util"
 
 SQLX_CLI_VERSION="0.8.3"
+POSTHOG_DOCKER_DB_CONTAINER_NAME="posthog-db-1"
 
-
-
-if [[ -z "$(docker ps -q -f "name=posthog-db-1")" ]] ; then
-  echo >&2 "FATAL: posthog repo root docker-compose must be UP prior to running $(realpath $0)"
+if [[ -z "$(docker ps -q -f "name=${POSTHOG_DOCKER_DB_CONTAINER_NAME}")" ]] ; then
+  log --err "posthog repo root docker-compose must be UP prior to running $(realpath $0)"
   exit 1
 fi
 
@@ -18,10 +18,10 @@ fi
 # normal circumstances in a Rust subproject. See `posthog/rust/README.md` for more.
 # NOTE: cargo and SQLX honor the .env file by default when developing locally
 source "$SCRIPT_DIR/../.env"
-echo "Sourced rust/.env file - database URL is: $DATABASE_URL"
+log "Sourced rust/.env file - database URL is: $DATABASE_URL"
 
 if ! which sqlx; then
-  echo "Installing SQLX CLI tool..."
+  log "Installing SQLX CLI tool..."
   cargo install sqlx-cli --version "$SQLX_CLI_VERSION"
 fi
 
@@ -41,6 +41,7 @@ DEBUG=true TEST=true python manage.py setup_test_environment --only-postgres
 #
 # New Rust workspace subprojects should add statements like this pointing to
 # their own dev and test migrations. Details in the `posthog/rust/README.md`
+log "Migrating workspace projects..."
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../common/migrations"
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../hook-common/migrations"
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../batch-import-worker/migrations"

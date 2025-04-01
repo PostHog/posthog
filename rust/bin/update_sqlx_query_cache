@@ -13,6 +13,10 @@ set -euxo pipefail
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
+source "$SCRIPT_DIR/util"
+
+log "Attempting to update workspace SQLX query cache..."
+
 # Picks up default Rust test database namespace via DATABASE_URL env var.
 # This database is hosted by the dev PG instance in the Django monolith's
 # Docker Compose rig, and (if `bin/migrate_tests` has been run!) will
@@ -25,3 +29,5 @@ source "$SCRIPT_DIR/../.env"
 pushd "$SCRIPT_DIR/.."
 cargo sqlx prepare -D "$DATABASE_URL" --workspace -- --all-targets --all-features
 popd
+
+log "Upated SQLX query cache at: $(realpath "$SCRIPT_DIR/../.sqlx")"
