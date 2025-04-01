@@ -47,9 +47,6 @@ class SessionSummaryPromptData:
     window_id_mapping: dict[str, int] = dataclasses.field(default_factory=dict)
     url_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
 
-    # one for each result in results
-    processed_elements_chain: list[dict] = dataclasses.field(default_factory=list)
-
     def _get_column_index(self, column_name: str) -> int | None:
         for i, c in enumerate(self.columns):
             if c == column_name:
@@ -57,18 +54,18 @@ class SessionSummaryPromptData:
         return None
 
     def populate_through_session_data(
-        self, raw_session_events: list[list[Any]], raw_session_metadata: dict[str, Any], columns: list[str]
+        self, raw_session_events: list[list[Any]], raw_session_metadata: dict[str, Any], raw_session_columns: list[str]
     ) -> None:
         if not raw_session_events or not raw_session_metadata:
             return
-        self.columns = [*columns, "event_id"]
+        self.columns = [*raw_session_columns, "event_id"]
         self.metadata = self._prepare_metadata(raw_session_metadata)
         simplified_session_events: list[list[Any]] = []
         event_hexes = set()
         # Pick indexes as we iterate over arrays
-        window_id_index = self._get_column_index("$window_id", columns)
-        url_index = self._get_column_index("$current_url", columns)
-        timestamp_index = self._get_column_index("timestamp", columns)
+        window_id_index = self._get_column_index("$window_id", self.columns)
+        url_index = self._get_column_index("$current_url", self.columns)
+        timestamp_index = self._get_column_index("timestamp", self.columns)
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
         for event in raw_session_events:
             # Copy the event to avoid mutating the original

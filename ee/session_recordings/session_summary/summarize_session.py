@@ -2,6 +2,7 @@ import openai
 
 from prometheus_client import Histogram
 
+from ee.session_recordings.ai.utils import SessionSummaryPromptData
 from ee.session_recordings.session_summary.utils import (
     load_session_metadata_from_json,
     load_sesssion_recording_events_from_csv,
@@ -96,8 +97,18 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         #         )
         #     )
         # )
+        prompt_data = SessionSummaryPromptData()
+        prompt_data.populate_through_session_data(session_events, session_metadata, session_events_columns)
         template = get_template(f"session_summaries/single-replay_base-prompt.md")
-        rendered_template = template.render({"EVENTS_DATA": session_events, "SESSION_METADATA": session_metadata})
+        rendered_template = template.render(
+            {
+                "EVENTS_COLUMNS": prompt_data.columns,
+                "EVENTS_DATA": prompt_data.results,
+                "SESSION_METADATA": prompt_data.metadata,
+                "URL_MAPPING": prompt_data.url_mapping,
+                "WINDOW_ID_MAPPING": prompt_data.window_id_mapping,
+            }
+        )
 
     instance_region = get_instance_region() or "HOBBY"
     combined_sesssion_events = []
