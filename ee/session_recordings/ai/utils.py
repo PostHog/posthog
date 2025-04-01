@@ -2,119 +2,144 @@ import dataclasses
 from datetime import datetime
 
 from typing import Any
+import uuid
+
+
+@dataclasses.dataclass(frozen=True)
+class SessionSummaryMetadata:
+    id: str
+    active_seconds: int | None
+    inactive_seconds: int | None
+    start_time: datetime | None
+    end_time: datetime | None
+    click_count: int | None
+    keypress_count: int | None
+    mouse_activity_count: int | None
+    console_log_count: int | None
+    console_warn_count: int | None
+    console_error_count: int | None
+    start_url: str | None
+    activity_score: float | None
+
+    def to_dict(self) -> dict:
+        d = dataclasses.asdict(self)
+        # Convert datetime to ISO format
+        if self.start_time:
+            d["start_time"] = self.start_time.isoformat()
+        if self.end_time:
+            d["end_time"] = self.end_time.isoformat()
+        return d
+
+    def __json__(self):
+        return self.to_dict()
 
 
 @dataclasses.dataclass
 class SessionSummaryPromptData:
-    # we may allow customisation of columns included in the future,
-    # and we alter the columns present as we process the data
-    # so want to stay as loose as possible here
+    # We may allow customisation of columns included in the future, and we alter the columns present
+    # as we process the data, so want to stay as loose as possible here
     columns: list[str] = dataclasses.field(default_factory=list)
     results: list[list[Any]] = dataclasses.field(default_factory=list)
-    # in order to reduce the number of tokens in the prompt
-    # we replace URLs with a placeholder and then pass this mapping of placeholder to URL into the prompt
+    metadata: SessionSummaryMetadata | None = None
+    # In order to reduce the number of tokens in the prompt,
+    # we generate mappings to use in the prompt instead of repeating the data
+    window_id_mapping: dict[str, int] = dataclasses.field(default_factory=dict)
     url_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
 
     # one for each result in results
     processed_elements_chain: list[dict] = dataclasses.field(default_factory=list)
 
-    def is_empty(self) -> bool:
-        return not self.columns or not self.results
-
-    def column_index(self, column: str) -> int | None:
+    def _get_column_index(self, column_name: str) -> int | None:
         for i, c in enumerate(self.columns):
-            if c == column:
+            if c == column_name:
                 return i
         return None
 
+    def populate_through_session_data(
+        self, raw_session_events: list[Any], raw_session_metadata: dict[str, Any], columns: list[str]
+    ) -> None:
+        if not raw_session_events or not raw_session_metadata:
+            return
+        self.columns = [*columns, "event_id"]
+        self.metadata = self._prepare_metadata(raw_session_metadata)
+        simplified_session_events = []
+        # Pick indexes as we iterate over tuples
+        window_id_index = self._get_column_index("$window_id", columns)
+        url_index = self._get_column_index("$current_url", columns)
+        timestamp_index = self._get_column_index("timestamp", columns)
+        # Iterate session events once to decrease the number of tokens in the prompt through mappings
+        for event in raw_session_events:
+            # Copy the event to avoid mutating the original
+            simplified_event = list(event)
+            # Simplify Window IDs
+            if window_id_index is not None:
+                simplified_event["$window_id"] = self._simplify_window_id(event[window_id_index])
+            # Simplify URLs
+            if url_index is not None:
+                simplified_event["$current_url"] = self._simplify_url(event[url_index])
+            simplified_session_events.append(simplified_event)
+            # Calculate time since start to jump to the right place in the player
+            if timestamp_index is not None:
+                simplified_event["milliseconds_since_start"] = self._format_date(
+                    event[timestamp_index], self.metadata.start_time
+                )
+                # Remove timestamp as we don't need it anymore
+                del simplified_event[timestamp_index]
+            # Each event needs a unique id to link them properly
+            simplified_event["event_id"] = uuid.uuid4().hex[:8]
+        return simplified_session_events
 
-def simplify_window_id(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
-    if session_events.is_empty():
-        return session_events
+    def _prepare_metadata(self, raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
+        # Remove excessive data
+        for ef in ("distinct_id", "viewed", "recording_duration", "storage", "ongoing"):
+            if ef not in raw_session_metadata:
+                continue
+            del raw_session_metadata[ef]
+        # Adjust the format of the time fields
+        start_time = self._prepare_time(raw_session_metadata.get("start_time"))
+        end_time = self._prepare_time(raw_session_metadata.get("end_time"))
+        return SessionSummaryMetadata(
+            id=raw_session_metadata["id"],  # Expect id to always be present
+            active_seconds=raw_session_metadata.get("active_seconds"),
+            inactive_seconds=raw_session_metadata.get("inactive_seconds"),
+            start_time=start_time,
+            end_time=end_time,
+            click_count=raw_session_metadata.get("click_count"),
+            keypress_count=raw_session_metadata.get("keypress_count"),
+            mouse_activity_count=raw_session_metadata.get("mouse_activity_count"),
+            console_log_count=raw_session_metadata.get("console_log_count"),
+            console_warn_count=raw_session_metadata.get("console_warn_count"),
+            console_error_count=raw_session_metadata.get("console_error_count"),
+            start_url=raw_session_metadata.get("start_url"),
+            activity_score=raw_session_metadata.get("activity_score"),
+        )
 
-    # find window_id column index
-    window_id_index = session_events.column_index("$window_id")
+    def _prepare_time(self, raw_time: datetime | str | None) -> datetime | None:
+        if not raw_time:
+            return None
+        if isinstance(raw_time, str):
+            return datetime.fromisoformat(raw_time)
+        return raw_time
 
-    window_id_mapping: dict[str, int] = {}
-    simplified_results = []
-    for result in session_events.results:
-        if window_id_index is None:
-            simplified_results.append(result)
-            continue
-
-        window_id: str | None = result[window_id_index]
+    def _simplify_window_id(self, window_id: str | None) -> str | None:
         if not window_id:
-            simplified_results.append(result)
-            continue
+            return None
+        if window_id not in self.window_id_mapping:
+            self.window_id_mapping[window_id] = f"window_{len(self.window_id_mapping) + 1}"
+        return self.window_id_mapping[window_id]
 
-        if window_id not in window_id_mapping:
-            window_id_mapping[window_id] = len(window_id_mapping) + 1
-
-        result_list = list(result)
-        result_list[window_id_index] = window_id_mapping[window_id]
-        simplified_results.append(result_list)
-
-    return dataclasses.replace(session_events, results=simplified_results)
-
-
-def deduplicate_urls(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
-    if session_events.is_empty():
-        return session_events
-
-    # find url column index
-    url_index = session_events.column_index("$current_url")
-
-    url_mapping: dict[str, str] = {}
-    deduplicated_results = []
-    for result in session_events.results:
-        if url_index is None:
-            deduplicated_results.append(result)
-            continue
-
-        url: str | None = result[url_index]
+    def _simplify_url(self, url: str | None) -> str | None:
         if not url:
-            deduplicated_results.append(result)
-            continue
+            return None
+        if url not in self.url_mapping:
+            self.url_mapping[url] = f"url_{len(self.url_mapping) + 1}"
+        return self.url_mapping[url]
 
-        if url not in url_mapping:
-            url_mapping[url] = f"url_{len(url_mapping) + 1}"
-
-        result_list = list(result)
-        result_list[url_index] = url_mapping[url]
-        deduplicated_results.append(result_list)
-
-    return dataclasses.replace(session_events, results=deduplicated_results, url_mapping=url_mapping)
-
-
-def format_dates(session_events: SessionSummaryPromptData, start: datetime) -> SessionSummaryPromptData:
-    if session_events.is_empty():
-        return session_events
-
-    # find timestamp column index
-    timestamp_index = session_events.column_index("timestamp")
-
-    if timestamp_index is None:
-        # no timestamp column so nothing to do
-        return session_events
-
-    del session_events.columns[timestamp_index]  # remove timestamp column from columns
-    session_events.columns.append("milliseconds_since_start")  # add new column to columns at end
-
-    formatted_results = []
-    for result in session_events.results:
-        timestamp: datetime | None = result[timestamp_index]
-        if not timestamp:
-            formatted_results.append(result)
-            continue
-
-        result_list = list(result)
-        # remove list item at timestamp_index
-        del result_list[timestamp_index]
-        # insert milliseconds since reference date
-        result_list.append(int((timestamp - start).total_seconds() * 1000))
-        formatted_results.append(result_list)
-
-    return dataclasses.replace(session_events, results=formatted_results)
+    def _format_date(self, session_timestamp: str, session_start_time: datetime | None) -> str:
+        if not session_start_time or not session_timestamp:
+            return None, None
+        timestamp_datetime = datetime.fromisoformat(session_timestamp)
+        return timestamp_datetime, int((timestamp_datetime - session_start_time).total_seconds() * 1000)
 
 
 def collapse_sequence_of_events(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
