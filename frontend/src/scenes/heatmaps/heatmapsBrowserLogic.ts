@@ -416,6 +416,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
         },
 
+        setReplayIframeDataURL: ({ url }) => {
+            if (url?.trim().length) {
+                // we don't want to use the toolbar fetch or the iframe message approach
+                actions.setFetchFn('native')
+                actions.setHref(url)
+                actions.loadHeatmap()
+            }
+        },
+
         setBrowserUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
             if (url?.trim().length) {
