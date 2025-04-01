@@ -14,7 +14,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const { treeData, lastViewedId, viableItems, pendingActions, expandedFolders, expandedSearchFolders, searchTerm } =
+    const { treeData, lastViewedId, viableItems, expandedFolders, expandedSearchFolders, searchTerm } =
         useValues(projectTreeLogic)
 
     const {
@@ -27,8 +27,6 @@ export function ProjectTree(): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        applyPendingActions,
-        cancelPendingActions,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -50,24 +48,11 @@ export function ProjectTree(): JSX.Element {
             searchPlaceholder="Search your project"
             panelActions={
                 <>
-                    {pendingActions.length > 0 ? (
-                        <div className="flex gap-1">
-                            <Button.Root onClick={cancelPendingActions} size="sm" intent="outline">
-                                <Button.Label size="sm">Cancel</Button.Label>
-                            </Button.Root>
-                            <Button.Root onClick={applyPendingActions} size="sm" intent="outline">
-                                <Button.Label size="sm">Save</Button.Label>
-                            </Button.Root>
-                        </div>
-                    ) : (
-                        <>
-                            <Button.Root onClick={() => createFolder('')}>
-                                <Button.Icon>
-                                    <IconFolderPlus className="text-tertiary" />
-                                </Button.Icon>
-                            </Button.Root>
-                        </>
-                    )}
+                    <Button.Root onClick={() => createFolder('')}>
+                        <Button.Icon>
+                            <IconFolderPlus className="text-tertiary" />
+                        </Button.Icon>
+                    </Button.Root>
                 </>
             }
         >
