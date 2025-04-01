@@ -49,6 +49,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                     href={relativeOtherProjectPath}
                     sideActionLeft
                     tooltip={`Switch to project: ${team.name}`}
+                    tooltipPlacement="right"
                 >
                     <ProjectName team={team} />
                 </ButtonPrimitive>
@@ -58,6 +59,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 iconOnly
                 sideActionRight
                 tooltip={`View settings for project: ${team.name}`}
+                tooltipPlacement="right"
             >
                 <IconGear />
             </ButtonPrimitive>
@@ -113,6 +115,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 disabled
                                 sideActionLeft
                                 tooltip={`Current project: ${currentTeam.name}`}
+                                tooltipPlacement="right"
                             >
                                 <ProjectName team={currentTeam} />
                             </ButtonPrimitive>
@@ -122,6 +125,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 iconOnly
                                 sideActionRight
                                 tooltip={`View settings for project: ${currentTeam.name}`}
+                                tooltipPlacement="right"
                             >
                                 <IconGear className="text-tertiary" />
                             </ButtonPrimitive>
@@ -144,7 +148,12 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 })
                             }
                         >
-                            <ButtonPrimitive menuItem data-attr="new-project-button" tooltip="Create a new project">
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="new-project-button"
+                                tooltip="Create a new project"
+                                tooltipPlacement="right"
+                            >
                                 <IconPlusSmall className="text-tertiary" />
                                 New project
                             </ButtonPrimitive>
