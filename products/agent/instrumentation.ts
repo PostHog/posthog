@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { mapLimit } from 'async'
 import * as fg from 'fast-glob'
 import * as fsSync from 'fs'
 import * as fs from 'fs/promises'
@@ -39,6 +40,15 @@ interface ProductConfig {
   files: string[]
 }
 
+interface AgentOptions {
+  concurrency: number
+  costs: {
+    inputTokenRate: number  // USD per million tokens
+    outputTokenRate: number // USD per million tokens
+  }
+  ignore: string[]
+}
+
 const PRODUCT_CONFIG: ProductConfig = {
   title: 'LLM Observability',
   description: `PostHog's LLM Observability product helps teams monitor, debug, and improve their LLM applications.
@@ -60,6 +70,23 @@ Key features:
     'products/llm_observability/frontend/components/FeedbackTag.tsx',
     'products/llm_observability/frontend/components/MetadataTag.tsx',
     'products/llm_observability/frontend/components/MetricTag.tsx'
+  ]
+}
+
+const AGENT_OPTIONS: AgentOptions = {
+  concurrency: 5,
+  costs: {
+    inputTokenRate: 0.1,  // $0.1 per million tokens
+    outputTokenRate: 0.4  // $0.4 per million tokens
+  },
+  ignore: [
+    '**/node_modules/**',
+    '**/dist/**',
+    '**/build/**',
+    '**/*.test.*',
+    '**/*.spec.*',
+    '**/__tests__/**',
+    '**/*.d.ts'
   ]
 }
 
@@ -171,6 +198,9 @@ const model = genAI.getGenerativeModel({
   }
 })
 
+let inputTokens = 0
+let outputTokens = 0
+
 async function analyzeFile(
   filePath: string,
   analyticsDoc: string
@@ -197,6 +227,9 @@ ${content}`
       { role: 'user', parts: [{ text: userPrompt }] }
     ],
   })
+
+  inputTokens += response.usageMetadata.promptTokenCount
+  outputTokens += response.usageMetadata.candidatesTokenCount
 
   const modifiedContent = response.text().replace(/^(```[^\n]*\n|```)|```$/g, '')
   const addedEvents = extractAddedEvents(content, modifiedContent, filePath)
@@ -244,7 +277,7 @@ async function writeModification(modification: FileModification): Promise<void> 
 function findMatchingConfig(filePath: string): DocsConfig | undefined {
   return DOCS_BY_TYPE.find(config => {
     const matches = fg.sync(config.pattern, {
-      ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.test.*', '**/*.spec.*', '**/__tests__/**'],
+      ignore: AGENT_OPTIONS.ignore,
       absolute: true
     })
     return matches.some(match => path.resolve(match) === path.resolve(filePath))
@@ -253,64 +286,63 @@ function findMatchingConfig(filePath: string): DocsConfig | undefined {
 
 async function main(): Promise<void> {
   const targetPaths = PRODUCT_CONFIG.files
-  const skippedFiles: string[] = []
   let modifiedCount = 0
+  let skippedCount = 0
 
+  // Collect all file paths to process
+  const allFilePaths: string[] = []
   for (const targetPath of targetPaths) {
-    let filePaths: string[]
-
     if (fsSync.statSync(targetPath).isDirectory()) {
-      filePaths = fg.sync('**/*.{tsx,jsx,ts,js,py}', {
+      const files = fg.sync('**/*.{tsx,jsx,ts,js,py}', {
         cwd: targetPath,
-        ignore: [
-          '**/node_modules/**',
-          '**/dist/**',
-          '**/build/**',
-          '**/*.test.*',
-          '**/*.spec.*',
-          '**/__tests__/**',
-          '**/*.d.ts'
-        ],
+        ignore: AGENT_OPTIONS.ignore,
         absolute: true
       })
+      allFilePaths.push(...files)
     } else {
-      filePaths = [targetPath]
-    }
-
-    for (const filePath of filePaths) {
-      const config = findMatchingConfig(filePath)
-
-      if (!config) {
-        skippedFiles.push(filePath)
-        continue
-      }
-
-      try {
-        console.log(`Processing ${filePath}...`)
-        const modification = await analyzeFile(
-          filePath,
-          config.analyticsDoc
-        )
-
-        await writeModification(modification)
-        modifiedCount++
-
-      } catch (error) {
-        console.error(`Error processing ${filePath}:`, error)
-        skippedFiles.push(filePath)
-      }
+      allFilePaths.push(targetPath)
     }
   }
+
+  // Process files in parallel
+  await mapLimit(allFilePaths, AGENT_OPTIONS.concurrency, async (filePath: string) => {
+    const config = findMatchingConfig(filePath)
+    if (!config) {
+      skippedCount++
+      return
+    }
+
+    try {
+      console.log(`Processing ${filePath}...`)
+      const modification = await analyzeFile(
+        filePath,
+        config.analyticsDoc
+      )
+
+      await writeModification(modification)
+      modifiedCount++
+    } catch (error) {
+      console.error(`Error processing ${filePath}:`, error)
+      skippedCount++
+    }
+  })
+
+  const inputCost = (inputTokens * AGENT_OPTIONS.costs.inputTokenRate) / 1000000
+  const outputCost = (outputTokens * AGENT_OPTIONS.costs.outputTokenRate) / 1000000
+  const totalCost = inputCost + outputCost
 
   // Print final summary
   console.log('\nSummary:')
   console.log(`Modified ${modifiedCount} files`)
-  console.log(`Skipped ${skippedFiles.length} files`)
+  console.log(`Skipped ${skippedCount} files`)
 
-  if (skippedFiles.length > 0) {
-    console.log('\nSkipped files (no matching config or error):')
-    skippedFiles.forEach(file => console.log(`- ${file}`))
-  }
+  // Print cost estimates
+  console.log('\nCost Estimates:')
+  console.log(`Input tokens: ${inputTokens}`)
+  console.log(`Input cost: $${inputCost.toFixed(6)} USD`)
+  console.log(`Output tokens: ${outputTokens}`)
+  console.log(`Output cost: $${outputCost.toFixed(6)} USD`)
+  console.log(`Total cost: $${totalCost.toFixed(6)} USD`)
 }
 
 if (require.main === module) {
