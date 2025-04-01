@@ -17,8 +17,8 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         getExceptionAttributes(eventProperties)
 
     const exceptionWithStack = hasStacktrace(exceptionList)
-    const fingerprintComponents: string[] = eventProperties.$exception_fingerprint_components || []
-    const hasFingerprintComponents = fingerprintComponents.length > 0
+    const fingerprintRecord: FingerprintRecordPart[] = eventProperties.$exception_fingerprint_record || []
+    const hasFingerprintRecord = fingerprintRecord.length > 0
 
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
@@ -61,21 +61,48 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 </>
             )}
             {exceptionWithStack && <StackTrace exceptionList={exceptionList} />}
-            {hasFingerprintComponents && <FingerprintComponents components={fingerprintComponents} />}
+            {hasFingerprintRecord && <FingerprintComponents components={fingerprintRecord} />}
         </div>
     )
 }
 
-const FingerprintComponents = ({ components }: { components: string[] }): JSX.Element => {
+interface FingerprintRecordPart {
+    type: 'frame' | 'content'
+    raw_id?: string
+    pieces?: string[]
+    name?: string
+}
+const FingerprintComponents = ({ components }: { components: FingerprintRecordPart[] }): JSX.Element => {
+    const { highlightFrame } = useActions(stackFrameLogic)
+    const { highlightedFrameId } = useValues(stackFrameLogic)
+
     return (
         <div className="flex mb-4 items-center gap-2">
             <span className="font-semibold">Fingerprinted by:</span>
             <div className="flex flex-wrap gap-1">
-                {components.map((component, index) => (
-                    <span key={index} className="px-2 py-1 bg-bg-light rounded text-sm">
-                        {component}
-                    </span>
-                ))}
+                {components.map((component, index) => {
+                    if (component.type === 'frame') {
+                        return (
+                            <span
+                                key={index}
+                                className={`px-2 py-1 rounded text-sm cursor-pointer transition-colors ${
+                                    highlightedFrameId === component.raw_id ? 'bg-primary-highlight' : 'bg-bg-light'
+                                }`}
+                                onMouseEnter={() => highlightFrame(component.raw_id ? component.raw_id : null)}
+                                onMouseLeave={() => highlightFrame(null)}
+                            >
+                                Stack frame
+                            </span>
+                        )
+                    } else if (component.type === 'content') {
+                        return (
+                            <span key={index} className="px-2 py-1 bg-bg-light rounded text-sm">
+                                {component.name}
+                            </span>
+                        )
+                    }
+                    return null
+                })}
             </div>
         </div>
     )

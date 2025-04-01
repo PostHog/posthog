@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use uuid::Uuid;
 
-use crate::fingerprinting::Fingerprint;
+use crate::fingerprinting::{Fingerprint, FingerprintComponent, FingerprintRecordPart};
 use crate::frames::{Frame, RawFrame};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -64,7 +64,7 @@ pub struct FingerprintedErrProps {
     pub exception_list: Vec<Exception>,
     pub fingerprint: String,
     pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
-    pub fingerprint_components: Vec<String>,
+    pub fingerprint_record: Vec<FingerprintRecordPart>,
     pub other: HashMap<String, Value>,
 }
 
@@ -77,8 +77,8 @@ pub struct OutputErrProps {
     pub fingerprint: String,
     #[serde(rename = "$exception_proposed_fingerprint")]
     pub proposed_fingerprint: String,
-    #[serde(rename = "$exception_fingerprint_components")]
-    pub fingerprint_components: Vec<String>,
+    #[serde(rename = "$exception_fingerprint_record")]
+    pub fingerprint_record: Vec<FingerprintRecordPart>,
     #[serde(rename = "$exception_issue_id")]
     pub issue_id: Uuid,
     #[serde(flatten)]
@@ -95,11 +95,22 @@ pub struct OutputErrProps {
     pub functions: Vec<String>,
 }
 
+impl FingerprintComponent for Exception {
+    fn update(&self, fp: &mut Fingerprint) {
+        fp.update(self.exception_type.as_bytes());
+        fp.add_part("Exception type".to_string());
+        if !matches!(self.stack, Some(Stacktrace::Resolved { frames: _ })) {
+            fp.update(self.exception_message.as_bytes());
+            fp.add_part("Exception message".to_string());
+        };
+    }
+}
+
 impl Exception {
     pub fn include_in_fingerprint(&self, fp: &mut Fingerprint) {
-        fp.update(self.exception_type.as_bytes(), "Exception type");
+        self.update(fp);
+
         let Some(Stacktrace::Resolved { frames }) = &self.stack else {
-            fp.update(self.exception_message.as_bytes(), "Exception message");
             return;
         };
 
@@ -110,14 +121,14 @@ impl Exception {
             // TODO: we should try to be smarter about handling the case when
             // there are no in-app frames
             if let Some(f) = frames.first() {
-                f.include_in_fingerprint(fp)
+                f.update(fp)
             }
             return;
         }
 
         for frame in frames {
             if (has_no_resolved || frame.resolved) && frame.in_app {
-                frame.include_in_fingerprint(fp)
+                frame.update(fp)
             }
         }
     }
@@ -139,16 +150,16 @@ impl RawErrProps {
     }
 
     pub fn to_fingerprinted(self, fingerprint: Fingerprint) -> FingerprintedErrProps {
-        let (fingerprint, mut components) = fingerprint.finalize();
+        let (fingerprint, mut record) = fingerprint.finalize();
 
         if self.fingerprint.is_some() {
-            components = vec!["Manually set".to_string()]
+            record.push("Manually set".to_string().into())
         }
 
         FingerprintedErrProps {
             exception_list: self.exception_list,
             fingerprint: self.fingerprint.unwrap_or(fingerprint.clone()),
-            fingerprint_components: components,
+            fingerprint_record: record,
             proposed_fingerprint: fingerprint,
             other: self.other,
         }
@@ -178,7 +189,7 @@ impl FingerprintedErrProps {
             fingerprint: self.fingerprint,
             issue_id,
             proposed_fingerprint: self.proposed_fingerprint,
-            fingerprint_components: self.fingerprint_components,
+            fingerprint_record: self.fingerprint_record,
             other: self.other,
 
             types,

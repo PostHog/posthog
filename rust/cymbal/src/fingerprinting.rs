@@ -1,4 +1,5 @@
 use crate::types::Exception;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
 // Given resolved Frames vector and the original Exception, we can now generate a fingerprint for it
@@ -12,22 +13,44 @@ pub fn generate_fingerprint(exception: &[Exception]) -> Fingerprint {
     fingerprint
 }
 
+// We put a vec of these on the event as a record of what actually went into a fingerprint.
+// This data is user-facing/used in the frontend, so make changes with caution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum FingerprintRecordPart {
+    Frame { raw_id: String, pieces: Vec<String> },
+    Content { name: String },
+}
+
+impl From<String> for FingerprintRecordPart {
+    fn from(value: String) -> Self {
+        Self::Content { name: value }
+    }
+}
+
+// Anything that can be included in a fingerprint should implement this
+pub trait FingerprintComponent {
+    fn update(&self, fingerprint: &mut Fingerprint);
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Fingerprint {
-    pub components: Vec<String>,
+    pub record: Vec<FingerprintRecordPart>,
     pub hasher: Sha512,
 }
 
 impl Fingerprint {
-    pub fn update(&mut self, data: impl AsRef<[u8]>, description: impl ToString) {
+    pub fn update(&mut self, data: impl AsRef<[u8]>) {
         self.hasher.update(data);
-        self.components.push(description.to_string());
     }
 
-    pub fn finalize(self) -> (String, Vec<String>) {
+    pub fn add_part(&mut self, part: impl Into<FingerprintRecordPart>) {
+        self.record.push(part.into());
+    }
+
+    pub fn finalize(self) -> (String, Vec<FingerprintRecordPart>) {
         let result = self.hasher.finalize();
-        let components = self.components;
-        (format!("{:x}", result), components)
+        (format!("{:x}", result), self.record)
     }
 }
 

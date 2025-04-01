@@ -81,17 +81,22 @@ function Trace({
     showAllFrames: boolean
     embedded: boolean
 }): JSX.Element | null {
-    const { stackFrameRecords } = useValues(stackFrameLogic)
+    const { stackFrameRecords, highlightedFrameId } = useValues(stackFrameLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
+
+    useEffect(() => {}, [highlightedFrameId])
 
     const panels = displayFrames.map(
         ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }, index) => {
             const record = stackFrameRecords[raw_id]
+            const isHighlighted = raw_id === highlightedFrameId
+
             return {
                 key: index,
                 header: (
                     <div className="flex flex-1 justify-between items-center">
                         <div className="flex flex-wrap gap-x-1">
+                            {isHighlighted && <LemonTag>{'>'}</LemonTag>}
                             <span>{source}</span>
                             {resolved_name ? (
                                 <div className="flex gap-x-1">

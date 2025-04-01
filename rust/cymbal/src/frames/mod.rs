@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{
     error::UnhandledError,
-    fingerprinting::Fingerprint,
+    fingerprinting::{Fingerprint, FingerprintComponent, FingerprintRecordPart},
     langs::{js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
@@ -120,33 +120,50 @@ pub struct ContextLine {
     line: String,
 }
 
-impl Frame {
-    pub fn include_in_fingerprint(&self, fp: &mut Fingerprint) {
+impl FingerprintComponent for Frame {
+    fn update(&self, fp: &mut Fingerprint) {
+        let get_part = |s: &str, p: Vec<&str>| FingerprintRecordPart::Frame {
+            raw_id: s.to_string(),
+            pieces: p.into_iter().map(String::from).collect(),
+        };
+
+        let mut included_pieces = Vec::new();
         if let Some(resolved) = &self.resolved_name {
-            fp.update(resolved.as_bytes(), "Resolved function name");
+            fp.update(resolved.as_bytes());
+            included_pieces.push("Resolved function name");
             if let Some(s) = self.source.as_ref() {
-                fp.update(s.as_bytes(), "Source file name");
+                fp.update(s.as_bytes());
+                included_pieces.push("Source file name");
             }
+            fp.add_part(get_part(&self.raw_id, included_pieces));
             return;
         }
 
-        fp.update(self.mangled_name.as_bytes(), "Mangled function name");
+        fp.update(self.mangled_name.as_bytes());
+        included_pieces.push("Mangled function name");
 
         if let Some(source) = &self.source {
-            fp.update(source.as_bytes(), "Source file name");
+            fp.update(source.as_bytes());
+            included_pieces.push("Source file name");
         }
 
         if let Some(line) = self.line {
-            fp.update(line.to_string().as_bytes(), "Line number");
+            fp.update(line.to_string().as_bytes());
+            included_pieces.push("Line number");
         }
 
         if let Some(column) = self.column {
-            fp.update(column.to_string().as_bytes(), "Column number");
+            fp.update(column.to_string().as_bytes());
+            included_pieces.push("Column number");
         }
 
-        fp.update(self.lang.as_bytes(), "Language");
+        fp.update(self.lang.as_bytes());
+        included_pieces.push("Language");
+        fp.add_part(get_part(&self.raw_id, included_pieces));
     }
+}
 
+impl Frame {
     pub fn add_junk<T>(&mut self, key: impl ToString, val: T) -> Result<(), serde_json::Error>
     where
         T: Serialize,
