@@ -10,7 +10,7 @@ import requests
 from posthog.schema import SDKUsageData, SDKWarning, Level, SDKDeprecationWarningsResponse
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.helpers.version_utils import diff_versions, is_equal_version, version_to_string
+from posthog.helpers.semver import diff_versions, is_equal_version, version_to_string
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
