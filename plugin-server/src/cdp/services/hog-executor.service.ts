@@ -540,7 +540,7 @@ export class HogExecutorService {
                             const [inputs] = args
 
                             if (!inputs) {
-                                throw new Error('sendEmail: Invalid inputs')
+                                throw new Error('sendEmail: Missing inputs')
                             }
 
                             const { mailjet, email } = inputs

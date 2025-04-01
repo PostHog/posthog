@@ -11,7 +11,6 @@ import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation, insertHogFunction } from '../_tests/fixtures'
-import { HogFunctionManagerService } from './hog-function-manager.service'
 
 const setupFetchResponse = (
     invocation: HogFunctionInvocation,
@@ -37,16 +36,13 @@ const setupFetchResponse = (
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutorService
-    let manager: HogFunctionManagerService
     let hub: Hub
 
     beforeEach(async () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
         hub = await createHub()
-
-        manager = new HogFunctionManagerService(hub)
-        executor = new HogExecutorService(hub, manager)
+        executor = new HogExecutorService(hub)
     })
 
     describe('general event processing', () => {
@@ -302,7 +298,7 @@ describe('Hog Executor', () => {
 
         it('logs telemetry', async () => {
             hub = await createHub({ CDP_HOG_FILTERS_TELEMETRY_TEAMS: '*' })
-            executor = new HogExecutorService(hub, manager)
+            executor = new HogExecutorService(hub)
 
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
@@ -784,7 +780,6 @@ describe('Hog Executor', () => {
         beforeEach(async () => {
             jest.useRealTimers()
             await resetTestDatabase()
-            await manager.start()
 
             const team = await getFirstTeam(hub)
             teamId = team.id
@@ -816,23 +811,10 @@ describe('Hog Executor', () => {
                 },
             } as any)
 
-            await manager.loadProviderFunctionsForTeam(teamId)
-
             const result = executor.execute(createInvocation(fn, globals))
             expect(result?.logs[1].message).toMatchInlineSnapshot(
                 '"{"to":"test@test.com","body":"Hello  !\\n\\nThis is a broadcast","from":"info@posthog.com","html":"<html></html>","subject":"Hello test@test.com"}"'
             )
-        })
-
-        it('handles errors in imported functions', () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.imported_function_error,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            const result = executor.execute(createInvocation(fn))
-            expect(result?.error).toMatch("Can't import unknown module: provider/non-existent-provider-function")
         })
     })
 })
