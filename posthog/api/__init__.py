@@ -2,7 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.early_access_features.backend.api as early_access_feature
-from posthog.api import data_color_theme, metalytics, project, wizard
+from posthog.api import data_color_theme, llm_playground, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -634,3 +634,4 @@ environments_router.register(
 )
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
+router.register(r"llm_playground", llm_playground.LLMPlaygroundViewSet, "llm_playground")

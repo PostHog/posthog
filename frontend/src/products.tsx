@@ -38,6 +38,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
     LLMObservabilityTrace: () => import('../../products/llm_observability/frontend/LLMObservabilityTraceScene'),
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
+    LLMObservabilityPlayground: () =>
+        import('../../products/llm_observability/frontend/LLMObservabilityPlaygroundScene'),
     MessagingAutomations: () => import('../../products/messaging/frontend/Automations'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingProviders: () => import('../../products/messaging/frontend/Providers'),
@@ -54,6 +56,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-observability/traces': ['LLMObservability', 'llmObservabilityTraces'],
     '/llm-observability/traces/:id': ['LLMObservabilityTrace', 'llmObservability'],
     '/llm-observability/users': ['LLMObservability', 'llmObservabilityUsers'],
+    '/llm-observability/playground': ['LLMObservability', 'llmObservabilityPlayground'],
     '/messaging/automations': ['MessagingAutomations', 'messagingAutomations'],
     '/messaging/automations/:id': ['MessagingAutomations', 'messagingAutomation'],
     '/messaging/automations/new': ['MessagingAutomations', 'messagingAutomationNew'],
@@ -106,6 +109,13 @@ export const productConfiguration: Record<string, any> = {
     LLMObservabilityUsers: {
         projectBased: true,
         name: 'LLM observability users',
+        activityScope: 'LLMObservability',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
+    },
+    LLMObservabilityPlayground: {
+        projectBased: true,
+        name: 'LLM Playground',
         activityScope: 'LLMObservability',
         layout: 'app-container',
         defaultDocsPath: '/docs/ai-engineering/observability',
@@ -168,6 +178,7 @@ export const productUrls = {
         return `/llm-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     llmObservabilityUsers: (): string => '/llm-observability/users',
+    llmObservabilityPlayground: (): string => '/llm-observability/playground',
     messagingAutomations: (): string => '/messaging/automations',
     messagingAutomation: (id?: string): string => `/messaging/automations/${id}`,
     messagingAutomationNew: (): string => '/messaging/automations/new',
