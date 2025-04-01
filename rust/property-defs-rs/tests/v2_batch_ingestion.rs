@@ -47,6 +47,15 @@ async fn test_simple_batch_write(db: PgPool) {
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_group_batch_write(db: PgPool) {
+    let _unused = sqlx::query!(
+        r#"
+        INSERT INTO posthog_grouptypemapping (id, group_type, group_type_index, team_id, project_id)
+            VALUES(1, 'Organization', 1, 111, 111)
+    "#
+    )
+    .execute(&db)
+    .await;
+
     let config = Config::init_with_defaults().unwrap();
     let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));
     let updates = gen_test_event_updates("$groupidentify", 100, Some(PropertyParentType::Group));
