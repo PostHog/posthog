@@ -386,6 +386,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
+    distinct_ids?: string[]
     /**
      * @default "start_time"
      * */
@@ -930,12 +931,21 @@ export enum ResultCustomizationBy {
     Position = 'position',
 }
 
+export type TrendsFormulaNode = {
+    formula: string
+    /** Optional user-defined name for the formula */
+    custom_name?: string
+}
+
 export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
+    /** @deprecated Use formulaNodes instead. */
     formula?: TrendsFilterLegacy['formula']
-    /** List of formulas to apply to the data. Takes precedence over formula if both are set. */
+    /** @deprecated Use formulaNodes instead. */
     formulas?: string[]
+    /** List of formulas with optional custom names. Takes precedence over formula/formulas if set. */
+    formulaNodes?: TrendsFormulaNode[]
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
     /** @default false */
@@ -1838,9 +1848,13 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export interface FileSystemCount {
+    count: number
+}
+
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
-    id?: string
+    id: string
     /** Object's name and folder */
     path: string
     /** Type of object, used for icon, e.g. feature_flag, insight, etc */
@@ -1853,10 +1867,13 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+    /** Used to indicate pending actions, frontend only */
+    _loading?: boolean
 }
 
-export interface FileSystemImport extends Omit<FileSystemEntry, 'href'> {
+export interface FileSystemImport extends Omit<FileSystemEntry, 'href' | 'id'> {
     icon?: any // Setting as "any" to keep Python schema.py in check
+    id?: string
     flag?: string
     href: (ref?: string) => string
 }
