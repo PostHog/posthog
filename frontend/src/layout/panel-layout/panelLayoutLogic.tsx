@@ -30,6 +30,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
     reducers({
         isLayoutNavbarVisibleForDesktop: [
             true,
+            { persist: true },
             {
                 showLayoutNavBar: (_, { visible }) => visible,
                 mobileLayout: () => true,
@@ -51,6 +52,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         isLayoutPanelVisible: [
             false,
+            { persist: true },
             {
                 showLayoutPanel: (_, { visible }) => visible,
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned || _,
@@ -65,6 +67,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         activePanelIdentifier: [
             '',
+            { persist: true },
             {
                 setActivePanelIdentifier: (_, { identifier }) => identifier,
                 clearActivePanelIdentifier: () => '',
