@@ -49,6 +49,7 @@ import {
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
     ProductKey,
+    ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
@@ -1148,6 +1149,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],
+        projectTreeRef: [
+            () => [(_, props: FeatureFlagLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'feature_flag', ref: String(id) }),
+        ],
+
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.featureFlag, s.currentTeam],
             (featureFlag, currentTeam): SidePanelSceneContext | null => {

@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
+import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { hogFunctionNewUrl, hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
@@ -690,24 +691,35 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes],
-            (configuration, currentProject, groupTypes): HogFunctionInvocationGlobals => {
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.logicProps],
+            (configuration, currentProject, groupTypes, logicProps): HogFunctionInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
+                const event = {
+                    uuid: eventId,
+                    distinct_id: uuid(),
+                    timestamp: dayjs().toISOString(),
+                    elements_chain: '',
+                    url: `${window.location.origin}/project/${currentProject?.id}/events/`,
+                    ...(logicProps.logicKey === ERROR_TRACKING_LOGIC_KEY
+                        ? {
+                              event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
+                              properties: {
+                                  name: 'Test issue',
+                                  description: 'This is the issue description',
+                              },
+                          }
+                        : {
+                              event: '$pageview',
+                              properties: {
+                                  $current_url: currentUrl,
+                                  $browser: 'Chrome',
+                              },
+                          }),
+                }
                 const globals: HogFunctionInvocationGlobals = {
-                    event: {
-                        uuid: eventId,
-                        distinct_id: uuid(),
-                        event: '$pageview',
-                        timestamp: dayjs().toISOString(),
-                        elements_chain: '',
-                        properties: {
-                            $current_url: currentUrl,
-                            $browser: 'Chrome',
-                        },
-                        url: `${window.location.origin}/project/${currentProject?.id}/events/`,
-                    },
+                    event,
                     person: {
                         id: personId,
                         properties: {

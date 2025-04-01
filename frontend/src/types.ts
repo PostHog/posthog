@@ -5141,3 +5141,8 @@ export interface ProductManifest {
     fileSystemTypes?: Record<string, FileSystemType>
     treeItems?: FileSystemImport[]
 }
+
+export interface ProjectTreeRef {
+    type: string
+    ref: string
+}

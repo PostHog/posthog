@@ -58,7 +58,7 @@ export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneL
     return (
         <HogFunctionConfiguration
             {...props}
-            displayOptions={{ canEditSource: true }}
+            displayOptions={{ hideTestingConfiguration: true }}
             logicKey={ERROR_TRACKING_LOGIC_KEY}
         />
     )
