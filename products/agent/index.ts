@@ -4,7 +4,28 @@ import * as fsSync from 'fs'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 
+/**
+ * TODO:
+ * 1. check length of the dir and run a single call for a folder
+ * 2. deindent the code (spaces, tabs, new lines)
+ */
+
 const cache = new Map<string, string>()
+let inputTokens = 0
+let outputTokens = 0
+
+interface FeatureMeta {
+    feature: string
+    path: string
+}
+const featureGraph = new Map<string, string[]>()
+const featureToPath: FeatureMeta[] = []
+const dirSummary = new Map<string, string>()
+
+function parseOutput(text: string): { summary: string; features: string } {
+    const [, summary, features] = text.split(/(?:Main Functionality|User-Facing Features):/i)
+    return { summary: summary.trim(), features: features.trim() }
+}
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
 
@@ -14,8 +35,9 @@ const summaryPrompt = `Your goal is to read the code below and identify:
 Output in the following format:
 Main Functionality: <description>
 User-Facing Features:
-- Feature 1
+Feature 1...
 `
+
 const summarizationModel = genAI.getGenerativeModel({
     model: 'gemini-2.0-flash',
     systemInstruction: summaryPrompt,
@@ -49,14 +71,32 @@ async function summarizeFile(path: string, content: string): Promise<void> {
             },
         ],
     })
+
+    inputTokens += response.usageMetadata.promptTokenCount
+    outputTokens += response.usageMetadata.candidatesTokenCount
+
     const text = response.text()
     cache.set(path, text)
+
+    try {
+        const { summary, features } = parseOutput(text)
+        dirSummary.set(path, summary)
+        features.split('\n').forEach((feature) => {
+            featureGraph.set(feature.trim(), [])
+            featureToPath.push({ feature: feature.trim(), path })
+        })
+    } catch (e) {
+        console.log('Error processing file', path)
+        console.log(e)
+    }
 }
 
-const clusteringPrompt = `Your goal is to provide a consolidated view of what main feature(s) or functionality this directory contributes to the overall product, 
-and list any sub-features relevant for the product. Focus on user-facing or product-facing capabilities—things that an end user or customer would recognize. Format features as follows:
-Name: Feature 1
-Description: Description of the feature
+const clusteringPrompt = `Your goal is to provide a consolidated view of what functionality and main feature(s) this directory contributes to the overall product, 
+and list any high-level features relevant for the product. Include a list of connected features for each high-level feature. Focus on user-facing or product-facing capabilities—things that an end user or customer would recognize.
+Format features as follows:
+Main Functionality: <description>
+User-Facing Features:
+High-Level Feature Name 1 - Feature name 1 from summaries, Feature name 2 from summaries...
 `
 const overviewPrompt = `Please create a high-level list of features and sub-features in user-friendly terms. 
 Also highlight how they relate to each other in the overall product.`
@@ -91,8 +131,33 @@ async function summarizeFolder(dir: string, paths: string[], rootDir = false): P
             },
         ],
     })
+
+    inputTokens += response.usageMetadata.promptTokenCount
+    outputTokens += response.usageMetadata.candidatesTokenCount
+
     const text = response.text()
     cache.set(dir, text)
+
+    try {
+        const { summary, features } = parseOutput(text)
+        dirSummary.set(dir, summary)
+        features.split('\n').forEach((featureLine) => {
+            const [highLevelFeature, features] = featureLine.split(' - ')
+            const lowLevelFeatures = features
+                .trim()
+                .split(',')
+                .map((feature) => feature.trim())
+            const featureList = featureGraph.get(highLevelFeature.trim()) ?? []
+            featureList.push(...lowLevelFeatures)
+            featureGraph.set(highLevelFeature.trim(), featureList)
+            lowLevelFeatures.forEach((feature) => {
+                featureToPath.push({ feature, path: dir })
+            })
+        })
+    } catch (e) {
+        console.log('Error processing file', path)
+        console.log(e)
+    }
 }
 
 let jobs: Promise<void>[] = []
@@ -166,7 +231,7 @@ async function dfsGitTrackedFiles(gitPaths: string[], gitFilesSet: Set<string>, 
 
                 console.log('Summarizing folder', currentPath)
                 // Form a cluster of files
-                await summarizeFolder(currentPath, contents, currentPath === startDir)
+                await summarizeFolder(currentPath, contents, false)
 
                 return totalSize
             }
@@ -193,11 +258,19 @@ async function main(): Promise<void> {
         files: trackedFiles,
         characterSize,
         totalSize,
-    } = await dfsGitTrackedFiles(gitPaths, gitFilesSet, 'products/early_access_features')
+    } = await dfsGitTrackedFiles(gitPaths, gitFilesSet, 'products/llm_observability')
 
     console.log('Git tracked files:')
     trackedFiles.forEach((file) => console.log(`${file} (${characterSize.get(file)} characters)`))
     console.log(`Total size: ${totalSize} characters`)
+
+    console.log(featureToPath)
+    console.log(featureGraph)
+
+    console.log(`Input tokens: ${inputTokens}`)
+    console.log(`${((inputTokens * 0.1) / 1000000).toFixed(6)} USD`)
+    console.log(`Output tokens: ${outputTokens}`)
+    console.log(`${((outputTokens * 0.4) / 1000000).toFixed(6)} USD`)
 
     const result = Array.from(cache.entries()).map(([path, summary]) => ({ path, summary }))
     await fs.writeFile('cache.json', JSON.stringify(result, null, 2))

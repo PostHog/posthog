@@ -1,58 +1,94 @@
 [
     {
-        "path": "products/early_access_features/migrations/0002_alter_earlyaccessfeature_options_and_more.py",
-        "summary": "Main Functionality: Modifies the Django model options and table name for the EarlyAccessFeature model.\nUser-Facing Features:\n- Early access features\n- Database table management\n"
+        "path": "products/llm_observability/frontend/LLMObservabilityTracesScene.tsx",
+        "summary": "Main Functionality: Displays LLM traces in a data table with filtering and navigation to individual trace details.\n\nUser-Facing Features:\n* LLM Traces Table\n* Trace ID Navigation\n* Trace Name Navigation\n* Timestamp Display\n* Latency Display\n* Token Usage Display\n* Cost Display"
     },
     {
-        "path": "products/early_access_features/migrations/0001_initial_migration.py",
-        "summary": "Main Functionality: Defines the database model for Early Access Features in PostHog, including fields for name, description, stage (draft, concept, alpha, beta, general availability, archived), documentation URL, creation timestamp, associated feature flag, and team.\n\nUser-Facing Features:\n- Early access features\n- Feature stages\n- Documentation link\n"
+        "path": "products/llm_observability/frontend/LLMObservabilityScene.tsx",
+        "summary": "Main Functionality: Provides a user interface for observing and analyzing LLM (Large Language Model) generations, traces, and users, including dashboards, data tables, and filtering capabilities.\n\nUser-Facing Features:\n*   LLM Observability Dashboard\n*   LLM Generation Analysis\n*   LLM Trace Explorer\n*   LLM User Insights"
     },
     {
-        "path": "products/early_access_features/migrations",
-        "summary": "Here's a consolidated view of the features provided by the `products/early_access_features/migrations` directory:\n\nName: Early Access Features\nDescription: Manages the database model and migrations for early access features within PostHog. This includes defining the structure of early access features, their stages (draft, concept, alpha, beta, general availability, archived), associated documentation URLs, feature flags, and team associations. It also handles database table management for these features.\n\nSub-features:\n\n*   Feature Stages: Defines the different stages an early access feature can be in (draft, concept, alpha, beta, general availability, archived).\n*   Documentation Link: Stores a URL pointing to the documentation for each early access feature.\n*   Database Table Management: Manages the creation, modification, and structure of the database table used to store early access feature data.\n"
+        "path": "products/llm_observability/frontend/LLMObservabilityReloadAction.tsx",
+        "summary": "Main Functionality: Provides a button to refresh the LLM Observability dashboard items and displays the last refresh time.\n\nUser-Facing Features:\n*   Refresh Dashboard\n*   Last Updated Time\n*   Refreshing Indicator\n"
     },
     {
-        "path": "products/early_access_features/frontend/earlyAccessFeaturesLogic.ts",
-        "summary": "Main Functionality: Fetches and manages a list of early access features from an API endpoint.\nUser-Facing Features:\n- Early access features\n- Breadcrumbs navigation\n"
+        "path": "products/llm_observability/frontend/components/FeedbackTag.tsx",
+        "summary": "Main Functionality: Displays user feedback within a tag, allowing the feedback to be copied to the clipboard.\n\nUser-Facing Features:\n*   Feedback display\n*   Copy to clipboard\n"
     },
     {
-        "path": "products/early_access_features/frontend/EarlyAccessFeatures.tsx",
-        "summary": "Main Functionality: Displays and manages a list of early access features, allowing users to view, create, and sort them based on name and stage.\n\nUser-Facing Features:\n- Feature list\n- Feature creation\n- Stage tags\n- Sorting features\n"
+        "path": "products/llm_observability/frontend/components/MetricTag.tsx",
+        "summary": "Main Functionality: Displays a metric name and value as a tag, allowing the user to copy the metric value to the clipboard.\n\nUser-Facing Features:\n* Metric display\n* Copy to clipboard\n* Value truncation\n"
     },
     {
-        "path": "products/early_access_features/frontend/InstructionsModal.tsx",
-        "summary": "Main Functionality: Displays instructions on how to implement opt-in feature flags, including code snippets for enrolling, unenrolling, and retrieving previews of early access features.\n\nUser-Facing Features:\n- Opt-in instructions\n- Code snippets\n- Cloud/Self-hosted options\n"
+        "path": "products/llm_observability/frontend/types.ts",
+        "summary": "Main Functionality: Defines TypeScript interfaces for representing messages and tool calls in LLM conversations, supporting OpenAI, Anthropic, and Vercel SDK message formats.\n\nUser-Facing Features:\n* LLM message representation\n* OpenAI message format\n* Anthropic message format\n* Tool call interface\n"
     },
     {
-        "path": "products/early_access_features/frontend/EarlyAccessFeature.tsx",
-        "summary": "Main Functionality: Manages early access features, including creation, editing, deletion, and stage management.\n\nUser-Facing Features:\n- Feature creation/editing\n- Stage management\n- Feature flag linking\n- Opt-in instructions\n"
+        "path": "products/llm_observability/frontend/llmObservabilityLogic.tsx",
+        "summary": "Main Functionality: Manages state and logic for LLM observability features, including data filtering, date range selection, and dashboard tile configuration.\n\nUser-Facing Features:\n*   Date range filtering\n*   Test accounts filtering\n*   Property-based filtering\n*   Dashboard tiles (Traces, Cost, Users)"
     },
     {
-        "path": "products/early_access_features/frontend/earlyAccessFeatureLogic.ts",
-        "summary": "Main Functionality: Manages the creation, editing, and deletion of early access features, including loading feature details, saving updates, and handling UI state.\n\nUser-Facing Features:\n- Create/Edit feature\n- Feature stage management\n- Delete feature\n- Opt-in instructions modal\n"
+        "path": "products/llm_observability/frontend/llmObservabilityTraceLogic.ts",
+        "summary": "Main Functionality: Manages the state and logic for displaying a specific LLM observability trace, including fetching trace data and managing URL parameters.\n\nUser-Facing Features:\n* Trace ID navigation\n* Trace data display\n* Breadcrumb navigation\n"
     },
     {
-        "path": "products/early_access_features/frontend",
-        "summary": "Here's a consolidated view of the features provided by the `products/early_access_features/frontend` directory:\n\nName: Early Access Feature Management\nDescription: Allows users to view, create, edit, and delete early access features. This includes managing feature stages, linking feature flags, and providing instructions for opting into features.\n\nSub-features:\n\n*   Feature List: Displays a sortable list of early access features.\n*   Feature Creation/Editing: Enables users to create new features and modify existing ones.\n*   Stage Management: Allows users to define and manage the different stages of a feature's lifecycle.\n*   Feature Flag Linking: Connects early access features to underlying feature flags.\n*   Opt-in Instructions: Provides code snippets and instructions for users to enroll in, unenroll from, and preview early access features, with options for cloud and self-hosted environments.\n*   Delete Feature: Enables users to remove early access features.\n"
+        "path": "products/llm_observability/frontend/components/MetadataTag.tsx",
+        "summary": "Main Functionality: Displays a tag with metadata, optionally allowing copying the metadata to the clipboard.\n\nUser-Facing Features:\n* Metadata display\n* Copy to clipboard\n* Tooltip description\n"
     },
     {
-        "path": "products/early_access_features/backend/models.py",
-        "summary": "Main Functionality: Defines a Django model for Early Access Features, tracking their stage, associated team, feature flag, and documentation.\n\nUser-Facing Features:\n- Early access features\n- Feature stages\n- Documentation URL\n"
+        "path": "products/llm_observability/frontend/LLMObservabilityUsers.tsx",
+        "summary": "Main Functionality: Displays a table of users related to LLM observability, including their activity and cost data.\n\nUser-Facing Features:\n* User activity table\n* User cost data\n* Link to user traces\n"
     },
     {
-        "path": "products/early_access_features/manifest.tsx",
-        "summary": "Main Functionality: Defines the manifest for the \"Early Access Features\" product, including its scenes, routes, URLs, and tree items, integrating it into the PostHog platform.\n\nUser-Facing Features:\n- Early Access Features Management\n- Feature Flag Configuration\n"
+        "path": "products/llm_observability/frontend/LLMInputOutput.tsx",
+        "summary": "Main Functionality: Renders a component that displays input and output sections, separated by a divider, with customizable headings and optional borders.\n\nUser-Facing Features:\n* Input Display\n* Output Display\n* Customizable Headings\n* Optional Borders\n"
     },
     {
-        "path": "products/early_access_features/backend/api.py",
-        "summary": "Main Functionality: Manages early access features, including creation, retrieval, updating, and deletion, and associates them with feature flags. It also provides an endpoint to retrieve early access features for use in posthog-js.\n\nUser-Facing Features:\n- Early access features\n- Feature flag management\n- Feature release stages\n"
+        "path": "products/llm_observability/frontend/utils.ts",
+        "summary": "Main Functionality: Provides utility functions for formatting and normalizing data related to LLM observability, including usage, latency, cost, and message content from different LLM providers (OpenAI, Anthropic, Vercel).\n\nUser-Facing Features:\n* LLM Usage Formatting\n* LLM Latency Formatting\n* LLM Cost Formatting\n* Message Content Normalization\n"
     },
     {
-        "path": "products/early_access_features/backend",
-        "summary": "Here's a consolidated view of the features provided by the `products/early_access_features/backend` directory:\n\nName: Early Access Features Management\nDescription: Enables the creation, management, and tracking of early access features, including their release stage, associated team, and documentation. Allows association of early access features with feature flags for controlled rollout. Provides an API endpoint to retrieve early access features for use in posthog-js, enabling dynamic behavior based on early access status.\n\nSub-features:\n\n*   Feature Stages: Defines and manages the different stages of an early access feature (e.g., alpha, beta, public).\n*   Feature Flag Management: Associates early access features with feature flags, allowing for controlled rollout and testing.\n*   Documentation URL: Stores and provides access to documentation related to each early access feature.\n"
+        "path": "products/llm_observability/frontend/components",
+        "summary": "Main Functionality: Provides reusable components for displaying feedback, metadata, and metrics as tags, with copy-to-clipboard functionality.\n\nUser-Facing Features:\nFeedback and Metadata Display - Feedback display, Metadata display\nMetric Display - Metric display\nCopy to Clipboard - Copy to clipboard\nTooltip - Tooltip description\nValue Handling - Value truncation\n"
     },
     {
-        "path": "products/early_access_features",
-        "summary": "Okay, here's a user-friendly breakdown of the Early Access Features system, highlighting its features and how they work together:\n\n**Overall Goal:**  To let PostHog users (that's you!) try out new features early, give feedback, and help shape the future of the product.  It's all about controlled releases and gathering insights.\n\n**Main Parts (and what they do):**\n\n1.  **Early Access Feature Management (Frontend - what you see and interact with):** This is the user interface where you can see and manage the early access features.\n    *   **Feature List:**  A list of all the early access features, like a menu. You can sort them to find what you're looking for.\n    *   **Feature Creation/Editing:**  Tools to create new early access features or change existing ones.  Think of it like a form to fill out.\n    *   **Stage Management:**  Defines the different phases a feature goes through (like \"Draft,\" \"Alpha,\" \"Beta,\" \"Public\").  It's like setting the status of a project.\n    *   **Feature Flag Linking:**  Connects each early access feature to a \"feature flag.\" Feature flags are like switches that turn features on or off for specific users or groups. This allows for controlled rollouts.\n    *   **Opt-in Instructions:**  Provides instructions (code snippets) on how to enable or disable an early access feature in your PostHog setup.  This is how you actually start using the feature.  It gives different instructions for cloud and self-hosted versions.\n    *   **Delete Feature:**  Allows you to remove an early access feature if it's no longer needed.\n\n2.  **Early Access Feature Management (Backend - the engine that powers it):** This is the behind-the-scenes logic that makes the whole system work.\n    *   **Feature Stages:**  Defines and manages the different stages of an early access feature (e.g., alpha, beta, public).\n    *   **Feature Flag Management:**  Associates early access features with feature flags, allowing for controlled rollout and testing.\n    *   **Documentation URL:**  Stores and provides access to documentation related to each early access feature.\n    *   **API Endpoint:** Provides an API endpoint to retrieve early access features for use in posthog-js, enabling dynamic behavior based on early access status.\n\n3.  **Database Management (Migrations - where the data lives):** This part handles how the early access feature information is stored and organized in the database.\n    *   **Feature Stages:**  Defines the different stages an early access feature can be in (draft, concept, alpha, beta, general availability, archived).\n    *   **Documentation Link:**  Stores a URL pointing to the documentation for each early access feature.\n    *   **Database Table Management:**  Manages the creation, modification, and structure of the database table used to store early access feature data.\n\n4.  **Manifest (Integration into PostHog):** This is the glue that connects the Early Access Features system to the rest of the PostHog platform.\n    *   **Early Access Features Management:** Integrates the feature management interface into PostHog.\n    *   **Feature Flag Configuration:**  Allows you to configure the feature flags associated with early access features within the PostHog environment.\n\n**How it All Works Together:**\n\n1.  You use the **Frontend** to create and manage early access features.  You define the stage, link it to a feature flag, and add documentation.\n2.  The **Backend** takes that information and stores it in the **Database**.  It also manages the connection to feature flags.\n3.  The **Manifest** makes sure the Early Access Features system is properly integrated into the PostHog interface, so you can access it easily.\n4.  When you want to try out a feature, you use the **Opt-in Instructions** from the Frontend to enable the feature flag for your account or team.\n5.  The system uses the **API Endpoint** to retrieve early access features for use in posthog-js, enabling dynamic behavior based on early access status.\n\n**In simpler terms:**\n\nImagine you're running a restaurant and want to test out a new dish.\n\n*   **Frontend:**  The menu where you list the new dish as \"Early Access.\"\n*   **Backend:**  The kitchen where you prepare the dish and decide who gets to try it.\n*   **Database:**  The recipe book where you store the ingredients and instructions.\n*   **Manifest:**  Making sure the new dish is listed on the menu and the waiters know how to serve it.\n*   **Opt-in Instructions:** Telling specific customers \"Hey, try this new dish and let us know what you think!\"\n"
+        "path": "products/llm_observability/frontend/ConversationDisplay/ParametersHeader.tsx",
+        "summary": "Main Functionality: Displays AI model parameters as tags.\nUser-Facing Features:\nAI Model Parameters\nParameter Display\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/LLMObservabilityTraceScene.tsx",
+        "summary": "Main Functionality: Displays detailed information about LLM traces and their associated events, including metadata, input/output, and hierarchical structure.\n\nUser-Facing Features:\n*   LLM Trace Visualization\n*   Event Details & Metadata\n*   Hierarchical Trace Tree\n*   Input/Output Display\n*   Session Recording Link"
+    },
+    {
+        "path": "products/llm_observability/frontend/ConversationDisplay/ConversationDisplay.tsx",
+        "summary": "Main Functionality: Displays a conversation, including metadata and messages, based on event properties.\nUser-Facing Features:\n* Conversation messages\n* Metadata display\n* Error handling\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/ConversationDisplay/MetadataHeader.tsx",
+        "summary": "Main Functionality: Displays metadata related to an LLM conversation, such as latency, token usage, model name, and cost.\n\nUser-Facing Features:\n* Error status\n* Latency display\n* Token usage\n* Model name\n* Cost display\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/ConversationDisplay/ConversationMessagesDisplay.tsx",
+        "summary": "Main Functionality: Displays conversation messages between a user and an LLM, including input, output, and tool usage, with options for formatting and viewing the content.\n\nUser-Facing Features:\n* Conversation message display\n* Markdown rendering toggle\n* Message content visibility\n* Copy message to clipboard\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/ConversationDisplay",
+        "summary": "Main Functionality: Displays LLM conversations, including messages, metadata, and model parameters.\n\nUser-Facing Features:\nConversation Display - Conversation messages, Metadata display, Error handling\nConversation Messages - Conversation message display, Markdown rendering toggle, Message content visibility, Copy message to clipboard\nConversation Metadata - Error status, Latency display, Token usage, Model name, Cost display\nAI Model Parameters - Parameter Display\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/llmObservabilityTraceDataLogic.ts",
+        "summary": "Main Functionality: Manages and processes LLM trace data, including fetching, filtering, and structuring events for display.\n\nUser-Facing Features:\n*   LLM trace visualization\n*   Event filtering\n*   Metrics and feedback display\n*   Trace event tree"
+    },
+    {
+        "path": "products/llm_observability/frontend",
+        "summary": "Main Functionality: Provides a user interface for observing, analyzing, and debugging LLM (Large Language Model) activity, including traces, generations, users, and conversations.\n\nUser-Facing Features:\nLLM Observability Dashboard - LLM Observability Dashboard, Refresh Dashboard, Last Updated Time, Refreshing Indicator, Dashboard tiles (Traces, Cost, Users)\nLLM Trace Analysis - LLM Trace Explorer, LLM Traces Table, Trace ID Navigation, Trace Name Navigation, Timestamp Display, Latency Display, Token Usage Display, Cost Display, LLM Trace Visualization, Event Details & Metadata, Hierarchical Trace Tree, Input/Output Display, Session Recording Link, LLM trace visualization, Event filtering, Metrics and feedback display, Trace event tree\nLLM Generation Analysis - LLM Generation Analysis, Input Display, Output Display, Customizable Headings, Optional Borders\nLLM User Insights - LLM User Insights, User activity table, User cost data, Link to user traces\nLLM Conversation Display - Conversation Display, Conversation message display, Markdown rendering toggle, Message content visibility, Copy message to clipboard, Error status, Latency display, Token usage, Model name, Cost display, Parameter Display\nData Filtering - Date range filtering, Test accounts filtering, Property-based filtering\nData Presentation - LLM Usage Formatting, LLM Latency Formatting, LLM Cost Formatting, Message Content Normalization, Feedback display, Metadata display, Metric display, Copy to clipboard, Tooltip description, Value truncation\n"
+    },
+    {
+        "path": "products/llm_observability/manifest.tsx",
+        "summary": "Main Functionality: Defines the manifest for the LLM Observability product, including its scenes, routes, URLs, and other configuration details.\n\nUser-Facing Features:\n* LLM observability dashboard\n* LLM generations view\n* LLM traces exploration\n* LLM users analysis\n"
+    },
+    {
+        "path": "products/llm_observability",
+        "summary": "Main Functionality: Provides a user interface and configuration for observing, analyzing, and debugging LLM activity, including traces, generations, users, and conversations.\n\nUser-Facing Features:\nLLM Observability - LLM observability dashboard, LLM generations view, LLM traces exploration, LLM users analysis, LLM Observability Dashboard, Refresh Dashboard, Last Updated Time, Refreshing Indicator, Dashboard tiles (Traces, Cost, Users), LLM Trace Explorer, LLM Traces Table, LLM Generation Analysis, LLM User Insights, User activity table, LLM Conversation Display, Conversation message display\nLLM Trace Analysis - Trace ID Navigation, Trace Name Navigation, Timestamp Display, Latency Display, Token Usage Display, Cost Display, LLM Trace Visualization, Event Details & Metadata, Hierarchical Trace Tree, Input/Output Display, Session Recording Link, LLM trace visualization, Event filtering, Metrics and feedback display, Trace event tree\nLLM Generation Analysis - Input Display, Output Display, Customizable Headings, Optional Borders\nLLM User Insights - User cost data, Link to user traces\nLLM Conversation Display - Markdown rendering toggle, Message content visibility, Copy message to clipboard, Error status, Latency display, Token usage, Model name, Cost display, Parameter Display\nData Filtering - Date range filtering, Test accounts filtering, Property-based filtering\nData Presentation - LLM Usage Formatting, LLM Latency Formatting, LLM Cost Formatting, Message Content Normalization, Feedback display, Metadata display, Metric display, Copy to clipboard, Tooltip description, Value truncation\n"
     }
 ]
