@@ -14,7 +14,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const { treeData, lastViewedId, viableItems, pendingActions, expandedFolders, expandedSearchFolders, searchTerm } =
+    const { treeData, lastViewedId, viableItems, expandedFolders, expandedSearchFolders, searchTerm } =
         useValues(projectTreeLogic)
 
     const {
@@ -27,8 +27,6 @@ export function ProjectTree(): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        applyPendingActions,
-        cancelPendingActions,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -49,34 +47,9 @@ export function ProjectTree(): JSX.Element {
         <PanelLayoutPanel
             searchPlaceholder="Search your project"
             panelActions={
-                <>
-                    {pendingActions.length > 0 ? (
-                        <div className="flex gap-1">
-                            <ButtonPrimitive
-                                onClick={cancelPendingActions}
-                                size="sm"
-                                variant="outline"
-                                tooltip="Cancel changes"
-                            >
-                                Cancel
-                            </ButtonPrimitive>
-                            <ButtonPrimitive
-                                onClick={applyPendingActions}
-                                size="sm"
-                                variant="outline"
-                                tooltip="Save changes"
-                            >
-                                Save
-                            </ButtonPrimitive>
-                        </div>
-                    ) : (
-                        <>
-                            <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
-                                <IconFolderPlus className="text-tertiary" />
-                            </ButtonPrimitive>
-                        </>
-                    )}
-                </>
+                <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
+                    <IconFolderPlus className="text-tertiary" />
+                </ButtonPrimitive>
             }
         >
             <LemonTree

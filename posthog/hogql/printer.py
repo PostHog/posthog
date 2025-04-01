@@ -791,7 +791,9 @@ class _Printer(Visitor):
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
         # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and ".timestamp" in left) or ("toTimeZone(" in right and ".timestamp" in right):
+        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
+            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
+        ):
             not_nullable = True
 
         constant_lambda = None
