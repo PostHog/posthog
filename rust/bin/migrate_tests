@@ -44,7 +44,7 @@ DEBUG=true TEST=true python manage.py setup_test_environment --only-postgres
 log "Migrating workspace projects..."
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../migrations"
 sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../cyclotron-core/migrations"
-sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../property-defs-rs/tests/test_migrations"
+sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../property-defs-rs/migrations"
 
 # trigger the SQLX query cache refresh while the schemas are migrated and tables are empty
 $SCRIPT_DIR/update_sqlx_query_cache
