@@ -106,8 +106,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateTab: (tab: QueryTab) => ({ tab }),
         setLocalState: (key: string, value: any) => ({ key, value }),
         initialize: true,
-        saveAsView: true,
-        saveAsViewSubmit: (name: string) => ({ name }),
+        saveAsView: (materializeAfterSave = false) => ({ materializeAfterSave }),
+        saveAsViewSubmit: (name: string, materializeAfterSave = false) => ({ name, materializeAfterSave }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         setCacheLoading: (loading: boolean) => ({ loading }),
@@ -546,7 +546,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
         },
-        saveAsView: async () => {
+        saveAsView: async ({ materializeAfterSave = false }) => {
             LemonDialog.openForm({
                 title: 'Save as view',
                 initialValues: { viewName: values.activeModelUri?.name || '' },
@@ -574,12 +574,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             : undefined,
                 },
                 onSubmit: async ({ viewName }) => {
-                    await asyncActions.saveAsViewSubmit(viewName)
+                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave)
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name }) => {
+        saveAsViewSubmit: async ({ name, materializeAfterSave = false }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = {
@@ -599,7 +599,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query: queryToSave,
                     types,
                 })
+
                 actions.updateState()
+
+                // Saved Queries are unique by name
+                const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
+
+                if (materializeAfterSave && savedQuery) {
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                        id: savedQuery.id,
+                        sync_frequency: '24hour',
+                        types: [[]],
+                        lifecycle: 'create',
+                    })
+                }
             } catch (e) {
                 lemonToast.error('Failed to save view')
             }

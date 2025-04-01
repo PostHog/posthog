@@ -58,8 +58,8 @@ const OPTIONS = [
 
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
-    const { editingView } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery } = useActions(multitabEditorLogic)
+    const { editingView, isValidView } = useValues(multitabEditorLogic)
+    const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
 
     const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
@@ -135,21 +135,24 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 </p>
                                 <LemonButton
                                     onClick={() => {
-                                        return (
+                                        if (editingView) {
                                             editingView &&
-                                            updateDataWarehouseSavedQuery({
-                                                id: editingView.id,
-                                                sync_frequency: '24hour',
-                                                types: [[]],
-                                                lifecycle: 'create',
-                                            })
-                                        )
+                                                updateDataWarehouseSavedQuery({
+                                                    id: editingView.id,
+                                                    sync_frequency: '24hour',
+                                                    types: [[]],
+                                                    lifecycle: 'create',
+                                                })
+                                        } else {
+                                            // save and materialize
+                                            saveAsView({ materializeAfterSave: true })
+                                        }
                                     }}
                                     type="primary"
-                                    disabledReason={editingView ? undefined : 'You must save the view first'}
+                                    disabledReason={!editingView && !isValidView && 'Some fields may need an alias'}
                                     loading={updatingDataWarehouseSavedQuery}
                                 >
-                                    Materialize
+                                    {editingView ? 'Materialize' : 'Save and materialize'}
                                 </LemonButton>
                             </div>
                         )}
