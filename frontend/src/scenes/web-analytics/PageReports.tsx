@@ -1,4 +1,4 @@
-import { IconAsterisk } from '@posthog/icons'
+import { IconAsterisk, IconGlobe } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -48,20 +48,23 @@ export function PageReportsFilters(): JSX.Element {
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
                 <div className="flex-1">
-                    <LemonInputSelect
-                        allowCustomValues={false}
-                        placeholder="Click or type to see top pages"
-                        loading={isLoading}
-                        size="small"
-                        mode="single"
-                        value={pageUrl ? [pageUrl] : null}
-                        onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
-                        options={options}
-                        onInputChange={(val: string) => setPageUrlSearchTerm(val)}
-                        data-attr="page-reports-url-search"
-                        onFocus={() => loadPages('')}
-                        className="max-w-full"
-                    />
+                    <div className="relative">
+                        <IconGlobe className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+                        <LemonInputSelect
+                            allowCustomValues={false}
+                            placeholder="Click or type to see top pages"
+                            loading={isLoading}
+                            size="small"
+                            mode="single"
+                            value={pageUrl ? [pageUrl] : null}
+                            onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
+                            options={options}
+                            onInputChange={(val: string) => setPageUrlSearchTerm(val)}
+                            data-attr="page-reports-url-search"
+                            onFocus={() => loadPages('')}
+                            className="max-w-full pl-8"
+                        />
+                    </div>
                 </div>
                 <Tooltip title="Strip query parameters from URLs (e.g. '?utm_source=...'). This will match the base URL regardless of query parameters.">
                     <LemonButton icon={<IconAsterisk />} onClick={toggleStripQueryParams} type="secondary" size="small">
