@@ -1,94 +1,94 @@
 [
     {
-        "path": "products/llm_observability/frontend/LLMObservabilityTracesScene.tsx",
-        "summary": "Main Functionality: Displays LLM traces in a data table with filtering and navigation to individual trace details.\n\nUser-Facing Features:\n* LLM Traces Table\n* Trace ID Navigation\n* Trace Name Navigation\n* Timestamp Display\n* Latency Display\n* Token Usage Display\n* Cost Display"
-    },
-    {
-        "path": "products/llm_observability/frontend/LLMObservabilityScene.tsx",
-        "summary": "Main Functionality: Provides a user interface for observing and analyzing LLM (Large Language Model) generations, traces, and users, including dashboards, data tables, and filtering capabilities.\n\nUser-Facing Features:\n*   LLM Observability Dashboard\n*   LLM Generation Analysis\n*   LLM Trace Explorer\n*   LLM User Insights"
+        "path": "products/llm_observability/frontend/components/FeedbackTag.tsx",
+        "summary": "Main Functionality: Displays user feedback within a tag, allowing the feedback to be copied to the clipboard.\nUser-Facing Features:\nUser feedback display\nCopy to clipboard\nFeedback preview\n"
     },
     {
         "path": "products/llm_observability/frontend/LLMObservabilityReloadAction.tsx",
-        "summary": "Main Functionality: Provides a button to refresh the LLM Observability dashboard items and displays the last refresh time.\n\nUser-Facing Features:\n*   Refresh Dashboard\n*   Last Updated Time\n*   Refreshing Indicator\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/components/FeedbackTag.tsx",
-        "summary": "Main Functionality: Displays user feedback within a tag, allowing the feedback to be copied to the clipboard.\n\nUser-Facing Features:\n*   Feedback display\n*   Copy to clipboard\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/components/MetricTag.tsx",
-        "summary": "Main Functionality: Displays a metric name and value as a tag, allowing the user to copy the metric value to the clipboard.\n\nUser-Facing Features:\n* Metric display\n* Copy to clipboard\n* Value truncation\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/types.ts",
-        "summary": "Main Functionality: Defines TypeScript interfaces for representing messages and tool calls in LLM conversations, supporting OpenAI, Anthropic, and Vercel SDK message formats.\n\nUser-Facing Features:\n* LLM message representation\n* OpenAI message format\n* Anthropic message format\n* Tool call interface\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/llmObservabilityLogic.tsx",
-        "summary": "Main Functionality: Manages state and logic for LLM observability features, including data filtering, date range selection, and dashboard tile configuration.\n\nUser-Facing Features:\n*   Date range filtering\n*   Test accounts filtering\n*   Property-based filtering\n*   Dashboard tiles (Traces, Cost, Users)"
-    },
-    {
-        "path": "products/llm_observability/frontend/llmObservabilityTraceLogic.ts",
-        "summary": "Main Functionality: Manages the state and logic for displaying a specific LLM observability trace, including fetching trace data and managing URL parameters.\n\nUser-Facing Features:\n* Trace ID navigation\n* Trace data display\n* Breadcrumb navigation\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/components/MetadataTag.tsx",
-        "summary": "Main Functionality: Displays a tag with metadata, optionally allowing copying the metadata to the clipboard.\n\nUser-Facing Features:\n* Metadata display\n* Copy to clipboard\n* Tooltip description\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/LLMObservabilityUsers.tsx",
-        "summary": "Main Functionality: Displays a table of users related to LLM observability, including their activity and cost data.\n\nUser-Facing Features:\n* User activity table\n* User cost data\n* Link to user traces\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/LLMInputOutput.tsx",
-        "summary": "Main Functionality: Renders a component that displays input and output sections, separated by a divider, with customizable headings and optional borders.\n\nUser-Facing Features:\n* Input Display\n* Output Display\n* Customizable Headings\n* Optional Borders\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/utils.ts",
-        "summary": "Main Functionality: Provides utility functions for formatting and normalizing data related to LLM observability, including usage, latency, cost, and message content from different LLM providers (OpenAI, Anthropic, Vercel).\n\nUser-Facing Features:\n* LLM Usage Formatting\n* LLM Latency Formatting\n* LLM Cost Formatting\n* Message Content Normalization\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/components",
-        "summary": "Main Functionality: Provides reusable components for displaying feedback, metadata, and metrics as tags, with copy-to-clipboard functionality.\n\nUser-Facing Features:\nFeedback and Metadata Display - Feedback display, Metadata display\nMetric Display - Metric display\nCopy to Clipboard - Copy to clipboard\nTooltip - Tooltip description\nValue Handling - Value truncation\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/ConversationDisplay/ParametersHeader.tsx",
-        "summary": "Main Functionality: Displays AI model parameters as tags.\nUser-Facing Features:\nAI Model Parameters\nParameter Display\n"
-    },
-    {
-        "path": "products/llm_observability/frontend/LLMObservabilityTraceScene.tsx",
-        "summary": "Main Functionality: Displays detailed information about LLM traces and their associated events, including metadata, input/output, and hierarchical structure.\n\nUser-Facing Features:\n*   LLM Trace Visualization\n*   Event Details & Metadata\n*   Hierarchical Trace Tree\n*   Input/Output Display\n*   Session Recording Link"
+        "summary": "Main Functionality: Provides a button to refresh LLM observability dashboard items and displays the last refresh time.\nUser-Facing Features:\nRefresh button\nLoading indicator\nLast updated timestamp\n"
     },
     {
         "path": "products/llm_observability/frontend/ConversationDisplay/ConversationDisplay.tsx",
-        "summary": "Main Functionality: Displays a conversation, including metadata and messages, based on event properties.\nUser-Facing Features:\n* Conversation messages\n* Metadata display\n* Error handling\n"
+        "summary": "Main Functionality: Displays a conversation, including metadata and messages, based on event properties.\nUser-Facing Features:\nConversation display\nMetadata header\nMessage display\nAI model information\nCost and token usage"
+    },
+    {
+        "path": "products/llm_observability/frontend/LLMObservabilityTracesScene.tsx",
+        "summary": "Main Functionality: Displays LLM traces in a data table with filtering and navigation to individual trace details.\n\nUser-Facing Features:\nLLM trace table\nFilter test accounts\nDate range selection\nTrace detail navigation\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/ConversationDisplay/ParametersHeader.tsx",
+        "summary": "Main Functionality: Displays AI model parameters as tags.\nUser-Facing Features:\nAI model parameters\nParameter display\nTag-based display\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/components/MetricTag.tsx",
+        "summary": "Main Functionality: Displays a metric name and value as a tag, allowing the user to copy the metric value to the clipboard.\nUser-Facing Features:\nMetric display\nCopy metric value\nTooltip description\n"
     },
     {
         "path": "products/llm_observability/frontend/ConversationDisplay/MetadataHeader.tsx",
-        "summary": "Main Functionality: Displays metadata related to an LLM conversation, such as latency, token usage, model name, and cost.\n\nUser-Facing Features:\n* Error status\n* Latency display\n* Token usage\n* Model name\n* Cost display\n"
+        "summary": "Main Functionality: Displays metadata related to a conversation or LLM interaction, such as latency, token usage, model name, and cost.\n\nUser-Facing Features:\nError status\nLatency display\nToken usage\nModel name\nCost display"
+    },
+    {
+        "path": "products/llm_observability/frontend/components/MetadataTag.tsx",
+        "summary": "Main Functionality: Renders a tag with metadata, optionally providing a tooltip or copy-to-clipboard functionality.\nUser-Facing Features:\nMetadata display\nTooltip on hover\nCopy to clipboard\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/LLMInputOutput.tsx",
+        "summary": "Main Functionality: Displays input and output sections with headings and optional borders, separated by a divider.\nUser-Facing Features:\nInput display\nOutput display\nCustomizable headings\nOptional borders\n"
     },
     {
         "path": "products/llm_observability/frontend/ConversationDisplay/ConversationMessagesDisplay.tsx",
-        "summary": "Main Functionality: Displays conversation messages between a user and an LLM, including input, output, and tool usage, with options for formatting and viewing the content.\n\nUser-Facing Features:\n* Conversation message display\n* Markdown rendering toggle\n* Message content visibility\n* Copy message to clipboard\n"
+        "summary": "Main Functionality: Displays LLM conversation messages, including input, output, and tool usage, with options for formatting and viewing.\n\nUser-Facing Features:\nConversation display\nMarkdown toggle\nContent visibility\nCopy to clipboard\nError display\n"
     },
     {
-        "path": "products/llm_observability/frontend/ConversationDisplay",
-        "summary": "Main Functionality: Displays LLM conversations, including messages, metadata, and model parameters.\n\nUser-Facing Features:\nConversation Display - Conversation messages, Metadata display, Error handling\nConversation Messages - Conversation message display, Markdown rendering toggle, Message content visibility, Copy message to clipboard\nConversation Metadata - Error status, Latency display, Token usage, Model name, Cost display\nAI Model Parameters - Parameter Display\n"
+        "path": "products/llm_observability/frontend/LLMObservabilityUsers.tsx",
+        "summary": "Main Functionality: Displays a table of users related to LLM observability, including their activity and costs, fetched via a HogQL query.\n\nUser-Facing Features:\n- User data table\n- Person display\n- Filter test accounts\n- Date range filtering\n"
     },
     {
         "path": "products/llm_observability/frontend/llmObservabilityTraceDataLogic.ts",
-        "summary": "Main Functionality: Manages and processes LLM trace data, including fetching, filtering, and structuring events for display.\n\nUser-Facing Features:\n*   LLM trace visualization\n*   Event filtering\n*   Metrics and feedback display\n*   Trace event tree"
+        "summary": "Main Functionality: Manages and processes LLM trace data, including fetching, filtering, and structuring events into a tree format for visualization.\n\nUser-Facing Features:\nLLM trace visualization\nAI feedback metrics\nEvent filtering\nTrace event tree\n"
     },
     {
-        "path": "products/llm_observability/frontend",
-        "summary": "Main Functionality: Provides a user interface for observing, analyzing, and debugging LLM (Large Language Model) activity, including traces, generations, users, and conversations.\n\nUser-Facing Features:\nLLM Observability Dashboard - LLM Observability Dashboard, Refresh Dashboard, Last Updated Time, Refreshing Indicator, Dashboard tiles (Traces, Cost, Users)\nLLM Trace Analysis - LLM Trace Explorer, LLM Traces Table, Trace ID Navigation, Trace Name Navigation, Timestamp Display, Latency Display, Token Usage Display, Cost Display, LLM Trace Visualization, Event Details & Metadata, Hierarchical Trace Tree, Input/Output Display, Session Recording Link, LLM trace visualization, Event filtering, Metrics and feedback display, Trace event tree\nLLM Generation Analysis - LLM Generation Analysis, Input Display, Output Display, Customizable Headings, Optional Borders\nLLM User Insights - LLM User Insights, User activity table, User cost data, Link to user traces\nLLM Conversation Display - Conversation Display, Conversation message display, Markdown rendering toggle, Message content visibility, Copy message to clipboard, Error status, Latency display, Token usage, Model name, Cost display, Parameter Display\nData Filtering - Date range filtering, Test accounts filtering, Property-based filtering\nData Presentation - LLM Usage Formatting, LLM Latency Formatting, LLM Cost Formatting, Message Content Normalization, Feedback display, Metadata display, Metric display, Copy to clipboard, Tooltip description, Value truncation\n"
+        "path": "products/llm_observability/frontend/types.ts",
+        "summary": "Main Functionality: Defines TypeScript interfaces for representing messages and tool calls in LLM conversations, supporting OpenAI, Anthropic, and a generic \"Compat\" format.\n\nUser-Facing Features:\nLLM message types\nTool call representation\nOpenAI message format\nAnthropic message format\nCompat message format\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/LLMObservabilityTraceScene.tsx",
+        "summary": "Main Functionality: Displays detailed information about LLM traces and events, including metadata, input/output, and a hierarchical tree view of the trace.\n\nUser-Facing Features:\nTrace details view\nLLM event inspection\nTrace tree navigation\nCost & usage metrics"
+    },
+    {
+        "path": "products/llm_observability/frontend/llmObservabilityTraceLogic.ts",
+        "summary": "Main Functionality: Manages the state and logic for displaying a specific LLM observability trace, including fetching trace data and managing URL parameters.\n\nUser-Facing Features:\nTrace ID\nEvent ID\nDate Range\nBreadcrumbs\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/llmObservabilityLogic.tsx",
+        "summary": "Main Functionality: Manages state and logic for LLM observability features, including data fetching, filtering, and dashboard tile configuration.\n\nUser-Facing Features:\nDate range filtering\nTest accounts filtering\nDashboard visualizations\nGenerations/Traces queries\nCost analysis"
+    },
+    {
+        "path": "products/llm_observability/frontend/LLMObservabilityScene.tsx",
+        "summary": "Main Functionality: Provides a user interface for observing and analyzing LLM (Large Language Model) generations, traces, and users, including dashboards, data tables, and filtering capabilities.\n\nUser-Facing Features:\nLLM Observability Dashboard\nLLM Generation Analysis\nLLM Trace Exploration\nLLM User Insights"
     },
     {
         "path": "products/llm_observability/manifest.tsx",
-        "summary": "Main Functionality: Defines the manifest for the LLM Observability product, including its scenes, routes, URLs, and other configuration details.\n\nUser-Facing Features:\n* LLM observability dashboard\n* LLM generations view\n* LLM traces exploration\n* LLM users analysis\n"
+        "summary": "Main Functionality: Defines the manifest for the LLM Observability product, including its scenes, routes, URLs, and other configuration details for the frontend.\n\nUser-Facing Features:\nLLM observability dashboard\nLLM generation tracking\nLLM trace analysis\nLLM user insights\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/utils.ts",
+        "summary": "Main Functionality: Provides utility functions for formatting and normalizing data related to LLM observability, including usage, latency, cost, and message content from various LLM providers (OpenAI, Anthropic, Vercel).\n\nUser-Facing Features:\nLLM Usage Formatting\nLLM Latency Formatting\nLLM Cost Formatting\nLLM Message Normalization\nLLM Event Title Formatting\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/components",
+        "summary": "Main Functionality: Provides reusable UI components for displaying feedback, metadata, and metrics as tags, with copy-to-clipboard and tooltip functionalities.\nUser-Facing Features:\nFeedback Tags - User feedback display, Copy to clipboard, Feedback preview\nMetadata Tags - Metadata display, Tooltip on hover, Copy to clipboard\nMetric Tags - Metric display, Copy metric value, Tooltip description\n"
+    },
+    {
+        "path": "products/llm_observability/frontend/ConversationDisplay",
+        "summary": "Main Functionality: Displays LLM conversations, including messages, metadata, and model parameters.\nUser-Facing Features:\nConversation Display - Conversation display, Message display\nConversation Metadata - Metadata header, Latency display, Token usage, Model name, Cost display, Error status\nAI Model Parameters - AI model parameters, Parameter display, Tag-based display\nMessage Formatting - Markdown toggle, Content visibility, Copy to clipboard, Error display\nAI Model Information - AI model information\nCost and Token Usage - Cost and token usage\n"
+    },
+    {
+        "path": "products/llm_observability/frontend",
+        "summary": "Main Functionality: Provides a user interface for observing, analyzing, and managing LLM (Large Language Model) generations, traces, and users, including dashboards, data tables, filtering capabilities, and detailed trace views.\n\nUser-Facing Features:\nLLM Observability Dashboard - LLM Generation Analysis, Dashboard visualizations, Cost analysis, Refresh button, Loading indicator, Last updated timestamp\nLLM Trace Exploration - LLM trace table, Trace detail navigation, Trace details view, LLM event inspection, Trace tree navigation, Cost & usage metrics, LLM trace visualization, AI feedback metrics, Event filtering, Trace event tree\nLLM User Insights - User data table, Person display\nLLM Conversation Display - Conversation Display, Message display, Conversation Metadata, AI Model Parameters, Message Formatting, AI Model Information, Cost and Token Usage\nData Filtering - Filter test accounts, Date range selection, Date range filtering\nData Formatting - LLM Usage Formatting, LLM Latency Formatting, LLM Cost Formatting, LLM Message Normalization, LLM Event Title Formatting\nUI Components - Feedback Tags, Metadata Tags, Metric Tags\n"
     },
     {
         "path": "products/llm_observability",
-        "summary": "Main Functionality: Provides a user interface and configuration for observing, analyzing, and debugging LLM activity, including traces, generations, users, and conversations.\n\nUser-Facing Features:\nLLM Observability - LLM observability dashboard, LLM generations view, LLM traces exploration, LLM users analysis, LLM Observability Dashboard, Refresh Dashboard, Last Updated Time, Refreshing Indicator, Dashboard tiles (Traces, Cost, Users), LLM Trace Explorer, LLM Traces Table, LLM Generation Analysis, LLM User Insights, User activity table, LLM Conversation Display, Conversation message display\nLLM Trace Analysis - Trace ID Navigation, Trace Name Navigation, Timestamp Display, Latency Display, Token Usage Display, Cost Display, LLM Trace Visualization, Event Details & Metadata, Hierarchical Trace Tree, Input/Output Display, Session Recording Link, LLM trace visualization, Event filtering, Metrics and feedback display, Trace event tree\nLLM Generation Analysis - Input Display, Output Display, Customizable Headings, Optional Borders\nLLM User Insights - User cost data, Link to user traces\nLLM Conversation Display - Markdown rendering toggle, Message content visibility, Copy message to clipboard, Error status, Latency display, Token usage, Model name, Cost display, Parameter Display\nData Filtering - Date range filtering, Test accounts filtering, Property-based filtering\nData Presentation - LLM Usage Formatting, LLM Latency Formatting, LLM Cost Formatting, Message Content Normalization, Feedback display, Metadata display, Metric display, Copy to clipboard, Tooltip description, Value truncation\n"
+        "summary": "Main Functionality: Provides a user interface and configuration for observing, analyzing, and managing LLM generations, traces, and users, including dashboards, data tables, filtering capabilities, detailed trace views, and product manifest definition.\nUser-Facing Features:\nLLM Observability - LLM Generation Analysis, Dashboard visualizations, Cost analysis, Refresh button, Loading indicator, Last updated timestamp, LLM observability dashboard, LLM generation tracking, LLM trace analysis, LLM user insights\nLLM Trace Exploration - LLM trace table, Trace detail navigation, Trace details view, LLM event inspection, Trace tree navigation, Cost & usage metrics, LLM trace visualization, AI feedback metrics, Event filtering, Trace event tree\nLLM User Insights - User data table, Person display\nLLM Conversation Display - Conversation Display, Message display, Conversation Metadata, AI Model Parameters, Message Formatting, AI Model Information, Cost and Token Usage\nData Filtering - Filter test accounts, Date range selection, Date range filtering\nData Formatting - LLM Usage Formatting, LLM Latency Formatting, LLM Cost Formatting, LLM Message Normalization, LLM Event Title Formatting\nUI Components - Feedback Tags, Metadata Tags, Metric Tags\n"
     }
 ]

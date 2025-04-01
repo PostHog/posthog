@@ -32,7 +32,7 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
 const summaryPrompt = `Your goal is to read the code below and identify:
 1. The main functionality implemented.
 2. Any user-facing or product-facing features (in user-friendly terms)—things that an end user or customer would recognize. Summarize them as a short list of labels (2 to 5 keywords each). Output only the labels and keep them concise.
-Output in the following format:
+Do not use markdown. Output in the following format:
 Main Functionality: <description>
 User-Facing Features:
 Feature 1...
@@ -93,15 +93,13 @@ async function summarizeFile(path: string, content: string): Promise<void> {
 
 const clusteringPrompt = `Your goal is to provide a consolidated view of what functionality and main feature(s) this directory contributes to the overall product, 
 and list any high-level features relevant for the product. Include a list of connected features for each high-level feature. Focus on user-facing or product-facing capabilities—things that an end user or customer would recognize.
-Format features as follows:
+Do not use markdown. Format features as follows:
 Main Functionality: <description>
 User-Facing Features:
 High-Level Feature Name 1 - Feature name 1 from summaries, Feature name 2 from summaries...
 `
-const overviewPrompt = `Please create a high-level list of features and sub-features in user-friendly terms. 
-Also highlight how they relate to each other in the overall product.`
 
-async function summarizeFolder(dir: string, paths: string[], rootDir = false): Promise<void> {
+async function summarizeFolder(dir: string, paths: string[]): Promise<string[]> {
     const content = paths
         .filter((path) => cache.get(path))
         .map((path) => `Summary for \`${path}\`\n\`\`\`\n${cache.get(path)}\n\`\`\``)
@@ -113,7 +111,7 @@ async function summarizeFolder(dir: string, paths: string[], rootDir = false): P
 
     const clusteringModel = genAI.getGenerativeModel({
         model: 'gemini-2.0-flash',
-        systemInstruction: rootDir ? overviewPrompt : clusteringPrompt,
+        systemInstruction: clusteringPrompt,
         generationConfig: {
             temperature: 0.2,
         },
@@ -141,19 +139,23 @@ async function summarizeFolder(dir: string, paths: string[], rootDir = false): P
     try {
         const { summary, features } = parseOutput(text)
         dirSummary.set(dir, summary)
-        features.split('\n').forEach((featureLine) => {
-            const [highLevelFeature, features] = featureLine.split(' - ')
-            const lowLevelFeatures = features
-                .trim()
-                .split(',')
-                .map((feature) => feature.trim())
-            const featureList = featureGraph.get(highLevelFeature.trim()) ?? []
-            featureList.push(...lowLevelFeatures)
-            featureGraph.set(highLevelFeature.trim(), featureList)
-            lowLevelFeatures.forEach((feature) => {
-                featureToPath.push({ feature, path: dir })
+        return features
+            .split('\n')
+            .map((featureLine) => {
+                const [highLevelFeature, features] = featureLine.split(' - ')
+                const lowLevelFeatures = features
+                    .trim()
+                    .split(',')
+                    .map((feature) => feature.trim())
+                const featureList = featureGraph.get(highLevelFeature.trim()) ?? []
+                featureList.push(...lowLevelFeatures)
+                featureGraph.set(highLevelFeature.trim(), featureList)
+                lowLevelFeatures.forEach((feature) => {
+                    featureToPath.push({ feature, path: dir })
+                })
+                return highLevelFeature
             })
-        })
+            .flat()
     } catch (e) {
         console.log('Error processing file', path)
         console.log(e)
@@ -178,13 +180,14 @@ function isIncluded(file: string): boolean {
 }
 
 async function dfsGitTrackedFiles(gitPaths: string[], gitFilesSet: Set<string>, startDir = '.') {
-    const visitedFiles = new Set<string>()
     const characterSize = new Map<string, number>()
 
     const result: string[] = []
 
-    async function dfs(currentPath: string): Promise<number> {
+    // First pass to summarize leaf nodes (files)
+    async function dfsLeafSummarize(currentPath: string, visitedFiles: Set<string>): Promise<number> {
         console.log('Visiting', currentPath)
+
         if (visitedFiles.has(currentPath)) {
             return 0
         }
@@ -223,15 +226,8 @@ async function dfsGitTrackedFiles(gitPaths: string[], gitFilesSet: Set<string>, 
                 const contents = (await fs.readdir(currentPath)).map((item) => path.join(currentPath, item))
                 let totalSize = 0
                 for (const item of contents) {
-                    totalSize += await dfs(item)
+                    totalSize += await dfsLeafSummarize(item, visitedFiles)
                 }
-
-                await Promise.all(jobs)
-                jobs = []
-
-                console.log('Summarizing folder', currentPath)
-                // Form a cluster of files
-                await summarizeFolder(currentPath, contents, false)
 
                 return totalSize
             }
@@ -242,10 +238,54 @@ async function dfsGitTrackedFiles(gitPaths: string[], gitFilesSet: Set<string>, 
         return 0
     }
 
-    const totalSize = await dfs(startDir)
+    const totalSize = await dfsLeafSummarize(startDir, new Set<string>())
     await Promise.all(jobs)
+    jobs = []
 
-    return { files: result, characterSize, totalSize }
+    // Second pass to summarize clusters (directories)
+    async function dfsCluster(currentPath: string, visitedFiles: Set<string>): Promise<string[] | undefined> {
+        console.log('Visiting', currentPath)
+
+        if (visitedFiles.has(currentPath)) {
+            return
+        }
+
+        visitedFiles.add(currentPath)
+
+        try {
+            // We don't need to summarize files
+            if (fsSync.statSync(currentPath).isFile()) {
+                return
+            }
+
+            // If it's a directory, get its contents, traverse and summarize
+            if (
+                fsSync.statSync(currentPath).isDirectory() &&
+                (gitPaths.find((entryPath) => entryPath.startsWith(currentPath)) || currentPath === startDir)
+            ) {
+                const contents = (await fs.readdir(currentPath)).map((item) => path.join(currentPath, item))
+                const innerJobs: Promise<void>[] = []
+                for (const item of contents) {
+                    innerJobs.push(dfsCluster(item, visitedFiles))
+                }
+
+                await Promise.all(innerJobs)
+
+                console.log('Summarizing folder', currentPath)
+                // Form a cluster of files
+                const topLevelNodes = await summarizeFolder(currentPath, contents, false)
+                if (currentPath === startDir) {
+                    return topLevelNodes
+                }
+            }
+        } catch (e) {
+            console.log(e)
+        }
+    }
+
+    const topLevelNodes = await dfsCluster(startDir, new Set<string>())
+
+    return { files: result, characterSize, totalSize, topLevelNodes }
 }
 
 async function main(): Promise<void> {
@@ -258,6 +298,7 @@ async function main(): Promise<void> {
         files: trackedFiles,
         characterSize,
         totalSize,
+        topLevelNodes,
     } = await dfsGitTrackedFiles(gitPaths, gitFilesSet, 'products/llm_observability')
 
     console.log('Git tracked files:')
@@ -271,7 +312,7 @@ async function main(): Promise<void> {
     console.log(`${((inputTokens * 0.1) / 1000000).toFixed(6)} USD`)
     console.log(`Output tokens: ${outputTokens}`)
     console.log(`${((outputTokens * 0.4) / 1000000).toFixed(6)} USD`)
-
+    console.log(topLevelNodes)
     const result = Array.from(cache.entries()).map(([path, summary]) => ({ path, summary }))
     await fs.writeFile('cache.json', JSON.stringify(result, null, 2))
 }
