@@ -17,7 +17,9 @@ use crate::{
         V2_PROP_DEFS_BATCH_ATTEMPT, V2_PROP_DEFS_BATCH_CACHE_TIME,
         V2_PROP_DEFS_BATCH_ROWS_AFFECTED, V2_PROP_DEFS_BATCH_WRITE_TIME,
     },
-    types::{EventDefinition, EventProperty, GroupType, PropertyDefinition, Update},
+    types::{
+        EventDefinition, EventProperty, GroupType, PropertyDefinition, PropertyParentType, Update,
+    },
 };
 
 const V2_BATCH_MAX_RETRY_ATTEMPTS: u64 = 3;
@@ -156,13 +158,29 @@ impl PropertyDefinitionsBatch {
     }
 
     pub fn append(&mut self, pd: PropertyDefinition) {
-        let group_type_index: Option<i16> = match &pd.group_type_index {
-            Some(gt) => match gt {
-                GroupType::Resolved(_, gti) => Some(*gti as i16),
-                GroupType::Unresolved(_) => Some(-1_i16),
-            },
-            _ => Some(-1_i16),
+        let group_type_index = match &pd.group_type_index {
+            Some(GroupType::Resolved(_, i)) => Some(*i as i16),
+            Some(GroupType::Unresolved(group_name)) => {
+                warn!(
+                    "Group type {} not resolved for property definition {} for team {}, skipping update",
+                    group_name, pd.name, pd.team_id
+                );
+                None
+            }
+            _ => {
+                // We don't have a group type, so we don't have a group type index
+                None
+            }
         };
+
+        if group_type_index.is_none() && matches!(pd.event_type, PropertyParentType::Group) {
+            // Some teams/users wildly misuse group-types, and if we fail to issue an update
+            // during the transaction (which we do if we don't have a group-type index for a
+            // group property), the entire transaction is aborted, so instead we just warn
+            // loudly about this (above, and at resolve time), and drop the update.
+            return;
+        }
+
         let property_type: Option<i16> = pd.property_type.clone().map(|pt| pt as i16);
 
         self.ids.push(Uuid::now_v7());
