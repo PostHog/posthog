@@ -545,10 +545,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             snapshot.data.source === IncrementalSource.Mutation
                         ) {
                             rawActivity[timestamp].y +=
-                                snapshot.data.adds.length +
-                                snapshot.data.removes.length +
-                                snapshot.data.attributes.length +
-                                snapshot.data.texts.length
+                                (snapshot.data.adds?.length || 0) +
+                                (snapshot.data.removes?.length || 0) +
+                                (snapshot.data.attributes?.length || 0) +
+                                (snapshot.data.texts?.length || 0)
                         }
                     })
                 })
