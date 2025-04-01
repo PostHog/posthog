@@ -6,7 +6,6 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
 import { Survey, SurveyQuestion } from '~/types'
 
 import { createAnswerFilterHogQLExpression, getResponseFieldCondition } from './utils'
@@ -61,15 +60,7 @@ LIMIT
 
     // Function to open query in a new insight
     const openInInsight = (query: string): void => {
-        const insightQuery = {
-            kind: NodeKind.DataTableNode,
-            full: true,
-            source: {
-                kind: NodeKind.HogQLQuery,
-                query: query,
-            },
-        }
-        router.actions.push(urls.insightNew({ query: insightQuery }))
+        router.actions.push(urls.sqlEditor(query))
     }
 
     return (

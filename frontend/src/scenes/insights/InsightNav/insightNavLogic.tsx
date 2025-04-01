@@ -37,6 +37,7 @@ import {
     getDisplay,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    isDataTableNode,
     isDataVisualizationNode,
     isFunnelsQuery,
     isHogQuery,
@@ -142,7 +143,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
         activeView: [
             (s) => [s.query],
             (query) => {
-                if (containsHogQLQuery(query)) {
+                if (isDataTableNode(query)) {
+                    return InsightType.JSON
+                } else if (containsHogQLQuery(query)) {
                     return InsightType.SQL
                 } else if (isHogQuery(query)) {
                     return InsightType.HOG

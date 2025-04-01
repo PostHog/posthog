@@ -28,6 +28,7 @@ import {
     Node,
 } from '~/queries/schema/schema-general'
 
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
 import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
 
 /** This const is auto-generated, as is the whole file */
@@ -196,11 +197,18 @@ export const productUrls = {
         type?: InsightType
         dashboardId?: DashboardType['id'] | null
         query?: Node
-    } = {}): string =>
-        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+    } = {}): string => {
+        if (isHogQLQuery(query)) {
+            return urls.sqlEditor(query.query)
+        }
+        if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
+            return urls.sqlEditor(query.source.query)
+        }
+        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-        }).url,
+        }).url
+    },
     insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
         combineUrl(
             `/data-warehouse`,
