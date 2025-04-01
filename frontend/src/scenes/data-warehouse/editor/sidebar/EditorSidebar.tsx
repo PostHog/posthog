@@ -2,7 +2,9 @@ import { IconBrackets, IconInfo, IconMagicWand, IconServer } from '@posthog/icon
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useRef, useState } from 'react'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
@@ -34,6 +36,7 @@ export const EditorSidebar = ({
     const { variablesForInsight } = useValues(variablesLogic)
     const { setSidebarWidth } = useActions(navigation3000Logic)
     const editorSizingLogicProps = editorSizingLogic.props
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         setSidebarWidth(sidebarWidth)
@@ -87,7 +90,10 @@ export const EditorSidebar = ({
                 </Tooltip>
             ),
         },
-        {
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.AI_HOGQL_QUERY_EDITOR]) {
+        tabs.push({
             key: EditorSidebarTab.QueryAI,
             label: (
                 <Tooltip title="AI">
@@ -96,8 +102,8 @@ export const EditorSidebar = ({
                     </div>
                 </Tooltip>
             ),
-        },
-    ]
+        })
+    }
 
     // Render the corresponding component based on active tab
     const renderTabContent = (): JSX.Element => {
