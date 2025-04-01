@@ -5,7 +5,7 @@ import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { buildIntegerMatcher } from '../../config/config'
-import { Hub, ValueMatcher } from '../../types'
+import { PluginsServerConfig, ValueMatcher } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -135,7 +135,7 @@ export const buildGlobalsWithInputs = (
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
 
-    constructor(private config: Hub) {
+    constructor(private config: PluginsServerConfig) {
         this.telemetryMatcher = buildIntegerMatcher(this.config.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
@@ -401,6 +401,7 @@ export class HogExecutorService {
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
+                        sendEmail: async () => Promise.resolve(),
                     },
                     functions: {
                         print: (...args) => {
@@ -540,7 +541,7 @@ export class HogExecutorService {
                             const [inputs] = args
 
                             if (!inputs) {
-                                throw new Error('sendEmail: Invalid inputs')
+                                throw new Error('sendEmail: Missing inputs')
                             }
 
                             const { mailjet, email } = inputs

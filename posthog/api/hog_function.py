@@ -469,6 +469,10 @@ class HogFunctionViewSet(
     @action(detail=True, methods=["POST"])
     def broadcast(self, request: Request, *args, **kwargs):
         hog_function = self.get_object()
+
+        if not hog_function.enabled:
+            return Response({"error": "Cannot broadcast: function is disabled"}, status=400)
+
         actors_query = {
             "kind": "ActorsQuery",
             "properties": hog_function.filters.get("properties", None),
@@ -476,6 +480,9 @@ class HogFunctionViewSet(
         }
 
         response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        if "results" not in response:
+            return Response({"error": "No results from actors query"}, status=400)
 
         for result in response.results:
             globals = {

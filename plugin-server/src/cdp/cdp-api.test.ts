@@ -229,44 +229,6 @@ describe('CDP API', () => {
         })
     })
 
-    it('can invoke an imported function via the API', async () => {
-        await insertHogFunction({
-            ...HOG_EXAMPLES.export_send_email,
-            ...HOG_INPUTS_EXAMPLES.email,
-            ...HOG_FILTERS_EXAMPLES.no_filters,
-            type: 'email',
-        })
-        hogFunction = await insertHogFunction({
-            ...HOG_EXAMPLES.import_send_email,
-            ...HOG_INPUTS_EXAMPLES.email,
-            ...HOG_FILTERS_EXAMPLES.no_filters,
-            type: 'broadcast',
-        })
-
-        const res = await supertest(app)
-            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
-            .send({ globals })
-
-        expect(res.status).toEqual(200)
-        expect(res.body).toMatchObject({
-            errors: [],
-            logs: [
-                {
-                    level: 'debug',
-                    message: 'Executing function',
-                },
-                {
-                    level: 'info',
-                    message: expect.stringContaining('info@posthog.com'),
-                },
-                {
-                    level: 'debug',
-                    message: expect.stringContaining('Function completed in'),
-                },
-            ],
-        })
-    })
-
     it('includes enriched values in the request', async () => {
         mockFetch.mockImplementationOnce(() => {
             return Promise.resolve({
