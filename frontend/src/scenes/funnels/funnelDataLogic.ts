@@ -5,6 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
@@ -43,7 +44,6 @@ import {
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
-
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
 export const funnelDataLogic = kea<funnelDataLogicType>([
@@ -462,7 +462,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (getFunnelsColorToken) => {
                 return (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => {
                     const [colorTheme, colorToken] = getFunnelsColorToken(dataset)
-                    return colorTheme && colorToken ? colorTheme[colorToken] : '#000000'
+                    return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
                 }
             },
         ],

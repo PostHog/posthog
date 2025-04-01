@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -315,7 +316,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (getTrendsColorToken) => {
                 return (dataset: IndexedTrendResult) => {
                     const [colorTheme, colorToken] = getTrendsColorToken(dataset)
-                    return colorTheme && colorToken ? colorTheme[colorToken] : '#000000'
+                    return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
                 }
             },
         ],

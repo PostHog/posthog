@@ -8,6 +8,15 @@ import { DataColorThemeModel } from '~/types'
 import type { dataThemeLogicType } from './dataThemeLogicType'
 import { teamLogic } from './teamLogic'
 
+export function getColorFromToken(theme: DataColorTheme, colorToken: string): string {
+    const colorNo = parseInt(colorToken.replace('preset-', ''))
+    const availableColors = Object.keys(theme).length
+
+    // once all colors are exhausted, start again from the beginning
+    const wrappedNum = ((colorNo - 1) % availableColors) + 1
+    return theme[`preset-${wrappedNum}`]
+}
+
 export const ThemeName = ({ id }: { id: number }): JSX.Element => {
     const { themes } = useValues(dataThemeLogic)
     const theme = themes?.find((theme) => theme.id === id)
@@ -95,12 +104,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                     if (!theme) {
                         return null
                     }
-                    const colorNo = parseInt(colorToken.replace('preset-', ''))
-                    const availableColors = Object.keys(theme).length
-
-                    // once all colors are exhausted, start again from the beginning
-                    const wrappedNum = ((colorNo - 1) % availableColors) + 1
-                    return theme[`preset-${wrappedNum}`]
+                    return getColorFromToken(theme, colorToken)
                 },
         ],
         getAvailableColorTokens: [
