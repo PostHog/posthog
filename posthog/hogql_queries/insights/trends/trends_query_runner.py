@@ -406,7 +406,11 @@ class TrendsQueryRunner(QueryRunner):
                 returned_results.append([result])
 
         final_result = []
-        if self.query.trendsFilter is not None:
+        has_formula = self.query.trendsFilter is not None and (
+            self.query.trendsFilter.formulaNodes or self.query.trendsFilter.formulas or self.query.trendsFilter.formula
+        )
+
+        if has_formula:
             formula_nodes = self.query.trendsFilter.formulaNodes if self.query.trendsFilter.formulaNodes else []
 
             # for backwards compatibility
@@ -432,11 +436,11 @@ class TrendsQueryRunner(QueryRunner):
                             formula_results.extend(current_formula_results)
                             formula_results.extend(previous_formula_results)
                             final_result.extend(formula_results)
-            else:
-                for formula_node in formula_nodes:
-                    formula_results = self.apply_formula(formula_node, returned_results)
-                    # Create a new list for each formula's results
-                    final_result.extend(formula_results)
+                    else:
+                        for formula_node in formula_nodes:
+                            formula_results = self.apply_formula(formula_node, returned_results)
+                            # Create a new list for each formula's results
+                            final_result.extend(formula_results)
         else:
             for result in returned_results:
                 if isinstance(result, list):
