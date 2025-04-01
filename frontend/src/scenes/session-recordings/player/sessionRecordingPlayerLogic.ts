@@ -105,21 +105,15 @@ const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 
 // weights should add up to 1
 const smoothingWeights = [
-    0.01,
-    0.02,
-    0.03,
-    0.06,
     0.07,
-    0.09,
+    0.08,
+    0.1,
     0.12,
-    0.2, // center point
+    0.26, // center point
     0.12,
-    0.09,
+    0.1,
+    0.08,
     0.07,
-    0.06,
-    0.03,
-    0.02,
-    0.01,
 ]
 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
@@ -533,10 +527,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         activityPerSecond: [
             (s) => [s.sessionPlayerData, s.hasSnapshots],
-            (sessionPlayerData: SessionPlayerData, hasSnapshots: boolean) => {
+            (
+                sessionPlayerData: SessionPlayerData,
+                hasSnapshots: boolean
+            ): { smoothedPoints: Record<number, { y: number }>; maxY: number; durationSeconds: number } => {
                 const start = sessionPlayerData.start
                 if (start === null || !hasSnapshots) {
-                    return {}
+                    return { smoothedPoints: {}, maxY: 0, durationSeconds: (sessionPlayerData?.durationMs ?? 0) / 1000 }
                 }
 
                 // First add a 0 for every second in the recording
@@ -578,20 +575,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 const smoothedActivity: typeof rawActivity = {}
 
+                let maxY = 0
                 sortedSeconds.forEach((second) => {
                     let smoothedY = 0
-                    for (let i = -7; i <= 7; i++) {
+                    for (let i = -4; i <= 4; i++) {
                         const neighborSecond = second + i
                         if (rawActivity[neighborSecond]) {
-                            smoothedY += rawActivity[neighborSecond].y * smoothingWeights[i + 7]
+                            smoothedY += rawActivity[neighborSecond].y * smoothingWeights[i + 4]
                         }
                     }
                     smoothedActivity[second] = {
                         y: smoothedY,
                     }
+                    maxY = Math.max(maxY, smoothedY)
                 })
 
-                return smoothedActivity
+                return {
+                    smoothedPoints: smoothedActivity,
+                    maxY,
+                    durationSeconds: (sessionPlayerData?.durationMs ?? 0) / 1000,
+                }
             },
         ],
 

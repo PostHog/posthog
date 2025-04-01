@@ -280,6 +280,7 @@ class SnowflakeClient:
                     schema=self.schema,
                     role=self.role,
                     private_key=self.private_key,
+                    login_timeout=5,
                 )
 
         except OperationalError as err:
