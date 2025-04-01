@@ -85,6 +85,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'showMultipleYAxes',
                 'resultCustomizationBy',
                 'getTheme',
+                'theme',
             ],
         ],
         actions: [
