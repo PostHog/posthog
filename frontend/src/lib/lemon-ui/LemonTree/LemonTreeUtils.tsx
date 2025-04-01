@@ -117,9 +117,9 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
             style={style}
             {...(props.enableDragging ? listeners : {})}
         >
-            {/* eslint-disable-next-line react/forbid-dom-props */}
             <div
                 {...attributes}
+                {/* eslint-disable-next-line react/forbid-dom-props */}
                 style={{
                     height: '100%',
                 }}
