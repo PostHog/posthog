@@ -19,6 +19,7 @@ enum EditorSidebarTab {
     QueryDatabase = 'query_database',
     QueryVariables = 'query_variables',
     QueryInfo = 'query_info',
+    QueryAI = 'query_ai',
 }
 
 export const EditorSidebar = ({
@@ -87,7 +88,7 @@ export const EditorSidebar = ({
             ),
         },
         {
-            key: 'query_ai',
+            key: EditorSidebarTab.QueryAI,
             label: (
                 <Tooltip title="AI">
                     <div className="flex justify-center px-2">
@@ -107,8 +108,8 @@ export const EditorSidebar = ({
                 return <QueryVariables />
             case EditorSidebarTab.QueryInfo:
                 return <QueryInfo codeEditorKey={codeEditorKey} />
-            case 'query_ai':
-                return <QueryAI codeEditorKey={codeEditorKey} />
+            case EditorSidebarTab.QueryAI:
+                return <QueryAI />
             default:
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
         }

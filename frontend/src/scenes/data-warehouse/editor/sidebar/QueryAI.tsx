@@ -1,38 +1,23 @@
-import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 import { QuestionInputComponent } from 'scenes/max/QuestionInput'
 import { Thread } from 'scenes/max/Thread'
 
 import { queryAILogic } from './queryAILogic'
 
-interface QueryAIProps {
-    codeEditorKey: string
-}
-
-export function QueryAI({ codeEditorKey }: QueryAIProps): JSX.Element {
-    return (
-        <BindLogic logic={queryAILogic} props={{ conversationId: null, codeEditorKey }}>
-            <QueryAIInstance />
-        </BindLogic>
-    )
-}
-
-export function QueryAIInstance(): JSX.Element {
-    const { question, threadLoading, threadGrouped, animationId } = useValues(queryAILogic)
+export function QueryAI(): JSX.Element {
+    const { question, threadLoading, threadGrouped, animationId, initialState } = useValues(queryAILogic)
     const { setQuestion, askQueryAI } = useActions(queryAILogic)
-    const [hasSubmitted, setHasSubmitted] = useState(threadGrouped.length > 0)
 
     const handleSubmit = (): void => {
         if (!question) {
             return
         }
         askQueryAI(question)
-        setHasSubmitted(true)
     }
 
     return (
         <div className="flex flex-col pt-2 gap-2 h-full">
-            {!hasSubmitted && (
+            {initialState && (
                 <div className="flex gap-2 pl-2 pr-2">
                     <QuestionInputComponent
                         onChange={(value) => setQuestion(value)}
@@ -46,7 +31,7 @@ export function QueryAIInstance(): JSX.Element {
                 </div>
             )}
 
-            {hasSubmitted && (
+            {!initialState && (
                 <div className="flex flex-col h-full">
                     <div className="flex-grow overflow-auto pb-14">
                         {threadGrouped.length > 0 && (

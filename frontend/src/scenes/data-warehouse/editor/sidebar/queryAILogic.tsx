@@ -25,6 +25,7 @@ import { multitabEditorLogic } from '../multitabEditorLogic'
 import type { queryAILogicType } from './queryAILogicType'
 
 export interface QueryAILogicProps {
+    logicKey: string
     conversationId?: string
     codeEditorKey: string
 }
@@ -44,7 +45,7 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 export const queryAILogic = kea<queryAILogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'sidebar', 'queryAILogic']),
     props({} as QueryAILogicProps),
-    key(({ conversationId }) => conversationId || 'new-conversation'),
+    key(({ logicKey }) => logicKey),
     connect({
         values: [projectLogic, ['currentProject']],
     }),
@@ -377,6 +378,7 @@ export const queryAILogic = kea<queryAILogicType>([
                 return undefined
             },
         ],
+        initialState: [(s) => [s.threadGrouped], (threadGrouped) => threadGrouped.length === 0],
     }),
     permanentlyMount(), // Prevent state from being reset when QueryAI is unmounted
 ])
