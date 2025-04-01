@@ -58,7 +58,7 @@ describe('workerTasks.runEventPipeline()', () => {
             now: new Date().toISOString(),
             uuid: new UUIDT().toString(),
         }
-        await expect(new EventPipelineRunner(hub, event).runEventPipeline(event)).rejects.toEqual(
+        await expect(new EventPipelineRunner(hub, event).runEventPipeline(event, [])).rejects.toEqual(
             new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage))
         )
         pgQueryMock.mockRestore()
