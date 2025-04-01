@@ -406,41 +406,29 @@ class TrendsQueryRunner(QueryRunner):
                 returned_results.append([result])
 
         final_result = []
-        has_formula = self.query.trendsFilter is not None and (
-            self.query.trendsFilter.formulaNodes or self.query.trendsFilter.formulas or self.query.trendsFilter.formula
-        )
+        formula_nodes = self.formula_nodes
 
-        if has_formula:
-            formula_nodes = self.query.trendsFilter.formulaNodes if self.query.trendsFilter.formulaNodes else []
+        if formula_nodes:
+            with self.timings.measure("apply_formula"):
+                has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
+                if has_compare:
+                    current_results = returned_results[: len(returned_results) // 2]
+                    previous_results = returned_results[len(returned_results) // 2 :]
 
-            # for backwards compatibility
-            if not formula_nodes:
-                if self.query.trendsFilter.formulas:
-                    formula_nodes = [{"formula": formula} for formula in self.query.trendsFilter.formulas]
-                elif self.query.trendsFilter.formula:
-                    formula_nodes = [{"formula": self.query.trendsFilter.formula}]
-
-            if formula_nodes:
-                with self.timings.measure("apply_formula"):
-                    has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
-                    if has_compare:
-                        current_results = returned_results[: len(returned_results) // 2]
-                        previous_results = returned_results[len(returned_results) // 2 :]
-
-                        final_result = []
-                        for formula_node in formula_nodes:
-                            current_formula_results = self.apply_formula(formula_node, current_results)
-                            previous_formula_results = self.apply_formula(formula_node, previous_results)
-                            # Create a new list for each formula's results
-                            formula_results = []
-                            formula_results.extend(current_formula_results)
-                            formula_results.extend(previous_formula_results)
-                            final_result.extend(formula_results)
-                    else:
-                        for formula_node in formula_nodes:
-                            formula_results = self.apply_formula(formula_node, returned_results)
-                            # Create a new list for each formula's results
-                            final_result.extend(formula_results)
+                    final_result = []
+                    for formula_node in formula_nodes:
+                        current_formula_results = self.apply_formula(formula_node, current_results)
+                        previous_formula_results = self.apply_formula(formula_node, previous_results)
+                        # Create a new list for each formula's results
+                        formula_results = []
+                        formula_results.extend(current_formula_results)
+                        formula_results.extend(previous_formula_results)
+                        final_result.extend(formula_results)
+                else:
+                    for formula_node in formula_nodes:
+                        formula_results = self.apply_formula(formula_node, returned_results)
+                        # Create a new list for each formula's results
+                        final_result.extend(formula_results)
         else:
             for result in returned_results:
                 if isinstance(result, list):
@@ -1124,3 +1112,19 @@ class TrendsQueryRunner(QueryRunner):
             or isinstance(breakdown, list)
             and BREAKDOWN_OTHER_STRING_LABEL in breakdown
         )
+
+    @cached_property
+    def formula_nodes(self) -> list[TrendsFormulaNode]:
+        if not self.query.trendsFilter:
+            return []
+
+        formula_nodes = self.query.trendsFilter.formulaNodes if self.query.trendsFilter.formulaNodes else []
+
+        # for backwards compatibility
+        if not formula_nodes:
+            if self.query.trendsFilter.formulas:
+                formula_nodes = [TrendsFormulaNode(formula=formula) for formula in self.query.trendsFilter.formulas]
+            elif self.query.trendsFilter.formula:
+                formula_nodes = [TrendsFormulaNode(formula=self.query.trendsFilter.formula)]
+
+        return formula_nodes
