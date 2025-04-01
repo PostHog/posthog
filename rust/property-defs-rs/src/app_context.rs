@@ -23,7 +23,19 @@ const PG_CONSTRAINT_CODES: [&str; 7] = [
 ];
 
 pub struct AppContext {
+    // this points to the (original, shared) CLOUD PG instance
+    // in both property-defs-rs and property-defs-rs-v2 deployments.
+    // the v2 deployment will use this pool to access tables that
+    // aren't slated to migrate to the isolated PROPDEFS DB in production
     pub pool: PgPool,
+
+    // this is only used by the property-defs-rs-v2 deployments, and
+    // only when the enabled_v2 config is set. This maps to the new
+    // PROPDEFS isolated PG instances in production, and the local
+    // Docker Compose DB in dev/test/CI. This will be *UNSET* in
+    // "v1" (property-defs-rs) deployments
+    pub propdefs_pool: Option<PgPool>,
+
     pub query_manager: Manager,
     pub liveness: HealthRegistry,
     pub worker_liveness: HealthHandle,
@@ -32,13 +44,25 @@ pub struct AppContext {
     pub skip_writes: bool,
     pub skip_reads: bool,
     pub group_type_cache: Cache<String, i32>, // Keyed on group-type name, and team id
+
+    // this will be used to conditionally partition "v2" propdef refactor
+    // codepaths in the property-defs-rs-v2 mirror deployment during the
+    // transition to an isolated DB instance
     pub enable_v2: bool,
 }
 
 impl AppContext {
     pub async fn new(config: &Config, qmgr: Manager) -> Result<Self, sqlx::Error> {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let pool = options.connect(&config.database_url).await?;
+        let orig_pool = options.connect(&config.database_url).await?;
+
+        let v2_pool = match config.enable_v2 {
+            true => {
+                let v2_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+                Some(v2_options.connect(&config.database_propdefs_url).await?)
+            }
+            _ => None,
+        };
 
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
@@ -48,7 +72,8 @@ impl AppContext {
         let group_type_cache = Cache::new(config.group_type_cache_size);
 
         Ok(Self {
-            pool,
+            pool: orig_pool,
+            propdefs_pool: v2_pool,
             query_manager: qmgr,
             liveness,
             worker_liveness,

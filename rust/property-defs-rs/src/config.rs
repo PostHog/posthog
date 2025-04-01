@@ -5,6 +5,8 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    // this maps to the original, shared CLOUD PG DB instance in production for
+    // both the property-defs-rs and new property-defs-rs-v2 deployments
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
 
@@ -118,6 +120,12 @@ pub struct Config {
 
     #[envconfig(default = "100")]
     pub v2_ingest_batch_size: usize,
+
+    // *ONLY* for use in the new property-defs-rs-v2 mirror deploy, and (for now)
+    // behind `enable_v2` flag during the refactor/transition. Maps to the new
+    // PROPDEFS isolated PG DB instances in production.
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
+    pub database_propdefs_url: String,
 }
 
 #[derive(Clone)]
@@ -173,7 +181,17 @@ impl TeamFilterMode {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json", true);
+        let consumer_group = match std::env::var("ENABLE_V2") {
+            Ok(enabled_v2) => {
+                if enabled_v2.to_lowercase() == "true" {
+                    "property-defs-rs-v2"
+                } else {
+                    "property_defs_rs"
+                }
+            }
+            _ => "property-defs-rs",
+        };
+        ConsumerConfig::set_defaults(consumer_group, "clickhouse_events_json", true);
         Config::init_from_env()
     }
 }
