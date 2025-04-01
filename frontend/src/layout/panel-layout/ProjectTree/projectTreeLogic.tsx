@@ -23,7 +23,7 @@ import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, spli
 
 const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
-const DELETE_ALERT_LIMIT = 10
+const DELETE_ALERT_LIMIT = 0
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -126,7 +126,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         try {
                             const response = await api.fileSystem.count(action.item.id)
                             if (response && response.count > MOVE_ALERT_LIMIT) {
-                                const confirmMessage = `This folder contains ${response.count} items. Are you sure you want to move it?`
+                                const confirmMessage = `You're about to move ${response.count} items. Are you sure?`
                                 if (!confirm(confirmMessage)) {
                                     actions.removeQueuedAction(action)
                                     return false
@@ -140,8 +140,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     if (action.type === 'move' && action.newPath) {
                         try {
-                            await api.fileSystem.move(action.item.id, action.newPath)
-                            actions.movedItem(action.item, action.item.path, action.newPath)
+                            const oldPath = action.item.path
+                            const newPath = action.newPath
+                            await api.fileSystem.move(action.item.id, newPath)
+                            actions.movedItem(action.item, oldPath, newPath)
+                            lemonToast.success('Item moved successfully', {
+                                button: {
+                                    label: 'Undo',
+                                    dataAttr: 'undo-project-tree-move',
+                                    action: () => {
+                                        actions.moveItem(newPath, oldPath)
+                                    },
+                                },
+                            })
                         } catch (error) {
                             console.error('Error moving item:', error)
                             lemonToast.error(`Error moving item: ${error}`)
@@ -150,6 +161,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         try {
                             const response = await api.fileSystem.create(action.item)
                             actions.createSavedItem(response)
+                            lemonToast.success('Folder created successfully', {
+                                button: {
+                                    label: 'Undo',
+                                    dataAttr: 'undo-project-tree-move',
+                                    action: () => {
+                                        actions.deleteItem(response)
+                                    },
+                                },
+                            })
                         } catch (error) {
                             console.error('Error creating folder:', error)
                             lemonToast.error(`Error creating folder: ${error}`)
@@ -158,7 +178,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         try {
                             const response = await api.fileSystem.count(action.item.id)
                             if (response && response.count > DELETE_ALERT_LIMIT) {
-                                const confirmMessage = `This folder contains ${response.count} items. Are you sure you want to delete it?`
+                                const confirmMessage = `You're about to delete ${response.count} items. This can't be undone. Are you sure?`
                                 if (!confirm(confirmMessage)) {
                                     actions.removeQueuedAction(action)
                                     return false
@@ -173,6 +193,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         try {
                             await api.fileSystem.delete(action.item.id)
                             actions.deleteSavedItem(action.item)
+                            lemonToast.success('Item deleted successfully')
                         } catch (error) {
                             console.error('Error deleting item:', error)
                             lemonToast.error(`Error deleting item: ${error}`)
