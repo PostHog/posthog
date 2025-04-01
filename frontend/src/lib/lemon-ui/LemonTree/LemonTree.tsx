@@ -110,8 +110,6 @@ export type LemonTreeProps = LemonTreeBaseProps & {
 export type LemonTreeNodeProps = LemonTreeBaseProps & {
     /** The ID of the item. */
     selectedId?: string
-    /** The ID of the focused item. */
-    focusedId?: string
     /** Handle a click on the item. */
     handleClick: (item: TreeDataItem | undefined, isKeyboardAction?: boolean) => void
     /** The depth of the item. */
@@ -131,7 +129,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             className,
             data,
             selectedId,
-            focusedId,
             handleClick,
             renderItem,
             expandedItemIds,
@@ -217,13 +214,17 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         )}
 
                                         <ContextMenuTrigger asChild>
-                                            <ButtonGroupPrimitive fullWidth>
+                                            <ButtonGroupPrimitive
+                                                fullWidth
+                                                className="group/lemon-tree-button-group relative"
+                                                groupVariant="side-action-group"
+                                            >
                                                 <ButtonPrimitive
                                                     className={cn(
-                                                        'group/lemon-tree-button cursor-pointer z-1 rounded-r-none',
+                                                        'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)]',
                                                         {
                                                             'bg-fill-button-tertiary-hover':
-                                                                focusedId === item.id ||
+                                                                selectedId === item.id ||
                                                                 isContextMenuOpenForItem === item.id,
                                                             'bg-fill-button-tertiary-active': getItemActiveState(item),
                                                         }
@@ -233,11 +234,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     }}
                                                     onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
                                                     role="treeitem"
-                                                    tabIndex={-1}
                                                     data-id={item.id}
                                                     active={getItemActiveState(item)}
                                                     menuItem
                                                     size="base"
+                                                    sideActionLeft
                                                     // tooltip={displayName}
                                                     // tooltipPlacement="right"
                                                     // to={item.record?.href ? item.record.href : undefined}
@@ -281,7 +282,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         <>
                                                             {renderItem(
                                                                 item,
-                                                                <span className="truncate">{displayName}</span>
+                                                                <span className="truncate pr-[var(--button-height-base)]">
+                                                                    {displayName}
+                                                                </span>
                                                             )}
 
                                                             {/* Loading state */}
@@ -289,18 +292,24 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                                                             {/* Unapplied state */}
                                                             {item.record?.unapplied && (
-                                                                <IconUpload className="ml-1 text-warning" />
+                                                                <IconUpload className="ml-1 text-warning  pr-[var(--button-height-base)]" />
                                                             )}
                                                         </>
                                                     ) : (
-                                                        <span className="truncate">{displayName}</span>
+                                                        <span className="truncate pr-[var(--button-height-base)]">
+                                                            {displayName}
+                                                        </span>
                                                     )}
                                                 </ButtonPrimitive>
                                                 {itemSideAction && (
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
-                                                            <ButtonPrimitive iconOnly className="shrink-0">
-                                                                <IconEllipsis className="size-3" />
+                                                            <ButtonPrimitive
+                                                                iconOnly
+                                                                sideActionRight
+                                                                className="z-2 shrink-0 transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
+                                                            >
+                                                                <IconEllipsis className="size-3 text-tertiary" />
                                                             </ButtonPrimitive>
                                                         </DropdownMenuTrigger>
 
@@ -331,7 +340,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         <LemonTreeNode
                                             data={item.children}
                                             selectedId={selectedId}
-                                            focusedId={focusedId}
                                             handleClick={handleClick}
                                             expandedItemIds={expandedItemIds}
                                             onSetExpandedItemIds={onSetExpandedItemIds}
@@ -421,10 +429,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
-
-        // Focused state
-        const [focusedId, setFocusedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
-
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
 
         // Add new state for type-ahead
@@ -514,7 +518,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const focusContent = useCallback(() => {
             if (contentRef?.current) {
                 contentRef.current.focus()
-                setFocusedId(undefined) // Remove focus from tree when moving to content
                 setHasFocusedContent(true)
             }
         }, [contentRef])
@@ -559,7 +562,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
                 // Find matching item
                 const visibleItems = getVisibleItems()
-                const currentIndex = visibleItems.findIndex((item) => item.id === focusedId)
+                const currentElement = document.activeElement
+                const currentId = currentElement?.getAttribute('data-id')
+                const currentIndex = visibleItems.findIndex((item) => item.id === currentId)
 
                 // Start search from item after current focus, wrapping to start if needed
                 const searchItems = [
@@ -570,7 +575,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const match = searchItems.find((item) => item.name.toLowerCase().startsWith(newBuffer))
 
                 if (match) {
-                    setFocusedId(match.id)
+                    // Focus the matching element
+                    const element = containerRef.current?.querySelector(`[data-id="${match.id}"]`) as HTMLElement
+                    element?.focus()
+
                     // If item is in a collapsed folder, expand the path to it
                     const path = findPathToItem(Array.isArray(data) ? data : [data], match.id)
                     if (path.length > 0) {
@@ -582,7 +590,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             },
             [
                 typeAheadBuffer,
-                focusedId,
                 getVisibleItems,
                 data,
                 findPathToItem,
@@ -615,7 +622,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         const handleClick = useCallback(
             (item: TreeDataItem | undefined, isKeyboardAction = false): void => {
-                setFocusedId(item?.id)
                 const isFolder = (item?.children && item?.children?.length >= 0) || item?.record?.type === 'folder'
 
                 // Handle click on a node
@@ -648,7 +654,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             [expandedItemIdsState, onFolderClick, onNodeClick, focusContent]
         )
 
-        // Update handleKeyDown to include type-ahead
+        // Update handleKeyDown to use native focus
         const handleKeyDown = useCallback(
             (e: React.KeyboardEvent) => {
                 // Don't allow keyboard navigation when context menu is open
@@ -663,7 +669,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 }
 
                 const visibleItems = getVisibleItems()
-                const currentIndex = visibleItems.findIndex((item) => item.id === focusedId)
+                const currentElement = document.activeElement
+                const currentId = currentElement?.getAttribute('data-id')
+                const currentIndex = visibleItems.findIndex((item) => item.id === currentId)
 
                 // Handle keyboard navigation
                 // Following https://www.w3.org/WAI/ARIA/apg/patterns/treeview/
@@ -691,7 +699,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 // If folder is already expanded, focus first child
                                 const nextItem = visibleItems[currentIndex + 1]
                                 if (nextItem) {
-                                    setFocusedId(nextItem.id)
+                                    const element = containerRef.current?.querySelector(
+                                        `[data-id="${nextItem.id}"]`
+                                    ) as HTMLElement
+                                    element?.focus()
                                 }
                             }
                         }
@@ -742,10 +753,16 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 setExpandedItemIdsState(expandedItemIdsState.filter((id) => id !== parentItem.id))
                                 onSetExpandedItemIds &&
                                     onSetExpandedItemIds(expandedItemIdsState.filter((id) => id !== parentItem.id))
-                                setFocusedId(parentItem.id)
+                                const element = containerRef.current?.querySelector(
+                                    `[data-id="${parentItem.id}"]`
+                                ) as HTMLElement
+                                element?.focus()
                             } else {
                                 // If parent is already collapsed, just focus it
-                                setFocusedId(parentItem.id)
+                                const element = containerRef.current?.querySelector(
+                                    `[data-id="${parentItem.id}"]`
+                                ) as HTMLElement
+                                element?.focus()
                             }
                         }
                         break
@@ -759,12 +776,18 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             // If no item is focused, focus the first non-separator item
                             const firstItem = visibleItems.find((item) => item.type !== 'separator')
                             if (firstItem) {
-                                setFocusedId(firstItem.id)
+                                const element = containerRef.current?.querySelector(
+                                    `[data-id="${firstItem.id}"]`
+                                ) as HTMLElement
+                                element?.focus()
                             }
                         } else {
                             const nextItem = findNextFocusableItem(visibleItems, currentIndex, 1)
                             if (nextItem) {
-                                setFocusedId(nextItem.id)
+                                const element = containerRef.current?.querySelector(
+                                    `[data-id="${nextItem.id}"]`
+                                ) as HTMLElement
+                                element?.focus()
                             }
                         }
                         break
@@ -778,12 +801,18 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             // If no item is focused, focus the last non-separator item
                             const lastItem = [...visibleItems].reverse().find((item) => item.type !== 'separator')
                             if (lastItem) {
-                                setFocusedId(lastItem.id)
+                                const element = containerRef.current?.querySelector(
+                                    `[data-id="${lastItem.id}"]`
+                                ) as HTMLElement
+                                element?.focus()
                             }
                         } else {
                             const prevItem = findNextFocusableItem(visibleItems, currentIndex, -1)
                             if (prevItem) {
-                                setFocusedId(prevItem.id)
+                                const element = containerRef.current?.querySelector(
+                                    `[data-id="${prevItem.id}"]`
+                                ) as HTMLElement
+                                element?.focus()
                             }
                         }
                         break
@@ -795,7 +824,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         e.preventDefault()
                         const visibleItems = getVisibleItems()
                         if (visibleItems.length > 0) {
-                            setFocusedId(visibleItems[0].id)
+                            const element = containerRef.current?.querySelector(
+                                `[data-id="${visibleItems[0].id}"]`
+                            ) as HTMLElement
+                            element?.focus()
                         }
                         break
                     }
@@ -806,7 +838,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         e.preventDefault()
                         const visibleItems = getVisibleItems()
                         if (visibleItems.length > 0) {
-                            setFocusedId(visibleItems[visibleItems.length - 1].id)
+                            const element = containerRef.current?.querySelector(
+                                `[data-id="${visibleItems[visibleItems.length - 1].id}"]`
+                            ) as HTMLElement
+                            element?.focus()
                         }
                         break
                     }
@@ -853,7 +888,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 }
             },
             [
-                focusedId,
                 expandedItemIdsState,
                 getVisibleItems,
                 handleTypeAhead,
@@ -873,7 +907,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             }
 
             // Look for either focused or selected element
-            const elementId = focusedId || selectedId
+            const elementId = selectedId
             if (!elementId) {
                 return
             }
@@ -899,7 +933,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     behavior: 'smooth',
                 })
             }
-        }, [selectedId, focusedId])
+        }, [selectedId])
 
         // Scroll to focused item when tree is finished building or prop is not provided
         useEffect(() => {
@@ -909,10 +943,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         }, [scrollFocusedIntoView, isFinishedBuildingTreeData])
 
         useEffect(() => {
-            // On prop change, set focusedId if it's not already focused
-            // if the content has been focused (via keyboard), don't focus the tree
+            // On prop change, focus the default selected item if content hasn't been focused
             if (defaultSelectedFolderOrNodeId && !hasFocusedContent) {
-                setFocusedId(defaultSelectedFolderOrNodeId)
+                const element = containerRef.current?.querySelector(
+                    `[data-id="${defaultSelectedFolderOrNodeId}"]`
+                ) as HTMLElement
+                element?.focus()
                 setSelectedId(defaultSelectedFolderOrNodeId)
             }
         }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
@@ -920,7 +956,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         useImperativeHandle(ref, () => ({
             getVisibleItems,
             focusItem: (id: string) => {
-                setFocusedId(id)
                 // Find and focus the actual DOM element
                 const element = containerRef.current?.querySelector(`[data-id="${id}"]`) as HTMLElement
                 element?.focus()
@@ -931,7 +966,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             if (expandedItemIds && expandedItemIds.join(',') !== expandedItemIdsState.join(',')) {
                 setExpandedItemIdsState(expandedItemIds ?? [])
             }
-        }, [expandedItemIds]) // only trigger if external ids change not when expandedItemIdsState changes
+        }, [expandedItemIds, expandedItemIdsState]) // only trigger if external ids change not when expandedItemIdsState changes
 
         return (
             <DndContext
@@ -949,15 +984,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 <ScrollableShadows
                     ref={containerRef}
                     direction="vertical"
-                    tabIndex={0}
+                    tabIndex={-1}
                     role="tree"
                     aria-label="Tree navigation"
-                    aria-activedescendant={focusedId}
                     onKeyDown={handleKeyDown}
-                    onBlur={() => {
-                        // Hide focus when blurring the tree
-                        setFocusedId(undefined)
-                    }}
                     className="flex-1"
                     innerClassName="p-1"
                     styledScrollbars
@@ -966,7 +996,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         <LemonTreeNode
                             data={data}
                             selectedId={selectedId}
-                            focusedId={focusedId}
                             handleClick={handleClick}
                             expandedItemIds={expandedItemIdsState}
                             onSetExpandedItemIds={(ids) => {

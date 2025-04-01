@@ -42,11 +42,11 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
 
     return (
         <DropdownMenuItem asChild>
-            <ButtonGroupPrimitive menuItem fullWidth>
-                <ButtonPrimitive menuItem href={relativeOtherProjectPath}>
+            <ButtonGroupPrimitive menuItem fullWidth groupVariant="side-action-group">
+                <ButtonPrimitive menuItem href={relativeOtherProjectPath} sideActionLeft>
                     <ProjectName team={team} />
                 </ButtonPrimitive>
-                <ButtonPrimitive href={urls.project(team.id, urls.settings('project'))} iconOnly>
+                <ButtonPrimitive href={urls.project(team.id, urls.settings('project'))} iconOnly sideActionRight>
                     <IconGear />
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
@@ -72,19 +72,20 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
 
-            <DropdownMenuContent loop align="start">
+            <DropdownMenuContent loop align="start" className="min-w-[200px]">
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <div className="flex flex-col gap-px">
                     <DropdownMenuItem asChild>
-                        <ButtonGroupPrimitive fullWidth>
-                            <ButtonPrimitive menuItem active disabled>
+                        <ButtonGroupPrimitive fullWidth groupVariant="side-action-group">
+                            <ButtonPrimitive menuItem active disabled sideActionLeft>
                                 <ProjectName team={currentTeam} />
                             </ButtonPrimitive>
                             <ButtonPrimitive
                                 active
                                 href={urls.project(currentTeam.id, urls.settings('project'))}
                                 iconOnly
+                                sideActionRight
                             >
                                 <IconGear className="text-tertiary" />
                             </ButtonPrimitive>

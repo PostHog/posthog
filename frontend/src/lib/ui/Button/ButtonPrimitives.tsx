@@ -8,7 +8,7 @@ import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 /*                           Props & Contexts & Hooks                         */
 /* -------------------------------------------------------------------------- */
 
-type ButtonVariant = 'default' | 'default-group' | 'outline'
+type ButtonVariant = 'default' | 'outline' | 'default-group' | 'side-action-group'
 
 const BUTTON_HEIGHT_SM = 'h-[var(--button-height-sm)]'
 const BUTTON_ICON_WIDTH_SM = 'w-[var(--button-height-sm)]'
@@ -16,37 +16,6 @@ const BUTTON_HEIGHT_BASE = 'h-[var(--button-height-base)]'
 const BUTTON_ICON_WIDTH_BASE = 'w-[var(--button-height-base)]'
 const BUTTON_HEIGHT_LG = 'h-[var(--button-height-lg)]'
 const BUTTON_ICON_WIDTH_LG = 'w-[var(--button-height-lg)]'
-
-const BUTTON_VARIANT: Record<ButtonVariant, string> = {
-    'default-group': `
-        border border-transparent
-        text-primary 
-        max-w-full
-        [&>.button-primitive]:rounded-none
-        [&>.button-primitive]:first:rounded-l-md
-        [&>.button-primitive]:last:rounded-r-md
-        [&>.button-primitive:not(:first-child)]:border-l-0
-        hover:bg-fill-button-group-tertiary-hover
-        focus-within:bg-fill-button-group-tertiary-hover
-    `,
-    default: `
-        border border-transparent
-        text-primary 
-        max-w-full
-        not-disabled:hover:bg-fill-button-tertiary-hover 
-        data-[focused=true]:bg-fill-button-tertiary-hover 
-        data-[active=true]:bg-fill-button-tertiary-active 
-        data-[current=true]:bg-fill-button-tertiary-active 
-        data-[state=open]:bg-fill-button-tertiary-active 
-        data-[state=checked]:bg-fill-button-tertiary-active
-        data-highlighted:bg-fill-button-tertiary-active
-    `,
-    outline: `
-        border border-secondary
-        not-disabled:hover:border-tertiary
-        hover:bg-fill-button-tertiary-active
-    `,
-}
 
 export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit'
 
@@ -65,6 +34,7 @@ function useButtonGroupContext(): ButtonGroupContextValue | null {
 type ButtonGroupProps = {
     children: ReactNode
     className?: string
+    groupVariant?: ButtonVariant
 } & VariantProps<typeof buttonVariants>
 
 type ButtonBaseProps = {
@@ -85,7 +55,15 @@ type ButtonBaseProps = {
 /* -------------------------------------------------------------------------- */
 
 export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>((props, ref) => {
-    const { className, variant = 'default', size = 'base', fullWidth = false, children, ...rest } = props
+    const {
+        className,
+        groupVariant = 'default-group',
+        variant = 'default',
+        size = 'base',
+        fullWidth = false,
+        children,
+        ...rest
+    } = props
     const Comp = 'div'
 
     const setContext: ButtonGroupContextValue = {
@@ -115,7 +93,7 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
                 className={cn(
                     buttonVariants({
                         size: 'fit',
-                        variant: 'default-group',
+                        variant: groupVariant,
                         fullWidth,
                         isGroup: true,
                         className,
@@ -153,11 +131,10 @@ const buttonVariants = cva({
         group/button-primitive
         inline-flex
         w-fit
+        relative
         items-center
         rounded-md
-        text-sm
         font-normal
-        transition-colors
         aria-disabled:cursor-not-allowed
         aria-disabled:pointer-events-none
         aria-disabled:opacity-50
@@ -166,18 +143,49 @@ const buttonVariants = cva({
     `,
     variants: {
         variant: {
-            default: BUTTON_VARIANT.default,
-            outline: BUTTON_VARIANT.outline,
-            'default-group': BUTTON_VARIANT['default-group'],
+            // Bordereless variant (aka posthog tertiary button)
+            default: `
+                border border-transparent
+                text-primary 
+                max-w-full
+                not-disabled:hover:bg-fill-button-tertiary-hover 
+                data-[focused=true]:bg-fill-button-tertiary-hover 
+                data-[active=true]:bg-fill-button-tertiary-active 
+                data-[current=true]:bg-fill-button-tertiary-active 
+                data-[state=open]:bg-fill-button-tertiary-active 
+                data-[state=checked]:bg-fill-button-tertiary-active
+                data-highlighted:bg-fill-button-tertiary-active
+            `,
+            // Outline variant (aka posthog secondary button)
+            outline: `
+                border border-secondary
+                not-disabled:hover:border-tertiary
+                hover:bg-fill-button-tertiary-active
+            `,
+            // Buttons next to each other
+            'default-group': `
+                border border-transparent
+                text-primary 
+                max-w-full
+                [&_.button-primitive]:rounded-none
+                [&_.button-primitive]:first:rounded-l-md
+                [&_.button-primitive]:last:rounded-r-md
+                [&_.button-primitive:not(:first-child)]:border-l-0
+            `,
+            'side-action-group': `
+                border border-transparent
+                text-primary 
+                max-w-full
+            `,
         },
         size: {
-            sm: `${BUTTON_HEIGHT_SM} px-[var(--button-padding-x-sm)] [&_svg]:size-3`,
-            base: `${BUTTON_HEIGHT_BASE} px-[var(--button-padding-x-base)] [&_svg]:size-4`,
-            lg: `${BUTTON_HEIGHT_LG} px-[var(--button-padding-x-lg)] [&_svg]:size-5`,
+            sm: `${BUTTON_HEIGHT_SM} text-xs pl-[var(--button-padding-x-sm)] pr-[var(--button-padding-x-sm)] [&_svg]:size-3`,
+            base: `${BUTTON_HEIGHT_BASE} text-sm pl-[var(--button-padding-x-base)] pr-[var(--button-padding-x-base)] [&_svg]:size-4`,
+            lg: `${BUTTON_HEIGHT_LG} text-base pl-[var(--button-padding-x-lg)] pr-[var(--button-padding-x-lg)] [&_svg]:size-5`,
             fit: 'px-0',
         },
         iconOnly: {
-            true: 'p-0 justify-center items-center',
+            true: 'p-0 justify-center items-center shrink-0',
             false: '',
         },
         fullWidth: {
@@ -199,6 +207,13 @@ const buttonVariants = cva({
         disabled: {
             true: 'disabled:pointer-events-none disabled:opacity-50',
             false: '',
+        },
+        sideActionLeft: {
+            true: 'rounded-md',
+            false: '',
+        },
+        sideActionRight: {
+            true: 'absolute right-0 -top-px -bottom-px rounded-l-none',
         },
     },
     defaultVariants: {
@@ -224,6 +239,33 @@ const buttonVariants = cva({
             size: 'lg',
             className: BUTTON_ICON_WIDTH_LG,
         },
+        {
+            sideActionLeft: true,
+            size: 'sm',
+            className: `
+                pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]
+            `,
+        },
+        {
+            sideActionLeft: true,
+            size: 'base',
+            className: `
+                pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]
+            `,
+        },
+        {
+            sideActionLeft: true,
+            size: 'lg',
+            className: `
+                pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]
+            `,
+        },
+        // {
+        //     sideActionRight: true,
+        //     className: `
+        //         rounded-l-none
+        //     `,
+        // },
     ],
 })
 
@@ -241,6 +283,8 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
         disabled,
         active,
         buttonWrapper,
+        sideActionLeft,
+        sideActionRight,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -265,6 +309,8 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
                     iconOnly,
                     menuItem,
                     disabled,
+                    sideActionLeft,
+                    sideActionRight,
                     className,
                 })
             ),

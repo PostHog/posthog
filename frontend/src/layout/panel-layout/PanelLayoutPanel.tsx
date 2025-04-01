@@ -2,7 +2,7 @@ import { IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Button } from 'lib/ui/Button/Button'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { useRef } from 'react'
 
@@ -34,15 +34,13 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
 
                     <div className="flex gap-px items-center justify-end">
                         {!isMobileLayout && (
-                            <Button.Root onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}>
-                                <Button.Icon customIconSize>
-                                    {isLayoutPanelPinned ? (
-                                        <IconPinFilled className="size-3 text-tertiary" />
-                                    ) : (
-                                        <IconPin className="size-3 text-tertiary" />
-                                    )}
-                                </Button.Icon>
-                            </Button.Root>
+                            <ButtonPrimitive onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}>
+                                {isLayoutPanelPinned ? (
+                                    <IconPinFilled className="size-3 text-tertiary" />
+                                ) : (
+                                    <IconPin className="size-3 text-tertiary" />
+                                )}
+                            </ButtonPrimitive>
                         )}
 
                         {panelActions ?? null}

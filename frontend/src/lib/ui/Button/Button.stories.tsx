@@ -10,14 +10,13 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 // import { Button } from './Button'
-import { Button } from './Button'
 import { ButtonGroupPrimitive, ButtonPrimitive } from './ButtonPrimitives'
 
 const meta = {
-    title: 'UI/Button',
-    component: Button.Root,
+    title: 'UI/ButtonPrimitive',
+    component: ButtonPrimitive as any,
     tags: ['autodocs'],
-} satisfies Meta<typeof Button.Root>
+} satisfies Meta<typeof ButtonPrimitive>
 
 export default meta
 
@@ -50,11 +49,20 @@ export function Default(): JSX.Element {
                 >
                     Button1
                 </ButtonPrimitive>
-                <ButtonPrimitive href="https://google.com">Link</ButtonPrimitive>
+                <ButtonPrimitive href="#">Link</ButtonPrimitive>
                 <ButtonPrimitive iconOnly>
                     <IconSearch />
                 </ButtonPrimitive>
                 <ButtonPrimitive iconOnly>
+                    <IconSearch />
+                </ButtonPrimitive>
+            </ButtonGroupPrimitive>
+
+            <ButtonGroupPrimitive size="base" variant="outline" groupVariant="side-action-group">
+                <ButtonPrimitive href="#" sideActionLeft>
+                    Side action group
+                </ButtonPrimitive>
+                <ButtonPrimitive iconOnly sideActionRight>
                     <IconSearch />
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
@@ -85,7 +93,7 @@ export function Default(): JSX.Element {
 
             <DropdownMenu>
                 <ButtonGroupPrimitive size="base" variant="outline" fullWidth>
-                    <ButtonPrimitive href="https://google.com" menuItem>
+                    <ButtonPrimitive href="#" menuItem>
                         Link here, dropdown on the right
                     </ButtonPrimitive>
                     <DropdownMenuTrigger asChild>
@@ -113,7 +121,7 @@ export function Default(): JSX.Element {
 
             <DropdownMenu>
                 <ButtonGroupPrimitive size="base" variant="default" fullWidth>
-                    <ButtonPrimitive href="https://google.com" menuItem>
+                    <ButtonPrimitive href="#" menuItem>
                         Link here, dropdown on the right
                     </ButtonPrimitive>
                     <DropdownMenuTrigger asChild>
@@ -140,11 +148,11 @@ export function Default(): JSX.Element {
             </DropdownMenu>
 
             {/*
-            <Button.Root intent="outline">
+            <ButtonPrimitive variant="outline">
                 <Button.Label>Regular button</Button.Label>
             </Button.Root>
 
-            <Button.Root intent="outline" className="max-w-[105px]">
+            <Button.Root variant="outline" className="max-w-[105px]">
                 <Button.Label truncate iconRight>Truncated</Button.Label>
                 <Button.Icon end>
                     <IconSearch />
@@ -212,7 +220,7 @@ export function Default(): JSX.Element {
             </Button.Root>
 
             <Button.Root intent="outline" linkProps={{ to: "https://bing.com" }}>
-                <Button.IconLink isTrigger to="https://google.com">
+                <Button.IconLink isTrigger to="#">
                     <IconSearch />
                 </Button.IconLink>
                 <Button.Label>Links</Button.Label>
@@ -365,109 +373,41 @@ export function Default(): JSX.Element {
 export function Sizes(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex gap-4">
-                <Button.Root size="sm">
-                    <Button.Label>Small button</Button.Label>
-                </Button.Root>
-                <Button.Root size="sm" intent="outline">
-                    <Button.Label>Small button</Button.Label>
-                </Button.Root>
-                <Button.Root size="sm">
-                    <Button.Icon>
-                        <IconSearch />
-                    </Button.Icon>
-                    <Button.Label iconLeft>Small button</Button.Label>
-                </Button.Root>
-                <Button.Root intent="outline" size="sm">
-                    <Button.IconLink isTrigger to="https://bing.com">
-                        <IconSearch />
-                    </Button.IconLink>
-                    <Button.Label iconLeft iconRight>
-                        menu item with trigger (side action)
-                    </Button.Label>
-                    <Button.IconLink isTrigger to="https://bing.com">
-                        <IconSearch />
-                    </Button.IconLink>
-                </Button.Root>
-                <Button.Root size="sm">
-                    <Button.Icon>
-                        <IconSearch />
-                    </Button.Icon>
-                </Button.Root>
-                <Button.Root size="sm" intent="outline">
-                    <Button.Icon>
-                        <IconSearch />
-                    </Button.Icon>
-                </Button.Root>
-            </div>
-            <div className="flex gap-4">
-                <Button.Root size="base">
-                    <Button.Label>Base button</Button.Label>
-                </Button.Root>
-                <Button.Root size="base" intent="outline">
-                    <Button.Label>Base button</Button.Label>
-                </Button.Root>
-                <Button.Root size="base">
-                    <Button.Icon>
-                        <IconSearch />
-                    </Button.Icon>
-                    <Button.Label iconLeft>Base button</Button.Label>
-                </Button.Root>
-                <Button.Root intent="outline" size="base">
-                    <Button.IconLink isTrigger to="https://bing.com">
-                        <IconSearch />
-                    </Button.IconLink>
-                    <Button.Label>menu item with trigger (side action)</Button.Label>
-                    <Button.IconLink isTrigger to="https://bing.com">
-                        <IconSearch />
-                    </Button.IconLink>
-                </Button.Root>
-                <Button.Root size="base">
-                    <Button.Icon>
-                        <IconSearch />
-                    </Button.Icon>
-                </Button.Root>
-                <Button.Root size="base" intent="outline">
-                    <Button.Icon>
-                        <IconSearch />
-                    </Button.Icon>
-                </Button.Root>
-            </div>
+            <div className="flex flex-col gap-4">
+                <ButtonPrimitive size="sm">Small button</ButtonPrimitive>
 
-            <div className="flex gap-4">
-                <Button.Root size="lg">
-                    <Button.Label>Large button</Button.Label>
-                </Button.Root>
-                <Button.Root size="lg" intent="outline">
-                    <Button.Label>Large button</Button.Label>
-                </Button.Root>
-                <Button.Root size="lg">
-                    <Button.Icon>
-                        <IconSearch />
-                    </Button.Icon>
-                    <Button.Label iconLeft>Large button</Button.Label>
-                </Button.Root>
-                <Button.Root intent="outline" size="lg">
-                    <Button.IconLink isTrigger to="https://bing.com">
-                        <IconSearch />
-                    </Button.IconLink>
-                    <Button.Label iconLeft iconRight>
-                        menu item with trigger (side action)
-                    </Button.Label>
-                    <Button.IconLink isTrigger to="https://bing.com">
-                        <IconSearch />
-                    </Button.IconLink>
-                </Button.Root>
-                <Button.Root size="lg">
-                    <Button.Icon>
-                        <IconSearch />
-                    </Button.Icon>
-                </Button.Root>
-                <Button.Root size="lg" intent="outline">
-                    <Button.Icon>
-                        <IconSearch />
-                    </Button.Icon>
-                </Button.Root>
+                <ButtonPrimitive size="sm">
+                    <IconSearch />
+                    Small button
+                </ButtonPrimitive>
+
+                <ButtonPrimitive size="sm" iconOnly>
+                    <IconSearch />
+                </ButtonPrimitive>
+            </div>
+            <div className="flex flex-col gap-4">
+                <ButtonPrimitive>Base button</ButtonPrimitive>
+
+                <ButtonPrimitive>
+                    <IconSearch />
+                    Base button
+                </ButtonPrimitive>
+
+                <ButtonPrimitive iconOnly>
+                    <IconSearch />
+                </ButtonPrimitive>
+            </div>
+            <div className="flex flex-col gap-4">
+                <ButtonPrimitive size="lg">Large button</ButtonPrimitive>
+
+                <ButtonPrimitive size="lg">
+                    <IconSearch />
+                    Large button
+                </ButtonPrimitive>
+
+                <ButtonPrimitive size="lg" iconOnly>
+                    <IconSearch />
+                </ButtonPrimitive>
             </div>
         </div>
     )

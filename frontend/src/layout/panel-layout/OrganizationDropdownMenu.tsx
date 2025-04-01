@@ -46,7 +46,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     <span className="truncate">
                         {currentOrganization ? currentOrganization.name : 'Select organization'}
                     </span>
-                    <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                    <IconChevronRight className="size-3 text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="start" className="w-fit min-w-[240px]">
@@ -102,7 +102,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                 )
                             }
                         >
-                            <IconPlusSmall />
+                            <IconPlusSmall className="size-4" />
                             New organization
                         </ButtonPrimitive>
                     </DropdownMenuItem>

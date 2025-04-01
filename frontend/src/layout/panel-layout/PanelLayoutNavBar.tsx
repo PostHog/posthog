@@ -183,12 +183,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <ButtonPrimitive
-                            size="base"
-                            iconOnly
-                            onClick={() => toggleSearchBar()}
-                            data-attr="search-button"
-                        >
+                        <ButtonPrimitive size="base" iconOnly onClick={toggleSearchBar} data-attr="search-button">
                             <IconSearch className="text-secondary" />
                         </ButtonPrimitive>
                     </div>
@@ -218,6 +213,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 active={item.id === 'Project' && isLayoutPanelVisible}
                                                 data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                 className="group"
+                                                href={item.to}
                                             >
                                                 <span className="text-tertiary">{item.icon}</span>
                                                 <span className="truncate">{item.id}</span>
@@ -249,31 +245,37 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         item.featureFlag && !featureFlags[item.featureFlag]
 
                                                     return notEnabled ? null : (
-                                                        <ListBox.Item
-                                                            asChild
-                                                            key={item.identifier}
-                                                            onClick={() => {
-                                                                handleStaticNavbarItemClick(
-                                                                    'to' in item ? item.to : undefined,
-                                                                    false
-                                                                )
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
+                                                        <ButtonGroupPrimitive
+                                                            menuItem
+                                                            fullWidth
+                                                            groupVariant="side-action-group"
+                                                        >
+                                                            <ListBox.Item
+                                                                asChild
+                                                                key={item.identifier}
+                                                                onClick={() => {
                                                                     handleStaticNavbarItemClick(
                                                                         'to' in item ? item.to : undefined,
-                                                                        true
+                                                                        false
                                                                     )
-                                                                }
-                                                            }}
-                                                        >
-                                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                                }}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        handleStaticNavbarItemClick(
+                                                                            'to' in item ? item.to : undefined,
+                                                                            true
+                                                                        )
+                                                                    }
+                                                                }}
+                                                            >
                                                                 <ButtonPrimitive
                                                                     menuItem
                                                                     href={'to' in item ? item.to : undefined}
                                                                     data-attr={`menu-item-${item.identifier
                                                                         .toString()
                                                                         .toLowerCase()}`}
+                                                                    className="data-[focused=true]:bg-fill-button-tertiary-hover"
+                                                                    sideActionLeft={item.sideAction ? true : false}
                                                                 >
                                                                     <span className="text-tertiary">{item.icon}</span>
                                                                     <span className="truncate">{item.label}</span>
@@ -294,14 +296,32 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         </LemonTag>
                                                                     )}
                                                                 </ButtonPrimitive>
-                                                                {item.sideAction &&
-                                                                    item.identifier === 'SavedInsights' && (
-                                                                        <ButtonPrimitive href={urls.insightNew()}>
-                                                                            {item.sideAction.icon}
-                                                                        </ButtonPrimitive>
-                                                                    )}
-                                                            </ButtonGroupPrimitive>
-                                                        </ListBox.Item>
+                                                            </ListBox.Item>
+                                                            {item.sideAction && item.identifier === 'SavedInsights' && (
+                                                                <ListBox.Item
+                                                                    asChild
+                                                                    key={item.identifier}
+                                                                    onClick={() => {
+                                                                        handleStaticNavbarItemClick(
+                                                                            urls.insightNew(),
+                                                                            false
+                                                                        )
+                                                                    }}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') {
+                                                                            handleStaticNavbarItemClick(
+                                                                                urls.insightNew(),
+                                                                                true
+                                                                            )
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <ButtonPrimitive sideActionRight>
+                                                                        {item.sideAction.icon}
+                                                                    </ButtonPrimitive>
+                                                                </ListBox.Item>
+                                                            )}
+                                                        </ButtonGroupPrimitive>
                                                     )
                                                 })}
                                             </ul>
@@ -350,9 +370,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 className="min-w-70"
                             >
                                 <ButtonPrimitive menuItem active={isAccountPopoverOpen} onClick={toggleAccountPopover}>
-                                    <ProfilePicture user={user} size="sm" className="mr-1" />
+                                    <ProfilePicture user={user} size="xs" />
                                     {user?.first_name ? <span>{user?.first_name}</span> : <span>{user?.email}</span>}
-                                    <IconChevronRight className="size-3 text-secondary" />
+                                    <IconChevronRight className="size-3 text-secondary ml-auto" />
                                 </ButtonPrimitive>
                             </Popover>
                         </div>

@@ -1,7 +1,7 @@
 import { IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { Button } from 'lib/ui/Button/Button'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { RefObject, useEffect, useRef } from 'react'
@@ -52,20 +52,18 @@ export function ProjectTree(): JSX.Element {
                 <>
                     {pendingActions.length > 0 ? (
                         <div className="flex gap-1">
-                            <Button.Root onClick={cancelPendingActions} size="sm" intent="outline">
-                                <Button.Label size="sm">Cancel</Button.Label>
-                            </Button.Root>
-                            <Button.Root onClick={applyPendingActions} size="sm" intent="outline">
-                                <Button.Label size="sm">Save</Button.Label>
-                            </Button.Root>
+                            <ButtonPrimitive onClick={cancelPendingActions} size="sm" variant="outline">
+                                Cancel
+                            </ButtonPrimitive>
+                            <ButtonPrimitive onClick={applyPendingActions} size="sm" variant="outline">
+                                Save
+                            </ButtonPrimitive>
                         </div>
                     ) : (
                         <>
-                            <Button.Root onClick={() => createFolder('')}>
-                                <Button.Icon>
-                                    <IconFolderPlus className="text-tertiary" />
-                                </Button.Icon>
-                            </Button.Root>
+                            <ButtonPrimitive onClick={() => createFolder('')}>
+                                <IconFolderPlus className="text-tertiary" />
+                            </ButtonPrimitive>
                         </>
                     )}
                 </>
@@ -169,9 +167,7 @@ export function ProjectTree(): JSX.Element {
                                     createFolder(item.record?.path)
                                 }}
                             >
-                                <Button.Root size="sm" menuItem>
-                                    <Button.Label>New folder</Button.Label>
-                                </Button.Root>
+                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                             </ContextMenuItem>
                             {item.record?.path ? (
                                 <ContextMenuItem
@@ -181,9 +177,7 @@ export function ProjectTree(): JSX.Element {
                                         item.record?.path && rename(item.record.path)
                                     }}
                                 >
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>Rename</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
                             {item.record?.path ? (
@@ -194,9 +188,7 @@ export function ProjectTree(): JSX.Element {
                                         handleCopyPath(item.record?.path)
                                     }}
                                 >
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>Copy path</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
                             {item.record?.created_at ? (
@@ -207,9 +199,7 @@ export function ProjectTree(): JSX.Element {
                                         deleteItem(item.record as unknown as FileSystemEntry)
                                     }}
                                 >
-                                    <Button.Root size="sm" menuItem>
-                                        <Button.Label>Delete</Button.Label>
-                                    </Button.Root>
+                                    <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
                         </ContextMenuGroup>
@@ -225,27 +215,19 @@ export function ProjectTree(): JSX.Element {
                                 asChild
                                 onClick={() => item.record?.path && createFolder(item.record.path)}
                             >
-                                <Button.Root size="sm" menuItem>
-                                    <Button.Label>New folder</Button.Label>
-                                </Button.Root>
+                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild onClick={() => item.record?.path && rename(item.record.path)}>
-                                <Button.Root size="sm" menuItem>
-                                    <Button.Label>Rename</Button.Label>
-                                </Button.Root>
+                                <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild onClick={() => handleCopyPath(item.record?.path)}>
-                                <Button.Root size="sm" menuItem>
-                                    <Button.Label>Copy path</Button.Label>
-                                </Button.Root>
+                                <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 asChild
                                 onClick={() => deleteItem(item.record as unknown as FileSystemEntry)}
                             >
-                                <Button.Root size="sm" menuItem>
-                                    <Button.Label>Delete</Button.Label>
-                                </Button.Root>
+                                <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     )
