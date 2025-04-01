@@ -29,6 +29,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -183,7 +184,16 @@ async function getSingleInsight(
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], variableDataLogic, ['variables']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            variableDataLogic,
+            ['variables'],
+            dataThemeLogic,
+            ['themes'],
+        ],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
 
@@ -234,11 +244,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setFiltersAndLayoutsAndVariables: (
             filters: DashboardFilter,
             variables: Record<string, HogQLVariable>,
-            breakdownColors: BreakdownColorConfig[]
+            breakdownColors: BreakdownColorConfig[],
+            dataColorTheme: DataColorTheme | null
         ) => ({
             filters,
             variables,
             breakdownColors,
+            dataColorTheme,
         }),
         previewTemporaryFilters: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
@@ -353,6 +365,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 filters: values.filters,
                                 variables: values.insightVariables,
                                 breakdown_colors: values.temporaryBreakdownColors,
+                                data_color_theme_id: values.dataColorTheme?.id,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -619,7 +632,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
-        dataColorTheme: [null as DataColorTheme | null, { setDataColorTheme: (_, { theme }) => theme }],
+        dataColorThemeId: [
+            null as number | null,
+            {
+                setDataColorTheme: (_, { theme }) => theme?.id || null,
+                loadDashboardSuccess: (_, { dashboard }) => dashboard?.data_color_theme_id || null,
+            },
+        ],
         filters: [
             {
                 date_from: null,
@@ -1188,6 +1207,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             },
         ],
+        dataColorTheme: [
+            (s) => [s.dataColorThemeId, s.themes],
+            (dataColorThemeId, themes) =>
+                dataColorThemeId ? themes.find((theme) => theme.id === dataColorThemeId) : null,
+        ],
     })),
     events(({ actions, cache, props }) => ({
         afterMount: () => {
@@ -1516,7 +1540,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setFiltersAndLayoutsAndVariables(
                         values.temporaryFilters,
                         values.temporaryVariables,
-                        values.temporaryBreakdownColors
+                        values.temporaryBreakdownColors,
+                        values.dataColorTheme
                     )
                 }
             }
