@@ -18,14 +18,15 @@ pub fn generate_fingerprint(exception: &[Exception]) -> Fingerprint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum FingerprintRecordPart {
-    Frame { raw_id: String, pieces: Vec<String> },
-    Content { name: String },
-}
-
-impl From<String> for FingerprintRecordPart {
-    fn from(value: String) -> Self {
-        Self::Content { name: value }
-    }
+    Frame {
+        raw_id: String,
+        pieces: Vec<String>,
+    },
+    Exception {
+        id: Option<String>,
+        pieces: Vec<String>,
+    },
+    Manual,
 }
 
 // Anything that can be included in a fingerprint should implement this
@@ -57,6 +58,8 @@ impl Fingerprint {
 #[cfg(test)]
 mod test {
 
+    use uuid::Uuid;
+
     use crate::{frames::Frame, types::Stacktrace};
 
     use super::*;
@@ -64,6 +67,7 @@ mod test {
     #[test]
     fn test_some_resolved_frames() {
         let mut exception = Exception {
+            exception_id: None,
             exception_type: "TypeError".to_string(),
             exception_message: "Cannot read property 'foo' of undefined".to_string(),
             mechanism: Default::default(),
@@ -141,6 +145,7 @@ mod test {
     #[test]
     fn test_no_resolved_frames() {
         let mut exception = Exception {
+            exception_id: None,
             exception_type: "TypeError".to_string(),
             exception_message: "Cannot read property 'foo' of undefined".to_string(),
             mechanism: Default::default(),
@@ -211,6 +216,7 @@ mod test {
     #[test]
     fn test_no_in_app_frames() {
         let mut exception = Exception {
+            exception_id: Some(Uuid::now_v7().to_string()),
             exception_type: "TypeError".to_string(),
             exception_message: "Cannot read property 'foo' of undefined".to_string(),
             mechanism: Default::default(),

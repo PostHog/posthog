@@ -1,14 +1,15 @@
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
 
 import { EventType } from '~/types'
 
-import { stackFrameLogic } from './stackFrameLogic'
+import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
 import { ChainedStackTraces } from './StackTraces'
 import { ErrorTrackingException } from './types'
 
@@ -17,8 +18,8 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         getExceptionAttributes(eventProperties)
 
     const exceptionWithStack = hasStacktrace(exceptionList)
-    const fingerprintRecord: FingerprintRecordPart[] = eventProperties.$exception_fingerprint_record || []
-    const hasFingerprintRecord = fingerprintRecord.length > 0
+    const fingerprintRecords: FingerprintRecordPart[] = eventProperties.$exception_fingerprint_record || []
+    const hasFingerprintRecord = fingerprintRecords.length > 0
 
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
@@ -60,55 +61,72 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     </LemonBanner>
                 </>
             )}
-            {exceptionWithStack && <StackTrace exceptionList={exceptionList} />}
-            {hasFingerprintRecord && <FingerprintComponents components={fingerprintRecord} />}
+            {exceptionWithStack && <StackTrace exceptionList={exceptionList} fingerprintRecords={fingerprintRecords} />}
+            {hasFingerprintRecord && <FingerprintComponents components={fingerprintRecords} />}
         </div>
     )
 }
 
-interface FingerprintRecordPart {
-    type: 'frame' | 'content'
-    raw_id?: string
-    pieces?: string[]
-    name?: string
-}
 const FingerprintComponents = ({ components }: { components: FingerprintRecordPart[] }): JSX.Element => {
-    const { highlightFrame } = useActions(stackFrameLogic)
-    const { highlightedFrameId } = useValues(stackFrameLogic)
+    const { highlightRecordPart } = useActions(stackFrameLogic)
 
     return (
         <div className="flex mb-4 items-center gap-2">
             <span className="font-semibold">Fingerprinted by:</span>
             <div className="flex flex-wrap gap-1">
                 {components.map((component, index) => {
-                    if (component.type === 'frame') {
-                        return (
-                            <span
-                                key={index}
-                                className={`px-2 py-1 rounded text-sm cursor-pointer transition-colors ${
-                                    highlightedFrameId === component.raw_id ? 'bg-primary-highlight' : 'bg-bg-light'
-                                }`}
-                                onMouseEnter={() => highlightFrame(component.raw_id ? component.raw_id : null)}
-                                onMouseLeave={() => highlightFrame(null)}
+                    return (
+                        <Tooltip key={index} title={getPartPieces(component)}>
+                            <LemonTag
+                                type="muted"
+                                className="hover:text-danger hover:border-danger cursor-pointer"
+                                onMouseEnter={() => highlightRecordPart(component)}
+                                onMouseLeave={() => highlightRecordPart(null)}
                             >
-                                Stack frame
-                            </span>
-                        )
-                    } else if (component.type === 'content') {
-                        return (
-                            <span key={index} className="px-2 py-1 bg-bg-light rounded text-sm">
-                                {component.name}
-                            </span>
-                        )
-                    }
-                    return null
+                                {getPartLabel(component)}
+                            </LemonTag>
+                        </Tooltip>
+                    )
                 })}
             </div>
         </div>
     )
 }
 
-const StackTrace = ({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element => {
+function getPartPieces(component: FingerprintRecordPart): React.ReactNode {
+    if (component.type === 'manual') {
+        return null
+    }
+    const pieces = component.pieces || []
+    return (
+        <ul>
+            {pieces.map((piece, index) => (
+                <li key={index} className={cn('text-xs', pieces.length > 1 && 'list-disc ml-4')}>
+                    {piece}
+                </li>
+            ))}
+        </ul>
+    )
+}
+
+function getPartLabel(part: FingerprintRecordPart): string {
+    switch (part.type) {
+        case 'frame':
+            return 'Frame'
+        case 'exception':
+            return 'Exception'
+        case 'manual':
+            return 'Manual'
+    }
+}
+
+const StackTrace = ({
+    exceptionList,
+    fingerprintRecords,
+}: {
+    exceptionList: ErrorTrackingException[]
+    fingerprintRecords: FingerprintRecordPart[]
+}): JSX.Element => {
     const { showAllFrames } = useValues(stackFrameLogic)
     const { setShowAllFrames } = useActions(stackFrameLogic)
     const hasAnyInApp = hasAnyInAppFrames(exceptionList)
@@ -125,7 +143,11 @@ const StackTrace = ({ exceptionList }: { exceptionList: ErrorTrackingException[]
                     />
                 ) : null}
             </div>
-            <ChainedStackTraces exceptionList={exceptionList} showAllFrames={hasAnyInApp ? showAllFrames : true} />
+            <ChainedStackTraces
+                exceptionList={exceptionList}
+                showAllFrames={hasAnyInApp ? showAllFrames : true}
+                fingerprintRecords={fingerprintRecords}
+            />
         </>
     )
 }

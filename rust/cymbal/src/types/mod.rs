@@ -29,6 +29,8 @@ pub enum Stacktrace {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Exception {
+    #[serde(rename = "id")]
+    pub exception_id: Option<String>,
     #[serde(rename = "type")]
     pub exception_type: String,
     #[serde(rename = "value")]
@@ -97,12 +99,17 @@ pub struct OutputErrProps {
 
 impl FingerprintComponent for Exception {
     fn update(&self, fp: &mut Fingerprint) {
+        let mut pieces = vec![];
         fp.update(self.exception_type.as_bytes());
-        fp.add_part("Exception type".to_string());
+        pieces.push("Exception Type".to_string());
         if !matches!(self.stack, Some(Stacktrace::Resolved { frames: _ })) {
             fp.update(self.exception_message.as_bytes());
-            fp.add_part("Exception message".to_string());
+            pieces.push("Exception Message".to_string());
         };
+        fp.add_part(FingerprintRecordPart::Exception {
+            id: self.exception_id.clone(),
+            pieces,
+        });
     }
 }
 
@@ -153,7 +160,7 @@ impl RawErrProps {
         let (fingerprint, mut record) = fingerprint.finalize();
 
         if self.fingerprint.is_some() {
-            record.push("Manually set".to_string().into())
+            record.push(FingerprintRecordPart::Manual)
         }
 
         FingerprintedErrProps {
