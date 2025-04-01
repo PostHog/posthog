@@ -239,9 +239,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     menuItem
                                                     size="base"
                                                     sideActionLeft
-                                                    // tooltip={displayName}
-                                                    // tooltipPlacement="right"
-                                                    // to={item.record?.href ? item.record.href : undefined}
+                                                    tooltip={displayName}
+                                                    tooltipPlacement="right"
                                                     buttonWrapper={
                                                         enableDragAndDrop &&
                                                         isItemDraggable?.(item) &&
@@ -282,9 +281,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         <>
                                                             {renderItem(
                                                                 item,
-                                                                <span className="truncate pr-[var(--button-height-base)]">
-                                                                    {displayName}
-                                                                </span>
+                                                                <span className="truncate">{displayName}</span>
                                                             )}
 
                                                             {/* Loading state */}
@@ -292,13 +289,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                                                             {/* Unapplied state */}
                                                             {item.record?.unapplied && (
-                                                                <IconUpload className="ml-1 text-warning  pr-[var(--button-height-base)]" />
+                                                                <IconUpload className="ml-1 text-warning" />
                                                             )}
                                                         </>
                                                     ) : (
-                                                        <span className="truncate pr-[var(--button-height-base)]">
-                                                            {displayName}
-                                                        </span>
+                                                        <span className="truncate">{displayName}</span>
                                                     )}
                                                 </ButtonPrimitive>
                                                 {itemSideAction && (

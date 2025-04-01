@@ -46,30 +46,33 @@ export function Default(): JSX.Element {
                     onClick={() => {
                         alert('clicked')
                     }}
+                    tooltip="Tooltip"
                 >
                     Button1
                 </ButtonPrimitive>
-                <ButtonPrimitive href="#">Link</ButtonPrimitive>
-                <ButtonPrimitive iconOnly>
+                <ButtonPrimitive href="#" tooltip="Tooltip">
+                    Link
+                </ButtonPrimitive>
+                <ButtonPrimitive iconOnly tooltip="Tooltip">
                     <IconSearch />
                 </ButtonPrimitive>
-                <ButtonPrimitive iconOnly>
+                <ButtonPrimitive iconOnly tooltip="Tooltip">
                     <IconSearch />
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
 
             <ButtonGroupPrimitive size="base" variant="outline" groupVariant="side-action-group">
-                <ButtonPrimitive href="#" sideActionLeft>
+                <ButtonPrimitive href="#" sideActionLeft tooltip="Tooltip">
                     Side action group
                 </ButtonPrimitive>
-                <ButtonPrimitive iconOnly sideActionRight>
+                <ButtonPrimitive iconOnly sideActionRight tooltip="Tooltip">
                     <IconSearch />
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
 
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <ButtonPrimitive variant="outline" size="base">
+                    <ButtonPrimitive variant="outline" size="base" tooltip="Tooltip">
                         <IconSearch />
                         is all dropdown
                     </ButtonPrimitive>

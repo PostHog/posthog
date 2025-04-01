@@ -34,6 +34,7 @@ import { SidePanelTab } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
+import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
@@ -183,7 +184,22 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <ButtonPrimitive size="base" iconOnly onClick={toggleSearchBar} data-attr="search-button">
+                        <ButtonPrimitive
+                            size="base"
+                            iconOnly
+                            onClick={toggleSearchBar}
+                            data-attr="search-button"
+                            tooltip={
+                                <div className="flex flex-col gap-0.5">
+                                    <span>
+                                        For search, press <KeyboardShortcut command k />
+                                    </span>
+                                    <span>
+                                        For commands, press <KeyboardShortcut command shift k />
+                                    </span>
+                                </div>
+                            }
+                        >
                             <IconSearch className="text-secondary" />
                         </ButtonPrimitive>
                     </div>
@@ -316,7 +332,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         }
                                                                     }}
                                                                 >
-                                                                    <ButtonPrimitive sideActionRight>
+                                                                    <ButtonPrimitive
+                                                                        sideActionRight
+                                                                        tooltip={item.sideAction.tooltip}
+                                                                    >
                                                                         {item.sideAction.icon}
                                                                     </ButtonPrimitive>
                                                                 </ListBox.Item>

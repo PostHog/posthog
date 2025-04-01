@@ -52,16 +52,26 @@ export function ProjectTree(): JSX.Element {
                 <>
                     {pendingActions.length > 0 ? (
                         <div className="flex gap-1">
-                            <ButtonPrimitive onClick={cancelPendingActions} size="sm" variant="outline">
+                            <ButtonPrimitive
+                                onClick={cancelPendingActions}
+                                size="sm"
+                                variant="outline"
+                                tooltip="Cancel changes"
+                            >
                                 Cancel
                             </ButtonPrimitive>
-                            <ButtonPrimitive onClick={applyPendingActions} size="sm" variant="outline">
+                            <ButtonPrimitive
+                                onClick={applyPendingActions}
+                                size="sm"
+                                variant="outline"
+                                tooltip="Save changes"
+                            >
                                 Save
                             </ButtonPrimitive>
                         </div>
                     ) : (
                         <>
-                            <ButtonPrimitive onClick={() => createFolder('')}>
+                            <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
                                 <IconFolderPlus className="text-tertiary" />
                             </ButtonPrimitive>
                         </>

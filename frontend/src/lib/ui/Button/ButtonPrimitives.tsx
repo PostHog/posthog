@@ -1,6 +1,7 @@
 import './Button.css'
 
 import { cva, type VariantProps } from 'cva'
+import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 
@@ -43,6 +44,8 @@ type ButtonBaseProps = {
     external?: boolean
     disabled?: boolean
     active?: boolean
+    tooltip?: TooltipProps['title']
+    tooltipPlacement?: TooltipProps['placement']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
 } & VariantProps<typeof buttonVariants>
 
@@ -285,6 +288,8 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
         buttonWrapper,
         sideActionLeft,
         sideActionRight,
+        tooltip,
+        tooltipPlacement,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -298,7 +303,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
     // Determine the element props
     const elementProps = href ? { href, ...rest } : rest
 
-    const buttonComponent = React.createElement(
+    let buttonComponent: JSX.Element = React.createElement(
         Comp,
         {
             className: cn(
@@ -323,8 +328,16 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
         children
     )
 
+    if (tooltip) {
+        buttonComponent = (
+            <Tooltip title={tooltip} placement={tooltipPlacement}>
+                {buttonComponent}
+            </Tooltip>
+        )
+    }
+
     if (buttonWrapper) {
-        return buttonWrapper(buttonComponent)
+        buttonComponent = buttonWrapper(buttonComponent)
     }
 
     return buttonComponent
