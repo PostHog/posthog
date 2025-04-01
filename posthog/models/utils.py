@@ -368,10 +368,11 @@ class TeamProjectMixin(models.Model):
         abstract = True
 
     def save(self, *args, **kwargs):
-        if not self.project_id and self.team_id:
+        team_id = self.team_id  # type: ignore
+        if not self.project_id and team_id:
             from posthog.models.team import Team
 
-            team = Team.objects.filter(id=self.team_id).only("project_id").first()
+            team = Team.objects.filter(id=team_id).only("project_id").first()
             if team and team.project_id:
                 self.project_id = team.project_id
             else:
