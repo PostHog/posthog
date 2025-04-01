@@ -51,7 +51,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             <span className="truncate font-semibold">
                                 {currentOrganization ? currentOrganization.name : 'Select organization'}
                             </span>
-                            <IconChevronRight className="size-3 text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                            <IconChevronRight className="size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
                         </>
                     )}
                 </ButtonPrimitive>
