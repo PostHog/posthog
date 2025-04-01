@@ -365,15 +365,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
         },
 
-        setHref: async ({ href }) => {
+        setHref: ({ href }) => {
             actions.setDataHref(href, 'exact')
             actions.maybeLoadClickmap()
         },
-        setWildcardHref: async ({ href }) => {
+        setWildcardHref: ({ href }) => {
             actions.setDataHref(href, 'regex')
             actions.maybeLoadClickmap()
         },
-        setCommonFilters: async () => {
+        setCommonFilters: () => {
             actions.loadAllEnabled()
         },
 
