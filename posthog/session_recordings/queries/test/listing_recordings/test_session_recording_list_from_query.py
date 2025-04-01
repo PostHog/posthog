@@ -1412,17 +1412,19 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.an_hour_ago,
+            first_timestamp=self.an_hour_ago + relativedelta(microsecond=1),
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=60)),
             team_id=self.team.id,
             first_url="https://recieved-out-of-order.com/second",
         )
+
         create_event(
             team=self.team,
             distinct_id=user,
             timestamp=self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": window_id},
         )
+
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
@@ -4123,3 +4125,45 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
             ["1", "4"],
         )
+
+    @parameterized.expand(
+        [
+            ("single_distinct_id", ["test-user-1"], ["session1"]),
+            ("multiple_distinct_ids", ["test-user-1", "test-user-2"], ["session1", "session2"]),
+            ("non_existent_distinct_id", ["non-existent-user"], []),
+            ("empty_distinct_ids", [], ["session1", "session2"]),
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_filter_by_distinct_ids(self, name: str, distinct_ids: list[str], expected_sessions: list[str]):
+        # Create two users with different distinct_ids
+        user1 = "test-user-1"
+        user2 = "test-user-2"
+        Person.objects.create(team=self.team, distinct_ids=[user1])
+        Person.objects.create(team=self.team, distinct_ids=[user2])
+
+        # Create sessions for each user
+        session1 = f"session1-{uuid4()}"
+        session2 = f"session2-{uuid4()}"
+
+        # Create session recordings
+        produce_replay_summary(
+            distinct_id=user1,
+            session_id=session1,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+
+        produce_replay_summary(
+            distinct_id=user2,
+            session_id=session2,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+
+        # Map the test's generic session names to actual UUIDs
+        session_map = {"session1": session1, "session2": session2}
+        expected = [session_map[session] for session in expected_sessions]
+
+        # Test filtering
+        self._assert_query_matches_session_ids(query={"distinct_ids": distinct_ids}, expected=expected)
