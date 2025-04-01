@@ -66,8 +66,6 @@ export class HogFunctionManagerService {
     private started: boolean
     private pubSub: PubSub
 
-    static readonly PROVIDER_FUNCTION_TYPES: HogFunctionTypeType[] = ['email']
-
     constructor(private hub: Hub) {
         this.started = false
 

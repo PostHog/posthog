@@ -93,13 +93,6 @@ describe('HogFunctionManager', () => {
             })
         )
 
-        await insertHogFunction(hub.postgres, teamId1, {
-            name: 'provider/send_email',
-            type: 'email',
-            inputs_schema: [],
-            inputs: {},
-        })
-
         await manager.start()
     })
 

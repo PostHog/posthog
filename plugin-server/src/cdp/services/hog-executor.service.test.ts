@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon'
 
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { truth } from '~/tests/helpers/truth'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
@@ -10,7 +9,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createHogExecutionGlobals, createHogFunction, createInvocation, insertHogFunction } from '../_tests/fixtures'
+import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
 
 const setupFetchResponse = (
     invocation: HogFunctionInvocation,
@@ -770,50 +769,6 @@ describe('Hog Executor', () => {
             expect(result?.capturedPostHogEvents).toEqual([])
             expect(result?.logs[1].message).toMatchInlineSnapshot(
                 `"postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured."`
-            )
-        })
-    })
-
-    describe('imported functions', () => {
-        let teamId: number
-
-        beforeEach(async () => {
-            jest.useRealTimers()
-            await resetTestDatabase()
-
-            const team = await getFirstTeam(hub)
-            teamId = team.id
-        })
-
-        it('can execute imported functions', async () => {
-            await insertHogFunction(hub.postgres, teamId, {
-                ...HOG_EXAMPLES.export_send_email,
-                ...HOG_INPUTS_EXAMPLES.none,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                type: 'email',
-                team_id: teamId,
-            } as any)
-
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.import_send_email,
-                ...HOG_INPUTS_EXAMPLES.email,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                team_id: teamId,
-            })
-
-            const globals = createHogExecutionGlobals({
-                groups: {},
-                event: {},
-                person: {
-                    properties: {
-                        email: 'test@test.com',
-                    },
-                },
-            } as any)
-
-            const result = executor.execute(createInvocation(fn, globals))
-            expect(result?.logs[1].message).toMatchInlineSnapshot(
-                '"{"to":"test@test.com","body":"Hello  !\\n\\nThis is a broadcast","from":"info@posthog.com","html":"<html></html>","subject":"Hello test@test.com"}"'
             )
         })
     })
