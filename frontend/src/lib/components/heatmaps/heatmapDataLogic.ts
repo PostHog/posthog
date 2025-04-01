@@ -129,8 +129,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         '?'
                     )}`
 
-                    breakpoint()
                     const response = await (values.fetchFn === 'toolbar' ? toolbarFetch(apiURL, 'GET') : fetch(apiURL))
+                    breakpoint()
 
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
