@@ -12,10 +12,10 @@ template_new_broadcast: HogFunctionTemplate = HogFunctionTemplate(
     hog="""sendEmail(inputs)""".strip(),
     inputs_schema=[
         {
-            "key": "mailjet",
+            "key": "mail",
             "type": "integration",
-            "integration": "mailjet",
-            "label": "Mailjet account",
+            "integration": "mail",
+            "label": "Mail integration",
             "secret": False,
             "required": True,
         },
