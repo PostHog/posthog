@@ -215,7 +215,12 @@ class EventsQueryRunner(QueryRunner):
                 # sorting a large amount of columns is expensive, so we filter by a presorted table if possible
                 if (
                     self.modifiers.usePresortedEventsTable
-                    and (order_by is not None and len(order_by) == 1 and order_by[0].expr.chain == ["timestamp"])
+                    and (
+                        order_by is not None
+                        and len(order_by) == 1
+                        and isinstance(order_by[0].expr, ast.Field)
+                        and order_by[0].expr.chain == ["timestamp"]
+                    )
                     and not has_any_aggregation
                 ):
                     inner_query = parse_select(
@@ -232,7 +237,11 @@ class EventsQueryRunner(QueryRunner):
                         {"inner_query": inner_query},
                     )
 
-                    stmt.where = ast.And(exprs=[prefilter_sorted, where])
+                    if where is not None:
+                        stmt.where = ast.And(exprs=[prefilter_sorted, where])
+                    else:
+                        stmt.where = prefilter_sorted
+
                 return stmt
 
     def calculate(self) -> EventsQueryResponse:
