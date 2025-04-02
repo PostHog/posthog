@@ -1,16 +1,15 @@
 import { IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
 
-import { IntegrationSetupModal } from './IntegrationSetupModal'
+import { getIntegrationSetupModalProps } from './getIntegrationSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -31,7 +30,6 @@ export function IntegrationChoice({
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { newGoogleCloudKey } = useActions(integrationsLogic)
-    const [isModalOpen, setIsModalOpen] = useState(false)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -72,6 +70,22 @@ export function IntegrationChoice({
         input.click()
     }
 
+    function showIntegrationSetupModal(): void {
+        if (!kind) {
+            return
+        }
+
+        const modalProps = getIntegrationSetupModalProps({
+            integration: kind,
+            integrationName: kindName,
+            onComplete: onChange,
+        })
+
+        if (modalProps) {
+            LemonDialog.openForm(modalProps)
+        }
+    }
+
     const button = (
         <LemonMenu
             items={[
@@ -100,7 +114,7 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: () => setIsModalOpen(true),
+                                  onClick: showIntegrationSetupModal,
                                   label: 'Configure Mailjet API key',
                               },
                           ],
@@ -153,13 +167,6 @@ export function IntegrationChoice({
             ) : (
                 button
             )}
-            <IntegrationSetupModal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                integration={kind}
-                integrationName={kindName}
-                onComplete={onChange}
-            />
         </>
     )
 }
