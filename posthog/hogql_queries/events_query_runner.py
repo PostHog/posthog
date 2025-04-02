@@ -219,10 +219,7 @@ class EventsQueryRunner(QueryRunner):
                     and not has_any_aggregation
                 ):
                     inner_query = parse_select(
-                        """
-                            SELECT timestamp, event, cityHash64(distinct_id) as did, cityHash64(uuid) as uuid
-                            FROM events
-                        """
+                        "SELECT timestamp, event, cityHash64(distinct_id) as did, cityHash64(uuid) as uuid FROM events"
                     )
                     inner_query.where = where
                     inner_query.order_by = order_by
@@ -234,7 +231,7 @@ class EventsQueryRunner(QueryRunner):
                         {"inner_query": inner_query},
                     )
 
-                    stmt.where = ast.And(exprs=[prefilter_sorted, stmt.where])
+                    stmt.where = ast.And(exprs=[prefilter_sorted, where])
                 return stmt
 
     def calculate(self) -> EventsQueryResponse:
