@@ -8,16 +8,13 @@ import { RecordingSnapshot } from '~/types'
 // we have seen some chrome extensions
 // that break playback of session recordings
 // let's try to strip them out
-const CHROME_EXTENSION_DENY_LIST = [
-    // snap and read chrome extension
-    'dji-sru',
-    'mloajfnmjckfjbeeofcdaecbelnblden',
-    // aitopia extension
-    'aitopia',
-    'becfinhbfclcgokjlobojlnldbfillpf',
-    // loom extension
-    'liecbddmkiiihnedobmlmillhodjkdmb',
-]
+const CHROME_EXTENSION_DENY_LIST: Record<string, string> = {
+    'dji-sru': 'snap and read',
+    mloajfnmjckfjbeeofcdaecbelnblden: 'snap and read',
+    aitopia: 'aitopia',
+    becfinhbfclcgokjlobojlnldbfillpf: 'aitopia',
+    liecbddmkiiihnedobmlmillhodjkdmb: 'loom',
+}
 
 interface IsStrippable {
     textContent: string
@@ -28,7 +25,8 @@ interface IsStrippable {
 function safelyCheckCSSAttribute(
     node: serializedNodeWithId,
     attribute: string,
-    needles: string[]
+    needles: string[],
+    matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
     const hasAttributes = 'attributes' in node && attribute in node.attributes && !!node.attributes[attribute]
     if (!hasAttributes) {
@@ -39,12 +37,21 @@ function safelyCheckCSSAttribute(
         return false
     }
 
-    return attributeValue.includes('chrome-extension://') && needles.some((needle) => attributeValue.includes(needle))
+    if (attributeValue.includes('chrome-extension://')) {
+        for (const needle of needles) {
+            if (attributeValue.includes(needle)) {
+                matchedExtensions.add(CHROME_EXTENSION_DENY_LIST[needle] || needle)
+                return true
+            }
+        }
+    }
+    return false
 }
 
 function safelyCheckClassAttribute(
     node: serializedNodeWithId,
-    needle: string
+    needle: string,
+    matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
     const hasAttributes = 'attributes' in node && 'class' in node.attributes && !!node.attributes['class']
     if (!hasAttributes) {
@@ -54,37 +61,54 @@ function safelyCheckClassAttribute(
     if (typeof attributeValue !== 'string') {
         return false
     }
-    return attributeValue.includes(needle)
+    if (attributeValue.includes(needle)) {
+        matchedExtensions.add(CHROME_EXTENSION_DENY_LIST[needle] || needle)
+        return true
+    }
+    return false
 }
 
 function safelyCheckTagName(
     node: serializedNodeWithId,
-    needles: string[]
+    needles: string[],
+    matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
     const hasTagName = 'tagName' in node && typeof node.tagName === 'string'
     if (!hasTagName) {
         return false
     }
-    return needles.some((needle) => node.tagName.includes(needle))
+    for (const needle of needles) {
+        if (node.tagName.includes(needle)) {
+            matchedExtensions.add(CHROME_EXTENSION_DENY_LIST[needle] || needle)
+            return true
+        }
+    }
+    return false
 }
 
 function safelyCheckDivNode(
     node: serializedNodeWithId,
-    needles: string[]
+    needles: string[],
+    matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
     const hasTagName = 'tagName' in node && typeof node.tagName === 'string'
     if (!hasTagName) {
         return false
     }
     if (node.tagName === 'DIV') {
-        return needles.some((needle) => safelyCheckClassAttribute(node, needle))
+        for (const needle of needles) {
+            if (safelyCheckClassAttribute(node, needle, matchedExtensions)) {
+                return true
+            }
+        }
     }
     return false
 }
 
 function safelyCheckIDAttribute(
     node: serializedNodeWithId,
-    needles: string[]
+    needles: string[],
+    matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
     const hasID = 'attributes' in node && 'id' in node.attributes && !!node.attributes['id']
     if (!hasID) {
@@ -94,42 +118,52 @@ function safelyCheckIDAttribute(
     if (typeof idValue !== 'string') {
         return false
     }
-    return needles.some((needle) => idValue.includes(needle))
+    for (const needle of needles) {
+        if (idValue.includes(needle)) {
+            matchedExtensions.add(CHROME_EXTENSION_DENY_LIST[needle] || needle)
+            return true
+        }
+    }
+    return false
 }
 
-function stripChromeExtensionDataFromNode(node: serializedNodeWithId, needles: string[]): boolean {
+function stripChromeExtensionDataFromNode(
+    node: serializedNodeWithId,
+    needles: string[],
+    matchedExtensions: Set<string>
+): boolean {
     let stripped = false
 
-    if (safelyCheckCSSAttribute(node, 'textContent', needles)) {
+    if (safelyCheckCSSAttribute(node, 'textContent', needles, matchedExtensions)) {
         node.textContent = ''
         stripped = true
     }
-    if (safelyCheckCSSAttribute(node, '_cssText', needles)) {
+    if (safelyCheckCSSAttribute(node, '_cssText', needles, matchedExtensions)) {
         node.attributes._cssText = ''
         stripped = true
     }
-    if (safelyCheckIDAttribute(node, needles)) {
+    if (safelyCheckIDAttribute(node, needles, matchedExtensions)) {
         node.childNodes = []
         stripped = true
     }
     for (const needle of needles) {
-        if (safelyCheckClassAttribute(node, needle)) {
+        if (safelyCheckClassAttribute(node, needle, matchedExtensions)) {
             node.attributes['class'] = node.attributes['class'].replace(needle, '')
             stripped = true
         }
     }
-    if (safelyCheckDivNode(node, needles)) {
+    if (safelyCheckDivNode(node, needles, matchedExtensions)) {
         node.childNodes = []
         stripped = true
     }
-    if (safelyCheckTagName(node, needles)) {
+    if (safelyCheckTagName(node, needles, matchedExtensions)) {
         node.childNodes = []
         stripped = true
     }
 
     if ('childNodes' in node) {
         for (const childNode of node.childNodes) {
-            if (stripChromeExtensionDataFromNode(childNode, needles)) {
+            if (stripChromeExtensionDataFromNode(childNode, needles, matchedExtensions)) {
                 stripped = true
             }
         }
@@ -145,13 +179,22 @@ export function stripChromeExtensionData(snapshots: RecordingSnapshot[]): Record
     // if we find it, we're going to remove it and all of its children
     // we're going to do this in place and return the modified array
     let strippedChromeExtensionData = false
+    const matchedExtensions = new Set<string>()
 
     for (const snapshot of snapshots) {
         if (snapshot.type !== EventType.FullSnapshot) {
             continue
         }
         const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
-        if (stripChromeExtensionDataFromNode(fullSnapshot.data.node, CHROME_EXTENSION_DENY_LIST)) {
+        // it's slightly yucky that we rely on the identity of matchedExtensions here to gather matches
+        // but way simpler than trying to narrow types and return a value
+        if (
+            stripChromeExtensionDataFromNode(
+                fullSnapshot.data.node,
+                Object.keys(CHROME_EXTENSION_DENY_LIST),
+                matchedExtensions
+            )
+        ) {
             strippedChromeExtensionData = true
         }
     }
@@ -162,7 +205,9 @@ export function stripChromeExtensionData(snapshots: RecordingSnapshot[]): Record
             type: EventType.Custom,
             data: {
                 tag: 'chrome-extension-stripped',
-                payload: {},
+                payload: {
+                    extensions: Array.from(matchedExtensions),
+                },
             },
             timestamp: snapshots[0].timestamp,
             windowId: snapshots[0].windowId,
