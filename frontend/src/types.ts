@@ -5138,7 +5138,8 @@ export interface ProductManifest {
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
-    treeItems?: FileSystemImport[]
+    treeItemsNew?: FileSystemImport[]
+    treeItemsExplore?: FileSystemImport[]
 }
 
 export interface ProjectTreeRef {

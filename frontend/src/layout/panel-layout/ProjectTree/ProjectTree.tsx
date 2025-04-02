@@ -2,7 +2,7 @@ import { IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
+import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { RefObject, useEffect, useRef } from 'react'
 
@@ -14,7 +14,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const { treeData, lastViewedId, viableItems, expandedFolders, expandedSearchFolders, searchTerm } =
+    const { treeData, lastViewedId, viableItems, expandedFolders, expandedSearchFolders, searchTerm, treeItemsNew } =
         useValues(projectTreeLogic)
 
     const {
@@ -138,20 +138,22 @@ export function ProjectTree(): JSX.Element {
                     return false
                 }}
                 itemContextMenu={(item) => {
-                    if (!item.id.startsWith('project/')) {
+                    if (!item.id.startsWith('project/') && !item.id.startsWith('empty-')) {
                         return undefined
                     }
                     return (
                         <ContextMenuGroup>
-                            <ContextMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    createFolder(item.record?.path)
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
-                            </ContextMenuItem>
+                            {item.record?.type === 'folder' ? (
+                                <ContextMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        createFolder(item.record?.path)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                                </ContextMenuItem>
+                            ) : null}
                             {item.record?.path ? (
                                 <ContextMenuItem
                                     asChild
@@ -185,33 +187,75 @@ export function ProjectTree(): JSX.Element {
                                     <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
                                 </ContextMenuItem>
                             ) : null}
+                            {item.record?.type === 'folder' || item.id?.startsWith('empty-') ? (
+                                <>
+                                    {!item.id?.startsWith('empty-') ? <ContextMenuSeparator /> : null}
+                                    {treeItemsNew.map((treeItem) => (
+                                        <ContextMenuItem
+                                            key={treeItem.id}
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                treeItem.onClick?.()
+                                            }}
+                                        >
+                                            <ButtonPrimitive menuItem>New {treeItem.name}</ButtonPrimitive>
+                                        </ContextMenuItem>
+                                    ))}
+                                </>
+                            ) : null}
                         </ContextMenuGroup>
                     )
                 }}
                 itemSideAction={(item) => {
-                    if (!item.id.startsWith('project/')) {
+                    if (!item.id.startsWith('project/') && !item.id.startsWith('empty-')) {
                         return undefined
                     }
                     return (
                         <DropdownMenuGroup>
-                            <DropdownMenuItem
-                                asChild
-                                onClick={() => item.record?.path && createFolder(item.record.path)}
-                            >
-                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild onClick={() => item.record?.path && rename(item.record.path)}>
-                                <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild onClick={() => handleCopyPath(item.record?.path)}>
-                                <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                asChild
-                                onClick={() => deleteItem(item.record as unknown as FileSystemEntry)}
-                            >
-                                <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
-                            </DropdownMenuItem>
+                            {item.record?.type === 'folder' ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={() => item.record?.path && createFolder(item.record.path)}
+                                >
+                                    <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record?.path ? (
+                                <DropdownMenuItem asChild onClick={() => item.record?.path && rename(item.record.path)}>
+                                    <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record?.path ? (
+                                <DropdownMenuItem asChild onClick={() => handleCopyPath(item.record?.path)}>
+                                    <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record?.created_at ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={() => deleteItem(item.record as unknown as FileSystemEntry)}
+                                >
+                                    <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record?.type === 'folder' || item.id?.startsWith('empty-') ? (
+                                <>
+                                    {!item.id?.startsWith('empty-') ? <ContextMenuSeparator /> : null}
+                                    {treeItemsNew.map((treeItem) => (
+                                        <DropdownMenuItem
+                                            key={treeItem.id}
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                treeItem.onClick?.()
+                                            }}
+                                        >
+                                            <ButtonPrimitive menuItem>New {treeItem.name}</ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    ))}
+                                </>
+                            ) : null}
                         </DropdownMenuGroup>
                     )
                 }}
