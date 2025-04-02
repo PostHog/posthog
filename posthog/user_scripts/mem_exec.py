@@ -33,12 +33,6 @@ try:
 
     fd_path = f"/proc/self/fd/{mem_fd}"
     os.execv(fd_path, [executable] + sys.argv[2:])
-except FileNotFoundError:
-    print(f"Error: Could not find executable '{executable}'")  # noqa: T201
-    sys.exit(1)
-except PermissionError:
-    print("Error: Permission denied")  # noqa: T201
-    sys.exit(1)
 except Exception as e:
     print(f"Error: {e}")  # noqa: T201
     sys.exit(1)
