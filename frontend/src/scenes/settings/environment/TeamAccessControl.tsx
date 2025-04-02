@@ -29,8 +29,9 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
+import { ResourcesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourcesAccessControls'
 import { AvailableFeature, FusedTeamMemberType } from '~/types'
-import { RolesAndResourceAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAndResourceAccessControls'
+
 import { AddMembersModalWithButton } from './AddMembersModal'
 import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
 
@@ -233,10 +234,7 @@ export function TeamAccessControl(): JSX.Element {
         return (
             <div className="space-y-6">
                 <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
-                <div className="space-y-2">
-                    <h3>Role permissions</h3>
-                    <RolesAndResourceAccessControls showAccessControls />
-                </div>
+                <ResourcesAccessControls />
             </div>
         )
     }
