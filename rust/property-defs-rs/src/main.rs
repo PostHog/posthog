@@ -9,13 +9,12 @@ use property_defs_rs::{
     config::Config, update_consumer_loop, update_producer_loop, cache::{LayeredCache, NoOpCache},
 };
 
-use quick_cache::sync::Cache;
+use quick_cache::sync::Cache as InMemoryCache;
 use serve_metrics::{serve, setup_metrics_routes};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{
     sync::mpsc::{self},
     task::JoinHandle,
-    sync::Mutex,
 };
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -82,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
 
-    let cache = Arc::new(Cache::new(config.cache_capacity));
+    let cache = Arc::new(InMemoryCache::new(config.cache_capacity));
 
     let mut handles = Vec::new();
 
@@ -98,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Create layered cache wrapping the in-memory cache
-    let layered_cache = Arc::new(Mutex::new(LayeredCache::new(cache.clone(), NoOpCache::new())));
+    let layered_cache = Arc::new(LayeredCache::new(cache.clone(), NoOpCache::new()));
 
     handles.push(tokio::spawn(update_consumer_loop(
         config.clone(),

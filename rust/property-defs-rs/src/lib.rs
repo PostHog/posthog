@@ -13,7 +13,6 @@ use metrics_consts::{
 use types::{Event, Update};
 use quick_cache::sync::Cache;
 use crate::cache::{LayeredCache, NoOpCache};
-use tokio::sync::Mutex;
 use v2_batch_ingestion::process_batch_v2;
 
 use ahash::AHashSet;
@@ -35,7 +34,7 @@ const UPDATE_RETRY_DELAY_MS: u64 = 50;
 pub async fn update_consumer_loop(
     config: Config,
     cache: Arc<Cache<Update, ()>>,
-    layered_cache: Arc<Mutex<LayeredCache<NoOpCache>>>,
+    layered_cache: Arc<LayeredCache<NoOpCache>>,
     context: Arc<AppContext>,
     mut channel: mpsc::Receiver<Update>,
 ) {

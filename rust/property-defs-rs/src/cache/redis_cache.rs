@@ -1,29 +1,29 @@
-use redis::Client;
 use crate::types::Update;
 use super::secondary_cache::SecondaryCache;
+use redis::RedisError;
 
 #[derive(Clone)]
 pub struct RedisCache {
-    client: Client,
+    conn: redis::aio::ConnectionManager,
     ttl: u64,
 }
 
 impl RedisCache {
-    pub fn new(redis_url: &str, ttl: u64) -> Result<Self, redis::RedisError> {
-        let client = Client::open(redis_url)?;
-        Ok(Self { client, ttl })
+    pub async fn new(client: redis::Client, ttl: u64) -> Result<Self, RedisError> {
+        let conn = redis::aio::ConnectionManager::new(client).await?;
+
+        Ok(Self { conn, ttl })
     }
 }
 
+#[async_trait::async_trait]
 impl SecondaryCache for RedisCache {
-    fn insert_batch(&self, updates: &[Update]) -> Result<(), redis::RedisError> {
+    async fn insert_batch(&self, updates: &[Update]) -> Result<(), RedisError> {
         if updates.is_empty() {
             return Ok(());
         }
 
-        let mut conn = self.client.get_connection()?;
         let mut pipe = redis::pipe();
-
         for update in updates {
             let key = update.key();
             pipe.set_ex(
@@ -33,18 +33,22 @@ impl SecondaryCache for RedisCache {
             );
         }
 
-        let _: () = pipe.query(&mut conn)?;
+        let mut conn = self.conn.clone();
+        let _: () = pipe.query_async(&mut conn).await?;
         Ok(())
     }
 
-    fn get_batch(&self, updates: &[Update]) -> Result<Vec<Update>, redis::RedisError> {
+    async fn get_batch(&self, updates: &[Update]) -> Result<Vec<Update>, RedisError> {
         if updates.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut conn = self.client.get_connection()?;
+        let mut conn = self.conn.clone();
         let redis_keys: Vec<String> = updates.iter().map(|u| u.key()).collect();
-        let values: Vec<Option<String>> = redis::cmd("MGET").arg(&redis_keys).query(&mut conn)?;
+        let values: Vec<Option<String>> = redis::cmd("MGET")
+            .arg(&redis_keys)
+            .query_async(&mut conn)
+            .await?;
 
         Ok(values
             .into_iter()

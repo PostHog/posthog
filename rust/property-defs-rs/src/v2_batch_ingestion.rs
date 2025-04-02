@@ -6,7 +6,6 @@ use tokio::task::JoinHandle;
 use tracing::warn;
 use uuid::Uuid;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use crate::{
     cache::{LayeredCache, NoOpCache},
@@ -183,11 +182,11 @@ impl PropertyDefinitionsBatch {
 // HACK: making this public so the test suite file can live under "../tests/" dir
 pub async fn process_batch_v2(
     config: &Config,
-    layered_cache: Arc<Mutex<LayeredCache<NoOpCache>>>,
+    layered_cache: Arc<LayeredCache<NoOpCache>>,
     pool: &PgPool,
     batch: Vec<Update>,
 ) {
-    let cache_utilization = layered_cache.lock().await.len() as f64 / config.cache_capacity as f64;
+    let cache_utilization = layered_cache.len() as f64 / config.cache_capacity as f64;
     metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
     // TODO(eli): implement v1-style delay while cache is warming?
@@ -212,7 +211,7 @@ pub async fn process_batch_v2(
                     let pool = pool.clone();
                     let cache = layered_cache.clone();
                     handles.push(tokio::spawn(async move {
-                        write_event_definitions_batch(event_defs, &pool, &mut *cache.lock().await).await
+                        write_event_definitions_batch(event_defs, &pool, cache).await
                     }));
                     event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
@@ -223,7 +222,7 @@ pub async fn process_batch_v2(
                     let pool = pool.clone();
                     let cache = layered_cache.clone();
                     handles.push(tokio::spawn(async move {
-                        write_event_properties_batch(event_props, &pool, &mut *cache.lock().await).await
+                        write_event_properties_batch(event_props, &pool, cache).await
                     }));
                     event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
                 }
@@ -234,7 +233,7 @@ pub async fn process_batch_v2(
                     let pool = pool.clone();
                     let cache = layered_cache.clone();
                     handles.push(tokio::spawn(async move {
-                        write_property_definitions_batch(prop_defs, &pool, &mut *cache.lock().await).await
+                        write_property_definitions_batch(prop_defs, &pool, cache).await
                     }));
                     prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
@@ -247,21 +246,21 @@ pub async fn process_batch_v2(
         let pool = pool.clone();
         let cache = layered_cache.clone();
         handles.push(tokio::spawn(async move {
-            write_event_definitions_batch(event_defs, &pool, &mut *cache.lock().await).await
+            write_event_definitions_batch(event_defs, &pool, cache).await
         }));
     }
     if !prop_defs.is_empty() {
         let pool = pool.clone();
         let cache = layered_cache.clone();
         handles.push(tokio::spawn(async move {
-            write_property_definitions_batch(prop_defs, &pool, &mut *cache.lock().await).await
+            write_property_definitions_batch(prop_defs, &pool, cache).await
         }));
     }
     if !event_props.is_empty() {
         let pool = pool.clone();
         let cache = layered_cache.clone();
         handles.push(tokio::spawn(async move {
-            write_event_properties_batch(event_props, &pool, &mut *cache.lock().await).await
+            write_event_properties_batch(event_props, &pool, cache).await
         }));
     }
 
@@ -279,16 +278,16 @@ pub async fn process_batch_v2(
     }
 }
 
-async fn cache_updates(cache: &mut LayeredCache<NoOpCache>, updates: Vec<Update>) {
+async fn cache_updates(cache: &LayeredCache<NoOpCache>, updates: Vec<Update>) {
     let timer = common_metrics::timing_guard(V2_BATCH_CACHE_TIME, &[]);
-    cache.insert_batch(updates);
+    cache.insert_batch(updates).await;
     timer.fin();
 }
 
 async fn write_event_properties_batch(
     mut batch: EventPropertiesBatch,
     pool: &PgPool,
-    cache: &mut LayeredCache<NoOpCache>,
+    cache: Arc<LayeredCache<NoOpCache>>,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_WRITE_TIME, &[]);
     let mut tries = 1;
@@ -330,7 +329,7 @@ async fn write_event_properties_batch(
                 metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "success")]);
                 common_metrics::inc(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
-                cache_updates(cache, updates).await;
+                cache_updates(&cache, updates).await;
                 return Ok(());
             }
         }
@@ -340,7 +339,7 @@ async fn write_event_properties_batch(
 async fn write_property_definitions_batch(
     mut batch: PropertyDefinitionsBatch,
     pool: &PgPool,
-    cache: &mut LayeredCache<NoOpCache>,
+    cache: Arc<LayeredCache<NoOpCache>>,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
@@ -394,7 +393,7 @@ async fn write_property_definitions_batch(
                 metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
                 common_metrics::inc(V2_PROP_DEFS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
-                cache_updates(cache, updates).await;
+                cache_updates(&cache, updates).await;
                 return Ok(());
             }
         }
@@ -404,7 +403,7 @@ async fn write_property_definitions_batch(
 async fn write_event_definitions_batch(
     mut batch: EventDefinitionsBatch,
     pool: &PgPool,
-    cache: &mut LayeredCache<NoOpCache>,
+    cache: Arc<LayeredCache<NoOpCache>>,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
@@ -453,7 +452,7 @@ async fn write_event_definitions_batch(
                 metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
                 common_metrics::inc(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
-                cache_updates(cache, updates).await;
+                cache_updates(&cache, updates).await;
                 return Ok(());
             }
         }
