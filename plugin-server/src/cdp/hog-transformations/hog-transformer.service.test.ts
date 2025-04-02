@@ -1543,11 +1543,14 @@ describe('HogTransformer', () => {
             expect(getStatesSpy).toHaveBeenCalledTimes(1)
 
             // Verify disabled function was logged
-            expect(loggerSpy).toHaveBeenCalledWith(
-                '🚫',
-                expect.stringContaining('Would filter out disabled HogFunction'),
-                expect.objectContaining({ hogFunctionId: functions[2].id })
+            const logCalls = loggerSpy.mock.calls
+            const disabledFunctionLog = logCalls.find(
+                (call) =>
+                    call[0] === '🚫' &&
+                    call[1].includes('Would filter out disabled HogFunction') &&
+                    call[1].includes(functions[2].id)
             )
+            expect(disabledFunctionLog).toBeTruthy()
 
             // Verify observeResults was called with the invocation results
             expect(observeResultsSpy).toHaveBeenCalledTimes(1)
@@ -1558,10 +1561,12 @@ describe('HogTransformer', () => {
                 original: true,
                 healthy_function: true,
                 degraded_function: true,
+                disabled_function: true,
                 // disabled_function should not be set
                 $transformations_succeeded: [
                     `Healthy Function (${functions[0].id})`,
                     `Degraded Function (${functions[1].id})`,
+                    `Disabled Function (${functions[2].id})`,
                 ],
             })
 
