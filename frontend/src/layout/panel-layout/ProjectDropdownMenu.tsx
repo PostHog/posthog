@@ -2,6 +2,7 @@ import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@post
 import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -25,8 +26,8 @@ import { AvailableFeature, TeamBasicType } from '~/types'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
-        <div className="flex items-center">
-            <span>{team.name}</span>
+        <div className="flex items-center max-w-full">
+            <span className="truncate">{team.name}</span>
             {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
         </div>
     )
@@ -41,16 +42,28 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
     }, [location.pathname, team.id, team.project_id, currentTeam?.project_id])
 
     return (
-        <DropdownMenuItem asChild>
-            <ButtonGroupPrimitive menuItem fullWidth groupVariant="side-action-group">
-                <ButtonPrimitive menuItem href={relativeOtherProjectPath} sideActionLeft>
+        <ButtonGroupPrimitive menuItem fullWidth groupVariant="side-action-group">
+            <DropdownMenuItem asChild>
+                <ButtonPrimitive
+                    menuItem
+                    href={relativeOtherProjectPath}
+                    sideActionLeft
+                    tooltip={`Switch to project: ${team.name}`}
+                    tooltipPlacement="right"
+                >
                     <ProjectName team={team} />
                 </ButtonPrimitive>
-                <ButtonPrimitive href={urls.project(team.id, urls.settings('project'))} iconOnly sideActionRight>
-                    <IconGear />
-                </ButtonPrimitive>
-            </ButtonGroupPrimitive>
-        </DropdownMenuItem>
+            </DropdownMenuItem>
+            <ButtonPrimitive
+                href={urls.project(team.id, urls.settings('project'))}
+                iconOnly
+                sideActionRight
+                tooltip={`View settings for project: ${team.name}`}
+                tooltipPlacement="right"
+            >
+                <IconGear />
+            </ButtonPrimitive>
+        </ButtonGroupPrimitive>
     )
 }
 
@@ -68,17 +81,42 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                 <ButtonPrimitive>
                     <IconFolderOpen className="text-tertiary" />
                     Project
-                    <IconChevronRight className="size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                    <IconChevronRight
+                        className={`
+                        size-3 
+                        text-secondary 
+                        rotate-90 
+                        group-data-[state=open]/button-primitive:rotate-270 
+                        transition-transform 
+                        duration-200 
+                        prefers-reduced-motion:transition-none
+                    `}
+                    />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
 
-            <DropdownMenuContent loop align="start" className="min-w-[200px]">
+            <DropdownMenuContent
+                loop
+                align="start"
+                className={`
+                min-w-[200px] 
+                max-w-[var(--project-panel-inner-width)] 
+                max-h-[calc(var(--radix-dropdown-menu-content-available-height)-100px)]
+            `}
+            >
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <div className="flex flex-col gap-px">
+                <ScrollableShadows direction="vertical" className="flex flex-col gap-px w-auto" styledScrollbars>
                     <DropdownMenuItem asChild>
                         <ButtonGroupPrimitive fullWidth groupVariant="side-action-group">
-                            <ButtonPrimitive menuItem active disabled sideActionLeft>
+                            <ButtonPrimitive
+                                menuItem
+                                active
+                                disabled
+                                sideActionLeft
+                                tooltip={`Current project: ${currentTeam.name}`}
+                                tooltipPlacement="right"
+                            >
                                 <ProjectName team={currentTeam} />
                             </ButtonPrimitive>
                             <ButtonPrimitive
@@ -86,6 +124,8 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 href={urls.project(currentTeam.id, urls.settings('project'))}
                                 iconOnly
                                 sideActionRight
+                                tooltip={`View settings for project: ${currentTeam.name}`}
+                                tooltipPlacement="right"
                             >
                                 <IconGear className="text-tertiary" />
                             </ButtonPrimitive>
@@ -108,13 +148,18 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 })
                             }
                         >
-                            <ButtonPrimitive menuItem data-attr="new-project-button">
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="new-project-button"
+                                tooltip="Create a new project"
+                                tooltipPlacement="right"
+                            >
                                 <IconPlusSmall className="text-tertiary" />
                                 New project
                             </ButtonPrimitive>
                         </DropdownMenuItem>
                     )}
-                </div>
+                </ScrollableShadows>
             </DropdownMenuContent>
         </DropdownMenu>
     ) : null

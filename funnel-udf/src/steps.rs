@@ -215,8 +215,9 @@ impl AggregateFunnelRow {
                 *step
             }) as usize;
 
-            let in_match_window = (event.timestamp - vars.entered_timestamp[step - 1].timestamp)
-                <= args.conversion_window_limit as f64;
+            let in_match_window = vars.entered_timestamp[step - 1].timestamp != 0.0
+                && event.timestamp - vars.entered_timestamp[step - 1].timestamp
+                    <= args.conversion_window_limit as f64;
             let previous_step_excluded = vars.entered_timestamp[step - 1].excluded;
             let already_reached_this_step = vars.entered_timestamp[step].timestamp
                 == vars.entered_timestamp[step - 1].timestamp

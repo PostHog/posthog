@@ -312,7 +312,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             loop
                                                             align="end"
                                                             side="bottom"
-                                                            className="max-w-[150px]"
+                                                            className="max-w-[250px]"
                                                         >
                                                             {itemSideAction(item)}
                                                         </DropdownMenuContent>
@@ -322,7 +322,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         </ContextMenuTrigger>
 
                                         {isContextMenuOpenForItem === item.id && itemContextMenu?.(item) ? (
-                                            <ContextMenuContent loop className="max-w-[150px]">
+                                            <ContextMenuContent loop className="max-w-[250px]">
                                                 {itemContextMenu(item)}
                                             </ContextMenuContent>
                                         ) : null}
