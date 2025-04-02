@@ -4,7 +4,7 @@ import openai
 from prometheus_client import Histogram
 import yaml
 
-from ee.session_recordings.ai.utils import SessionSummaryPromptData, shorten_url
+from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData, shorten_url
 from ee.session_recordings.session_summary.utils import (
     load_session_metadata_from_json,
     load_sesssion_recording_events_from_csv,
