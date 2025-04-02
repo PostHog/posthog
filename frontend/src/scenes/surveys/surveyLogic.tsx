@@ -22,6 +22,7 @@ import {
     FeatureFlagFilters,
     IntervalType,
     MultipleSurveyQuestion,
+    ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
@@ -200,14 +201,14 @@ const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
 function getSurveyStartDateForQuery(survey: Survey): string {
     return survey.start_date
-        ? dayjs(survey.start_date).startOf('day').format(DATE_FORMAT)
-        : dayjs(survey.created_at).startOf('day').format(DATE_FORMAT)
+        ? dayjs(survey.start_date).utc().startOf('day').format(DATE_FORMAT)
+        : dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
 }
 
 function getSurveyEndDateForQuery(survey: Survey): string {
     return survey.end_date
-        ? dayjs(survey.end_date).endOf('day').format(DATE_FORMAT)
-        : dayjs().endOf('day').format(DATE_FORMAT)
+        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
+        : dayjs().utc().endOf('day').format(DATE_FORMAT)
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -1218,6 +1219,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
                 { key: [Scene.Survey, survey?.id || 'new'], name: survey.name },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: SurveyLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'survey', ref: String(id) }),
         ],
         dataTableQuery: [
             (s) => [s.survey, s.propertyFilters, s.answerFilters],

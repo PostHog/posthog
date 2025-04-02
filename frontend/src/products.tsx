@@ -264,44 +264,28 @@ export const fileSystemTypes = {
 }
 
 /** This const is auto-generated, as is the whole file */
-export const treeItems = [
-    { path: `Create new/Broadcast`, type: 'broadcast', href: () => urls.messagingBroadcastNew() },
-    { path: `Create new/Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
-    { path: `Create new/Experiment`, type: 'experiment', href: () => urls.experiment('new') },
-    { path: `Create new/Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
-    { path: `Create new/Insight/Funnels`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
-    {
-        path: `Create new/Insight/Lifecycle`,
-        type: 'insight',
-        href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
-    },
-    {
-        path: `Create new/Insight/Retention`,
-        type: 'insight',
-        href: () => urls.insightNew({ type: InsightType.RETENTION }),
-    },
-    {
-        path: `Create new/Insight/Stickiness`,
-        type: 'insight',
-        href: () => urls.insightNew({ type: InsightType.STICKINESS }),
-    },
-    { path: `Create new/Insight/Trends`, type: 'insight', href: () => urls.insightNew({ type: InsightType.TRENDS }) },
-    {
-        path: `Create new/Insight/User paths`,
-        type: 'insight',
-        href: () => urls.insightNew({ type: InsightType.PATHS }),
-    },
-    { path: `Create new/Notebook`, type: 'notebook', href: () => urls.notebook('new') },
-    { path: 'Explore/Data management/Actions', icon: <IconRocket />, href: () => urls.actions() },
-    { path: 'Explore/Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
-    { path: 'Explore/People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
-    { path: 'Explore/Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
-    { path: 'Explore/Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
-    { path: 'Explore/Recordings/Settings', href: () => urls.replay(ReplayTabs.Settings), icon: <IconRewindPlay /> },
-    {
-        path: 'Explore/Recordings/What to watch',
-        href: () => urls.replay(ReplayTabs.Templates),
-        icon: <IconRewindPlay />,
-    },
-    { path: 'Explore/Web Analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
+export const treeItemsNew = [
+    { path: `Broadcast`, type: 'broadcast', href: () => urls.messagingBroadcastNew() },
+    { path: `Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
+    { path: `Experiment`, type: 'experiment', href: () => urls.experiment('new') },
+    { path: `Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
+    { path: `Insight - Funnels`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
+    { path: `Insight - Lifecycle`, type: 'insight', href: () => urls.insightNew({ type: InsightType.LIFECYCLE }) },
+    { path: `Insight - Retention`, type: 'insight', href: () => urls.insightNew({ type: InsightType.RETENTION }) },
+    { path: `Insight - Stickiness`, type: 'insight', href: () => urls.insightNew({ type: InsightType.STICKINESS }) },
+    { path: `Insight - Trends`, type: 'insight', href: () => urls.insightNew({ type: InsightType.TRENDS }) },
+    { path: `Insight - User paths`, type: 'insight', href: () => urls.insightNew({ type: InsightType.PATHS }) },
+    { path: `Notebook`, type: 'notebook', href: () => urls.notebook('new') },
+]
+
+/** This const is auto-generated, as is the whole file */
+export const treeItemsExplore = [
+    { path: 'Data management/Actions', icon: <IconRocket />, href: () => urls.actions() },
+    { path: 'Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
+    { path: 'People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
+    { path: 'Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
+    { path: 'Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
+    { path: 'Recordings/Settings', href: () => urls.replay(ReplayTabs.Settings), icon: <IconRewindPlay /> },
+    { path: 'Recordings/What to watch', href: () => urls.replay(ReplayTabs.Templates), icon: <IconRewindPlay /> },
+    { path: 'Web Analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
 ]

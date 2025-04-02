@@ -64,10 +64,10 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
             group_type_mapping = GroupTypeMapping.objects.get(
-                team=self.team, project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
-            raise NotFound()
+            raise NotFound(detail="Group type not found")
 
         if group_type_mapping.detail_dashboard:
             return response.Response(
@@ -84,10 +84,10 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
     def set_default_columns(self, request: request.Request, **kw):
         try:
             group_type_mapping = GroupTypeMapping.objects.get(
-                team=self.team, project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
-            raise NotFound()
+            raise NotFound(detail="Group type not found")
 
         group_type_mapping.default_columns = request.data["default_columns"]
         group_type_mapping.save()
@@ -215,6 +215,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                         },
                         status=400,
                     )
+            try:
+                group_type_mapping = GroupTypeMapping.objects.get(
+                    project_id=self.team.project_id, group_type_index=group.group_type_index
+                )
+            except GroupTypeMapping.DoesNotExist:
+                raise NotFound()
             original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
@@ -237,7 +243,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 event={
                     "event": "$groupidentify",
                     "properties": {
-                        "$group_type_index": group.group_type_index,
+                        "$group_type": group_type_mapping.group_type,
                         "$group_key": group.group_key,
                         "$group_set": {request.data["key"]: request.data["value"]},
                     },
@@ -300,6 +306,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                         },
                         status=400,
                     )
+            try:
+                group_type_mapping = GroupTypeMapping.objects.get(
+                    project_id=self.team.project_id, group_type_index=group.group_type_index
+                )
+            except GroupTypeMapping.DoesNotExist:
+                raise NotFound()
             original_value = group.group_properties[request.data["$unset"]]
             del group.group_properties[request.data["$unset"]]
             group.save()
@@ -322,7 +334,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 event={
                     "event": "$delete_group_property",
                     "properties": {
-                        "$group_type_index": group.group_type_index,
+                        "$group_type": group_type_mapping.group_type,
                         "$group_key": group.group_key,
                         "$group_unset": [request.data["$unset"]],
                     },
