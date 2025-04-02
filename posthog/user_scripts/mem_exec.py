@@ -32,11 +32,11 @@ try:
                 break
             os.write(mem_fd, chunk)
 
-        # Prepare the /proc/self/fd path for execution
-        fd_path = f"/proc/self/fd/{mem_fd}"
+    # Prepare the /proc/self/fd path for execution
+    fd_path = f"/proc/self/fd/{mem_fd}"
 
-        # Execute the in-memory file
-        os.execv(fd_path, [executable] + sys.argv[2:])
+    # Execute the in-memory file
+    os.execv(fd_path, [executable] + sys.argv[2:])
 except FileNotFoundError:
     print(f"Error: Could not find executable '{executable}'")  # noqa: T201
     sys.exit(1)
