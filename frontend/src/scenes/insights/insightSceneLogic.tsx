@@ -219,9 +219,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             }),
                         onRename: insightLogicRef?.logic.values.canEditInsight
                             ? async (name: string) => {
-                                  await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+                                  await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name }, false)
                               }
                             : undefined,
+                        forceEditMode: insightLogicRef?.logic.values.canEditInsight,
                     },
                 ]
             },
