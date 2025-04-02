@@ -42,9 +42,8 @@ class MockStripeAPI:
         # Stripe returns data in reverse chronological order
         filtered_data = sorted(data, key=lambda x: x["created"], reverse=True)
 
-        if self.max_created:
+        if self.max_created is not None:
             filtered_data = [tx for tx in filtered_data if tx["created"] <= self.max_created]
-
         # Handle query params (only those we use are implemented here)
         query = parse_qs(urlparse(request.url).query)
         if "created[gte]" in query:
