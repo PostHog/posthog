@@ -38,6 +38,12 @@ export const hogTransformationCompleted = new Counter({
     labelNames: ['type'],
 })
 
+export const hogTransformationDisabled = new Counter({
+    name: 'hog_transformation_disabled_total',
+    help: 'Number of times a transformation was skipped due to being disabled',
+    labelNames: ['team_id', 'function_id', 'state'],
+})
+
 export const hogWatcherLatency = new Histogram({
     name: 'hog_watcher_latency_seconds',
     help: 'Time spent in HogWatcher operations in seconds during ingestion',
@@ -161,10 +167,13 @@ export class HogTransformerService {
                         // If the function is in a degraded state, skip it
                         // If no state is found, we will continue with the transformation
                         if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
-                            logger.info(
-                                '🚫',
-                                `Would filter out disabled HogFunction: ${hogFunction.name} (${hogFunction.id}) for team ${hogFunction.team_id}, state: ${functionState}`
-                            )
+                            hogTransformationDisabled
+                                .labels({
+                                    team_id: hogFunction.team_id.toString(),
+                                    function_id: hogFunction.id,
+                                    state: HogWatcherState[functionState],
+                                })
+                                .inc()
                             // For now we continue with the transformation, but in the future this will be a skip
                         }
                     }

@@ -123,16 +123,9 @@ export class HogFunctionManagerService {
             return acc
         }, {})
 
-        const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
-
-        if (!teamHogFunctions) {
-            return result
-        }
-
-        const hogFunctionIds = Object.values(teamHogFunctions).flatMap(
-            (teamFns) => teamFns?.filter((fn) => types.includes(fn.type)).map((fn) => fn.id) ?? []
-        )
-        const hogFunctions = await this.lazyLoader.getMany(hogFunctionIds)
+        const teamHogFunctionIds = await this.getHogFunctionIdsForTeams(teamIds, types)
+        const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
+        const hogFunctions = await this.lazyLoader.getMany(allHogFunctionIds)
 
         for (const fn of Object.values(hogFunctions)) {
             if (!fn) {

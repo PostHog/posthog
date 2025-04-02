@@ -18,6 +18,7 @@ import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionTemplate } from '../templates/types'
 import { HogTransformerService } from './hog-transformer.service'
 import { hogWatcherLatency } from './hog-transformer.service'
+import { hogTransformationDisabled } from './hog-transformer.service'
 
 const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {
     return {
@@ -1519,10 +1520,13 @@ describe('HogTransformer', () => {
             const getStatesSpy = jest
                 .spyOn(hogTransformer['hogWatcher'], 'getStates')
                 .mockResolvedValue(Promise.resolve(mockStates))
-            const loggerSpy = jest.spyOn(logger, 'info')
             const observeResultsSpy = jest
                 .spyOn(hogTransformer['hogWatcher'], 'observeResults')
                 .mockImplementation(() => Promise.resolve())
+
+            // Mock the metric increment function
+            const metricIncrementSpy = jest.fn()
+            jest.spyOn(hogTransformationDisabled, 'labels').mockReturnValue({ inc: metricIncrementSpy })
 
             // Pre-load states
             await hogTransformer.saveHogFunctionStates(functions.map((f) => f.id))
@@ -1542,15 +1546,13 @@ describe('HogTransformer', () => {
             // Verify states were used from cache (getStates only called once during preload)
             expect(getStatesSpy).toHaveBeenCalledTimes(1)
 
-            // Verify disabled function was logged
-            const logCalls = loggerSpy.mock.calls
-            const disabledFunctionLog = logCalls.find(
-                (call) =>
-                    call[0] === '🚫' &&
-                    call[1].includes('Would filter out disabled HogFunction') &&
-                    call[1].includes(functions[2].id)
-            )
-            expect(disabledFunctionLog).toBeTruthy()
+            // Verify metric was incremented for disabled function with correct labels
+            expect(hogTransformationDisabled.labels).toHaveBeenCalledWith({
+                team_id: teamId.toString(),
+                function_id: functions[2].id,
+                state: 'disabledForPeriod',
+            })
+            expect(metricIncrementSpy).toHaveBeenCalledTimes(1)
 
             // Verify observeResults was called with the invocation results
             expect(observeResultsSpy).toHaveBeenCalledTimes(1)
@@ -1572,8 +1574,8 @@ describe('HogTransformer', () => {
 
             // Clean up spies
             getStatesSpy.mockRestore()
-            loggerSpy.mockRestore()
             observeResultsSpy.mockRestore()
+            jest.spyOn(hogTransformationDisabled, 'labels').mockRestore()
         })
     })
 })
