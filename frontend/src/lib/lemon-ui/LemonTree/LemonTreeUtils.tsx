@@ -15,10 +15,10 @@ type IconProps = {
     handleCheckedChange?: (checked: boolean) => void
 }
 
-// Get the node or folder icon
-// If no icon is provided, use a defaultNodeIcon icon
-// If no defaultNodeIcon icon is provided, use empty div
-export function getIcon({
+// Get display item for the tree node
+// This is used to render the tree node in the tree view
+// It can render an icon or checkbox
+export function renderTreeNodeDisplayItem({
     item,
     expandedItemIds,
     defaultNodeIcon,
@@ -27,7 +27,6 @@ export function getIcon({
     handleCheckedChange,
 }: IconProps): JSX.Element {
     const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
-
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
     const isFile = item.record?.type === 'file'
@@ -50,14 +49,14 @@ export function getIcon({
                         ICON_CLASSES,
                         'z-3 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover/lemon-tree-icon-group:opacity-100 transition-opacity duration-150',
                         {
-                            'opacity-0': !checkedItems.includes(item.id),
-                            'opacity-100': checkedItems.includes(item.id),
+                            'opacity-0': !isChecked,
+                            'opacity-100': isChecked,
                         }
                     )}
                 >
                     <LemonCheckbox
                         className="size-5 ml-[2px]"
-                        checked={checkedItems.includes(item.id)}
+                        checked={isChecked}
                         onChange={(checked) => {
                             handleCheckedChange?.(checked)
                         }}
