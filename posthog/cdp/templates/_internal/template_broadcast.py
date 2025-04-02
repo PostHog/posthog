@@ -12,7 +12,7 @@ template_new_broadcast: HogFunctionTemplate = HogFunctionTemplate(
     hog="""sendEmail(inputs)""".strip(),
     inputs_schema=[
         {
-            "key": "email",
+            "key": "auth",
             "type": "integration",
             "integration": "email",
             "label": "Email integration",

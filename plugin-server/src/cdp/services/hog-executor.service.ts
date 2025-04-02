@@ -544,15 +544,15 @@ export class HogExecutorService {
                                 throw new Error('sendEmail: Invalid inputs')
                             }
 
-                            const { mail, email } = inputs
+                            const { auth, email } = inputs
 
-                            if (!mail) {
+                            if (!auth) {
                                 throw new Error('sendEmail: Must provide a mail integration')
                             }
 
                             const fetchQueueParameters = this.enrichFetchRequest({
                                 // TODO: Add support for other providers
-                                ...createMailjetRequest(email, mail),
+                                ...createMailjetRequest(email, auth),
                                 return_queue: 'hog',
                             })
 
