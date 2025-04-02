@@ -54,9 +54,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
   [
     "transformEventStep",
     [
-      null,
-      [],
-    ],
+      null,    ],
   ],
   [
     "normalizeEventStep",
