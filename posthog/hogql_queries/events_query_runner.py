@@ -10,7 +10,7 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
-from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -217,65 +217,36 @@ class EventsQueryRunner(QueryRunner):
                     and (order_by is not None and len(order_by) == 1 and order_by[0].expr.chain == ["timestamp"])
                     and not has_any_aggregation
                 ):
+                    inner_query = parse_select(
+                        f"""
+                            SELECT timestamp, event, cityHash64(distinct_id) as did, cityHash64(uuid) as uuid
+                            FROM events
+                            WHERE {{where}}
+                            ORDER BY toDate(timestamp) {order_by[0].order}
+                        """,
+                        {
+                            "where": stmt.where,
+                            # "limit": stmt.limit, # TODO: Add limit
+                        },
+                    )
+
                     stmt.where = ast.And(
                         exprs=[
                             ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
+                                op=ast.CompareOperationOp.In,
                                 left=ast.Tuple(
                                     exprs=[
-                                        ast.Field(chain=["e", "timestamp"]),
-                                        ast.Field(chain=["e", "event"]),
+                                        ast.Field(chain=["timestamp"]),
+                                        ast.Field(chain=["event"]),
                                         ast.Call(
                                             name="cityHash64",
-                                            args=[ast.Field(chain=["e", "distinct_id"])],
+                                            args=[ast.Field(chain=["distinct_id"])],
                                             distinct=False,
                                         ),
-                                        ast.Call(name="cityHash64", args=[ast.Field(chain=["e", "uuid"])]),
+                                        ast.Call(name="cityHash64", args=[ast.Field(chain=["uuid"])]),
                                     ]
                                 ),
-                                right=ast.SelectQuery(
-                                    select=[
-                                        [
-                                            ast.Field(chain=["needle", "timestamp"]),
-                                            ast.Field(chain=["needle", "event"]),
-                                            ast.Field(chain=["needle", "did"]),
-                                            ast.Field(chain=["needle", "uuid"]),
-                                        ]
-                                    ],
-                                    select_from=ast.JoinExpr(
-                                        alias="needle",
-                                        table=ast.SelectQuery(
-                                            select=[
-                                                ast.Field(chain=["timestamp"]),
-                                                ast.Field(chain=["event"]),
-                                                ast.Alias(
-                                                    alias="did",
-                                                    expr=ast.Call(
-                                                        name="cityHash64", args=[ast.Field(chain=["distinct_id"])]
-                                                    ),
-                                                ),
-                                                ast.Alias(
-                                                    alias="uuid",
-                                                    expr=ast.Call(name="cityHash64", args=[ast.Field(chain=["uuid"])]),
-                                                ),
-                                            ],
-                                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                                            where=ast.And(exprs=[stmt.where]),
-                                            order_by=[
-                                                ast.OrderExpr(
-                                                    expr=ast.Call(
-                                                        name="toDate",
-                                                        args=[
-                                                            ast.Field(chain=["events", "timestamp"]),
-                                                        ],
-                                                    ),
-                                                    order="DESC",  # TODO: use order from order_by
-                                                )
-                                            ],
-                                            # limit=ast.Constant(value=50000), # TODO: implement using limit context
-                                        ),
-                                    ),
-                                ),
+                                right=inner_query,
                             ),
                             stmt.where,
                         ]
