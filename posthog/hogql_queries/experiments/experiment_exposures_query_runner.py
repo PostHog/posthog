@@ -36,6 +36,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
+        self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
@@ -136,16 +137,20 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 ),
             )
 
+        entity = "person_id"
+        if isinstance(self.group_type_index, int):
+            entity = f"$group_{self.group_type_index}"
+
         exposure_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["subq", "day"]),
                 ast.Field(chain=["subq", "variant"]),
-                parse_expr("count(person_id) as exposed_count"),
+                parse_expr("count(entity_id) as exposed_count"),
             ],
             select_from=ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
-                        ast.Field(chain=["person_id"]),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=[entity])),
                         ast.Alias(
                             alias="variant",
                             expr=parse_expr(
@@ -161,7 +166,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     where=ast.And(exprs=exposure_conditions),
                     group_by=[
-                        ast.Field(chain=["person_id"]),
+                        ast.Field(chain=["entity_id"]),
                     ],
                 ),
                 alias="subq",

@@ -128,6 +128,8 @@ pub fn router<
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
+        .route("/i/v0", get(index))
+        .route("/i/v0/", get(index))
         .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 
     let status_router = Router::new()

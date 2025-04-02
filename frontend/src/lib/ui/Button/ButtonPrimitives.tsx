@@ -132,6 +132,7 @@ const buttonVariants = cva({
     base: `
         button-primitive
         group/button-primitive
+        cursor-pointer
         inline-flex
         w-fit
         relative
@@ -139,7 +140,6 @@ const buttonVariants = cva({
         rounded-md
         font-normal
         aria-disabled:cursor-not-allowed
-        aria-disabled:pointer-events-none
         aria-disabled:opacity-50
         text-current
         [&_svg]:shrink-0
@@ -152,12 +152,12 @@ const buttonVariants = cva({
                 text-primary 
                 max-w-full
                 not-disabled:hover:bg-fill-button-tertiary-hover 
-                data-[focused=true]:bg-fill-button-tertiary-hover 
-                data-[active=true]:bg-fill-button-tertiary-active 
-                data-[current=true]:bg-fill-button-tertiary-active 
-                data-[state=open]:bg-fill-button-tertiary-active 
-                data-[state=checked]:bg-fill-button-tertiary-active
-                data-highlighted:bg-fill-button-tertiary-active
+                not-disabled:data-[focused=true]:bg-fill-button-tertiary-hover 
+                not-disabled:data-[active=true]:bg-fill-button-tertiary-active 
+                not-disabled:data-[current=true]:bg-fill-button-tertiary-active 
+                not-disabled:data-[state=open]:bg-fill-button-tertiary-active 
+                not-disabled:data-[state=checked]:bg-fill-button-tertiary-active
+                not-disabled:data-highlighted:bg-fill-button-tertiary-active
             `,
             // Outline variant (aka posthog secondary button)
             outline: `
@@ -302,6 +302,18 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
     const externalProps = external && href ? { target: '_blank' } : {}
     // Determine the element props
     const elementProps = href ? { href, ...rest } : rest
+
+    // If the button is an anchor and has an onClick, and is not external, prevent the default action and call the onClick
+    if (href && rest.onClick && !external) {
+        const handleClick = (e: React.MouseEvent): void => {
+            // Allow command/ctrl click to open in new tab
+            if (!e.metaKey && !e.ctrlKey) {
+                e.preventDefault()
+            }
+            rest?.onClick?.(e as any)
+        }
+        elementProps.onClick = handleClick
+    }
 
     let buttonComponent: JSX.Element = React.createElement(
         Comp,
