@@ -81,9 +81,9 @@ def _mock_to_object_store_rs_credentials(class_self):
 @pytest.fixture
 def external_data_source(team):
     source = ExternalDataSource.objects.create(
-        source_id=uuid.uuid4(),
-        connection_id=uuid.uuid4(),
-        destination_id=uuid.uuid4(),
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
         team=team,
         status="running",
         source_type="Stripe",

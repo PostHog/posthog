@@ -93,7 +93,7 @@ class PipelineNonDLT:
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
         self._shutdown_monitor = shutdown_monitor
-        self._last_incremental_field_value = None
+        self._last_incremental_field_value: Any = None
 
     def run(self):
         pa_memory_pool = pa.default_memory_pool()
@@ -236,7 +236,7 @@ class PipelineNonDLT:
         # we'd not process older data the next time we retry.
         last_value = _get_incremental_field_last_value(self._schema, pa_table)
         if last_value is not None:
-            if self._last_incremental_field_value is None or last_value > self._last_incremental_field_value:
+            if (self._last_incremental_field_value is None) or (last_value > self._last_incremental_field_value):
                 self._last_incremental_field_value = last_value
             if self._resource.sort_mode == "asc":
                 self._logger.debug(f"Updating incremental_field_last_value with {self._last_incremental_field_value}")

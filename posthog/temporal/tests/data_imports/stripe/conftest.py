@@ -1,9 +1,15 @@
 import re
+from typing import Any, TypedDict
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from posthog.temporal.tests.data_imports.stripe.data import BALANCE_TRANSACTIONS
+
+
+class StripeData(TypedDict):
+    id: str
+    created: int
 
 
 class MockStripeAPI:
@@ -20,22 +26,22 @@ class MockStripeAPI:
 
     def __init__(self, requests_mock):
         self.requests_mock = requests_mock
-        self.max_created = None
+        self.max_created: int | None = None
         self.requests_mock.get(re.compile(r"https://api\.stripe\.com/v1/.*"), json=self.get_resources)
 
-    def set_max_created(self, max_created):
+    def set_max_created(self, max_created: int) -> None:
         self.max_created = max_created
 
-    def reset_max_created(self):
+    def reset_max_created(self) -> None:
         self.max_created = None
 
-    def get_resources(self, request, context):
+    def get_resources(self, request: Any, context: Any) -> dict:
         # Get the path without query string, then get the last segment
         resource = urlparse(request.url).path.split("/")[-1]
-        data: list[dict] = []
+        data: list[StripeData] = []
         match resource:
             case "balance_transactions":
-                data = BALANCE_TRANSACTIONS
+                data = BALANCE_TRANSACTIONS  # type: ignore
             case _:
                 raise ValueError(f"Mock Stripe API: Unknown resource: {resource}")
 
