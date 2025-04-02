@@ -12,10 +12,10 @@ template_new_campaign: HogFunctionTemplate = HogFunctionTemplate(
     hog="""sendEmail(inputs)""".strip(),
     inputs_schema=[
         {
-            "key": "mail",
+            "key": "auth",
             "type": "integration",
-            "integration": "mail",
-            "label": "Mail integration",
+            "integration": "email",
+            "label": "Email integration",
             "secret": False,
             "required": True,
         },

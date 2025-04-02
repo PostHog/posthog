@@ -30,6 +30,7 @@ HogFunctionTemplateType = Literal[
     "broadcast",
     "activity",
     "alert",
+    "campaign",
 ]
 
 
