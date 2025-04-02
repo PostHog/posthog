@@ -339,7 +339,7 @@ mod test {
         .unwrap()
     }
 
-    #[sqlx::test(migrations = "./tests/test_migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_successful_lookup(db: PgPool) {
         let server = MockServer::start();
 
@@ -401,7 +401,7 @@ mod test {
         map_mock.assert_hits(1);
     }
 
-    #[sqlx::test(migrations = "./tests/test_migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_symbol_set_404_handling(db: PgPool) {
         let server = MockServer::start();
 
@@ -446,7 +446,7 @@ mod test {
         assert!(record.storage_ptr.is_none());
     }
 
-    #[sqlx::test(migrations = "./tests/test_migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_invalid_sourcemap_handling(db: PgPool) {
         let server = MockServer::start();
 

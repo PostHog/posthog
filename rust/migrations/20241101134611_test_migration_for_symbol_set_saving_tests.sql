@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS posthog_errortrackingstackframe (
 CREATE TABLE IF NOT EXISTS posthog_errortrackingissue (
     id UUID PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    status TEXT,
+    status TEXT NOT NULL,
     team_id INTEGER NOT NULL
 );
 
@@ -38,5 +38,6 @@ CREATE TABLE IF NOT EXISTS posthog_errortrackingissuefingerprintv2 (
     version BIGINT NOT NULL,
     team_id INTEGER NOT NULL,
     issue_id UUID NOT NULL,
+    first_seen timestamp with time zone,
     UNIQUE(team_id, fingerprint)
 );

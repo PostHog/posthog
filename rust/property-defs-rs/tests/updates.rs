@@ -5,7 +5,7 @@ use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, PgPool};
 use uuid::Uuid;
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
+#[sqlx::test(migrations = "./migrations")]
 async fn test_updates(db: PgPool) {
     let properties = r#"
         {
@@ -106,7 +106,7 @@ async fn test_updates(db: PgPool) {
     .unwrap();
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
+#[sqlx::test(migrations = "./migrations")]
 async fn test_update_on_project_id_conflict(db: PgPool) {
     let definition_created_at: DateTime<Utc> = Utc::now() - Duration::days(1);
     let mut args = PgArguments::default();

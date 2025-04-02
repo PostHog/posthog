@@ -1,0 +1,13 @@
+# sourced by migration scripts
+
+function log() {
+  set +x
+  if [[ "${1:-}" == "--err" ]]; then
+    shift 1
+    echo -e "\n\033[1m[ERROR]\t$@\033[0m\n" >&2
+  else
+    echo -e "\n\033[1m[INFO]\t$@\033[0m\n"
+  fi
+  set -x
+}
+

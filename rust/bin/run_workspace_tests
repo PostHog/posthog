@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+#
+## Run *full workspace* test schema migrations, and all subproject test suites
+#
+
+# single, optional argument: the name of a subpackage to test.
+# if empty, defaults to full-workspace test run
+SUBPKG_NAME="${1:-workspace}"
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+source "$SCRIPT_DIR/util"
+
+# pull DATABASE_URL for the shared test DB into the local env
+# SQLX query cache requires a single shared test DB with all
+# schemas defined, but this also works fine in test-scope for
+# non-SQLX subprojects
+source "$SCRIPT_DIR/../.env"
+
+# run the migrations (test schemas + django postgres models only!)
+$SCRIPT_DIR/migrate_tests
+
+# run the workspace test suite using limited # of threads, to
+# avoid overwhelming the posthog Docker Compose rig
+
+# if a workspace subpackage name was provided, only
+# execute the test suite for that package (used in CI)
+OPTIONAL_SUBPKG_TARGET=""
+if [[ "$SUBPKG_NAME" != "workspace" ]]; then
+  OPTIONAL_SUBPKG_TARGET="-p $SUBPKG_NAME"
+fi
+
+log "Executing cargo test with target: $SUBPKG_NAME"
+cargo test $OPTIONAL_SUBPKG_TARGET -- --test-threads=4

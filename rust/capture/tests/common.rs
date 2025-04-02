@@ -45,7 +45,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_message_timeout_ms: 10000, // 10s, ACKs can be slow on low volumes, should be tuned
         kafka_producer_message_max_bytes: 1000000, // 1MB, rdkafka default
         kafka_compression_codec: "none".to_string(),
-        kafka_hosts: "kafka:9092".to_string(),
+        kafka_hosts: "localhost:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
         kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
         kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),

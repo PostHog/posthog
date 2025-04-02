@@ -253,7 +253,7 @@ mod test {
         }
     }
 
-    #[sqlx::test(migrations = "./tests/test_migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_successful_chunk_idlookup(db: PgPool) {
         let mut config = Config::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
@@ -293,7 +293,7 @@ mod test {
         chunk_id_fetcher.lookup(1, r).await.unwrap();
     }
 
-    #[sqlx::test(migrations = "./tests/test_migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_frame_uses_right_resolver(db: PgPool) {
         let mut config = Config::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
