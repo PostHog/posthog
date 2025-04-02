@@ -7,6 +7,7 @@ import { ActivityScope } from '~/types'
 
 export enum Scene {
     Error404 = '404',
+    ErrorAccessDenied = 'AccessDenied',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
