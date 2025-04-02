@@ -13,7 +13,6 @@ const CHROME_EXTENSION_DENY_LIST: Record<string, string> = {
     mloajfnmjckfjbeeofcdaecbelnblden: 'snap and read',
     aitopia: 'aitopia',
     becfinhbfclcgokjlobojlnldbfillpf: 'aitopia',
-    liecbddmkiiihnedobmlmillhodjkdmb: 'loom',
 }
 
 interface IsStrippable {
