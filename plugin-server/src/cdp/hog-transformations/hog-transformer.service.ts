@@ -146,23 +146,27 @@ export class HogTransformerService {
                 const transformationsFailed: string[] = event.properties?.$transformations_failed || []
                 const transformationsSkipped: string[] = event.properties?.$transformations_skipped || []
 
+                const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
-                    // Check if function is in a degraded state
-                    let functionState = this.getHogFunctionState(hogFunction.id)
-                    if (!functionState) {
-                        functionState = await this.handleCacheMiss(hogFunction.id)
-                    }
+                    if (shouldRunHogWatcher) {
+                        // Check if function is in a degraded state
+                        let functionState = this.getHogFunctionState(hogFunction.id)
+                        if (!functionState) {
+                            functionState = await this.handleCacheMiss(hogFunction.id)
+                        }
 
-                    // If the function is in a degraded state, skip it
-                    // If no state is found, we will continue with the transformation
-                    if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
-                        logger.info(
-                            '🚫',
-                            `Would filter out disabled HogFunction: ${hogFunction.name} (${hogFunction.id}) for team ${hogFunction.team_id}, state: ${functionState}`
-                        )
-                        // For now we continue with the transformation, but in the future this will be a skip
+                        // If the function is in a degraded state, skip it
+                        // If no state is found, we will continue with the transformation
+                        if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
+                            logger.info(
+                                '🚫',
+                                `Would filter out disabled HogFunction: ${hogFunction.name} (${hogFunction.id}) for team ${hogFunction.team_id}, state: ${functionState}`
+                            )
+                            // For now we continue with the transformation, but in the future this will be a skip
+                        }
                     }
 
                     // Check if we should apply this transformation based on its filters
@@ -274,7 +278,6 @@ export class HogTransformerService {
 
                 // Observe the results to update degraded state of HogFunctions
                 const watcherPromises: Promise<void>[] = []
-                const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
                 if (shouldRunHogWatcher) {
                     const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
                     const watcherPromise = this.hogWatcher
