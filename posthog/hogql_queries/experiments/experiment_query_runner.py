@@ -67,6 +67,11 @@ class ExperimentQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
+        self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
+        self.entity_key = "person_id"
+        if isinstance(self.group_type_index, int):
+            self.entity_key = f"$group_{self.group_type_index}"
+
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
@@ -225,7 +230,7 @@ class ExperimentQueryRunner(QueryRunner):
             )
 
         exposure_query_select: list[ast.Expr] = [
-            ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
+            ast.Alias(alias="entity_id", expr=ast.Field(chain=[self.entity_key])),
             ast.Alias(
                 alias="variant",
                 expr=parse_expr(
@@ -369,10 +374,11 @@ class ExperimentQueryRunner(QueryRunner):
                                 right=ast.Constant(value=metric.source.event),
                                 op=ast.CompareOperationOp.Eq,
                             )
+
                         return ast.SelectQuery(
                             select=[
                                 ast.Field(chain=["events", "timestamp"]),
-                                ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
+                                ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", self.entity_key])),
                                 ast.Field(chain=["exposure_data", "variant"]),
                                 ast.Field(chain=["events", "event"]),
                                 ast.Alias(alias="value", expr=get_metric_value(self.metric)),
@@ -385,7 +391,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     alias="exposure_data",
                                     constraint=ast.JoinConstraint(
                                         expr=ast.CompareOperation(
-                                            left=ast.Field(chain=["events", "person_id"]),
+                                            left=ast.Field(chain=["events", self.entity_key]),
                                             right=ast.Field(chain=["exposure_data", "entity_id"]),
                                             op=ast.CompareOperationOp.Eq,
                                         ),
@@ -406,7 +412,7 @@ class ExperimentQueryRunner(QueryRunner):
                 return ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
-                        ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", self.entity_key])),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
                     ],
@@ -418,7 +424,7 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="exposure_data",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
-                                    left=ast.Field(chain=["events", "person_id"]),
+                                    left=ast.Field(chain=["events", self.entity_key]),
                                     right=ast.Field(chain=["exposure_data", "entity_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),

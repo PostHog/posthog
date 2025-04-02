@@ -1259,7 +1259,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         using_positional_arguments=True,
     ),
     # survey functions
-    "getSurveyResponse": HogQLFunctionMeta("getSurveyResponse", 1, 2),
+    "getSurveyResponse": HogQLFunctionMeta("getSurveyResponse", 1, 3),
 }
 
 # Permitted HogQL aggregations

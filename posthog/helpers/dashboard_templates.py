@@ -694,11 +694,12 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
 
 
 def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dashboard:
-    label = group_type_mapping.name_singular or group_type_mapping.group_type
+    singular = group_type_mapping.name_singular or group_type_mapping.group_type
+    plural = group_type_mapping.name_plural or group_type_mapping.group_type + "s"
 
     dashboard = Dashboard.objects.create(
-        name=f"Generated Dashboard: {label} Overview",
-        description=f"This dashboard was generated automatically for the {group_type_mapping.group_type} group type",
+        name=f"Template dashboard for {singular} overview",
+        description=f"This dashboard template powers the Overview page for all {plural}. Any insights will automatically filter to the selected {singular}.",
         team=group_type_mapping.team,
         created_by=user,
         creation_mode="template",
@@ -708,7 +709,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
     _create_tile_for_insight(
         dashboard,
         name="Weekly Active Users",
-        description=f"Shows the number of unique users from this {label} in the last 30 days",
+        description=f"Shows the number of unique users from this {singular} in the last 30 days",
         query={
             "kind": "InsightVizNode",
             "source": {
