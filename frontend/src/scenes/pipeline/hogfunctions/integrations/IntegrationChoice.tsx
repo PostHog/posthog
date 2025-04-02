@@ -5,16 +5,19 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionInputSchemaType } from '~/types'
+import { HogFunctionInputSchemaType, IntegrationKind } from '~/types'
+
+import { IntegrationSetupModal } from './IntegrationSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
     redirectUrl?: string
     schema?: HogFunctionInputSchemaType
-    integration?: string
+    integration?: IntegrationKind
     beforeRedirect?: () => void
 }
 
@@ -27,7 +30,8 @@ export function IntegrationChoice({
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
-    const { newGoogleCloudKey, newMailjetKey } = useActions(integrationsLogic)
+    const { newGoogleCloudKey } = useActions(integrationsLogic)
+    const [isModalOpen, setIsModalOpen] = useState(false)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -68,15 +72,6 @@ export function IntegrationChoice({
         input.click()
     }
 
-    function collectMailjetKey(): void {
-        const apiKey = prompt('Enter your Mailjet API key')
-        const secretKey = prompt('Enter your Mailjet secret key')
-        if (!apiKey || !secretKey) {
-            return
-        }
-        newMailjetKey(apiKey, secretKey, (integration) => onChange?.(integration.id))
-    }
-
     const button = (
         <LemonMenu
             items={[
@@ -105,7 +100,7 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: () => collectMailjetKey(),
+                                  onClick: () => setIsModalOpen(true),
                                   label: 'Configure Mailjet API key',
                               },
                           ],
@@ -158,6 +153,13 @@ export function IntegrationChoice({
             ) : (
                 button
             )}
+            <IntegrationSetupModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                integration={kind}
+                integrationName={kindName}
+                onComplete={onChange}
+            />
         </>
     )
 }
