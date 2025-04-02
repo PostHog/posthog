@@ -222,9 +222,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           result: null,
                           query: null,
                       },
-            setInsight: (_state, { insight }) => ({
-                ...insight,
-            }),
+            setInsight: (state, { insight }) => {
+                // Preserve the user-edited name when loading new data
+                if (!insight.name && state.name) {
+                    return {
+                        ...insight,
+                        name: state.name,
+                    }
+                }
+                return { ...insight }
+            },
             setInsightMetadata: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
