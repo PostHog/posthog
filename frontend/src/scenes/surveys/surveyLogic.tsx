@@ -6,7 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
+import { allOperatorsMapping, debounce, hasFormErrors, humanFriendlyNumber, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -91,9 +91,10 @@ export interface SurveyMetricsQueries {
 }
 
 export interface SurveyUserStats {
-    seen: number
-    dismissed: number
-    sent: number
+    uniqueUsersOnlySeen: number
+    uniqueUsersDismissed: number
+    uniqueUsersSent: number
+    totalSent: number
 }
 
 export interface SurveyRatingResults {
@@ -146,38 +147,6 @@ export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adapti
 export interface SurveyDateRange {
     date_from: string | null
     date_to: string | null
-}
-
-// Helper function to generate the HogQL condition for checking survey responses in both formats
-const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const ids = getResponseFieldWithId(questionIndex, questionId)
-
-    if (!ids.idBasedKey) {
-        return `JSONExtractString(properties, '${ids.indexBasedKey}')`
-    }
-
-    // For ClickHouse, we need to use coalesce to check both fields
-    // This will return the first non-null value, prioritizing the ID-based format if available
-    return `coalesce(
-        nullIf(JSONExtractString(properties, '${ids.idBasedKey}'), ''),
-        nullIf(JSONExtractString(properties, '${ids.indexBasedKey}'), '')
-    )`
-}
-
-// Helper function to generate the HogQL condition for checking multiple choice survey responses in both formats
-const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const ids = getResponseFieldWithId(questionIndex, questionId)
-
-    if (!ids.idBasedKey) {
-        return `JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')`
-    }
-
-    // For multiple choice, we need to check if either field has a value and use that one
-    return `if(
-        JSONHas(properties, '${ids.idBasedKey}') AND length(JSONExtractArrayRaw(properties, '${ids.idBasedKey}')) > 0,
-        JSONExtractArrayRaw(properties, '${ids.idBasedKey}'),
-        JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')
-    )`
 }
 
 function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
@@ -403,7 +372,16 @@ export const surveyLogic = kea<surveyLogicType>([
                                     AND timestamp >= '${startDate}'
                                     AND timestamp <= '${endDate}'
                                     ${answerFilter !== '' ? answerFilter : ''}
+                                    AND {filters}),
+                                    (SELECT COUNT()
+                                    FROM events
+                                    WHERE event = 'survey sent'
+                                    AND properties.$survey_id = '${props.id}'
+                                    AND timestamp >= '${startDate}'
+                                    AND timestamp <= '${endDate}'
+                                    ${answerFilter !== '' ? answerFilter : ''}
                                     AND {filters})
+
                     `,
                     filters: {
                         properties: values.propertyFilters,
@@ -413,11 +391,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
                 if (results && results[0]) {
-                    const [totalSeen, dismissed, sent] = results[0]
-                    const onlySeen = totalSeen - dismissed - sent
-                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
+                    const [uniqueUsersSeen, uniqueUsersDismissed, uniqueUsersSent, totalSent] = results[0]
+                    const uniqueUsersOnlySeen = uniqueUsersSeen - uniqueUsersDismissed - uniqueUsersSent
+                    return {
+                        uniqueUsersOnlySeen: uniqueUsersOnlySeen < 0 ? 0 : uniqueUsersOnlySeen,
+                        uniqueUsersDismissed,
+                        uniqueUsersSent,
+                        totalSent,
+                    }
                 }
-                return { seen: 0, dismissed: 0, sent: 0 }
+                return { uniqueUsersOnlySeen: 0, uniqueUsersDismissed: 0, uniqueUsersSent: 0, totalSent: 0 }
             },
         },
         surveyRatingResults: {
@@ -440,7 +423,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING NPS RESPONSES
                         SELECT
-                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
+                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -495,7 +478,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         -- QUERYING NPS RECURRING RESPONSES
                         SELECT
                             JSONExtractString(properties, '$survey_iteration') AS survey_iteration,
-                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
+                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -621,14 +604,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
 
-                // Use a WITH clause to ensure we're only counting each response once
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
                         -- QUERYING MULTIPLE CHOICE RESPONSES
                         SELECT
                             count(),
-                            arrayJoin(${getMultipleChoiceResponseFieldCondition(questionIndex, question?.id)}) AS choice
+                            arrayJoin(
+                                getSurveyResponse(${questionIndex}, '${question?.id}', true)
+                            ) AS choice
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
@@ -647,10 +631,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 const responseJSON = await api.query(query)
                 let { results } = responseJSON
 
-                // Remove outside quotes
+                const numResults = results?.length ?? 0
+                console.log({ results })
+
                 results = results?.map((r) => {
                     return [r[0], r[1].slice(1, r[1].length - 1)]
                 })
+
+                const nonOpenEndedChoices = new Set(
+                    question?.hasOpenChoice ? question.choices.slice(0, question.choices.length - 1) : question.choices
+                )
+
+                console.log(nonOpenEndedChoices)
 
                 // Zero-fill choices that are not open-ended
                 question.choices.forEach((choice, idx) => {
@@ -660,10 +652,23 @@ export const surveyLogic = kea<surveyLogicType>([
                     }
                 })
 
-                const data = results?.map((r) => r[0])
-                const labels = results?.map((r) => r[1])
+                const numberOfResponsesSent = values.surveyUserStats.uniqueUsersSent ?? 1
+                const data = results
+                    ?.filter((r) => nonOpenEndedChoices.has(r[1]))
+                    ?.map((r) => r[0] / numberOfResponsesSent)
+                const labels = results?.filter((r) => nonOpenEndedChoices.has(r[1]))?.map((r) => r[1])
 
-                return { ...values.surveyMultipleChoiceResults, [questionIndex]: { labels, data } }
+                if (question?.hasOpenChoice) {
+                    const openEndedResponses = results?.filter((r) => !nonOpenEndedChoices.has(r[1]))
+                    const openEndedData = openEndedResponses?.map((r) => r[0] / numberOfResponsesSent)
+                    data.push(openEndedData?.reduce((a, b) => a + b, 0))
+                    labels.push(`${question.choices[question.choices.length - 1]} (open-ended response)`)
+                }
+
+                return {
+                    ...values.surveyMultipleChoiceResults,
+                    [questionIndex]: { labels, data: data?.map((r) => humanFriendlyNumber(r)) },
+                }
             },
         },
         surveyOpenTextResults: {
@@ -1252,22 +1257,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             '*',
                             ...survey.questions.map((q, i) => {
                                 if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    const ids = getResponseFieldWithId(i, q.id)
-                                    if (!ids.idBasedKey) {
-                                        // If we only have index-based key, just use that
-                                        return `coalesce(arrayStringConcat(JSONExtractArrayRaw(properties, '${ids.indexBasedKey}'), ', ')) -- ${q.question}`
-                                    }
-                                    // Handle both formats for multiple choice questions
-                                    return `coalesce(
-                                        if(
-                                            JSONHas(properties, '${ids.idBasedKey}') AND length(JSONExtractArrayRaw(properties, '${ids.idBasedKey}')) > 0,
-                                            arrayStringConcat(JSONExtractArrayRaw(properties, '${ids.idBasedKey}'), ', '),
-                                            arrayStringConcat(JSONExtractArrayRaw(properties, '${ids.indexBasedKey}'), ', ')
-                                        )
-                                    ) -- ${q.question}`
+                                    return `arrayStringConcat(getSurveyResponse(${i}, '${q.id}', true), ', ') -- ${q.question}`
                                 }
                                 // Use the new condition that checks both formats
-                                return `coalesce(${getResponseFieldCondition(i, q.id)}) -- ${q.question}`
+                                return `getSurveyResponse(${i}, '${q.id}') -- ${q.question}`
                             }),
                             'timestamp',
                             'person',
