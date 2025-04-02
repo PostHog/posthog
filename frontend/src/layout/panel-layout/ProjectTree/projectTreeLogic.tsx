@@ -710,11 +710,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                         // TODO: check that this was created by you... and not an accident by hitting "back"
                         // const createdBy = result.meta?.created_by
-
                         if (
                             result.path.startsWith('Unfiled/') &&
                             lastNewOperation &&
-                            lastNewOperation.objectType === result.type
+                            (lastNewOperation.objectType === result.type ||
+                                (lastNewOperation.objectType.includes('/') &&
+                                    result.type?.includes('/') &&
+                                    lastNewOperation.objectType.split('/')[0] === result.type.split('/')[0]))
                         ) {
                             const newPath = joinPath([
                                 ...splitPath(lastNewOperation.folder),
