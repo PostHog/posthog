@@ -3,12 +3,10 @@ import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { getPropertyKey } from 'lib/taxonomy'
 import { allOperatorsMapping } from 'lib/utils'
 import React, { useState } from 'react'
-import { SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { SURVEY_RESPONSE_PROPERTY, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import {
@@ -148,7 +146,7 @@ function _SurveyResponseFilters(): JSX.Element {
                                                     currentFilter.operator
                                                 ) && (
                                                     <PropertyValue
-                                                        propertyKey={getSurveyResponseKey(question.questionIndex)}
+                                                        propertyKey={`${SURVEY_RESPONSE_PROPERTY}_${question.id}`}
                                                         type={PropertyFilterType.Event}
                                                         operator={currentFilter.operator}
                                                         value={currentFilter.value || []}
@@ -161,15 +159,6 @@ function _SurveyResponseFilters(): JSX.Element {
                                                                 : 'Enter text to match'
                                                         }
                                                         eventNames={['survey sent']}
-                                                        additionalPropertiesFilter={[
-                                                            {
-                                                                key: getPropertyKey(
-                                                                    '$survey_id',
-                                                                    TaxonomicFilterGroupType.Events
-                                                                ),
-                                                                values: survey.id,
-                                                            },
-                                                        ]}
                                                     />
                                                 )}
                                         </div>
