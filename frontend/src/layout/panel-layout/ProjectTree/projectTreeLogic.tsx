@@ -317,7 +317,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setExpandedSearchFolders: (_, { folderIds }) => folderIds,
                 loadSearchResultsSuccess: (state, { searchResults: { results, lastCount } }) => {
                     const folders: Record<string, boolean> = state.reduce(
-                        (acc, folderId) => {
+                        (acc: Record<string, boolean>, folderId) => {
                             acc[folderId] = true
                             return acc
                         },
