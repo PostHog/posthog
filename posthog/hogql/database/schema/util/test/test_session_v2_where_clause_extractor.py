@@ -390,7 +390,7 @@ LIMIT 50000\
             """
 SELECT
     sessions.session_id,
-    uniq(uuid)
+    uniq(uuid) as uniq_uuid
 FROM events
 JOIN sessions
 ON events.$session_id = sessions.session_id
@@ -402,7 +402,7 @@ GROUP BY sessions.session_id
             """\
 SELECT
     sessions.session_id AS session_id,
-    uniq(events.uuid)
+    uniq(events.uuid) AS uniq_uuid
 FROM
     events
     JOIN (SELECT
