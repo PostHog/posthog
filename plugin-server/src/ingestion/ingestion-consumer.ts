@@ -2,9 +2,6 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { CdpRedis, createCdpRedisPool } from '../cdp/redis'
-import { HogFunctionManagerService } from '../cdp/services/hog-function-manager.service'
-import { HogWatcherService } from '../cdp/services/hog-watcher.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -75,14 +72,11 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
-    private hogFunctionManager: HogFunctionManagerService
-    private hogWatcher: HogWatcherService
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
     private tokensToForceOverflow: string[] = []
-    private cdpRedis: CdpRedis
 
     constructor(
         private hub: Hub,
@@ -114,10 +108,7 @@ export class IngestionConsumer {
         )
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
-        this.cdpRedis = createCdpRedisPool(hub)
         this.hogTransformer = new HogTransformerService(hub)
-        this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogWatcher = new HogWatcherService(hub, this.cdpRedis)
     }
 
     public get service(): PluginServerService {
@@ -132,7 +123,6 @@ export class IngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             this.hogTransformer.start(),
-            this.hogFunctionManager.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
@@ -163,12 +153,6 @@ export class IngestionConsumer {
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
-        logger.info('🔁', `${this.name} - stopping hog function manager`)
-        await this.hogFunctionManager.stop()
-        logger.info('🔁', `${this.name} - stopping cdp redis`)
-        await this.cdpRedis.useClient({ name: 'cleanup' }, async (client) => {
-            await client.quit()
-        })
         logger.info('👍', `${this.name} - stopped!`)
     }
 
