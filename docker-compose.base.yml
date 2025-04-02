@@ -21,8 +21,7 @@ services:
                     @capture {
                         path /e
                         path /e/*
-                        path /i/v0/e
-                        path /i/v0/e*
+                        path /i/v0/*
                         path /batch
                         path /batch*
                         path /capture

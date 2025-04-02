@@ -32,6 +32,7 @@ pub struct FlagFilters {
     pub aggregation_group_type_index: Option<i32>,
     pub payloads: Option<serde_json::Value>,
     pub super_groups: Option<Vec<FlagGroupType>>,
+    pub holdout_groups: Option<Vec<FlagGroupType>>,
 }
 
 // TODO: see if you can combine these two structs, like we do with cohort models

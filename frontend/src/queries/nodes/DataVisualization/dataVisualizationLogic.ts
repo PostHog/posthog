@@ -302,7 +302,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         visualizationType: [
-            ChartDisplayType.ActionsTable as ChartDisplayType,
+            props.query.display ?? ChartDisplayType.ActionsTable,
             {
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
             },

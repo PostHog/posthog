@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Dispatch, SetStateAction, useState } from 'react'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 export function DeleteProjectModal({
@@ -14,10 +15,16 @@ export function DeleteProjectModal({
     setIsOpen: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { currentProject, projectBeingDeleted } = useValues(projectLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { deleteProject } = useActions(projectLogic)
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = !!currentProject && projectBeingDeleted?.id === currentProject.id
+
+    const allTeamsOfProject =
+        currentProject && currentOrganization
+            ? currentOrganization.teams.filter((team) => team.project_id === currentProject.id)
+            : []
 
     return (
         <LemonModal
@@ -45,8 +52,13 @@ export function DeleteProjectModal({
             isOpen={isOpen}
         >
             <p>
-                Project deletion <b>cannot be undone</b>. You will lose all environments and their data,{' '}
-                <b>including events</b>.
+                Project deletion <b>cannot be undone</b>. You will lose all environments and their data (
+                <b>including events</b>):
+                <ul className="list-disc list-inside ml-4 mt-1">
+                    {allTeamsOfProject.map((team) => (
+                        <li key={team.id}>{team.name}</li>
+                    ))}
+                </ul>
             </p>
             <p>
                 Please type <strong>{currentProject ? currentProject.name : "this project's name"}</strong> to confirm.

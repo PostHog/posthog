@@ -107,7 +107,7 @@ export class SessionBatchRecorder {
 
         const [sessionBlockRecorder, consoleLogRecorder] = sessions.get(sessionId)!
         const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
-        await consoleLogRecorder.recordMessage(message.message)
+        await consoleLogRecorder.recordMessage(message)
 
         const currentPartitionSize = this.partitionSizes.get(partition)!
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)

@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
@@ -51,6 +50,7 @@ export const groupLogic = kea<groupLogicType>([
     key((props) => `${props.groupTypeIndex}-${props.groupKey}`),
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect({
+        actions: [groupsModel, ['createDetailDashboard']],
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -164,17 +164,21 @@ export const groupLogic = kea<groupLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props): GroupLogicProps => props],
 
-        showCustomerSuccessDashboards: [
-            (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.CS_DASHBOARDS],
-        ],
         groupTypeName: [
             (s, p) => [s.aggregationLabel, p.groupTypeIndex],
             (aggregationLabel, index): string => aggregationLabel(index).singular,
         ],
+        groupTypeNamePlural: [
+            (s, p) => [s.aggregationLabel, p.groupTypeIndex],
+            (aggregationLabel, index): string => aggregationLabel(index).plural,
+        ],
         groupType: [
             (s, p) => [s.groupTypes, p.groupTypeIndex],
             (groupTypes, index): string | null => groupTypes.get(index as GroupTypeIndex)?.group_type ?? null,
+        ],
+        groupTypeDetailDashboard: [
+            (s, p) => [s.groupTypes, p.groupTypeIndex],
+            (groupTypes, index): number | null => groupTypes.get(index as GroupTypeIndex)?.detail_dashboard ?? null,
         ],
         breadcrumbs: [
             (s, p) => [s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],

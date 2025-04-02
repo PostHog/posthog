@@ -3,6 +3,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { iconForType } from './defaultTree'
@@ -11,10 +12,14 @@ import { FolderState } from './types'
 export function convertFileSystemEntryToTreeDataItem(
     imports: (FileSystemImport | FileSystemEntry)[],
     folderStates: Record<string, FolderState>,
-    root = 'project'
+    root = 'project',
+    searchTerm = ''
 ): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
+
+    // All folder nodes. Used later to add mock "empty folder" items.
+    const allFolderNodes: TreeDataItem[] = []
 
     // Helper to find an existing folder node or create one if it doesn't exist.
     const findOrCreateFolder = (nodes: TreeDataItem[], folderName: string, fullPath: string): TreeDataItem => {
@@ -23,9 +28,11 @@ export function convertFileSystemEntryToTreeDataItem(
             folderNode = {
                 id: `${root}/${fullPath}`,
                 name: folderName,
+                displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm} />,
                 record: { type: 'folder', id: `${root}/${fullPath}`, path: fullPath },
                 children: [],
             }
+            allFolderNodes.push(folderNode)
             nodes.push(folderNode)
         }
         if (!folderNode.children) {
@@ -61,9 +68,10 @@ export function convertFileSystemEntryToTreeDataItem(
 
         // Create the actual item node.
         const node: TreeDataItem = {
-            id: `${root}/${item.id || item.path}`,
+            id: `${root}/${item.type === 'folder' ? item.path : item.id || item.path}`,
             name: itemName,
-            icon: ('icon' in item && item.icon) || iconForType(item.type),
+            displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm} />,
+            icon: item._loading ? <Spinner /> : ('icon' in item && item.icon) || iconForType(item.type),
             record: item,
             onClick: () => {
                 if (item.href) {
@@ -91,6 +99,7 @@ export function convertFileSystemEntryToTreeDataItem(
                     icon: <Spinner />,
                 })
             }
+            allFolderNodes.push(node)
         }
     }
 
@@ -103,7 +112,7 @@ export function convertFileSystemEntryToTreeDataItem(
             if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
                 return -1
             }
-            return a.name.localeCompare(b.name)
+            return String(a.name).localeCompare(String(b.name))
         })
         for (const node of nodes) {
             if (node.children) {
@@ -112,6 +121,18 @@ export function convertFileSystemEntryToTreeDataItem(
         }
     }
     sortNodes(rootNodes)
+
+    for (const folderNode of allFolderNodes) {
+        if (folderNode.children && folderNode.children.length === 0) {
+            folderNode.children.push({
+                id: `empty-${root}/${folderNode.id}`,
+                name: 'Empty folder',
+                displayName: <em className="text-muted">Empty folder</em>,
+                icon: <IconPlus />,
+            })
+        }
+    }
+
     return rootNodes
 }
 
@@ -158,21 +179,6 @@ export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): 
         }
         if (node.children) {
             const found = findInProjectTree(itemId, node.children)
-            if (found) {
-                return found
-            }
-        }
-    }
-    return undefined
-}
-
-export function findInProjectTreeByPath(path: string, projectTree: TreeDataItem[]): TreeDataItem | undefined {
-    for (const node of projectTree) {
-        if (node.record?.path === path) {
-            return node
-        }
-        if (node.children) {
-            const found = findInProjectTreeByPath(path, node.children)
             if (found) {
                 return found
             }

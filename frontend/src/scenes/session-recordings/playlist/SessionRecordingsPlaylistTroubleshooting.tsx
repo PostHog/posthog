@@ -12,7 +12,7 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
 
     return (
         <>
-            <h3 className="title align-center text-secondary mb-0">No matching recordings</h3>
+            <h3 className="title text-secondary mb-0">No matching recordings</h3>
             <div className="flex flex-col deprecated-space-y-2">
                 <p className="text-secondary description m-0">
                     Recordings may not be found for a variety of reasons including:

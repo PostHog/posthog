@@ -41,8 +41,8 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
+import { MathType, NodeKind } from '~/queries/schema/schema-general'
+import { getMathTypeWarning, isInsightVizNode, isStickinessQuery, TRAILING_MATH_TYPES } from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
@@ -131,6 +131,8 @@ export interface ActionFilterRowProps {
     allowedMathTypes?: readonly string[]
     /** Fields to display in the data warehouse filter popover */
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    /** Whether to add left padding to the filters div to align with suffix content */
+    filtersLeftPadding?: boolean
 }
 
 export function ActionFilterRow({
@@ -162,6 +164,7 @@ export function ActionFilterRow({
     showNumericalPropsOnly,
     allowedMathTypes,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
+    filtersLeftPadding = false,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -176,6 +179,9 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+
+    const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
+    const query = mountedInsightDataLogic?.values?.query
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
@@ -435,12 +441,16 @@ export function ActionFilterRow({
                                             mathAvailability={mathAvailability}
                                             trendsDisplayCategory={trendsDisplayCategory}
                                             allowedMathTypes={allowedMathTypes}
+                                            query={query || {}}
                                         />
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.PropertyValue && (
                                             <div className="flex-auto overflow-hidden">
                                                 <TaxonomicStringPopover
-                                                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                    groupType={
+                                                        mathPropertyType ||
+                                                        TaxonomicFilterGroupType.NumericalEventProperties
+                                                    }
                                                     groupTypes={[
                                                         TaxonomicFilterGroupType.DataWarehouseProperties,
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
@@ -481,7 +491,7 @@ export function ActionFilterRow({
                                                                         Calculate{' '}
                                                                         {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
                                                                         from property <code>{currentValue}</code>. Note
-                                                                        that only {name} occurences where{' '}
+                                                                        that only {name} occurrences where{' '}
                                                                         <code>{currentValue}</code> is set with a
                                                                         numeric value will be taken into account.
                                                                     </>
@@ -559,6 +569,7 @@ export function ActionFilterRow({
                                                                     style={{ maxWidth: '100%', width: 'initial' }}
                                                                     mathAvailability={mathAvailability}
                                                                     trendsDisplayCategory={trendsDisplayCategory}
+                                                                    query={query || {}}
                                                                 />
                                                                 <LemonDivider />
                                                             </>
@@ -600,7 +611,7 @@ export function ActionFilterRow({
             </div>
 
             {propertyFiltersVisible && (
-                <div className="ActionFilterRow-filters">
+                <div className={`ActionFilterRow-filters${filtersLeftPadding ? ' pl-7' : ''}`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
@@ -654,6 +665,7 @@ interface MathSelectorProps {
     style?: React.CSSProperties
     /** Only allow these math types in the selector */
     allowedMathTypes?: readonly string[]
+    query?: Record<string, any>
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
@@ -663,8 +675,6 @@ function isPropertyValueMath(math: string | undefined): math is PropertyMathType
 function isCountPerActorMath(math: string | undefined): math is CountPerActorMathType {
     return !!math && math in COUNT_PER_ACTOR_MATH_DEFINITIONS
 }
-
-const TRAILING_MATH_TYPES = new Set<string>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
 
 function getDefaultPropertyMathType(
     math: string | undefined,
@@ -687,10 +697,8 @@ function useMathSelectorOptions({
     onMathSelect,
     trendsDisplayCategory,
     allowedMathTypes,
+    query,
 }: MathSelectorProps): LemonSelectOptions<string> {
-    const mountedInsightDataLogic = insightDataLogic.findMounted()
-    const query = mountedInsightDataLogic?.values?.query
-
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
 
     const {
@@ -718,9 +726,10 @@ function useMathSelectorOptions({
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
         .filter(([key]) => {
+            const mathTypeKey = key as MathType
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
-                return !TRAILING_MATH_TYPES.has(key)
+                return !TRAILING_MATH_TYPES.has(mathTypeKey)
             }
 
             if (allowedMathTypes) {
@@ -733,24 +742,41 @@ function useMathSelectorOptions({
             return true
         })
         .map(([key, definition]) => {
-            const shouldWarnAboutTrailingMath =
-                TRAILING_MATH_TYPES.has(key) && trendsDisplayCategory === ChartDisplayCategory.TotalValue
+            const mathTypeKey = key as MathType
+            const warning = getMathTypeWarning(mathTypeKey, query || {}, trendsDisplayCategory === 'TotalValue')
+
             return {
-                value: key,
-                icon: shouldWarnAboutTrailingMath ? <IconWarning /> : undefined,
+                value: mathTypeKey,
+                icon: warning !== null ? <IconWarning /> : undefined,
                 label: definition.name,
-                tooltip: !shouldWarnAboutTrailingMath ? (
-                    definition.description
-                ) : (
-                    <>
-                        <p>{definition.description}</p>
-                        <i>
-                            In total value insights, it's usually not clear what date range "{definition.name}" refers
-                            to. For full clarity, we recommend using "Unique users" here instead.
-                        </i>
-                    </>
-                ),
                 'data-attr': `math-${key}-${index}`,
+                tooltip:
+                    warning === 'total' ? (
+                        <>
+                            <p>{definition.description}</p>
+                            <i>
+                                In total value insights, it's usually not clear what date range "{definition.name}"
+                                refers to. For full clarity, we recommend using "Unique users" here instead.
+                            </i>
+                        </>
+                    ) : warning === null ? (
+                        definition.description
+                    ) : (
+                        <>
+                            {warning === 'weekly' ? (
+                                <p>
+                                    Weekly active users is not meaningful when using week or month intervals because the
+                                    sliding window calculation cannot be properly applied.
+                                </p>
+                            ) : (
+                                <p>
+                                    Monthly active users is not meaningful when using month intervals because the
+                                    sliding window calculation cannot be properly applied.
+                                </p>
+                            )}
+                            <span>This query mode has the same functionality as "Unique users" for this interval.</span>
+                        </>
+                    ),
             }
         })
 

@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { BillingType } from '~/types'
+import { BillingPlan, BillingType } from '~/types'
 
 export const billingJson: BillingType = {
     customer_id: 'cus_Pg7PIL8MsKi6bx',
@@ -11,6 +11,7 @@ export const billingJson: BillingType = {
         current_period_end: dayjs('2024-04-07T22:54:32Z'),
         interval: 'month',
     },
+    billing_plan: BillingPlan.Paid,
     current_total_amount_usd: '403.07',
     current_total_amount_usd_after_discount: '403.07',
     products: [
@@ -3644,4 +3645,8 @@ export const billingJson: BillingType = {
     stripe_portal_url:
         'https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QaEVJR3VyemlvMDZzRzdiQXZrc1AxSjNXZk1BellP0100ZsforDQG',
     subscription_level: 'paid',
+    account_owner: {
+        name: 'Simon Fisher',
+        email: 'simon@posthog.com',
+    },
 }

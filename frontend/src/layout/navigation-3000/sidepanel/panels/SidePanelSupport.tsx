@@ -1,7 +1,6 @@
 import {
     IconAI,
     IconBook,
-    IconChevronDown,
     IconDatabase,
     IconFeatures,
     IconGraph,
@@ -17,7 +16,6 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -29,14 +27,11 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, BillingFeatureType, BillingType, ProductKey, SidePanelTab } from '~/types'
+import { AvailableFeature, BillingFeatureType, BillingType, ProductKey } from '~/types'
 
-import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import { sidePanelStateLogic } from '../sidePanelStateLogic'
-import { MaxChatInterface } from './sidePanelMaxChatInterface'
-import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 const PRODUCTS = [
     {
@@ -94,27 +89,10 @@ const PRODUCTS = [
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
         <section className="mb-6">
-            {title === 'Explore the docs' ? (
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'docs',
-                            header: (
-                                <div className="flex items-center gap-1.5">
-                                    <IconBook className="text-warning h-5 w-5" />
-                                    <span>{title}</span>
-                                </div>
-                            ),
-                            content: children,
-                        },
-                    ]}
-                />
-            ) : (
-                <>
-                    <h3>{title}</h3>
-                    {children}
-                </>
-            )}
+            <>
+                <h3>{title}</h3>
+                {children}
+            </>
         </section>
     )
 }
@@ -230,21 +208,23 @@ const SupportResponseTimesTable = ({
             link: 'https://posthog.com/questions',
         },
         {
-            name: 'Ridiculously cheap',
-            current_plan: billing?.subscription_level === 'paid' && !teamsAddonActive && !hasEnterprisePlan,
-            features: [{ note: getResponseTimeFeature('Ridiculously cheap')?.note || 'Contact sales' }],
-            plan_key: 'standard',
-        },
-        {
             name: 'Teams add-on',
             current_plan: teamsAddonActive,
-            features: [{ note: getResponseTimeFeature('Teams add-on')?.note || 'Contact sales' }],
+            features: [
+                getResponseTimeFeature('Teams add-on') || {
+                    note: '4 business hours',
+                },
+            ],
             plan_key: 'teams',
         },
         {
-            name: 'Enterprise',
+            name: 'Enterprise plan',
             current_plan: hasEnterprisePlan,
-            features: [{ note: getResponseTimeFeature('Enterprise')?.note || 'Contact sales' }],
+            features: [
+                getResponseTimeFeature('Enterprise plan') || {
+                    note: '2 business hours',
+                },
+            ],
             plan_key: 'enterprise',
         },
     ]
@@ -270,7 +250,7 @@ const SupportResponseTimesTable = ({
                 const isBold = plan.current_plan
 
                 const responseNote = plan.features.find(
-                    (f: { key?: any; note?: string }) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME || f.note
+                    (f) => (f as any).key === AvailableFeature.SUPPORT_RESPONSE_TIME || (f as any).note
                 )?.note
 
                 const formattedResponseTime = responseNote
@@ -282,272 +262,260 @@ const SupportResponseTimesTable = ({
                     : 'Community support only'
 
                 return (
-                    <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                        <div className={isBold ? 'font-bold' : undefined}>
-                            {plan.name}
-                            {isBold && plan.name !== 'Totally free' && (
-                                <span className="ml-1 text-sm opacity-60">(your plan)</span>
-                            )}
+                    <React.Fragment key={plan.plan_key}>
+                        <div
+                            className={`border-t col-span-1 ${isBold ? 'font-semibold' : ''}`}
+                            data-attr="support-plan-name"
+                        >
+                            <span className={`${isCompact ? '' : 'text-sm'}`}>
+                                {plan.name}
+                                {isBold && ' '}
+                                {isBold && <span className="text-muted text-xs font-normal">(current)</span>}
+                            </span>
                         </div>
-                        <div className={isBold ? 'font-bold' : undefined}>
-                            {plan.link ? <Link to={plan.link}>{formattedResponseTime}</Link> : formattedResponseTime}
+                        <div
+                            className={`border-t col-span-1 text-right ${isBold ? 'font-semibold' : ''}`}
+                            data-attr="support-response-time"
+                        >
+                            <span className={`${isCompact ? '' : 'text-sm'}`}>
+                                {formattedResponseTime === 'Community support only' && plan.link ? (
+                                    <Link to={plan.link}>Community forum</Link>
+                                ) : (
+                                    formattedResponseTime
+                                )}
+                            </span>
                         </div>
                     </React.Fragment>
                 )
             })}
 
-            {/* Display trial information integrated into the table */}
-            {hasActiveTrial && (
-                <>
-                    <div className="font-bold border-t">Your trial</div>
-                    <div className="font-bold border-t">1 business day</div>
-                    {billing?.trial?.expires_at && (
-                        <div className="col-span-2 text-sm">
-                            (Trial ends {dayjs(billing.trial.expires_at).format('MMMM D, YYYY')})
-                        </div>
-                    )}
-                </>
-            )}
-
-            {/* Display expired trial information */}
-            {!hasActiveTrial && hasExpiredTrial && expiredTrialDate && (
-                <>
-                    <div className="border-t text-muted">Trial expired</div>
-                    <div className="border-t text-muted">{expiredTrialDate.format('MMMM D, YYYY')}</div>
-                </>
+            {hasExpiredTrial && expiredTrialDate && (
+                <div className="border-t col-span-2 text-muted pt-1 text-xs italic" data-attr="support-trial-note">
+                    Your Teams add-on trial expired on{' '}
+                    {expiredTrialDate.format(isCompact ? 'D MMM YYYY' : 'D MMMM YYYY')}.
+                </div>
             )}
         </div>
     )
 }
 
-export const SidePanelSupport = (): JSX.Element => {
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { status } = useValues(sidePanelStatusLogic)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const {
+        isEmailFormOpen,
+        title: supportPanelTitle,
+    } = useValues(supportLogic)
+    const { closeEmailForm, openEmailForm, closeSupportForm } = useActions(supportLogic)
+    const { billing } = useValues(billingLogic)
 
-    const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
-    const { openEmailForm, closeEmailForm, openMaxChatInterface, closeMaxChatInterface } = useActions(theLogic)
-    const { isEmailFormOpen, isMaxChatInterfaceOpen } = useValues(theLogic)
+    const cloudOrSelfHosted = preflight?.cloud ? 'Cloud' : preflight?.demo ? 'Demo' : 'Self-hosted'
+    const userEmail = user?.email || ''
 
-    const region = preflight?.region
+    // Check for support access
+    const canEmail = billing?.subscription_level !== 'free' || (!!billing?.trial?.status && billing.trial.status === 'active')
 
-    // In dev, show the support form for paid plans regardless of cloud status
-    // In production, only show it for cloud users with paid plans or active trials
-    // Note: The backend will validate access rights when processing support requests
-    const isDevelopment = process.env.NODE_ENV === 'development'
+    // Check if we're on a paid plan or active trial
+    const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'
 
-    // Check if user has a paid subscription or is on an active trial
-    const hasActiveTrial = billing?.trial?.status === 'active'
-
-    const canEmailEngineer = billing?.subscription_level !== 'free' || hasActiveTrial
-
-    const showEmailSupport = isDevelopment ? canEmailEngineer : preflight?.cloud && canEmailEngineer
-
-    // Ensure billing data is loaded before showing support options
-    const isBillingLoaded = !billingLoading && billing !== undefined
-
-    // Prevent the email form from being opened by free or self-hosted
     const handleOpenEmailForm = (): void => {
-        if (showEmailSupport && isBillingLoaded) {
-            openEmailForm()
-        }
+        openEmailForm()
     }
 
-    React.useEffect(() => {
-        if (isEmailFormOpen && isBillingLoaded && !showEmailSupport) {
-            closeEmailForm()
-        }
-    }, [isEmailFormOpen, isBillingLoaded, showEmailSupport, closeEmailForm])
-
     return (
-        <>
-            <div className="overflow-y-auto" data-attr="side-panel-support-container">
-                <SidePanelPaneHeader title="Help" />
-                <div className="p-3 max-w-160 w-full mx-auto">
-                    {isEmailFormOpen && showEmailSupport && isBillingLoaded ? (
-                        <SupportFormBlock
-                            onCancel={() => closeEmailForm()}
-                            hasActiveTrial={hasActiveTrial}
-                            billing={billing}
-                        />
-                    ) : isMaxChatInterfaceOpen ? (
-                        <div className="deprecated-space-y-4">
-                            <MaxChatInterface />
+        <div className="SidePanelSupport">
+            <SidePanelPaneHeader
+                title={isEmailFormOpen ? supportPanelTitle : 'Help'}
+            />
+
+            <div className="px-6 py-2 space-y-6">
+                {isEmailFormOpen ? (
+                    <SupportFormBlock
+                        onCancel={() => {
+                            closeEmailForm()
+                            closeSupportForm()
+                        }}
+                        hasActiveTrial={hasActiveTrial}
+                        billing={billing}
+                    />
+                ) : (
+                    <>
+                        <Section title="Email an engineer">
+                            <p>
+                                Reach out to a PostHog engineer directly if you need help.
+                                <br />
+                                We respond based on your support plan.
+                            </p>
+                            {canEmail ? (
+                                <LemonButton
+                                    onClick={handleOpenEmailForm}
+                                    type="primary"
+                                    fullWidth
+                                    center
+                                    className="mt-2"
+                                >
+                                    Email an engineer
+                                </LemonButton>
+                            ) : (
+                                <>
+                                    <SupportResponseTimesTable
+                                        billing={billing}
+                                        hasActiveTrial={hasActiveTrial}
+                                        isCompact={false}
+                                    />
+
+                                    <LemonBanner type="info">
+                                        <div className="mb-2">
+                                            <strong>Need email support?</strong>
+                                        </div>
+                                        <p className="mb-2">
+                                            Email support is available on paid plans, or with the Teams add-on.
+                                        </p>
+                                        <LemonButton
+                                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
+                                            type="secondary"
+                                            fullWidth
+                                            center
+                                        >
+                                            Explore options
+                                        </LemonButton>
+                                    </LemonBanner>
+                                </>
+                            )}
+                        </Section>
+
+                        <Section title="Access support info">
+                            <div className="flex gap-1 flex-col">
+                                <div className="font-semibold mb-1">Current version</div>
+                                <div>{(preflight as any)?.posthog_version || ''}</div>
+                            </div>
+                            <div className="flex gap-1 flex-col pt-4">
+                                <div className="font-semibold mb-1">Deployment type</div>
+                                <div>{cloudOrSelfHosted}</div>
+                            </div>
+                            <div className="flex gap-1 flex-col pt-4">
+                                <div className="font-semibold mb-1">Your organization</div>
+                                <div>{currentOrganization?.name}</div>
+                            </div>
+                            <div className="flex gap-1 flex-col pt-4">
+                                <div className="font-semibold mb-1">Your project</div>
+                                <div>{currentTeam?.name}</div>
+                            </div>
+                            <div className="flex gap-1 flex-col pt-4">
+                                <div className="font-semibold mb-1">Your email</div>
+                                <div>{userEmail}</div>
+                            </div>
+                            {preflight?.cloud && (
+                                <div className="pt-4">
+                                    <div className="font-semibold mb-1">Snippet for support team</div>
+                                    <textarea
+                                        readOnly
+                                        className="SidePanelSupport__FormBlockTextarea h-20 font-mono text-xs"
+                                        value={getPublicSupportSnippet(
+                                            preflight?.region,
+                                            currentOrganization,
+                                            currentTeam
+                                        )}
+                                    />
+                                </div>
+                            )}
+                        </Section>
+
+                        <Section title="Visit PostHog docs">
                             <LemonButton
-                                type="secondary"
-                                onClick={() => closeMaxChatInterface()}
                                 fullWidth
                                 center
-                                className="mt-2"
+                                sideIcon={<IconHelmet />}
+                                to="https://posthog.com/docs"
+                                targetBlank
                             >
-                                End Chat
+                                Documentation
                             </LemonButton>
-                        </div>
-                    ) : (
-                        <>
-                            <Section title="Search docs & community questions">
-                                <AlgoliaSearch />
-                            </Section>
+                        </Section>
 
-                            <Section title="Explore the docs">
-                                <ul className="border rounded divide-y bg-surface-primary dark:bg-transparent font-title font-medium">
-                                    {PRODUCTS.map((product, index) => (
-                                        <li key={index}>
-                                            <Link
-                                                to={`https://posthog.com/docs/${product.slug}`}
-                                                className="group flex items-center justify-between px-2 py-1.5"
-                                            >
-                                                <div className="flex items-center gap-1.5">
-                                                    {product.icon}
-                                                    <span className="text-text-3000 opacity-75 group-hover:opacity-100">
-                                                        {product.name}
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <IconChevronDown className="text-text-3000 h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
-                                                </div>
-                                            </Link>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </Section>
+                        <Section title="Key features">
+                            <div className="grid grid-cols-2 gap-1">
+                                <LemonButton
+                                    to="https://posthog.com/docs/data"
+                                    targetBlank
+                                    fullWidth
+                                    center
+                                    className="flex-col h-20 p-2"
+                                >
+                                    <IconMap className="text-xl mb-1" />
+                                    <div className="font-medium">Data</div>
+                                </LemonButton>
+                                <LemonButton
+                                    to="https://posthog.com/docs/feature-flags"
+                                    targetBlank
+                                    fullWidth
+                                    center
+                                    className="flex-col h-20 p-2"
+                                >
+                                    <IconFeatures className="text-xl mb-1" />
+                                    <div className="font-medium">Feature flags</div>
+                                </LemonButton>
+                            </div>
+                        </Section>
 
-                            {status !== 'operational' && (
-                                <Section title="">
-                                    <LemonBanner type={status.includes('outage') ? 'error' : 'warning'}>
-                                        <div>
-                                            {status.includes('outage') ? (
-                                                <span>We are experiencing major issues.</span>
-                                            ) : (
-                                                <span>We are experiencing issues.</span>
-                                            )}
-                                            <LemonButton
-                                                type="secondary"
-                                                fullWidth
-                                                center
-                                                targetBlank
-                                                onClick={() => openSidePanel(SidePanelTab.Status)}
-                                                className="mt-2 bg-[white]"
-                                            >
-                                                View system status
-                                            </LemonButton>
-                                        </div>
-                                    </LemonBanner>
-                                </Section>
-                            )}
+                        <Section title="All products">
+                            <LemonCollapse
+                                panels={[
+                                    {
+                                        key: 'all-products',
+                                        header: 'View all products',
+                                        content: (
+                                            <div className="grid grid-cols-2 gap-1">
+                                                {PRODUCTS.map((product) => (
+                                                    <LemonButton
+                                                        key={product.slug}
+                                                        to={`https://posthog.com/docs/products/${product.slug}`}
+                                                        targetBlank
+                                                        fullWidth
+                                                        center
+                                                        className="flex-col h-20 p-2"
+                                                    >
+                                                        <div className="mb-1">{product.icon}</div>
+                                                        <div className="font-medium text-center text-sm">
+                                                            {product.name}
+                                                        </div>
+                                                    </LemonButton>
+                                                ))}
+                                            </div>
+                                        ),
+                                    },
+                                ]}
+                            />
+                        </Section>
 
-                            {preflight?.cloud ? (
-                                <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
-                                    <Section title="Ask Max the Hedgehog">
-                                        <div>
-                                            <p>
-                                                Max is PostHog's support AI who can answer support questions, help you
-                                                with troubleshooting, find info in our documentation, write HogQL
-                                                queries, regex expressions, etc.
-                                            </p>
-                                            <LemonButton
-                                                type="primary"
-                                                fullWidth
-                                                center
-                                                onClick={() => {
-                                                    openMaxChatInterface()
-                                                }}
-                                                targetBlank={false}
-                                                className="mt-2"
-                                            >
-                                                ✨ Chat with Max
-                                            </LemonButton>
-                                        </div>
-                                    </Section>
-                                </FlaggedFeature>
-                            ) : null}
+                        <Section title="Still need help?">
+                            <div className="flex flex-col gap-1">
+                                <LemonButton
+                                    to="https://posthog.com/questions"
+                                    targetBlank
+                                    fullWidth
+                                    center
+                                    sideIcon={<IconMessage className="mr-1" />}
+                                >
+                                    Community forum
+                                </LemonButton>
 
-                            {!showEmailSupport && isBillingLoaded && (
-                                <Section title="">
-                                    <h3>Can't find what you need in the docs?</h3>
-                                    <p>
-                                        With the totally free plan you can ask the community via the link below, or
-                                        explore your upgrade choices for the ability to email a support engineer.
-                                    </p>
-                                </Section>
-                            )}
-
-                            {showEmailSupport && isBillingLoaded && (
-                                <Section title="Contact us">
-                                    <p>Can't find what you need in the docs?</p>
-                                    <LemonButton
-                                        type="primary"
-                                        fullWidth
-                                        center
-                                        onClick={handleOpenEmailForm}
-                                        targetBlank
-                                        className="mt-2"
-                                        disabled={billingLoading}
-                                    >
-                                        {billingLoading ? 'Loading...' : 'Email our support engineers'}
-                                    </LemonButton>
-                                </Section>
-                            )}
-
-                            {/* Display support plan options for users who can't email support */}
-                            {!showEmailSupport && isBillingLoaded && (
-                                <SupportResponseTimesTable billing={billing} hasActiveTrial={hasActiveTrial} />
-                            )}
-
-                            <Section title="Ask the community">
-                                <p>
-                                    Questions about features, how-tos, or use cases? There are thousands of discussions
-                                    in our community forums.{' '}
-                                    <Link to="https://posthog.com/questions">Ask a question</Link>
-                                </p>
-                            </Section>
-
-                            <Section title="Share feedback">
-                                <ul>
-                                    <li>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="alt"
-                                            to="https://posthog.com/wip"
-                                            icon={<IconHelmet />}
-                                            targetBlank
-                                        >
-                                            See what we're building
-                                        </LemonButton>
-                                    </li>
-                                    <li>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="alt"
-                                            to="https://posthog.com/roadmap"
-                                            icon={<IconMap />}
-                                            targetBlank
-                                        >
-                                            Vote on our roadmap
-                                        </LemonButton>
-                                    </li>
-                                    <li>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="alt"
-                                            to={`https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.yml&debug-info=${encodeURIComponent(
-                                                getPublicSupportSnippet(region, currentOrganization, currentTeam)
-                                            )}`}
-                                            icon={<IconFeatures />}
-                                            targetBlank
-                                        >
-                                            Request a feature
-                                        </LemonButton>
-                                    </li>
-                                </ul>
-                            </Section>
-                        </>
-                    )}
-                </div>
+                                <LemonButton
+                                    to="https://posthog.com/docs"
+                                    targetBlank
+                                    fullWidth
+                                    center
+                                    sideIcon={<IconBook className="mr-1" />}
+                                >
+                                    Documentation
+                                </LemonButton>
+                            </div>
+                        </Section>
+                    </>
+                )}
             </div>
-        </>
+        </div>
     )
 }

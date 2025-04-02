@@ -14,6 +14,7 @@ import structlog
 from django.conf import settings
 
 import posthog.temporal.common.asyncpa as asyncpa
+from posthog.temporal.common.logger import get_internal_logger
 
 logger = structlog.get_logger()
 
@@ -157,6 +158,9 @@ class ClickHouseClient:
         self.connector: None | aiohttp.TCPConnector = None
         self.session: None | aiohttp.ClientSession = None
 
+        logger = get_internal_logger()
+        self.logger = logger.bind(url=url, database=database, user=user)
+
         if user:
             self.headers["X-ClickHouse-User"] = user
         if password:
@@ -193,7 +197,8 @@ class ClickHouseClient:
                 headers=self.headers,
                 raise_for_status=True,
             )
-        except aiohttp.ClientResponseError:
+        except aiohttp.ClientResponseError as exc:
+            await self.logger.aexception("Failed ClickHouse liveness check", exc_info=exc)
             return False
         return True
 

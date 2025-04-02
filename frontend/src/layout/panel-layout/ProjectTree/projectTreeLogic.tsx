@@ -1,8 +1,8 @@
-import { IconBook } from '@posthog/icons'
-import Fuse from 'fuse.js'
+import { IconPlus } from '@posthog/icons'
+import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -10,15 +10,20 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTree } from './defaultTree'
+import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+
 const PAGINATION_LIMIT = 100
+const MOVE_ALERT_LIMIT = 50
+const DELETE_ALERT_LIMIT = 0
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -30,73 +35,173 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['featureFlags'],
             panelLayoutLogic,
             ['searchTerm'],
+            breadcrumbsLogic,
+            ['projectTreeRef'],
         ],
+        actions: [panelLayoutLogic, ['setSearchTerm']],
     }),
     actions({
         loadUnfiledItems: true,
         addFolder: (folder: string) => ({ folder }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
+        movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
-        applyPendingActions: true,
-        cancelPendingActions: true,
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         updateSavedItem: (savedItem: FileSystemEntry, oldPath: string) => ({ savedItem, oldPath }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         setExpandedFolders: (folderIds: string[]) => ({ folderIds }),
+        setExpandedSearchFolders: (folderIds: string[]) => ({ folderIds }),
         setLastViewedId: (id: string) => ({ id }),
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         setHelpNoticeVisibility: (visible: boolean) => ({ visible }),
         loadFolder: (folder: string) => ({ folder }),
         loadFolderStart: (folder: string) => ({ folder }),
-        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean = false) => ({
+        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean, offsetIncrease: number) => ({
             folder,
             entries,
             hasMore,
+            offsetIncrease,
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (path: string) => ({ path }),
         createFolder: (parentPath: string) => ({ parentPath }),
+        loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
+        assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
+        setLastNewOperation: (objectType: string | null, folder: string | null) => ({ objectType, folder }),
     }),
     loaders(({ actions, values }) => ({
-        allUnfiledItems: [
-            [] as FileSystemEntry[],
+        unfiledItems: [
+            false as boolean,
             {
                 loadUnfiledItems: async () => {
                     const response = await api.fileSystem.unfiled()
-                    return [...values.allUnfiledItems, ...response.results]
+                    if (response.results.length > 0) {
+                        actions.loadFolder('Unfiled')
+                        for (const folder of Object.keys(values.folders)) {
+                            if (folder.startsWith('Unfiled/')) {
+                                actions.loadFolder(folder)
+                            }
+                        }
+                    }
+                    return true
+                },
+            },
+        ],
+        searchResults: [
+            { searchTerm: '', results: [], hasMore: false, lastCount: 0 } as {
+                searchTerm: string
+                results: FileSystemEntry[]
+                hasMore: boolean
+                lastCount: number
+            },
+            {
+                loadSearchResults: async ({ searchTerm, offset }, breakpoint) => {
+                    await breakpoint(250)
+                    const response = await api.fileSystem.list({
+                        search: searchTerm,
+                        offset,
+                        limit: PAGINATION_LIMIT + 1,
+                    })
+                    breakpoint()
+
+                    return {
+                        searchTerm,
+                        results: [
+                            ...(offset > 0 && searchTerm === values.searchResults.searchTerm
+                                ? values.searchResults.results
+                                : []),
+                            ...response.results.slice(0, PAGINATION_LIMIT),
+                        ],
+                        hasMore: response.results.length > PAGINATION_LIMIT,
+                        lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
+                    }
                 },
             },
         ],
         pendingLoader: [
             false,
             {
-                applyPendingActions: async () => {
-                    for (const action of values.pendingActions) {
-                        if (action.type === 'move' && action.newPath) {
-                            if (!action.item.id) {
-                                const response = await api.fileSystem.create({ ...action.item, path: action.newPath })
-                                actions.createSavedItem(response)
-                            } else {
-                                const response = await api.fileSystem.update(action.item.id, { path: action.newPath })
-                                actions.updateSavedItem(response, action.item.path)
+                queueAction: async ({ action }) => {
+                    if (action.type === 'prepare-move' && action.newPath) {
+                        try {
+                            const response = await api.fileSystem.count(action.item.id)
+                            if (response && response.count > MOVE_ALERT_LIMIT) {
+                                const confirmMessage = `You're about to move ${response.count} items. Are you sure?`
+                                if (!confirm(confirmMessage)) {
+                                    actions.removeQueuedAction(action)
+                                    return false
+                                }
                             }
-                        } else if (action.type === 'create') {
+                            actions.queueAction({ ...action, type: 'move' })
+                        } catch (error) {
+                            console.error('Error moving item:', error)
+                            lemonToast.error(`Error moving item: ${error}`)
+                        }
+                    }
+                    if (action.type === 'move' && action.newPath) {
+                        try {
+                            const oldPath = action.item.path
+                            const newPath = action.newPath
+                            await api.fileSystem.move(action.item.id, newPath)
+                            actions.movedItem(action.item, oldPath, newPath)
+                            lemonToast.success('Item moved successfully', {
+                                button: {
+                                    label: 'Undo',
+                                    dataAttr: 'undo-project-tree-move',
+                                    action: () => {
+                                        actions.moveItem(newPath, oldPath)
+                                    },
+                                },
+                            })
+                        } catch (error) {
+                            console.error('Error moving item:', error)
+                            lemonToast.error(`Error moving item: ${error}`)
+                        }
+                    } else if (action.type === 'create') {
+                        try {
                             const response = await api.fileSystem.create(action.item)
                             actions.createSavedItem(response)
-                        } else if (action.type === 'delete' && action.item.id) {
+                            lemonToast.success('Folder created successfully', {
+                                button: {
+                                    label: 'Undo',
+                                    dataAttr: 'undo-project-tree-move',
+                                    action: () => {
+                                        actions.deleteItem(response)
+                                    },
+                                },
+                            })
+                        } catch (error) {
+                            console.error('Error creating folder:', error)
+                            lemonToast.error(`Error creating folder: ${error}`)
+                        }
+                    } else if (action.type === 'prepare-delete' && action.item.id) {
+                        try {
+                            const response = await api.fileSystem.count(action.item.id)
+                            if (response && response.count > DELETE_ALERT_LIMIT) {
+                                const confirmMessage = `You're about to delete ${response.count} items. This can't be undone. Are you sure?`
+                                if (!confirm(confirmMessage)) {
+                                    actions.removeQueuedAction(action)
+                                    return false
+                                }
+                            }
+                            actions.queueAction({ ...action, type: 'delete' })
+                        } catch (error) {
+                            console.error('Error deleting item:', error)
+                            lemonToast.error(`Error deleting item: ${error}`)
+                        }
+                    } else if (action.type === 'delete' && action.item.id) {
+                        try {
                             await api.fileSystem.delete(action.item.id)
                             actions.deleteSavedItem(action.item)
+                            lemonToast.success('Item deleted successfully')
+                        } catch (error) {
+                            console.error('Error deleting item:', error)
+                            lemonToast.error(`Error deleting item: ${error}`)
                         }
-                        actions.removeQueuedAction(action)
                     }
-                    return true
-                },
-                cancelPendingActions: async () => {
-                    for (const action of values.pendingActions) {
-                        actions.removeQueuedAction(action)
-                    }
+                    actions.removeQueuedAction(action)
                     return true
                 },
             },
@@ -136,6 +241,39 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         [folder]: state[folder].filter((item) => item.id !== savedItem.id),
                     }
                 },
+                movedItem: (state, { oldPath, newPath, item }) => {
+                    const newState = { ...state }
+                    const oldParentFolder = joinPath(splitPath(oldPath).slice(0, -1))
+                    for (const folder of Object.keys(newState)) {
+                        if (folder === oldParentFolder) {
+                            newState[folder] = newState[folder].filter((i) => i.id !== item.id)
+                            const newParentFolder = joinPath(splitPath(newPath).slice(0, -1))
+                            newState[newParentFolder] = [
+                                ...(newState[newParentFolder] ?? []),
+                                { ...item, path: newPath },
+                            ]
+                        } else if (folder === oldPath || folder.startsWith(oldPath + '/')) {
+                            const newFolder = newPath + folder.slice(oldPath.length)
+                            newState[newFolder] = [
+                                ...(newState[newFolder] ?? []),
+                                ...newState[folder].map((item) => ({
+                                    ...item,
+                                    path: newFolder + item.path.slice(folder.length),
+                                })),
+                            ]
+                            delete newState[folder]
+                        }
+                    }
+                    return newState
+                },
+            },
+        ],
+        folderLoadOffset: [
+            {} as Record<string, number>,
+            {
+                loadFolderSuccess: (state, { folder, offsetIncrease }) => {
+                    return { ...state, [folder]: offsetIncrease + (state[folder] ?? 0) }
+                },
             },
         ],
         folderStates: [
@@ -149,12 +287,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
             },
         ],
-        unfiledLoadingCount: [
-            0,
+        lastNewOperation: [
+            null as { objectType: string; folder: string } | null,
             {
-                loadUnfiledItems: (state) => state + 1,
-                loadUnfiledItemsSuccess: (state) => state - 1,
-                loadUnfiledItemsFailure: (state) => state - 1,
+                setLastNewOperation: (_, { folder, objectType }) => {
+                    if (folder && objectType) {
+                        return { folder, objectType }
+                    }
+                    return null
+                },
             },
         ],
         pendingActions: [
@@ -162,13 +303,35 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {
                 queueAction: (state, { action }) => [...state, action],
                 removeQueuedAction: (state, { action }) => state.filter((a) => a !== action),
-                cancelPendingActions: () => [],
             },
         ],
         expandedFolders: [
             [] as string[],
             {
                 setExpandedFolders: (_, { folderIds }) => folderIds,
+            },
+        ],
+        expandedSearchFolders: [
+            ['project/Unfiled'] as string[],
+            {
+                setExpandedSearchFolders: (_, { folderIds }) => folderIds,
+                loadSearchResultsSuccess: (state, { searchResults: { results, lastCount } }) => {
+                    const folders: Record<string, boolean> = state.reduce(
+                        (acc: Record<string, boolean>, folderId) => {
+                            acc[folderId] = true
+                            return acc
+                        },
+                        { 'project/Unfiled': true }
+                    )
+
+                    for (const entry of results.slice(-lastCount)) {
+                        const splits = splitPath(entry.path)
+                        for (let i = 1; i < splits.length; i++) {
+                            folders['project/' + joinPath(splits.slice(0, i))] = true
+                        }
+                    }
+                    return Object.keys(folders)
+                },
             },
         ],
         lastViewedId: [
@@ -194,51 +357,75 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.folderStates],
             (folderStates): boolean => Object.values(folderStates).some((state) => state === 'loading'),
         ],
-        unfiledLoading: [(s) => [s.unfiledLoadingCount], (unfiledLoadingCount) => unfiledLoadingCount > 0],
-        unfiledItems: [
-            // Remove from unfiledItems the ones that are in "savedItems"
-            (s) => [s.savedItems, s.allUnfiledItems],
-            (savedItems, allUnfiledItems): FileSystemEntry[] => {
-                const urls = new Set<string>()
-                for (const item of [...savedItems]) {
-                    const key = `${item.type}/${item.ref}`
-                    if (!urls.has(key)) {
-                        urls.add(key)
-                    }
-                }
-                return allUnfiledItems.filter((item) => !urls.has(`${item.type}/${item.ref}`))
-            },
-        ],
         viableItems: [
-            // Combine unfiledItems with savedItems and apply pendingActions
-            (s) => [s.unfiledItems, s.savedItems, s.pendingActions],
-            (unfiledItems, savedItems, pendingActions): FileSystemEntry[] => {
-                const items = [...unfiledItems, ...savedItems]
-                const itemsByPath = Object.fromEntries(items.map((item) => [item.path, item]))
+            // Combine savedItems with pendingActions
+            (s) => [s.savedItems, s.pendingActions],
+            (savedItems, pendingActions): FileSystemEntry[] => {
+                const initialItems = [...savedItems]
+                const itemsByPath = initialItems.reduce((acc, item) => {
+                    acc[item.path] = acc[item.path] ? [...acc[item.path], item] : [item]
+                    return acc
+                }, {} as Record<string, FileSystemEntry[]>)
+
                 for (const action of pendingActions) {
                     if (action.type === 'move' && action.newPath) {
-                        const item = itemsByPath[action.path]
-                        if (item) {
-                            if (!itemsByPath[action.newPath]) {
-                                itemsByPath[action.newPath] = { ...item, path: action.newPath }
+                        if (!itemsByPath[action.path] || itemsByPath[action.path].length === 0) {
+                            console.error("Item not found, can't move", action.path)
+                            continue
+                        }
+                        for (const item of itemsByPath[action.path]) {
+                            const itemTarget = itemsByPath[action.newPath]?.[0]
+                            if (item.type === 'folder') {
+                                if (!itemTarget || itemTarget.type === 'folder') {
+                                    for (const path of Object.keys(itemsByPath)) {
+                                        if (path.startsWith(action.path + '/')) {
+                                            for (const loopItem of itemsByPath[path]) {
+                                                const newPath = action.newPath + loopItem.path.slice(action.path.length)
+                                                if (!itemsByPath[newPath]) {
+                                                    itemsByPath[newPath] = []
+                                                }
+                                                itemsByPath[newPath] = [
+                                                    ...itemsByPath[newPath],
+                                                    { ...loopItem, path: newPath, _loading: true },
+                                                ]
+                                            }
+                                            delete itemsByPath[path]
+                                        }
+                                    }
+                                }
+                                if (!itemTarget) {
+                                    itemsByPath[action.newPath] = [
+                                        ...(itemsByPath[action.newPath] ?? []),
+                                        { ...item, path: action.newPath, _loading: true },
+                                    ]
+                                }
                                 delete itemsByPath[action.path]
                             } else {
-                                console.error("Item already exists, can't move", action.newPath)
+                                if (!itemsByPath[action.newPath]) {
+                                    itemsByPath[action.newPath] = [
+                                        ...(itemsByPath[action.newPath] ?? []),
+                                        { ...item, path: action.newPath, _loading: true },
+                                    ]
+                                    delete itemsByPath[action.path]
+                                } else {
+                                    console.error("Item already exists, can't move", action.newPath)
+                                }
                             }
-                        } else {
-                            console.error("Item not found, can't move", action.path)
                         }
                     } else if (action.type === 'create' && action.newPath) {
                         if (!itemsByPath[action.newPath]) {
-                            itemsByPath[action.newPath] = { ...action.item, path: action.newPath }
+                            itemsByPath[action.newPath] = [
+                                ...(itemsByPath[action.newPath] ?? []),
+                                { ...action.item, path: action.newPath, _loading: true },
+                            ]
                         } else {
                             console.error("Item already exists, can't create", action.item)
                         }
-                    } else if (action.type === 'delete' && action.path) {
-                        delete itemsByPath[action.path]
+                    } else if (action.path) {
+                        itemsByPath[action.path] = itemsByPath[action.path].map((i) => ({ ...i, loading: true }))
                     }
                 }
-                return Object.values(itemsByPath)
+                return Object.values(itemsByPath).flatMap((a) => a)
             },
         ],
         unappliedPaths: [
@@ -247,7 +434,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (pendingActions) => {
                 const unappliedPaths: Record<string, boolean> = {}
                 for (const action of pendingActions) {
-                    if (action.type === 'move-create' || action.type === 'move' || action.type === 'create') {
+                    if (action.type === 'move' || action.type === 'create') {
                         if (action.newPath) {
                             unappliedPaths[action.newPath] = true
                             const split = splitPath(action.newPath)
@@ -262,10 +449,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         loadingPaths: [
             // Paths that are currently being loaded
-            (s) => [s.unfiledLoading, s.savedItemsLoading, s.pendingLoaderLoading, s.pendingActions],
-            (unfiledLoading, savedItemsLoading, pendingLoaderLoading, pendingActions) => {
+            (s) => [s.unfiledItemsLoading, s.savedItemsLoading, s.pendingLoaderLoading, s.pendingActions],
+            (unfiledItemsLoading, savedItemsLoading, pendingLoaderLoading, pendingActions) => {
                 const loadingPaths: Record<string, boolean> = {}
-                if (unfiledLoading) {
+                if (unfiledItemsLoading) {
                     loadingPaths['Unfiled'] = true
                     loadingPaths[''] = true
                 }
@@ -310,92 +497,75 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return groupNodes
             },
         ],
-        defaultTreeNodes: [
-            (s) => [s.featureFlags, s.groupNodes, s.folderStates],
-            (_featureFlags, groupNodes: FileSystemImport[], folderStates) =>
+        treeItemsNew: [
+            (s) => [s.featureFlags, s.folderStates],
+            (_featureFlags, folderStates): TreeDataItem[] =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
-                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), folderStates, 'root'),
+                convertFileSystemEntryToTreeDataItem(getDefaultTreeNew(), folderStates, 'root'),
         ],
-        projectRow: [
-            () => [],
-            (): TreeDataItem[] => [
-                {
-                    id: 'top-separator',
-                    name: '',
-                    type: 'separator',
-                },
-                {
-                    id: 'project',
-                    name: 'Default Project',
-                    icon: <IconBook />,
-                    record: { type: 'project', id: 'project' },
-                    onClick: () => router.actions.push(urls.projectHomepage()),
-                },
-            ],
+        treeItemsExplore: [
+            (s) => [s.featureFlags, s.groupNodes, s.folderStates],
+            (_featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
+                // .filter(f => !f.flag || featureFlags[f.flag])
+                convertFileSystemEntryToTreeDataItem(getDefaultTreeExplore(groupNodes), folderStates, 'root'),
         ],
         searchedTreeItems: [
-            (s) => [s.defaultTreeNodes, s.projectTree, s.projectRow, s.searchTerm],
-            (
-                defaultTreeNodes: TreeDataItem[],
-                projectTree: TreeDataItem[],
-                projectRow: TreeDataItem[],
-                searchTerm: string
-            ): TreeDataItem[] => {
-                if (!searchTerm) {
-                    return [...defaultTreeNodes, ...projectRow, ...projectTree]
-                }
-
-                const allItems = [...defaultTreeNodes, ...projectRow, ...projectTree]
-
-                // TODO: remove from client side @marius :)
-                const fuse = new Fuse(allItems, {
-                    keys: ['name'],
-                    threshold: 0.3,
-                    ignoreLocation: true,
-                })
-
-                const searchResults = fuse.search(searchTerm).map((result) => result.item)
-
-                // Helper function to check if any child matches the search
-                const hasMatchingChild = (item: TreeDataItem): boolean => {
-                    if (!item.children) {
-                        return false
-                    }
-                    return item.children.some(
-                        (child) => searchResults.some((result) => result.id === child.id) || hasMatchingChild(child)
-                    )
-                }
-
-                // Include parent folders of matching items
-                const resultWithParents = searchResults.reduce((acc: TreeDataItem[], item) => {
-                    if (!acc.some((i) => i.id === item.id)) {
-                        acc.push(item)
-                    }
-
-                    // If it's a matching folder, include its children
-                    if (item.children) {
-                        item.children.forEach((child) => {
-                            if (
-                                !acc.some((i) => i.id === child.id) &&
-                                (searchResults.some((r) => r.id === child.id) || hasMatchingChild(child))
-                            ) {
-                                acc.push(child)
-                            }
+            (s) => [s.searchResults, s.searchResultsLoading],
+            (searchResults, searchResultsLoading): TreeDataItem[] => {
+                const results = convertFileSystemEntryToTreeDataItem(
+                    searchResults.results,
+                    {},
+                    'project',
+                    searchResults.searchTerm
+                )
+                if (searchResults.hasMore) {
+                    if (searchResultsLoading) {
+                        results.push({
+                            id: `search-loading/`,
+                            name: 'Loading...',
+                            icon: <Spinner />,
+                        })
+                    } else {
+                        results.push({
+                            id: `search-load-more/${searchResults.searchTerm}`,
+                            name: 'Load more...',
+                            icon: <IconPlus />,
+                            onClick: () =>
+                                projectTreeLogic.actions.loadSearchResults(
+                                    searchResults.searchTerm,
+                                    searchResults.results.length
+                                ),
                         })
                     }
-                    return acc
-                }, [])
-
-                return resultWithParents
+                }
+                return results
             },
         ],
         treeData: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.defaultTreeNodes, s.projectTree, s.projectRow],
-            (searchTerm, searchedTreeItems, defaultTreeNodes, projectTree, projectRow): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.searchResultsLoading],
+            (searchTerm, searchedTreeItems, projectTree, loadingPaths, searchResultsLoading): TreeDataItem[] => {
                 if (searchTerm) {
+                    if (searchResultsLoading && searchedTreeItems.length === 0) {
+                        return [
+                            {
+                                id: `search-loading/`,
+                                name: 'Loading...',
+                                icon: <Spinner />,
+                            },
+                        ]
+                    }
                     return searchedTreeItems
                 }
-                return [...defaultTreeNodes, ...projectRow, ...projectTree] as TreeDataItem[]
+                if (loadingPaths[''] && projectTree.length === 0) {
+                    return [
+                        {
+                            id: `project-loading/`,
+                            name: 'Loading...',
+                            icon: <Spinner />,
+                        },
+                    ]
+                }
+                return projectTree
             },
         ],
     }),
@@ -408,38 +578,58 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadFolderStart(folder)
             try {
                 const previousFiles = values.folders[folder] || []
-                const response = await api.fileSystem.list(
-                    folder,
-                    splitPath(folder).length + 1,
-                    PAGINATION_LIMIT + 1,
-                    previousFiles.length
-                )
+                const offset = values.folderLoadOffset[folder] ?? 0
+                const response = await api.fileSystem.list({
+                    parent: folder,
+                    depth: splitPath(folder).length + 1,
+                    limit: PAGINATION_LIMIT + 1,
+                    offset: offset,
+                })
 
                 let files = response.results
                 let hasMore = false
-                if (files.length > PAGINATION_LIMIT) {
+                if (offset + files.length > PAGINATION_LIMIT) {
                     files = files.slice(0, PAGINATION_LIMIT)
                     hasMore = true
                 }
-                actions.loadFolderSuccess(folder, [...previousFiles, ...files], hasMore)
+                const fileIds = new Set(files.map((file) => file.id))
+                const previousUniqueFiles = previousFiles.filter(
+                    (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
+                )
+                actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore, files.length)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
             }
         },
-        moveItem: async ({ oldPath, newPath }) => {
-            for (const item of values.viableItems) {
-                if (item.path === oldPath || item.path.startsWith(oldPath + '/')) {
-                    actions.queueAction({
-                        type: 'move',
-                        item,
-                        path: item.path,
-                        newPath: newPath + item.path.slice(oldPath.length),
-                    })
+        loadFolderSuccess: ({ folder }) => {
+            if (folder === '') {
+                const rootItems = values.folders['']
+                if (rootItems.length < 5) {
+                    actions.toggleFolderOpen('project/Unfiled', true)
                 }
             }
         },
+        moveItem: async ({ oldPath, newPath }) => {
+            if (newPath.startsWith(oldPath + '/')) {
+                lemonToast.error('Cannot move folder into itself')
+                return
+            }
+            const item = values.viableItems.find((item) => item.path === oldPath)
+            if (item && item.path === oldPath) {
+                if (!item.id) {
+                    lemonToast.error("Sorry, can't move an unsaved item (no id)")
+                    return
+                }
+                actions.queueAction({
+                    type: item.type === 'folder' ? 'prepare-move' : 'move',
+                    item,
+                    path: item.path,
+                    newPath: newPath + item.path.slice(oldPath.length),
+                })
+            }
+        },
         deleteItem: async ({ item }) => {
-            actions.queueAction({ type: 'delete', item, path: item.path })
+            actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
         addFolder: ({ folder }) => {
             if (values.viableItems.find((item) => item.path === folder)) {
@@ -453,20 +643,23 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             })
         },
         toggleFolderOpen: ({ folderId }) => {
-            if (values.expandedFolders.find((f) => f === folderId)) {
-                actions.setExpandedFolders(values.expandedFolders.filter((f) => f !== folderId))
-            } else {
-                actions.setExpandedFolders([...values.expandedFolders, folderId])
-                if (values.folderStates[folderId] !== 'loaded' && values.folderStates[folderId] !== 'loading') {
-                    const folder = findInProjectTree(folderId, values.projectTree)
-                    folder && actions.loadFolder(folder.record?.path)
+            if (values.searchTerm) {
+                if (values.expandedSearchFolders.find((f) => f === folderId)) {
+                    actions.setExpandedSearchFolders(values.expandedSearchFolders.filter((f) => f !== folderId))
+                } else {
+                    actions.setExpandedSearchFolders([...values.expandedSearchFolders, folderId])
                 }
-            }
-        },
-        cancelPendingActions: () => {
-            // Clear all pending actions without applying them
-            for (const action of values.pendingActions) {
-                actions.removeQueuedAction(action)
+            } else {
+                if (values.expandedFolders.find((f) => f === folderId)) {
+                    actions.setExpandedFolders(values.expandedFolders.filter((f) => f !== folderId))
+                } else {
+                    actions.setExpandedFolders([...values.expandedFolders, folderId])
+
+                    if (values.folderStates[folderId] !== 'loaded' && values.folderStates[folderId] !== 'loading') {
+                        const folder = findInProjectTree(folderId, values.projectTree)
+                        folder && actions.loadFolder(folder.record?.path)
+                    }
+                }
             }
         },
         rename: ({ path }) => {
@@ -488,9 +681,92 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 actions.addFolder(newPath)
             }
         },
+        setSearchTerm: ({ searchTerm }) => {
+            actions.loadSearchResults(searchTerm)
+        },
+        assureVisibility: async ({ projectTreeRef }, breakpoint) => {
+            if (projectTreeRef) {
+                const treeItem = projectTreeRef.type.endsWith('/')
+                    ? values.viableItems.find(
+                          (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
+                      )
+                    : values.viableItems.find(
+                          (item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref
+                      )
+                let path: string | undefined
+                if (treeItem) {
+                    path = treeItem.path
+                } else {
+                    const resp = await api.fileSystem.list(
+                        projectTreeRef.type.endsWith('/')
+                            ? { ref: projectTreeRef.ref, type__startswith: projectTreeRef.type }
+                            : { ref: projectTreeRef.ref, type: projectTreeRef.type }
+                    )
+                    breakpoint() // bail if we opened some other item in the meanwhile
+                    if (resp.results && resp.results.length > 0) {
+                        const { lastNewOperation } = values
+                        const result = resp.results[0]
+                        path = result.path
+
+                        // Check if a "new" action was recently initiated for this object type.
+                        // If so, move the item to the new path.
+                        // TODO: also check that this was created by you (after we add more metadata to items)
+                        // - const createdBy = result.meta?.created_by
+                        if (
+                            result.path.startsWith('Unfiled/') &&
+                            lastNewOperation &&
+                            (lastNewOperation.objectType === result.type ||
+                                (lastNewOperation.objectType.includes('/') &&
+                                    result.type?.includes('/') &&
+                                    lastNewOperation.objectType.split('/')[0] === result.type.split('/')[0]))
+                        ) {
+                            const newPath = joinPath([
+                                ...splitPath(lastNewOperation.folder),
+                                ...splitPath(result.path).slice(-1),
+                            ])
+                            actions.createSavedItem({ ...result, path: newPath })
+                            path = newPath
+                            await api.fileSystem.move(result.id, newPath)
+                        } else {
+                            actions.createSavedItem(result)
+                        }
+                        if (lastNewOperation) {
+                            actions.setLastNewOperation(null, null)
+                        }
+                    }
+                }
+
+                if (path) {
+                    const expandedSet = new Set(values.expandedFolders)
+                    const allFolders = splitPath(path).slice(0, -1)
+                    const allFullFolders = allFolders.map((_, index) => joinPath(allFolders.slice(0, index + 1)))
+                    const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project/' + f))
+
+                    for (const folder of nonExpandedFolders) {
+                        if (values.folderStates[folder] !== 'loaded' && values.folderStates[folder] !== 'loading') {
+                            actions.loadFolder(folder)
+                        }
+                    }
+                    actions.setExpandedFolders([
+                        ...values.expandedFolders,
+                        ...nonExpandedFolders.map((f) => 'project/' + f),
+                    ])
+                }
+            }
+        },
     })),
-    afterMount(({ actions }) => {
+    subscriptions(({ actions }) => ({
+        projectTreeRef: (newRef: ProjectTreeRef | null) => {
+            if (newRef) {
+                actions.assureVisibility(newRef)
+            }
+        },
+    })),
+    afterMount(({ actions, values }) => {
         actions.loadFolder('')
         actions.loadUnfiledItems()
+        if (values.projectTreeRef) {
+            actions.assureVisibility(values.projectTreeRef)
+        }
     }),
 ])

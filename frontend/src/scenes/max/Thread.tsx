@@ -26,15 +26,18 @@ import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
+    AssistantToolCallMessage,
     FailureMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { isHogQLQuery } from '~/queries/utils'
 
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
+    isAssistantToolCallMessage,
     isFailureMessage,
     isHumanMessage,
     isReasoningMessage,
@@ -101,7 +104,11 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
                             </MessageTemplate>
                         )
-                    } else if (isAssistantMessage(message) || isFailureMessage(message)) {
+                    } else if (
+                        isAssistantMessage(message) ||
+                        isAssistantToolCallMessage(message) ||
+                        isFailureMessage(message)
+                    ) {
                         return (
                             <TextAnswer
                                 key={key}
@@ -181,7 +188,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 })
 
 interface TextAnswerProps {
-    message: (AssistantMessage | FailureMessage) & ThreadMessage
+    message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
     interactable?: boolean
     isFinalGroup?: boolean
 }
@@ -268,13 +275,13 @@ function VisualizationAnswer({
 }): JSX.Element | null {
     const [isSummaryShown, setIsSummaryShown] = useState(false)
 
-    const query = useMemo<InsightVizNode | null>(() => {
+    const query = useMemo<InsightVizNode | DataVisualizationNode | null>(() => {
         if (message.answer) {
-            return {
-                kind: NodeKind.InsightVizNode,
-                source: castAssistantQuery(message.answer),
-                showHeader: true,
+            const source = castAssistantQuery(message.answer)
+            if (isHogQLQuery(source)) {
+                return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
             }
+            return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
         }
 
         return null
@@ -310,10 +317,12 @@ function VisualizationAnswer({
                       {isSummaryShown && (
                           <>
                               <SeriesSummary query={query.source} heading={null} />
-                              <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                  <PropertiesSummary properties={query.source.properties} />
-                                  <BreakdownSummary query={query.source} />
-                              </div>
+                              {!isHogQLQuery(query.source) && (
+                                  <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                      <PropertiesSummary properties={query.source.properties} />
+                                      <BreakdownSummary query={query.source} />
+                                  </div>
+                              )}
                           </>
                       )}
                   </MessageTemplate>

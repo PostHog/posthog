@@ -1,5 +1,6 @@
 import json
 from time import sleep
+from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
@@ -10,6 +11,7 @@ from rest_framework.exceptions import APIException
 from ee.hogai.query_executor.format import (
     FunnelResultsFormatter,
     RetentionResultsFormatter,
+    SQLResultsFormatter,
     TrendsResultsFormatter,
 )
 from ee.hogai.query_executor.prompts import (
@@ -20,6 +22,7 @@ from ee.hogai.query_executor.prompts import (
     QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
+    SQL_EXAMPLE_PROMPT,
 )
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
@@ -31,6 +34,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import (
     AssistantFunnelsQuery,
+    AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
@@ -46,7 +50,7 @@ class QueryExecutorNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if not isinstance(viz_message, VisualizationMessage):
-            raise ValueError("Can only run summarization with a visualization message as the last one in the state")
+            raise ValueError(f"Expected a visualization message, found {type(viz_message)}")
         if viz_message.answer is None:
             raise ValueError("Did not find query in the visualization message")
 
@@ -66,19 +70,27 @@ class QueryExecutorNode(AssistantNode):
                     else ExecutionMode.CALCULATE_BLOCKING_ALWAYS
                 ),
             ).model_dump(mode="json")
-            if results_response.get("query_status") and not results_response["query_status"]["complete"]:
-                query_id = results_response["query_status"]["id"]
-                for i in range(0, 999):
-                    sleep(i / 2)  # We start at 0.5s and every iteration we wait 0.5s more
-                    query_status = get_query_status(team_id=self._team.pk, query_id=query_id)
-                    if query_status.error:
-                        if query_status.error_message:
-                            raise APIException(query_status.error_message)
-                        else:
-                            raise ValueError("Query failed")
-                    if query_status.complete:
-                        results_response = query_status.results
-                        break
+            # If response has an async query_status, that's always the thing to use
+            if query_status := results_response.get("query_status"):
+                if not query_status["complete"]:
+                    # If it's an in-progress (likely just kicked off) status, let's poll until complete
+                    for wait_ms in range(100, 12000, 100):  # 726 s in total, if my math is correct
+                        sleep(wait_ms / 1000)
+                        query_status = get_query_status(team_id=self._team.pk, query_id=query_status["id"]).model_dump(
+                            mode="json"
+                        )
+                        if query_status["complete"]:
+                            break
+                    else:
+                        raise APIException(
+                            "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
+                        )
+                # With results ready, let's first check for errors - then actually use the results
+                if query_status.get("error"):
+                    if error_message := query_status.get("error_message"):
+                        raise APIException(error_message)
+                    raise Exception("Query failed")
+                results_response = query_status["results"]
         except (APIException, ExposedHogQLError, ExposedCHQueryError) as err:
             err_message = str(err)
             if isinstance(err, APIException):
@@ -98,7 +110,7 @@ class QueryExecutorNode(AssistantNode):
             )
 
         try:
-            results = self._compress_results(viz_message, results_response["results"])
+            results = self._compress_results(viz_message, results_response)
             example_prompt = self._get_example_prompt(viz_message)
         except Exception as err:
             if isinstance(err, NotImplementedError):
@@ -127,13 +139,17 @@ class QueryExecutorNode(AssistantNode):
             root_tool_insight_type="",
         )
 
-    def _compress_results(self, viz_message: VisualizationMessage, results: list[dict]) -> str:
+    def _compress_results(self, viz_message: VisualizationMessage, response: dict[str, Any]) -> str:
         if isinstance(viz_message.answer, AssistantTrendsQuery):
-            return TrendsResultsFormatter(viz_message.answer, results).format()
+            return TrendsResultsFormatter(viz_message.answer, response["results"]).format()
         elif isinstance(viz_message.answer, AssistantFunnelsQuery):
-            return FunnelResultsFormatter(viz_message.answer, results, self._team, self._utc_now_datetime).format()
+            return FunnelResultsFormatter(
+                viz_message.answer, response["results"], self._team, self._utc_now_datetime
+            ).format()
         elif isinstance(viz_message.answer, AssistantRetentionQuery):
-            return RetentionResultsFormatter(viz_message.answer, results).format()
+            return RetentionResultsFormatter(viz_message.answer, response["results"]).format()
+        elif isinstance(viz_message.answer, AssistantHogQLQuery):
+            return SQLResultsFormatter(viz_message.answer, response["results"], response["columns"]).format()
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
 
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
@@ -151,4 +167,6 @@ class QueryExecutorNode(AssistantNode):
             return FUNNEL_TRENDS_EXAMPLE_PROMPT
         if isinstance(viz_message.answer, AssistantRetentionQuery):
             return RETENTION_EXAMPLE_PROMPT
+        if isinstance(viz_message.answer, AssistantHogQLQuery):
+            return SQL_EXAMPLE_PROMPT
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")

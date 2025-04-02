@@ -36,11 +36,18 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
+        self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
         self.date_range = self._get_date_range()
+        self.date_range_query = QueryDateRange(
+            date_range=self.date_range,
+            team=self.team,
+            interval=IntervalType.DAY,
+            now=datetime.now(),
+        )
 
     def _get_date_range(self) -> DateRange:
         """
@@ -61,94 +68,95 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
-    def _get_exposure_query(self) -> ast.SelectQuery:
-        feature_flag_key = self.feature_flag.key
-        feature_flag_property = f"$feature/{feature_flag_key}"
-
-        test_accounts_filter: list[ast.Expr] = []
+    def _get_test_accounts_filter(self) -> list[ast.Expr]:
         if (
             self.experiment.exposure_criteria
             and self.experiment.exposure_criteria.get("filterTestAccounts")
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):
-            for property in self.team.test_account_filters:
-                test_accounts_filter.append(property_to_expr(property, self.team))
+            return [property_to_expr(property, self.team) for property in self.team.test_account_filters]
+        return []
 
-        date_range_query = QueryDateRange(
-            date_range=self.date_range,
-            team=self.team,
-            interval=IntervalType.DAY,
-            now=datetime.now(),
-        )
-
-        event_name = "$feature_flag_called"
+    def _get_exposure_query(self) -> ast.SelectQuery:
         exposure_config = (
             self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
         )
+
+        if exposure_config and exposure_config.get("event") != "$feature_flag_called":
+            # For custom exposure events, we extract the event name from the exposure config
+            # and get the variant from the $feature/<key> property
+            feature_flag_variant_property = f"$feature/{self.feature_flag.key}"
+            event = exposure_config.get("event")
+        else:
+            # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
+            feature_flag_variant_property = "$feature_flag_response"
+            event = "$feature_flag_called"
+
+        # Common criteria for all exposure queries
+        exposure_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=self.date_range_query.date_from()),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=self.date_range_query.date_to()),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=event),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["properties", feature_flag_variant_property]),
+                right=ast.Constant(value=self.variants),
+            ),
+            *self._get_test_accounts_filter(),
+        ]
+
+        # Custom exposures can have additional properties to narrow the audience
         if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
-            event_name = exposure_config.get("event")
             exposure_property_filters: list[ast.Expr] = []
+
             if exposure_config.get("properties"):
                 for property in exposure_config.get("properties"):
                     exposure_property_filters.append(property_to_expr(property, self.team))
-            exposure_where_clause = ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=event_name),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", feature_flag_property]),
-                        right=ast.Constant(value=self.variants),
-                    ),
-                    *exposure_property_filters,
-                ]
+            exposure_conditions.append(ast.And(exprs=exposure_property_filters))
+
+        # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
+        if event == "$feature_flag_called":
+            exposure_conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["properties", "$feature_flag"]),
+                    right=ast.Constant(value=self.feature_flag.key),
+                ),
             )
-        else:
-            exposure_where_clause = ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value="$feature_flag_called"),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["properties", "$feature_flag"]),
-                        right=ast.Constant(value=feature_flag_key),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", "$feature_flag_response"]),
-                        right=ast.Constant(value=self.variants),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", feature_flag_property]),
-                        right=ast.Constant(value=self.variants),
-                    ),
-                ]
-            )
+
+        entity = "person_id"
+        if isinstance(self.group_type_index, int):
+            entity = f"$group_{self.group_type_index}"
 
         exposure_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["subq", "day"]),
                 ast.Field(chain=["subq", "variant"]),
-                parse_expr("count(person_id) as exposed_count"),
+                parse_expr("count(entity_id) as exposed_count"),
             ],
             select_from=ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
-                        ast.Field(chain=["person_id"]),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=[entity])),
                         ast.Alias(
                             alias="variant",
                             expr=parse_expr(
-                                "if(count(distinct {feature_flag_property}) > 1, {multiple_variant_key}, any({feature_flag_property}))",
+                                "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
                                 placeholders={
-                                    "feature_flag_property": ast.Field(chain=["properties", feature_flag_property]),
+                                    "variant_property": ast.Field(chain=["properties", feature_flag_variant_property]),
                                     "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                                 },
                             ),
@@ -156,24 +164,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                         parse_expr("toDate(toString(min(timestamp))) as day"),
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    where=ast.And(
-                        exprs=[
-                            exposure_where_clause,
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.GtEq,
-                                left=ast.Field(chain=["timestamp"]),
-                                right=ast.Constant(value=date_range_query.date_from()),
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.LtEq,
-                                left=ast.Field(chain=["timestamp"]),
-                                right=ast.Constant(value=date_range_query.date_to()),
-                            ),
-                            *test_accounts_filter,
-                        ]
-                    ),
+                    where=ast.And(exprs=exposure_conditions),
                     group_by=[
-                        ast.Field(chain=["person_id"]),
+                        ast.Field(chain=["entity_id"]),
                     ],
                 ),
                 alias="subq",

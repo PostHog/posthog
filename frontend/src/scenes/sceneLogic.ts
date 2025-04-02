@@ -11,7 +11,7 @@ import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfiguratio
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
+import { PipelineTab, ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
@@ -29,7 +29,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
-    [ProductKey.DATA_WAREHOUSE]: [urls.dataWarehouse()],
+    [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.pipeline(PipelineTab.Sources)],
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
 }
 
@@ -248,10 +248,13 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.onboarding('')) &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith('/settings') &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.organizationBilling())
+                        ![
+                            urls.onboarding(''),
+                            urls.products(),
+                            '/settings',
+                            urls.organizationBilling(),
+                            urls.wizard(),
+                        ].some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
                     ) {
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (
@@ -284,7 +287,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                 )
 
                                 if (
-                                    scene === Scene.DataWarehouseTable &&
+                                    scene === Scene.PipelineNodeNew &&
                                     params.searchParams.kind == 'hubspot' &&
                                     params.searchParams.code
                                 ) {
@@ -298,7 +301,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     )
                                 } else {
                                     router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
                                     )
                                 }
                                 return

@@ -28,7 +28,4 @@ describe('projectHomepageLogic', () => {
     it('does not load recent insights onMount', async () => {
         await expectLogic(logic).toNotHaveDispatchedActions(['loadRecentInsights', 'loadRecentInsightsSuccess'])
     })
-    it('loads persons onMount', async () => {
-        await expectLogic(logic).toDispatchActions(['loadPersons', 'loadPersonsSuccess'])
-    })
 })

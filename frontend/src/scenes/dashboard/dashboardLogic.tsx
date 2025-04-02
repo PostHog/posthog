@@ -61,6 +61,7 @@ import {
     InsightColor,
     InsightModel,
     InsightShortId,
+    ProjectTreeRef,
     QueryBasedInsightModel,
     TextModel,
     TileLayout,
@@ -264,11 +265,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         updateFiltersAndLayoutsAndVariables: true,
-        overrideVariableValue: (variableId: string, value: any, editMode?: boolean) => ({
+        overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
             variableId,
             value,
             allVariables: values.variables,
-            editMode: editMode ?? true,
+            isNull,
         }),
 
         resetVariables: () => ({ variables: values.insightVariables }),
@@ -508,7 +509,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         temporaryVariables: [
             {} as Record<string, HogQLVariable>,
             {
-                overrideVariableValue: (state, { variableId, value, allVariables }) => {
+                overrideVariableValue: (state, { variableId, value, allVariables, isNull }) => {
                     const foundExistingVar = allVariables.find((n) => n.id === variableId)
                     if (!foundExistingVar) {
                         return state
@@ -516,7 +517,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     return {
                         ...state,
-                        [variableId]: { code_name: foundExistingVar.code_name, variableId: foundExistingVar.id, value },
+                        [variableId]: {
+                            code_name: foundExistingVar.code_name,
+                            variableId: foundExistingVar.id,
+                            value,
+                            isNull,
+                        },
                     }
                 },
                 resetVariables: (_, { variables }) => ({ ...variables }),
@@ -857,13 +863,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboard: DashboardType,
                 allVariables: Variable[],
                 temporaryVariables: Record<string, HogQLVariable>
-            ): Variable[] => {
+            ): { variable: Variable; insights: string[] }[] => {
                 const dataVizNodes = dashboard.tiles
-                    .map((n) => n.insight?.query)
-                    .filter((n) => n?.kind === NodeKind.DataVisualizationNode)
-                    .filter((n): n is DataVisualizationNode => Boolean(n))
+                    .map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
+                    .filter((n) => n.query?.kind === NodeKind.DataVisualizationNode)
+                    .filter(
+                        (n): n is { query: DataVisualizationNode; title: string } =>
+                            Boolean(n.query) && Boolean(n.title)
+                    )
+
                 const hogQLVariables = dataVizNodes
-                    .map((n) => n.source.variables)
+                    .map((n) => n.query.source.variables)
                     .filter((n): n is Record<string, HogQLVariable> => Boolean(n))
                     .flatMap((n) => Object.values(n))
 
@@ -877,16 +887,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
 
                         const overridenValue = temporaryVariables[v.variableId]?.value
-
+                        const overridenIsNull = temporaryVariables[v.variableId]?.isNull
                         // Overwrite the variable `value` from the insight
                         const resultVar: Variable = {
                             ...foundVar,
                             value: overridenValue ?? v.value ?? foundVar.value,
+                            isNull: overridenIsNull ?? v.isNull ?? foundVar.isNull,
                         }
 
-                        return resultVar
+                        const insightsUsingVariable = dataVizNodes
+                            .filter((n) => {
+                                const vars = n.query.source.variables
+                                if (!vars) {
+                                    return false
+                                }
+
+                                return !!vars[v.variableId]
+                            })
+                            .map((n) => n.title)
+
+                        return { variable: resultVar, insights: insightsUsingVariable }
                     })
-                    .filter((n): n is Variable => Boolean(n))
+                    .filter((n): n is { variable: Variable; insights: string[] } => Boolean(n?.variable))
             },
         ],
         asDashboardTemplate: [
@@ -1016,6 +1038,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (
                     !!newestRefreshed &&
                     !(placement === DashboardPlacement.FeatureFlag) &&
+                    !(placement === DashboardPlacement.Group) &&
                     oldestClientRefreshAllowed?.isAfter(now())
                 )
             },
@@ -1108,7 +1131,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             ],
         ],
-
+        projectTreeRef: [
+            () => [(_, props: DashboardLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'dashboard', ref: String(id) }),
+        ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.dashboard],
             (dashboard): SidePanelSceneContext | null => {
@@ -1580,10 +1606,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: 'preview' })
             }
         },
-        overrideVariableValue: ({ editMode }) => {
-            if (editMode) {
-                actions.setDashboardMode(DashboardMode.Edit, null)
-            }
+        overrideVariableValue: () => {
             actions.loadDashboard({ action: 'preview' })
         },
     })),
@@ -1596,7 +1619,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             for (const [key, value] of Object.entries(urlVariables)) {
                 const variable = variables.find((variable: HogQLVariable) => variable.code_name === key)
                 if (variable) {
-                    actions.overrideVariableValue(variable.id, value, false)
+                    actions.overrideVariableValue(variable.id, value, variable.isNull ?? false)
                 }
             }
         },

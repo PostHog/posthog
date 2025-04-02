@@ -25,7 +25,7 @@ class HogQLQueryRunner(QueryRunner):
     response: HogQLQueryResponse
     cached_response: CachedHogQLQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
@@ -42,7 +42,7 @@ class HogQLQueryRunner(QueryRunner):
                     parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
         return parsed_select
 
-    def to_actors_query(self) -> ast.SelectQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
     def calculate(self) -> HogQLQueryResponse:

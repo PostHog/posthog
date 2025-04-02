@@ -39,6 +39,7 @@ impl Cohort {
               FROM posthog_cohort AS c
               JOIN posthog_team AS t ON (c.team_id = t.id)
             WHERE t.project_id = $1
+            AND c.deleted = false
         "#;
         let cohorts = sqlx::query_as::<_, Cohort>(query)
             .bind(project_id)
@@ -224,7 +225,7 @@ mod tests {
             .expect("Failed to list cohorts");
 
         assert_eq!(cohorts.len(), 2);
-        let names: HashSet<String> = cohorts.into_iter().map(|c| c.name).collect();
+        let names: HashSet<String> = cohorts.into_iter().filter_map(|c| c.name).collect();
         assert!(names.contains("Cohort 1"));
         assert!(names.contains("Cohort 2"));
     }
@@ -233,7 +234,7 @@ mod tests {
     fn test_cohort_parse_filters() {
         let cohort = Cohort {
             id: 1,
-            name: "Test Cohort".to_string(),
+            name: Some("Test Cohort".to_string()),
             description: None,
             team_id: 1,
             deleted: false,

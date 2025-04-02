@@ -1,32 +1,36 @@
-import { kea } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavItem = 'project' | 'activity' | 'persons'
+export type PanelLayoutNavIdentifier = 'Project' // Add more identifiers here for more panels
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
+export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 
-export const panelLayoutLogic = kea<panelLayoutLogicType>({
-    path: ['layout', 'panel-layout', 'panelLayoutLogic'],
-    connect: {
+export const panelLayoutLogic = kea<panelLayoutLogicType>([
+    path(['layout', 'panel-layout', 'panelLayoutLogic']),
+    connect({
         values: [navigation3000Logic, ['mobileLayout']],
-    },
-    actions: {
+    }),
+    actions({
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
         toggleLayoutPanelPinned: (pinned: boolean) => ({ pinned }),
         // TODO: This is a temporary action to set the active navbar item
         // We should remove this once we have a proper way to handle the navbar item
-        setActiveLayoutNavBarItem: (item: PanelLayoutNavItem) => ({ item }),
-        clearActiveLayoutNavBarItem: true,
+        setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
+        clearActivePanelIdentifier: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
         setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
-    },
-    reducers: {
+        setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
+        toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
+    }),
+    reducers({
         isLayoutNavbarVisibleForDesktop: [
             true,
+            { persist: true },
             {
                 showLayoutNavBar: (_, { visible }) => visible,
                 mobileLayout: () => true,
@@ -39,8 +43,16 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
                 mobileLayout: () => true,
             },
         ],
+        isLayoutPanelCloseable: [
+            true,
+            {
+                showLayoutPanel: () => true,
+                toggleLayoutPanelPinned: () => false,
+            },
+        ],
         isLayoutPanelVisible: [
             false,
+            { persist: true },
             {
                 showLayoutPanel: (_, { visible }) => visible,
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned || _,
@@ -53,11 +65,12 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned,
             },
         ],
-        activeLayoutNavBarItem: [
+        activePanelIdentifier: [
             '',
+            { persist: true },
             {
-                setActiveLayoutNavBarItem: (_, { item }) => item,
-                clearActiveLayoutNavBarItem: () => '',
+                setActivePanelIdentifier: (_, { identifier }) => identifier,
+                clearActivePanelIdentifier: () => '',
             },
         ],
         searchTerm: [
@@ -73,5 +86,24 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
                 setPanelTreeRef: (_, { ref }) => ref,
             },
         ],
-    },
-})
+        mainContentRef: [
+            null as PanelLayoutMainContentRef,
+            {
+                setMainContentRef: (_, { ref }) => ref,
+            },
+        ],
+        isLayoutNavCollapsedDesktop: [
+            false,
+            { persist: true },
+            {
+                toggleLayoutNavCollapsed: (state, { override }) => override ?? !state,
+            },
+        ],
+    }),
+    selectors({
+        isLayoutNavCollapsed: [
+            (s) => [s.isLayoutNavCollapsedDesktop, s.mobileLayout],
+            (isLayoutNavCollapsedDesktop, mobileLayout): boolean => !mobileLayout && isLayoutNavCollapsedDesktop,
+        ],
+    }),
+])

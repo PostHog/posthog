@@ -11,7 +11,6 @@ from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec
 
@@ -30,7 +29,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-
 from .utils import UUIDModel, sane_repr
 
 try:
@@ -492,8 +490,8 @@ def fetch_plugin_log_entries(
     *,
     team_id: Optional[int] = None,
     plugin_config_id: Optional[int] = None,
-    after: Optional[timezone.datetime] = None,
-    before: Optional[timezone.datetime] = None,
+    after: Optional[datetime.datetime] = None,
+    before: Optional[datetime.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
     type_filter: Optional[list[PluginLogEntryType]] = None,
