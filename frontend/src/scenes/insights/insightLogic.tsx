@@ -108,11 +108,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             callback,
         }),
         setInsightMetadata: (
-            metadataUpdate: Partial<Pick<QueryBasedInsightModel, 'name' | 'description' | 'tags' | 'favorited'>>,
-            showToast: boolean = true
+            metadataUpdate: Partial<Pick<QueryBasedInsightModel, 'name' | 'description' | 'tags' | 'favorited'>>
         ) => ({
             metadataUpdate,
-            showToast,
         }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         setAccessDeniedToInsight: true,
@@ -162,7 +160,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
                     return updatedInsight
                 },
-                setInsightMetadata: async ({ metadataUpdate, showToast }, breakpoint) => {
+                setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
                     // new insight
                     if (values.insight.short_id == null) {
                         return { ...values.insight, ...metadataUpdate }
@@ -174,30 +172,25 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
-                    breakpoint()
+                    await breakpoint(300)
 
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     dashboardsModel.actions.updateDashboardInsight(response)
                     actions.loadTags()
 
-                    if (showToast) {
-                        lemonToast.success(`Updated insight`, {
-                            button: {
-                                label: 'Undo',
-                                dataAttr: 'edit-insight-undo',
-                                action: async () => {
-                                    const response = await insightsApi.update(
-                                        values.insight.id as number,
-                                        beforeUpdates
-                                    )
-                                    savedInsightsLogic.findMounted()?.actions.loadInsights()
-                                    dashboardsModel.actions.updateDashboardInsight(response)
-                                    actions.setInsight(response, { overrideQuery: false, fromPersistentApi: true })
-                                    lemonToast.success('Insight change reverted')
-                                },
+                    lemonToast.success(`Updated insight`, {
+                        button: {
+                            label: 'Undo',
+                            dataAttr: 'edit-insight-undo',
+                            action: async () => {
+                                const response = await insightsApi.update(values.insight.id as number, beforeUpdates)
+                                savedInsightsLogic.findMounted()?.actions.loadInsights()
+                                dashboardsModel.actions.updateDashboardInsight(response)
+                                actions.setInsight(response, { overrideQuery: false, fromPersistentApi: true })
+                                lemonToast.success('Insight change reverted')
                             },
-                        })
-                    }
+                        },
+                    })
 
                     return response
                 },
