@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+"""
+This script is used to copy the executable to a in-memory file descriptor before executing it.
+This allows us to deploy new copies of the executable without always creating a new version.
+The new version will get picked up by clickhouse the next time the function is reloaded.
+The lifetime option in user_defined_function.xml file controls how often clickhouse reloads the function.
+
+Usage:
+    ./mem_exec.py <path_to_executable> [args...]
+"""
+
 import os
 import sys
 
