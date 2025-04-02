@@ -48,6 +48,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingJob,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
