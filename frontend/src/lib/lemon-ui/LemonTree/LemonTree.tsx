@@ -69,6 +69,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
+    /** Whether to enable multi-selection. */
+    enableMultiSelection?: boolean
     /** Whether the item is active, useful for highlighting the current item against a URL path,
      * this takes precedence over showFolderActiveState, and selectedId state */
     isItemActive?: (item: TreeDataItem) => boolean
@@ -84,6 +86,10 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemLoading?: (item: TreeDataItem) => boolean
     /** Whether the item is unapplied */
     isItemUnapplied?: (item: TreeDataItem) => boolean
+    /** The default checked items. */
+    defaultCheckedItems?: string[]
+    /** The function to call when the item is checked. */
+    onSetCheckedIds?: (ids: string[]) => void
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     /** Set the IDs of the expanded items. */
@@ -91,6 +97,9 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** Pass true if you need to wait for async events to populate the tree.
      * If present and true will trigger: scrolling to focused item */
     isFinishedBuildingTreeData?: boolean
+
+    /** The function to call when the item is checked. */
+    onSetCheckedItemIds?: (ids: string[]) => void
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -104,6 +113,8 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     contentRef?: React.RefObject<HTMLElement>
     /** Handler for when a drag operation completes */
     onDragEnd?: (dragEvent: DragEndEvent) => void
+    /** Whether the item is checked. */
+    isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
 }
 
 export type LemonTreeNodeProps = LemonTreeBaseProps & {
@@ -115,6 +126,8 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     depth?: number
     /** Whether the context menu is open */
     onContextMenuOpen?: (open: boolean) => void
+    /** The checked items. */
+    checkedItems?: string[]
 }
 
 export interface LemonTreeRef {
@@ -142,6 +155,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             enableDragAndDrop = false,
             onContextMenuOpen,
             itemContextMenu,
+            enableMultiSelection = false,
+            onSetCheckedItemIds,
+            checkedItems,
             ...props
         },
         ref
@@ -231,7 +247,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     onClick={() => {
                                                         handleClick(item)
                                                     }}
-                                                    onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
+                                                    // onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
+                                                    href={item.record?.href}
                                                     role="treeitem"
                                                     data-id={item.id}
                                                     active={getItemActiveState(item)}
@@ -273,6 +290,35 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         item,
                                                         expandedItemIds: expandedItemIds ?? [],
                                                         defaultNodeIcon,
+                                                        enableMultiSelection,
+                                                        checkedItems: checkedItems ?? [],
+                                                        handleCheckedChange: (checked) => {
+                                                            // Collect all child IDs recursively
+                                                            const getAllChildIds = (item: TreeDataItem): string[] => {
+                                                                let ids = [item.id]
+                                                                if (item.children) {
+                                                                    item.children.forEach((child) => {
+                                                                        ids = [...ids, ...getAllChildIds(child)]
+                                                                    })
+                                                                }
+                                                                return ids
+                                                            }
+
+                                                            const idsToUpdate = getAllChildIds(item)
+
+                                                            onSetCheckedItemIds?.(
+                                                                checked
+                                                                    ? [
+                                                                          ...new Set([
+                                                                              ...(checkedItems ?? []),
+                                                                              ...idsToUpdate,
+                                                                          ]),
+                                                                      ]
+                                                                    : (checkedItems ?? []).filter(
+                                                                          (id) => !idsToUpdate.includes(id)
+                                                                      )
+                                                            )
+                                                        },
                                                     })}
 
                                                     {/* Render contents */}
@@ -349,6 +395,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             enableDragAndDrop={enableDragAndDrop}
                                             onContextMenuOpen={onContextMenuOpen}
                                             itemContextMenu={itemContextMenu}
+                                            enableMultiSelection={enableMultiSelection}
+                                            checkedItems={checkedItems}
+                                            onSetCheckedItemIds={onSetCheckedItemIds}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -398,6 +447,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             enableDragAndDrop = false,
             itemContextMenu,
             isFinishedBuildingTreeData,
+            enableMultiSelection = false,
+            defaultCheckedItems,
+            onSetCheckedItemIds,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -424,6 +476,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
+        const [checkedItemsState, setCheckedItemsState] = useState<string[]>([...(defaultCheckedItems ?? [])])
 
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
@@ -1009,6 +1062,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 setIsNodeTreeContextMenuOpen(open)
                             }}
                             itemContextMenu={itemContextMenu}
+                            enableMultiSelection={enableMultiSelection}
+                            onSetCheckedItemIds={(ids) => {
+                                // Ensure uniqueness when setting state
+                                const uniqueIds = [...new Set(ids)]
+                                setCheckedItemsState(uniqueIds)
+                                onSetCheckedItemIds?.(uniqueIds)
+                            }}
+                            checkedItems={checkedItemsState}
                             {...props}
                         />
                     </TreeNodeDroppable>
