@@ -8493,9 +8493,23 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "FileSystemCount": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "number"
+                }
+            },
+            "required": ["count"],
+            "type": "object"
+        },
         "FileSystemEntry": {
             "additionalProperties": false,
             "properties": {
+                "_loading": {
+                    "description": "Used to indicate pending actions, frontend only",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
                     "type": "string"
@@ -8525,12 +8539,16 @@
                     "type": "string"
                 }
             },
-            "required": ["path"],
+            "required": ["id", "path"],
             "type": "object"
         },
         "FileSystemImport": {
             "additionalProperties": false,
             "properties": {
+                "_loading": {
+                    "description": "Used to indicate pending actions, frontend only",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
                     "type": "string"
@@ -8555,7 +8573,6 @@
                 },
                 "icon": {},
                 "id": {
-                    "description": "Unique UUID for tree entry",
                     "type": "string"
                 },
                 "meta": {
@@ -14672,6 +14689,12 @@
                 "date_to": {
                     "type": ["string", "null"]
                 },
+                "distinct_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "events": {
                     "items": {
                         "type": "object"
@@ -16492,10 +16515,18 @@
                     "default": "ActionsLineGraph"
                 },
                 "formula": {
+                    "deprecated": "Use formulaNodes instead.",
                     "type": "string"
                 },
+                "formulaNodes": {
+                    "description": "List of formulas with optional custom names. Takes precedence over formula/formulas if set.",
+                    "items": {
+                        "$ref": "#/definitions/TrendsFormulaNode"
+                    },
+                    "type": "array"
+                },
                 "formulas": {
-                    "description": "List of formulas to apply to the data. Takes precedence over formula if both are set.",
+                    "deprecated": "Use formulaNodes instead.",
                     "items": {
                         "type": "string"
                     },
@@ -16643,6 +16674,20 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "TrendsFormulaNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "description": "Optional user-defined name for the formula",
+                    "type": "string"
+                },
+                "formula": {
+                    "type": "string"
+                }
+            },
+            "required": ["formula"],
             "type": "object"
         },
         "TrendsQuery": {

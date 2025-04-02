@@ -27,7 +27,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
-                <div className="flex-1">
+                <div className="flex-1" data-attr="hogql-query-editor">
                     <AutoSizer>
                         {({ height, width }) => (
                             <CodeEditor

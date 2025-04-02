@@ -1731,25 +1731,6 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         T4."id",
-         T4."key",
-         T4."name",
-         T4."filters",
-         T4."rollout_percentage",
-         T4."team_id",
-         T4."created_by_id",
-         T4."created_at",
-         T4."deleted",
-         T4."active",
-         T4."version",
-         T4."last_modified_by_id",
-         T4."rollback_conditions",
-         T4."performed_rollback",
-         T4."ensure_experience_continuity",
-         T4."usage_dashboard_id",
-         T4."has_enriched_analytics",
-         T4."is_remote_configuration",
-         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -1768,12 +1749,32 @@
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
          T5."is_remote_configuration",
-         T5."has_encrypted_payloads"
+         T5."has_encrypted_payloads",
+         T6."id",
+         T6."key",
+         T6."name",
+         T6."filters",
+         T6."rollout_percentage",
+         T6."team_id",
+         T6."created_by_id",
+         T6."created_at",
+         T6."deleted",
+         T6."active",
+         T6."version",
+         T6."last_modified_by_id",
+         T6."rollback_conditions",
+         T6."performed_rollback",
+         T6."ensure_experience_continuity",
+         T6."usage_dashboard_id",
+         T6."has_enriched_analytics",
+         T6."is_remote_configuration",
+         T6."has_encrypted_payloads"
   FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
-  LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
-  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."internal_targeting_flag_id" = T5."id")
-  WHERE ("posthog_survey"."team_id" = 99999
+  LEFT OUTER JOIN "posthog_featureflag" T5 ON ("posthog_survey"."targeting_flag_id" = T5."id")
+  LEFT OUTER JOIN "posthog_featureflag" T6 ON ("posthog_survey"."internal_targeting_flag_id" = T6."id")
+  WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_survey"."archived"))
   '''
 # ---
@@ -1782,8 +1783,9 @@
   SELECT ("posthog_survey_actions"."survey_id") AS "_prefetch_related_val_survey_id",
          "posthog_action"."id",
          "posthog_action"."name",
-         "posthog_action"."team_id",
          "posthog_action"."description",
+         "posthog_action"."team_id",
+         "posthog_action"."project_id",
          "posthog_action"."created_at",
          "posthog_action"."created_by_id",
          "posthog_action"."deleted",

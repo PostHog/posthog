@@ -2118,7 +2118,7 @@ class TestPrinter(BaseTest):
             )
 
             # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(0, None)
+            mock_get_survey_response.assert_called_once_with(0, None, False)
 
             # Just test that the mock value was inserted into the query
             self.assertIn("MOCKED SQL FOR SURVEY RESPONSE", printed)
@@ -2136,10 +2136,25 @@ class TestPrinter(BaseTest):
             )
 
             # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(1, "question123")
+            mock_get_survey_response.assert_called_once_with(1, "question123", False)
 
             # Just test that the mock value was inserted into the query
             self.assertIn("MOCKED SQL FOR SURVEY RESPONSE WITH ID", printed)
+
+        # Test with multiple choice question
+        with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
+            mock_get_survey_response.return_value = "MOCKED SQL FOR MULTIPLE CHOICE SURVEY RESPONSE"
+
+            query = parse_select("select getSurveyResponse(2, 'abc123', true) from events")
+            printed = print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=HogQLGlobalSettings(max_execution_time=10),
+            )
+
+            # Verify the utility function was called with correct parameters
+            mock_get_survey_response.assert_called_once_with(2, "abc123", True)
 
     def test_override_timezone(self):
         context = HogQLContext(

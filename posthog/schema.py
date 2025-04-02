@@ -1038,15 +1038,25 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+
+
 class FileSystemEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    field_loading: Optional[bool] = Field(
+        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
     )
     created_at: Optional[str] = Field(
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     href: Optional[str] = Field(default=None, description="Object's URL")
-    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
+    id: str = Field(..., description="Unique UUID for tree entry")
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
@@ -1070,13 +1080,16 @@ class FileSystemImport(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    field_loading: Optional[bool] = Field(
+        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
+    )
     created_at: Optional[str] = Field(
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     flag: Optional[str] = None
     href: Href
     icon: Optional[Any] = None
-    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
+    id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
@@ -1872,6 +1885,14 @@ class TrendsFilterLegacy(BaseModel):
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
     y_axis_scale_type: Optional[YAxisScaleType] = YAxisScaleType.LINEAR
+
+
+class TrendsFormulaNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = Field(default=None, description="Optional user-defined name for the formula")
+    formula: str
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -3377,10 +3398,11 @@ class TrendsFilter(BaseModel):
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
-    formulas: Optional[list[str]] = Field(
+    formulaNodes: Optional[list[TrendsFormulaNode]] = Field(
         default=None,
-        description="List of formulas to apply to the data. Takes precedence over formula if both are set.",
+        description="List of formulas with optional custom names. Takes precedence over formula/formulas if set.",
     )
+    formulas: Optional[list[str]] = None
     goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: Optional[list[int]] = None
     resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
@@ -7641,6 +7663,7 @@ class RecordingsQuery(BaseModel):
     console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
     date_from: Optional[str] = "-3d"
     date_to: Optional[str] = None
+    distinct_ids: Optional[list[str]] = None
     events: Optional[list[dict[str, Any]]] = None
     filter_test_accounts: Optional[bool] = None
     having_predicates: Optional[
