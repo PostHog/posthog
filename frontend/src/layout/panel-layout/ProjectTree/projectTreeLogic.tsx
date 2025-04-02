@@ -708,8 +708,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         const result = resp.results[0]
                         path = result.path
 
-                        // TODO: check that this was created by you... and not an accident by hitting "back"
-                        // const createdBy = result.meta?.created_by
+                        // Check if a "new" action was recently initiated for this object type.
+                        // If so, move the item to the new path.
+                        // TODO: also check that this was created by you (after we add more metadata to items)
+                        // - const createdBy = result.meta?.created_by
                         if (
                             result.path.startsWith('Unfiled/') &&
                             lastNewOperation &&
