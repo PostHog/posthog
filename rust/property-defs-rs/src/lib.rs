@@ -21,6 +21,7 @@ use tracing::{error, warn};
 
 pub mod api;
 pub mod app_context;
+pub mod cache;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;

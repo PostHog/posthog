@@ -50,7 +50,7 @@ static DATETIME_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     ).unwrap()
 });
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PropertyParentType {
     Event = 1,
     Person = 2,
@@ -91,7 +91,7 @@ impl fmt::Display for PropertyValueType {
 }
 
 // The grouptypemapping table uses i32's, but we get group types by name, so we have to resolve them before DB writes, sigh
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum GroupType {
     Unresolved(String),
     Resolved(String, i32),
@@ -106,7 +106,7 @@ impl GroupType {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PropertyDefinition {
     pub team_id: i32,
     pub project_id: i64,
@@ -120,7 +120,7 @@ pub struct PropertyDefinition {
     pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EventDefinition {
     pub name: String,
     pub team_id: i32,
@@ -129,7 +129,7 @@ pub struct EventDefinition {
 }
 
 // Derived hash since these are keyed on all fields in the DB
-#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EventProperty {
     pub team_id: i32,
     pub project_id: i64,
@@ -138,7 +138,7 @@ pub struct EventProperty {
 }
 
 // Represents a generic update, but comparable, allowing us to dedupe and cache updates
-#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Update {
     Event(EventDefinition),
     Property(PropertyDefinition),
@@ -154,6 +154,28 @@ impl Update {
             Update::Event(e) => e.issue(executor).await,
             Update::Property(p) => p.issue(executor).await,
             Update::EventProperty(ep) => ep.issue(executor).await,
+        }
+    }
+
+    /// Generate a unique key for this update based on its identifying fields
+    pub fn key(&self) -> String {
+        match self {
+            Update::Event(e) => format!("event_def:{}:{}:{}", e.team_id, e.project_id, e.name),
+            Update::Property(p) => format!(
+                "prop_def:{}:{}:{}:{}:{}",
+                p.team_id,
+                p.project_id,
+                p.name,
+                p.event_type as i32,
+                p.group_type_index.as_ref().map_or(-1, |gt| match gt {
+                    GroupType::Resolved(_, idx) => *idx,
+                    GroupType::Unresolved(_) => -1,
+                })
+            ),
+            Update::EventProperty(ep) => format!(
+                "event_prop:{}:{}:{}:{}",
+                ep.team_id, ep.project_id, ep.event, ep.property
+            ),
         }
     }
 }

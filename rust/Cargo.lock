@@ -152,6 +152,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1250,7 +1256,7 @@ dependencies = [
  "opentelemetry_sdk",
  "rand",
  "rdkafka",
- "redis",
+ "redis 0.23.3",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
@@ -1490,7 +1496,7 @@ name = "common-redis"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "redis",
+ "redis 0.23.3",
  "serde-pickle",
  "thiserror 1.0.69",
  "tokio",
@@ -2257,7 +2263,7 @@ dependencies = [
  "once_cell",
  "petgraph",
  "rand",
- "redis",
+ "redis 0.23.3",
  "regex",
  "reqwest 0.12.3",
  "rstest",
@@ -3947,9 +3953,9 @@ dependencies = [
 
 [[package]]
 name = "num-bigint"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c165a9ab64cf766f73521c0dd2cfdff64f488b8f0b3e621face3462d3db536d7"
+checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -4601,6 +4607,7 @@ dependencies = [
  "metrics",
  "quick_cache",
  "rand",
+ "redis 0.29.2",
  "regex",
  "serde",
  "serde_json",
@@ -4864,6 +4871,23 @@ dependencies = [
  "socket2 0.4.10",
  "tokio",
  "tokio-util",
+ "url",
+]
+
+[[package]]
+name = "redis"
+version = "0.29.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b110459d6e323b7cda23980c46c77157601199c9da6241552b284cd565a7a133"
+dependencies = [
+ "arc-swap",
+ "combine",
+ "itoa",
+ "num-bigint",
+ "percent-encoding",
+ "ryu",
+ "sha1_smol",
+ "socket2 0.5.5",
  "url",
 ]
 

@@ -29,6 +29,7 @@ rand = { workspace = true }
 anyhow = { workspace = true }
 thiserror.workspace = true
 regex.workspace = true
+redis = { workspace = true }
 
 [lints]
 workspace = true
