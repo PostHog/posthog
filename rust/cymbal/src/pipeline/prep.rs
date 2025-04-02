@@ -9,7 +9,9 @@ use crate::{
     recursively_sanitize_properties,
 };
 
-use super::{format_ch_timestamp, parse_ts_assuming_utc, IncomingEvent};
+use super::{
+    exception::add_error_to_event, format_ch_timestamp, parse_ts_assuming_utc, IncomingEvent,
+};
 
 // Adds team info, and folds set, set_once and ip address data into the event properties
 pub fn prepare_events(
@@ -133,14 +135,15 @@ fn transform_event(
         sent_at = None;
     }
 
-    let timestamp = resolve_timestamp(
-        timestamp,
-        sent_at,
-        parse_ts_assuming_utc(&outer.now).expect("CapturedEvent::now is always valid"),
-        raw_event.offset,
-    );
+    let now = parse_ts_assuming_utc(&outer.now).expect("CapturedEvent::now is always valid");
 
-    ClickHouseEvent {
+    let timestamp = resolve_timestamp(timestamp, sent_at, now, raw_event.offset);
+
+    let timestamp_was_invalid = timestamp.is_none();
+
+    let timestamp = timestamp.unwrap_or(now);
+
+    let mut event = ClickHouseEvent {
         uuid: outer.uuid,
         team_id: team.id,
         project_id: team.project_id,
@@ -167,7 +170,14 @@ fn transform_event(
         group3_created_at: None,
         group4_created_at: None,
         person_mode,
+    };
+
+    if timestamp_was_invalid {
+        add_error_to_event(&mut event, "Timestamp was future dated")
+            .expect("We can parse the raw event we just serialised")
     }
+
+    event
 }
 
 // Person mode set to Full by default, Propertyless if $process_person_profile is false
@@ -186,16 +196,21 @@ fn get_person_mode(raw_event: &RawEvent, team: &Team) -> PersonMode {
 }
 
 // This function exists because of https://github.com/PostHog/posthog/blob/6c2f119571edb10a23ec711c6f6e2b6155d76ef9/plugin-server/src/worker/ingestion/timestamps.ts#L81.
-// It exclusively passes through the passed timestamp adjusted by the offset, because the behaviour of that function seems incorrect,
-// but I wanted to explicitly encode our timestamp expectations in relation to it.
+// We specifically diverge by only filtering out timestamps dated in the future.
 pub fn resolve_timestamp(
     found_timestamp: DateTime<Utc>, // The instant the exception occurred, or was caught.
     _sent_at: Option<DateTime<Utc>>, // The instant the exception was sent by the client. It can diverge from the timestamp in the case of e.g. offline event buffering.
     _now: DateTime<Utc>,             // The moment capture received the event.
     offset: Option<i64>, // An offset, in milliseconds, between the event's timestamp and UTC.
-) -> DateTime<Utc> {
+) -> Option<DateTime<Utc>> {
     // The function referenced above attempts to adjust for clock skew between the client sending the event and the
     // server receiving it, but without a way to differentiate between transmission delay and clock skew, this
     // is a bit of a fools errand. We simply do not try to do it, and don't apply any adjustment beyond the offset.
-    found_timestamp + Duration::milliseconds(offset.unwrap_or(0))
+    let found = found_timestamp + Duration::milliseconds(offset.unwrap_or(0));
+
+    if found < Utc::now() + Duration::hours(1) {
+        Some(found)
+    } else {
+        None
+    }
 }
