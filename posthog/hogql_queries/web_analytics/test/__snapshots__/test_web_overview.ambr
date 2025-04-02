@@ -12,15 +12,15 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_all_time.1
   '''
-  SELECT uniq(session_person_id),
+  SELECT uniq(session_person_id) AS `uniq(session_person_id)`,
          NULL AS previous_unique_users,
-         sum(filtered_pageview_count),
+         sum(filtered_pageview_count) AS `sum(filtered_pageview_count)`,
          NULL AS previous_filtered_pageview_count,
-         uniq(session_id),
+         uniq(session_id) AS `uniq(session_id)`,
          NULL AS previous_unique_sessions,
-         avg(session_duration),
+         avg(session_duration) AS `avg(session_duration)`,
          NULL AS prev_avg_duration_s,
-         avg(is_bounce),
+         avg(is_bounce) AS `avg(is_bounce)`,
          NULL AS prev_bounce_rate
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
