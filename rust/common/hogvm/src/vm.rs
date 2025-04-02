@@ -67,14 +67,41 @@ impl VmHeap {
         let to_free = &mut self.inner[ptr.idx];
 
         if to_free.epoch != ptr.epoch {
-            return Err(VmError::HeapEpochMismatch);
+            return Err(VmError::UseAfterFree);
         }
 
-
-        self.freed.push(ref);
+        self.freed.push(ptr);
         Ok(())
     }
 
+    pub fn load(&mut self, ptr: HeapReference) -> Result<&mut HogValue, VmError> {
+        if self.inner.len() < ptr.idx {
+            return Err(VmError::HeapIndexOutOfBounds);
+        }
+
+        let to_load = &mut self.inner[ptr.idx];
+
+        if to_load.epoch != ptr.epoch {
+            return Err(VmError::UseAfterFree);
+        }
+
+        Ok(&mut to_load.value)
+    }
+
+    pub fn store(&mut self, ptr: HeapReference, value: HogValue) -> Result<(), VmError> {
+        if self.inner.len() < ptr.idx {
+            return Err(VmError::HeapIndexOutOfBounds);
+        }
+
+        let to_store = &mut self.inner[ptr.idx];
+
+        if to_store.epoch != ptr.epoch {
+            return Err(VmError::UseAfterFree);
+        }
+
+        to_store.value = value;
+        Ok(())
+    }
 }
 
 pub struct VmState<'a> {

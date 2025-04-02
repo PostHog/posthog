@@ -33,4 +33,6 @@ pub enum VmError {
     NotImplemented(String),
     #[error("Heap index out of bounds")]
     HeapIndexOutOfBounds,
+    #[error("Use after free")]
+    UseAfterFree,
 }
