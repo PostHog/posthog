@@ -15,6 +15,7 @@ import {
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
+    AnyPropertyFilter,
     BaseMathType,
     CountPerActorMathType,
     Experiment,
@@ -154,6 +155,11 @@ export interface RunningTimeCalculatorLogicProps {
     experimentId?: Experiment['id']
 }
 
+export interface EventConfig {
+    event: string
+    properties: AnyPropertyFilter[]
+}
+
 export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeCalculatorLogic']),
     connect(({ experimentId }: RunningTimeCalculatorLogicProps) => ({
@@ -170,6 +176,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         }) => ({ value }),
         setConversionRateInputType: (value: string) => ({ value }),
         setManualConversionRate: (value: number) => ({ value }),
+        setEventConfig: (value: EventConfig) => ({ value }),
     }),
     reducers({
         metricIndex: [
@@ -190,6 +197,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             { setConversionRateInputType: (_, { value }) => value },
         ],
         manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
+        eventConfig: [null as EventConfig | null, { setEventConfig: (_, { value }) => value }],
     }),
     loaders(({ values }) => ({
         metricResult: {
@@ -331,7 +339,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         Count Per User Metric:
                         - "mean" is the average number of events per user (e.g., clicks per user).
                         - MDE is applied as a percentage of this mean to compute `d`.
-        
+
                         Formula:
                         d = MDE * averageEventsPerUser
                     */
@@ -339,9 +347,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                     /*
                         Sample size formula:
-        
+
                         N = (16 * variance) / d^2
-        
+
                         Where:
                         - `16` comes from statistical power analysis:
                             - Based on a 95% confidence level (Z_alpha/2 = 1.96) and 80% power (Z_beta = 0.84),
@@ -358,7 +366,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         Continuous property metric:
                         - "mean" is the average value of the measured property per user (e.g., revenue per user).
                         - MDE is applied as a percentage of this mean to compute `d`.
-        
+
                         Formula:
                         d = MDE * averagePropertyValuePerUser
                     */
@@ -366,9 +374,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                     /*
                         Sample Size Formula for Continuous metrics:
-        
+
                         N = (16 * variance) / d^2
-        
+
                         Where:
                         - `variance` is the estimated variance of the continuous property.
                         - The formula is identical to the Count metric case.
@@ -386,7 +394,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         - Here, "mean" does not exist in the same way as for count/continuous metrics.
                         - Instead, we use `p`, the baseline conversion rate (historical probability of success).
                         - MDE is applied as an absolute percentage change to `p`.
-        
+
                         Formula:
                         d = MDE * conversionRate
                     */
@@ -394,9 +402,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                     /*
                         Sample size formula:
-        
+
                         N = (16 * p * (1 - p)) / d^2
-        
+
                         Where:
                         - `p` is the historical conversion rate (baseline success probability).
                         - `d` is the absolute MDE (e.g., detecting a 5% increase means `d = 0.05`).
