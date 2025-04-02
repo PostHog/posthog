@@ -8,7 +8,16 @@ import { RecordingSnapshot } from '~/types'
 // we have seen some chrome extensions
 // that break playback of session recordings
 // let's try to strip them out
-const CHROME_EXTENSION_DENY_LIST = ['dji-sru']
+const CHROME_EXTENSION_DENY_LIST = [
+    // snap and read chrome extension
+    'dji-sru',
+    'mloajfnmjckfjbeeofcdaecbelnblden',
+    // aitopia extension
+    'aitopia',
+    'becfinhbfclcgokjlobojlnldbfillpf',
+    // loom extension
+    'liecbddmkiiihnedobmlmillhodjkdmb',
+]
 
 interface IsStrippable {
     textContent: string
@@ -18,7 +27,8 @@ interface IsStrippable {
 
 function safelyCheckCSSAttribute(
     node: serializedNodeWithId,
-    attribute: string
+    attribute: string,
+    needles: string[]
 ): node is IsStrippable & serializedNodeWithId {
     const hasAttributes = 'attributes' in node && attribute in node.attributes && !!node.attributes[attribute]
     if (!hasAttributes) {
@@ -28,13 +38,14 @@ function safelyCheckCSSAttribute(
     if (typeof attributeValue !== 'string') {
         return false
     }
-    return (
-        attributeValue.includes('chrome-extension://') &&
-        CHROME_EXTENSION_DENY_LIST.some((deny) => attributeValue.includes(deny))
-    )
+
+    return attributeValue.includes('chrome-extension://') && needles.some((needle) => attributeValue.includes(needle))
 }
 
-function safelyCheckClassAttribute(node: serializedNodeWithId): node is IsStrippable & serializedNodeWithId {
+function safelyCheckClassAttribute(
+    node: serializedNodeWithId,
+    needle: string
+): node is IsStrippable & serializedNodeWithId {
     const hasAttributes = 'attributes' in node && 'class' in node.attributes && !!node.attributes['class']
     if (!hasAttributes) {
         return false
@@ -43,55 +54,82 @@ function safelyCheckClassAttribute(node: serializedNodeWithId): node is IsStripp
     if (typeof attributeValue !== 'string') {
         return false
     }
-    return attributeValue.includes('dji-sru')
+    return attributeValue.includes(needle)
 }
 
-function safelyCheckTagName(node: serializedNodeWithId): node is IsStrippable & serializedNodeWithId {
+function safelyCheckTagName(
+    node: serializedNodeWithId,
+    needles: string[]
+): node is IsStrippable & serializedNodeWithId {
     const hasTagName = 'tagName' in node && typeof node.tagName === 'string'
     if (!hasTagName) {
         return false
     }
-    return node.tagName.includes('dji-sru')
+    return needles.some((needle) => node.tagName.includes(needle))
 }
 
-function safelyCheckDivNode(node: serializedNodeWithId): node is IsStrippable & serializedNodeWithId {
+function safelyCheckDivNode(
+    node: serializedNodeWithId,
+    needles: string[]
+): node is IsStrippable & serializedNodeWithId {
     const hasTagName = 'tagName' in node && typeof node.tagName === 'string'
     if (!hasTagName) {
         return false
     }
     if (node.tagName === 'DIV') {
-        return safelyCheckClassAttribute(node)
+        return needles.some((needle) => safelyCheckClassAttribute(node, needle))
     }
     return false
 }
 
-function stripChromeExtensionDataFromNode(node: serializedNodeWithId): boolean {
+function safelyCheckIDAttribute(
+    node: serializedNodeWithId,
+    needles: string[]
+): node is IsStrippable & serializedNodeWithId {
+    const hasID = 'attributes' in node && 'id' in node.attributes && !!node.attributes['id']
+    if (!hasID) {
+        return false
+    }
+    const idValue = node.attributes['id']
+    if (typeof idValue !== 'string') {
+        return false
+    }
+    return needles.some((needle) => idValue.includes(needle))
+}
+
+function stripChromeExtensionDataFromNode(node: serializedNodeWithId, needles: string[]): boolean {
     let stripped = false
 
-    if (safelyCheckCSSAttribute(node, 'textContent')) {
+    if (safelyCheckCSSAttribute(node, 'textContent', needles)) {
         node.textContent = ''
         stripped = true
     }
-    if (safelyCheckCSSAttribute(node, '_cssText')) {
+    if (safelyCheckCSSAttribute(node, '_cssText', needles)) {
         node.attributes._cssText = ''
         stripped = true
     }
-    if (safelyCheckClassAttribute(node)) {
-        node.attributes['class'] = node.attributes['class'].replace('dji-sru', '')
-        stripped = true
-    }
-    if (safelyCheckDivNode(node)) {
+    if (safelyCheckIDAttribute(node, needles)) {
         node.childNodes = []
         stripped = true
     }
-    if (safelyCheckTagName(node)) {
+    for (const needle of needles) {
+        if (safelyCheckClassAttribute(node, needle)) {
+            node.attributes['class'] = node.attributes['class'].replace(needle, '')
+            stripped = true
+        }
+    }
+    if (safelyCheckDivNode(node, needles)) {
+        node.childNodes = []
+        stripped = true
+    }
+    if (safelyCheckTagName(node, needles)) {
         node.childNodes = []
         stripped = true
     }
 
     if ('childNodes' in node) {
         for (const childNode of node.childNodes) {
-            if (stripChromeExtensionDataFromNode(childNode)) {
+            if (stripChromeExtensionDataFromNode(childNode, needles)) {
                 stripped = true
             }
         }
@@ -113,7 +151,7 @@ export function stripChromeExtensionData(snapshots: RecordingSnapshot[]): Record
             continue
         }
         const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
-        if (stripChromeExtensionDataFromNode(fullSnapshot.data.node)) {
+        if (stripChromeExtensionDataFromNode(fullSnapshot.data.node, CHROME_EXTENSION_DENY_LIST)) {
             strippedChromeExtensionData = true
         }
     }

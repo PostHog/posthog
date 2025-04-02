@@ -109,7 +109,7 @@ function InspectDOM(): JSX.Element {
             data-attr="explore-dom"
             onClick={() => openExplorer()}
             disabledReason={
-                sessionPlayerMetaData?.snapshot_source === 'web' ? undefined : 'Only available for web recordings'
+                sessionPlayerMetaData?.snapshot_source === 'mobile' ? 'Only available for web recordings' : undefined
             }
             icon={<IconSearch />}
         />
