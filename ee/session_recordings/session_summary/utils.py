@@ -28,5 +28,6 @@ def load_sesssion_recording_events_from_csv(file_path: str) -> tuple[list[str], 
 
 
 def load_session_metadata_from_json(file_path: str) -> dict:
+    # TODO Remove if no additional processing is needed
     with open(file_path) as f:
         return json.load(f)

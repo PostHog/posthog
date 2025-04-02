@@ -6,7 +6,7 @@ key_events:
       error: false
       tags:
           where: ['pricing_page']
-          what: ['page_view']
+          what: ['plan_selection']
 
     - event_id: 'ev_456def'
       description: "Clicked 'Compare Plans' button and spent 2 minutes reviewing enterprise vs business tier features."
@@ -41,4 +41,4 @@ key_events:
       error: false
       tags:
           where: ['dashboard', 'onboarding_flow']
-          what: ['page_view', 'onboarding', 'workspace_setup']
+          what: ['onboarding', 'workspace_setup']

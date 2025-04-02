@@ -84,9 +84,9 @@ def _get_session_events(session_id: str, team: Team) -> list[list[str], list[tup
 def summarize_recording(recording: SessionRecording, user: User, team: Team):
     timer = ServerTimingsGathered()
 
+    # TODO Learn how to make data collection for prompt as async as possible to improve latency
     with timer("get_metadata"):
         session_metadata = _get_session_metadata(recording.session_id, team)
-
     with timer("get_events"):
         session_events_columns, session_events = _get_session_events(recording.session_id, team)
 
@@ -117,15 +117,6 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         )
 
     instance_region = get_instance_region() or "HOBBY"
-    combined_sesssion_events = []
-    for event in session_events:
-        combined_session = {}
-        for index, column in enumerate(session_events_columns):
-            try:
-                combined_session[column] = event[index]
-            except IndexError:
-                pass
-        combined_sesssion_events.append(combined_session)
 
     with timer("openai_completion"):
         # assistant_start_text = "```yaml\nsummary: "
@@ -202,4 +193,6 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     else:
         # TODO Log the error, add the retry for the LLM calls above to avoid returning empty content
         content = ""
+    # TODO Make the output streamable (the main reason behing using YAML
+    # to keep it partially parsable to avoid waiting for the LLM to finish)
     return {"content": content, "timings": timer.get_all_timings()}

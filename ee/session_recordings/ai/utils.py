@@ -23,15 +23,11 @@ class SessionSummaryMetadata:
 
     def to_dict(self) -> dict:
         d = dataclasses.asdict(self)
-        # Convert datetime to ISO format
         if self.start_time:
             d["start_time"] = self.start_time.isoformat()
         if self.end_time:
             d["end_time"] = self.end_time.isoformat()
         return d
-
-    def __json__(self):
-        return self.to_dict()
 
 
 @dataclasses.dataclass
@@ -99,7 +95,6 @@ class SessionSummaryPromptData:
             if ef not in raw_session_metadata:
                 continue
             del raw_session_metadata[ef]
-        # Adjust the format of the time fields
         start_time = self._prepare_datetime(raw_session_metadata.get("start_time"))
         end_time = self._prepare_datetime(raw_session_metadata.get("end_time"))
         return SessionSummaryMetadata(
