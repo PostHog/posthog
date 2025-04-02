@@ -8,15 +8,19 @@ PostHog Rust service monorepo. This is *not* the Rust client library for PostHog
 1. [Docker](https://docs.docker.com/engine/install/), or [podman](https://podman.io/docs/installation) and [podman-compose](https://github.com/containers/podman-compose#installation): To setup development stack.
 1. [sqlx](https://github.com/launchbadge/sqlx) and [sqlx-cli](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md) - this is *optional to use* if your project interacts with a database (unit tests etc.) that you'd like to manage with `sqlx`. It is installed for you either way locally and in CI by `posthog/rust/bin/migrate_tests` if it's missing.
 
-### Local Dev
+### Starting the development stack
 Generally not needed for Rust projects in local, since the default `DATABASE_URL` and test suites run against test-scoped Docker Compose and DB namespaces. However, if you want to code "live" against isolated DB namespaces + the `posthog` local dev DB, you can override `DATABASE_URL` as set in the `rust/.env` file and do so this way:
 
 1. Start development stack:
 ```bash
-# from posthog repo root
+# from posthog repo root (if you haven't already
 > docker compose -f docker-compose.dev.yml up -d --wait
 > bin/migrate
 ```
+
+
+### Working on queries
+We set, in `rust/.cargo/config.toml`, the environment variable `SQLX_OFFLINE` to `true`, because in CI we want cargo to use the cached query data for sqlx macro invocations, rather than attempting to connect to a database. When developing locally, it is strongly recommended to set this variable to `false`, so that you can work "directly" against whichever database you had set as `DATABASE_URL` when you started your editor - rust analyzer will automatically pick up that variable and make use of it to connect to a DB and live execute your queries, feeding result and type information back into the compilation pass.
 
 ### Testing (local and CI)
 This is the typical flow for working locally and running test suites. CI now behaves very similarly using the same scripts/automation.
@@ -31,11 +35,6 @@ This is the typical flow for working locally and running test suites. CI now beh
 > bin/run_workspace_tests
 
 # Option 2: test a particular subproject only
-
-# Execute individual Rust workspace subproject directly
-> bin/migrate_tests
-> cargo test -p <SUBPACKAGE_NAME>
-
 # ...or, the workspace test script acccepts any subpackage listed by `cargo test -p`
 > bin/run_workspace_tests <SUBPACKAGE_NAME>
 ```
@@ -82,20 +81,19 @@ The Rust workspace dev/test/CI environment has a bunch of moving parts. Here's a
     * Utilizes `bin/run_workspace_tests` in each matrix test
 
 ### Updating the SQLX query cache
-This is required when making changes to any production (dev) or test-scoped queries managed using `sqlx::query*` macros in Rust code. If you see fail messages during test runs referring to `SQLX_OFFLINE` then you need to update the query cache locally.
+Sqlx caches query data, such that the rust compiler can type-check your queries "offline" (without talking live to a database during compilation). When you change the query used in a `sqlx::query*` macro, you need to update the query cache. If you see fail messages during test runs referring to `SQLX_OFFLINE` then you need to update the query cache locally.
 
 ```
-# From the `posthog` directory
+# From the `posthog` directory (if your docker stack isn't up already)
 > docker compose -f docker-compose.dev.yml up -d --wait
 
-# From the `posthog/rust` directory - also runs SQLX cache update
+# From the `posthog/rust` directory
 > bin/migrate_tests
 
-# If you've already done the above and are in mid-dev-loop, you can just run:
+# And then, to actually update the query cache
 > bin/update_sqlx_query_cache
 
 # If ^ this fails, fix the query syntax or code errors it surfaces
-
 # If it succeeds, check in the changes at `posthog/rust/.sqlx` with your PR
 ```
 
@@ -127,7 +125,7 @@ _TODO: complete the transition from legacy `capture` implementations into the Ru
 
 ### common
 
-Shared boilerplate code (metrics publishing, k8s health endpoints, kafka client wrappers, etc.) that many of the other subprojects depend on.
+Shared code (metrics publishing, k8s health endpoints, kafka client wrappers, etc.) that many of the other subprojects depend on.
 
 ### property-defs-rs
 

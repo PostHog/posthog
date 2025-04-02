@@ -7,9 +7,8 @@ set -euxo pipefail
 #
 # This operation has a number of moving parts. See `posthog/rust/README.md`
 # for more details. *IMPORTANT* you should only need to run this manually if
-# you've already run `posthog/rust/bin/migrate_tests`, and have since made changes
-# to SQLX-managed queries in your dev loop, and don't want to bother running
-# unit tests again.
+# you've modified a query declared in a sqlx macro invocation. Note that this
+# requires that you have already run posthog/rust/bin/migrate_tests
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 #
-## Run *full workspace* test schema migrations, SQLX query cache refresh, and all subproject test suites
+## Run *full workspace* test schema migrations, and all subproject test suites
 #
 
 # single, optional argument: the name of a subpackage to test.
@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/util"
 # non-SQLX subprojects
 source "$SCRIPT_DIR/../.env"
 
-# run the migrations (test schemas only!) and refresh SQLX query cache
+# run the migrations (test schemas + django postgres models only!)
 $SCRIPT_DIR/migrate_tests
 
 # run the workspace test suite using limited # of threads, to

@@ -50,14 +50,11 @@ jobs:
 
         steps:
             # Checkout project code
-            # Use sparse checkout to only select files in rust directory
-            # Turning off cone mode ensures that files in the project root are not included during checkout.
-            # By enabling code mode, we include the posthog repo root Docker Compose and test setup scripts
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'
-                  sparse-checkout-cone-mode: true
+                  sparse-checkout-cone-mode: false
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
@@ -160,7 +157,7 @@ jobs:
               run: |
                   cd ../ && ./bin/download-mmdb
 
-            - name: Bootstrap test databases, refresh SQLX query cache, run cargo test
+            - name: Bootstrap test databases, run cargo test
               if: needs.changes.outputs.rust == 'true'
               env:
                   DEBUG: 'true'
