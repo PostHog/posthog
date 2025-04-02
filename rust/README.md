@@ -8,6 +8,13 @@ PostHog Rust service monorepo. This is *not* the Rust client library for PostHog
 1. [Docker](https://docs.docker.com/engine/install/), or [podman](https://podman.io/docs/installation) and [podman-compose](https://github.com/containers/podman-compose#installation): To setup development stack.
 1. [sqlx](https://github.com/launchbadge/sqlx) and [sqlx-cli](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md) - this is *optional to use* if your project interacts with a database (unit tests etc.) that you'd like to manage with `sqlx`. It is installed for you either way locally and in CI by `posthog/rust/bin/migrate_tests` if it's missing.
 
+### Steps to hack on rust code
+1. Start the local docker stack
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+2.
+
 ### Starting the development stack
 Generally not needed for Rust projects in local, since the default `DATABASE_URL` and test suites run against test-scoped Docker Compose and DB namespaces. However, if you want to code "live" against isolated DB namespaces + the `posthog` local dev DB, you can override `DATABASE_URL` as set in the `rust/.env` file and do so this way:
 
