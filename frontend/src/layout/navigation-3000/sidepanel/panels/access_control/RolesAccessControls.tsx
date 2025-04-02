@@ -19,20 +19,22 @@ import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-import { roleBasedAccessControlLogic, RoleWithResourceAccessControls } from './roleBasedAccessControlLogic'
+import { RoleType } from '~/types'
+
+import { roleBasedAccessControlLogic } from './roleBasedAccessControlLogic'
 
 export function RolesAccessControls(): JSX.Element {
-    const { rolesWithResourceAccessControls, rolesLoading, roleBasedAccessControlsLoading, selectedRoleId } =
+    const { roles, rolesLoading, roleBasedAccessControlsLoading, selectedRoleId } =
         useValues(roleBasedAccessControlLogic)
 
     const { selectRoleId, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
 
-    const columns: LemonTableColumns<RoleWithResourceAccessControls> = [
+    const columns: LemonTableColumns<RoleType> = [
         {
             title: 'Role',
             key: 'role',
             width: 0,
-            render: (_, { role }) => (
+            render: (_, role) => (
                 <span className="whitespace-nowrap">
                     <LemonTableLink
                         onClick={
@@ -48,7 +50,7 @@ export function RolesAccessControls(): JSX.Element {
         {
             title: 'Members',
             key: 'members',
-            render: (_, { role }) => {
+            render: (_, role) => {
                 return role ? (
                     role.members.length ? (
                         <ProfileBubbles
@@ -76,14 +78,14 @@ export function RolesAccessControls(): JSX.Element {
             <div className="deprecated-space-y-2">
                 <LemonTable
                     columns={columns}
-                    dataSource={rolesWithResourceAccessControls}
+                    dataSource={roles}
                     loading={rolesLoading || roleBasedAccessControlsLoading}
                     expandable={{
-                        isRowExpanded: ({ role }) => !!selectedRoleId && role?.id === selectedRoleId,
-                        onRowExpand: ({ role }) => (role ? selectRoleId(role.id) : undefined),
+                        isRowExpanded: (role) => !!selectedRoleId && role?.id === selectedRoleId,
+                        onRowExpand: (role) => (role ? selectRoleId(role.id) : undefined),
                         onRowCollapse: () => selectRoleId(null),
-                        expandedRowRender: ({ role }) => (role ? <RoleDetails roleId={role?.id} /> : null),
-                        rowExpandable: ({ role }) => !!role,
+                        expandedRowRender: (role) => (role ? <RoleDetails roleId={role?.id} /> : null),
+                        rowExpandable: (role) => !!role,
                     }}
                 />
 

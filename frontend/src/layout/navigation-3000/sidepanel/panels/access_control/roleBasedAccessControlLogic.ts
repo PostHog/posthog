@@ -80,7 +80,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
         ],
 
         roles: [
-            null as RoleType[] | null,
+            [] as RoleType[],
             {
                 loadRoles: async () => {
                     const response = await api.roles.list()
@@ -88,7 +88,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
                 },
                 addMembersToRole: async ({ role, members }) => {
                     if (!values.roles) {
-                        return null
+                        return []
                     }
                     const newMembers = await Promise.all(
                         members.map(async (userUuid: string) => await api.roles.members.create(role.id, userUuid))
@@ -134,15 +134,20 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
                     return
                 }
                 let role: RoleType | null = null
-                if (values.editingRoleId === 'new') {
-                    role = await api.roles.create(name)
-                } else {
-                    role = await api.roles.update(values.editingRoleId, { name })
-                }
+                try {
+                    if (values.editingRoleId === 'new') {
+                        role = await api.roles.create(name)
+                    } else {
+                        role = await api.roles.update(values.editingRoleId, { name })
+                    }
 
-                actions.loadRoles()
-                actions.setEditingRoleId(null)
-                actions.selectRoleId(role.id)
+                    actions.loadRoles()
+                    actions.setEditingRoleId(null)
+                    actions.selectRoleId(role.id)
+                } catch (e) {
+                    const error = (e as Record<string, any>).detail || 'Failed to save role'
+                    lemonToast.error(error)
+                }
             },
         },
     })),
