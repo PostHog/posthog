@@ -582,6 +582,7 @@ export function HogFunctionConfiguration({
                                     }
                                 />
                             ) : null}
+                            <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>
                 </Form>
