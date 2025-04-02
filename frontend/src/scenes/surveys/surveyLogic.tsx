@@ -207,8 +207,8 @@ function getSurveyStartDateForQuery(survey: Survey): string {
 
 function getSurveyEndDateForQuery(survey: Survey): string {
     return survey.end_date
-        ? dayjs(survey.end_date).endOf('day').format(DATE_FORMAT)
-        : dayjs().endOf('day').format(DATE_FORMAT)
+        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
+        : dayjs().utc().endOf('day').format(DATE_FORMAT)
 }
 
 export const surveyLogic = kea<surveyLogicType>([
