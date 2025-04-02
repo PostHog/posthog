@@ -33,3 +33,8 @@ Note that web analytics and products analytics events are the same, the 2 produc
 
 Some web analytics features are present in the [toolbar](https://posthog.com/docs/toolbar), for example the toolbar will show you web vitals for the page you are on.
 
+## More resources
+* Clickhouse
+  * Clickhouse have a video course here, which has been recommended by some team members: https://learn.clickhouse.com/visitor_class_catalog/category/116050
+    * You can probably skip some of the videos, e.g. how to migrate from others tools to Clickhouse
+  * PostHog maintains a Clickhouse manual: https://posthog.com/handbook/engineering/clickhouse
