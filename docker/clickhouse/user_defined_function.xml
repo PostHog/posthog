@@ -29,7 +29,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>python mem_exec.py aggregate_funnel steps</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
