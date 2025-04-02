@@ -4,11 +4,11 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
-    free=False,
+    free=True,
     type="destination",
     id="template-loops",
-    name="Loops",
-    description="Update contacts in Loops.so",
+    name="Update contact in Loops",
+    description="Create or update contacts in Loops.so",
     icon_url="/static/services/loops.png",
     category=["Email Marketing"],
     hog="""
@@ -106,11 +106,11 @@ if (res.status >= 400) {
 
 template_send_event: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
-    free=False,
+    free=True,
     type="destination",
     id="template-loops-event",
-    name="Loops",
-    description="Send events to Loops.so",
+    name="Send event to Loops",
+    description="Send events to trigger emails in Loops.so",
     icon_url="/static/services/loops.png",
     category=["Email Marketing"],
     hog="""
