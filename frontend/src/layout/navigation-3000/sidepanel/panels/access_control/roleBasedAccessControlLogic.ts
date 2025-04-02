@@ -16,25 +16,43 @@ import {
     AccessControlUpdateType,
     APIScopeObject,
     AvailableFeature,
+    OrganizationMemberType,
     RoleType,
 } from '~/types'
 
 import type { roleBasedAccessControlLogicType } from './roleBasedAccessControlLogicType'
 
-export type RoleWithResourceAccessControls = {
-    role?: RoleType
+export type DefaultResourceAccessControls = {
     accessControlByResource: Record<APIScopeObject, AccessControlTypeRole>
+}
+export type MemberResourceAccessControls = DefaultResourceAccessControls & {
+    organization_member?: OrganizationMemberType
+}
+export type RoleResourceAccessControls = DefaultResourceAccessControls & {
+    role?: RoleType
 }
 
 export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleBasedAccessControlLogic']),
     connect({
-        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
+        values: [
+            membersLogic,
+            ['sortedMembers'],
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['hasAvailableFeature'],
+            membersLogic,
+            ['sortedMembers'],
+        ],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
     }),
     actions({
-        updateRoleBasedAccessControls: (
-            accessControls: Pick<AccessControlUpdateType, 'resource' | 'access_level' | 'role'>[]
+        updateResourceAccessControls: (
+            accessControls: Pick<
+                AccessControlUpdateType,
+                'resource' | 'access_level' | 'role' | 'organization_member'
+            >[]
         ) => ({ accessControls }),
         selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
         deleteRole: (roleId: RoleType['id']) => ({ roleId }),
@@ -57,24 +75,24 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
         ],
     }),
     loaders(({ values }) => ({
-        roleBasedAccessControls: [
+        resourceAccessControls: [
             null as AccessControlResponseType | null,
             {
-                loadRoleBasedAccessControls: async () => {
+                loadResourceAccessControls: async () => {
                     const response = await api.get<AccessControlResponseType>(
                         'api/projects/@current/global_access_controls'
                     )
                     return response
                 },
 
-                updateRoleBasedAccessControls: async ({ accessControls }) => {
+                updateResourceAccessControls: async ({ accessControls }) => {
                     for (const control of accessControls) {
                         await api.put<AccessControlTypeRole>('api/projects/@current/global_access_controls', {
                             ...control,
                         })
                     }
 
-                    return values.roleBasedAccessControls
+                    return values.resourceAccessControls
                 },
             },
         ],
@@ -100,7 +118,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
                 },
                 removeMemberFromRole: async ({ role, roleMemberId }) => {
                     if (!values.roles) {
-                        return null
+                        return []
                     }
                     await api.roles.members.delete(role.id, roleMemberId)
                     role.members = role.members.filter((roleMember) => roleMember.id !== roleMemberId)
@@ -153,7 +171,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
     })),
 
     listeners(({ actions, values }) => ({
-        updateRoleBasedAccessControlsSuccess: () => actions.loadRoleBasedAccessControls(),
+        updateResourceAccessControlsSuccess: () => actions.loadResourceAccessControls(),
         loadRolesSuccess: () => {
             if (router.values.hashParams.role) {
                 actions.selectRoleId(router.values.hashParams.role)
@@ -175,27 +193,27 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
 
     selectors({
         availableLevels: [
-            (s) => [s.roleBasedAccessControls],
-            (roleBasedAccessControls): string[] => {
-                return roleBasedAccessControls?.available_access_levels ?? []
+            (s) => [s.resourceAccessControls],
+            (resourceAccessControls): string[] => {
+                return resourceAccessControls?.available_access_levels ?? []
             },
         ],
 
         defaultAccessLevel: [
-            (s) => [s.roleBasedAccessControls],
-            (roleBasedAccessControls): string | null => {
-                return roleBasedAccessControls?.default_access_level ?? null
+            (s) => [s.resourceAccessControls],
+            (resourceAccessControls): string | null => {
+                return resourceAccessControls?.default_access_level ?? null
             },
         ],
 
         defaultResourceAccessControls: [
-            (s) => [s.roleBasedAccessControls],
-            (roleBasedAccessControls): RoleWithResourceAccessControls => {
-                const accessControls = roleBasedAccessControls?.access_controls ?? []
+            (s) => [s.resourceAccessControls],
+            (resourceAccessControls): DefaultResourceAccessControls => {
+                const accessControls = resourceAccessControls?.access_controls ?? []
 
                 // Find all acs without a roles (they are the default ones)
                 const accessControlByResource = accessControls
-                    .filter((control) => !control.role)
+                    .filter((control) => !control.role && !control.organization_member)
                     .reduce(
                         (acc, control) => ({
                             ...acc,
@@ -208,31 +226,73 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
             },
         ],
 
-        rolesWithResourceAccessControls: [
-            (s) => [s.roles, s.roleBasedAccessControls, s.defaultResourceAccessControls],
-            (roles, roleBasedAccessControls, defaultResourceAccessControls): RoleWithResourceAccessControls[] => {
-                if (!roles) {
+        memberResourceAccessControls: [
+            (s) => [s.sortedMembers, s.resourceAccessControls],
+            (
+                sortedMembers: OrganizationMemberType[] | null,
+                resourceAccessControls: AccessControlResponseType | null
+            ): MemberResourceAccessControls[] => {
+                if (!sortedMembers) {
                     return []
                 }
 
-                const accessControls = roleBasedAccessControls?.access_controls ?? []
+                const accessControls = resourceAccessControls?.access_controls ?? []
 
-                return [
-                    defaultResourceAccessControls,
-                    ...roles.map((role) => {
+                return (sortedMembers || [])
+                    .map((member: OrganizationMemberType) => {
                         const accessControlByResource = accessControls
-                            .filter((control) => control.role === role.id)
+                            .filter((control: AccessControlType) => control.organization_member === member.id)
                             .reduce(
-                                (acc, control) => ({
+                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) => ({
                                     ...acc,
-                                    [control.resource]: control,
+                                    [control.resource]: control as AccessControlTypeRole,
                                 }),
                                 {} as Record<APIScopeObject, AccessControlTypeRole>
                             )
 
+                        // Only include members that have at least one access control
+                        // if (Object.keys(accessControlByResource).length === 0) {
+                        //     return null
+                        // }
+
+                        return { organization_member: member, accessControlByResource }
+                    })
+                    .filter(Boolean) as MemberResourceAccessControls[]
+            },
+        ],
+
+        roleResourceAccessControls: [
+            (s) => [s.roles, s.resourceAccessControls],
+            (
+                roles: RoleType[] | null,
+                resourceAccessControls: AccessControlResponseType | null
+            ): RoleResourceAccessControls[] => {
+                if (!roles) {
+                    return []
+                }
+
+                const accessControls = resourceAccessControls?.access_controls ?? []
+
+                return (roles || [])
+                    .map((role: RoleType) => {
+                        const accessControlByResource = accessControls
+                            .filter((control: AccessControlType) => control.role === role.id)
+                            .reduce(
+                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) => ({
+                                    ...acc,
+                                    [control.resource]: control as AccessControlTypeRole,
+                                }),
+                                {} as Record<APIScopeObject, AccessControlTypeRole>
+                            )
+
+                        // Only include roles that have at least one access control
+                        // if (Object.keys(accessControlByResource).length === 0) {
+                        //     return null
+                        // }
+
                         return { role, accessControlByResource }
-                    }),
-                ]
+                    })
+                    .filter(Boolean) as RoleResourceAccessControls[]
             },
         ],
 
@@ -249,16 +309,16 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
         ],
 
         canEditRoleBasedAccessControls: [
-            (s) => [s.roleBasedAccessControls],
-            (roleBasedAccessControls): boolean | null => {
-                return roleBasedAccessControls?.user_can_edit_access_levels ?? null
+            (s) => [s.resourceAccessControls],
+            (resourceAccessControls): boolean | null => {
+                return resourceAccessControls?.user_can_edit_access_levels ?? null
             },
         ],
     }),
     afterMount(({ actions, values }) => {
         if (values.hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS)) {
             actions.loadRoles()
-            actions.loadRoleBasedAccessControls()
+            actions.loadResourceAccessControls()
             actions.ensureAllMembersLoaded()
         }
     }),
