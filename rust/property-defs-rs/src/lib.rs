@@ -83,6 +83,18 @@ pub async fn update_consumer_loop(
 
         // conditionall enable new write path
         if config.enable_v2 {
+            // enrich batch group events with resolved group_type_indices
+            // before passing along to process_batch_v2. We can refactor this
+            // to make it less awkward soon.
+            let _unused = context
+                .resolve_group_types_indexes(&mut batch)
+                .await
+                .map_err(|e| {
+                    warn!(
+                        "Failed resolving group type indices for batch, got: {:?}",
+                        e
+                    )
+                });
             process_batch_v2(&config, cache.clone(), &context.pool, batch).await;
         } else {
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
