@@ -39,7 +39,7 @@ const build_inputs = (multiProductEvent = false): HogFunctionInputSchemaType[] =
                 currency: "{event.properties.currency ?? 'USD'}",
                 value: '{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}',
                 num_items: multiProductEvent
-                    ? '{length(arrayMap(x -> x.sku, event.properties.products ?? []))}'
+                    ? '{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}'
                     : '{event.properties.quantity}',
                 search_string: '{event.properties.query}',
                 description: '',
