@@ -764,6 +764,7 @@ describe('IngestionConsumer', () => {
                             message: expect.stringMatching(
                                 /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: ''$/
                             ),
+                            team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
                         },
                     },
@@ -778,7 +779,6 @@ describe('IngestionConsumer', () => {
                 const event = createEvent({
                     ip: '89.160.20.129',
                     properties: { $ip: '89.160.20.129' },
-                    team_id: team.id,
                 })
                 const messages = createKafkaMessages([event])
 
