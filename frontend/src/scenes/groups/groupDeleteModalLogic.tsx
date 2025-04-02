@@ -1,7 +1,8 @@
-import { actions, kea, path, props, reducers } from 'kea'
+import { actions, connect, kea, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { Group } from '~/types'
 
@@ -17,6 +18,9 @@ export type GroupDeleteCallback = (group: GroupPartial) => void
 export const groupDeleteModalLogic = kea<groupDeleteModalLogicType>([
     path(['scenes', 'groups', 'groupDeleteModalLogic']),
     props({} as GroupDeleteModalLogicProps),
+    connect({
+        actions: [eventUsageLogic, ['reportGroupDeleted']],
+    }),
     actions({
         showGroupDeleteModal: (group: GroupPartial | null, callback?: GroupDeleteCallback) => ({
             group,
@@ -48,6 +52,7 @@ export const groupDeleteModalLogic = kea<groupDeleteModalLogicType>([
                             group.group_type_index
                         }&group_key=${encodeURIComponent(group.group_key)}`
                     )
+                    actions.reportGroupDeleted(group.group_type_index)
                     values.groupDeleteCallback?.(group)
                     actions.showGroupDeleteModal(null)
                     lemonToast.success(

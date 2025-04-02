@@ -51,6 +51,7 @@ import {
     ExperimentIdType,
     FilterLogicalOperator,
     FunnelCorrelation,
+    GroupTypeIndex,
     HelpType,
     InsightShortId,
     MultipleSurveyQuestion,
@@ -240,6 +241,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
+        reportGroupDeleted: (groupTypeIndex: GroupTypeIndex) => ({ groupTypeIndex }),
         // insights
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (query: Node | null, isNewInsight: boolean) => ({ query, isNewInsight }),
@@ -618,6 +620,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 new_property_type: newPropertyType !== 'undefined' ? newPropertyType : undefined,
                 total_properties: totalProperties,
             })
+        },
+        reportGroupDeleted: async ({ groupTypeIndex }) => {
+            posthog.capture('group deleted', { group_type_index: groupTypeIndex })
         },
         reportInsightCreated: async ({ query }, breakpoint) => {
             // "insight created" essentially means that the user clicked "New insight"
