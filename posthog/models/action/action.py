@@ -38,8 +38,9 @@ class ActionStepJSON:
 
 class Action(FileSystemSyncMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
     description = models.TextField(blank=True, default="")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
