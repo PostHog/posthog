@@ -212,45 +212,29 @@ class EventsQueryRunner(QueryRunner):
                     order_by=order_by,
                 )
 
+                # sorting a large amount of columns is expensive, so we filter by a presorted table if possible
                 if (
                     self.modifiers.usePresortedEventsTable
                     and (order_by is not None and len(order_by) == 1 and order_by[0].expr.chain == ["timestamp"])
                     and not has_any_aggregation
                 ):
                     inner_query = parse_select(
-                        f"""
+                        """
                             SELECT timestamp, event, cityHash64(distinct_id) as did, cityHash64(uuid) as uuid
                             FROM events
-                            WHERE {{where}}
-                            ORDER BY toDate(timestamp) {order_by[0].order}
-                        """,
-                        {
-                            "where": stmt.where,
-                        },
+                        """
                     )
+                    inner_query.where = where
+                    inner_query.order_by = order_by
                     self.paginator.paginate(inner_query)
 
-                    stmt.where = ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.In,
-                                left=ast.Tuple(
-                                    exprs=[
-                                        ast.Field(chain=["timestamp"]),
-                                        ast.Field(chain=["event"]),
-                                        ast.Call(
-                                            name="cityHash64",
-                                            args=[ast.Field(chain=["distinct_id"])],
-                                            distinct=False,
-                                        ),
-                                        ast.Call(name="cityHash64", args=[ast.Field(chain=["uuid"])]),
-                                    ]
-                                ),
-                                right=inner_query,
-                            ),
-                            stmt.where,
-                        ]
+                    # prefilter the events table based on the sort order with a narrow set of columns
+                    prefilter_sorted = parse_expr(
+                        "(timestamp, event, cityHash64(distinct_id), cityHash64(uuid)) in ({inner_query})",
+                        {"inner_query": inner_query},
                     )
+
+                    stmt.where = ast.And(exprs=[prefilter_sorted, stmt.where])
                 return stmt
 
     def calculate(self) -> EventsQueryResponse:
