@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS posthog_eventproperty (
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_event_property_unique_proj_event_property ON posthog_eventproperty (coalesce(project_id, team_id), event, property);
 
 CREATE TABLE IF NOT EXISTS posthog_grouptypemapping (
-    id UUID PRIMARY KEY,
+    id integer PRIMARY KEY,
     group_type VARCHAR(400) NOT NULL,
     group_type_index INTEGER NOT NULL,
     team_id INTEGER NOT NULL,
