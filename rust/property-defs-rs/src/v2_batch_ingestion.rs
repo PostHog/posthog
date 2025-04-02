@@ -135,7 +135,7 @@ pub struct PropertyDefinitionsBatch {
     pub names: Vec<String>,
     pub are_numerical: Vec<bool>,
     pub event_types: Vec<i16>,
-    pub property_types: Vec<Option<i16>>,
+    pub property_types: Vec<Option<String>>,
     pub group_type_indices: Vec<Option<i16>>,
     // note: I left off deprecated fields we null out on writes
     pub to_cache: VecDeque<Update>,
@@ -181,7 +181,7 @@ impl PropertyDefinitionsBatch {
             return;
         }
 
-        let property_type: Option<i16> = pd.property_type.clone().map(|pt| pt as i16);
+        let property_type: Option<String> = pd.property_type.clone().map(|pvt| pvt.to_string());
 
         self.ids.push(Uuid::now_v7());
         self.team_ids.push(pd.team_id);
