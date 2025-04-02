@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0697_sessionrecording_full_recording_v2_path"),
+        ("posthog", "0698_action_project"),
     ]
 
     operations = [
