@@ -212,7 +212,6 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         render: function RenderShouldSync(_, schema) {
                             return (
                                 <LemonSwitch
-                                    size="xsmall"
                                     disabledReason={
                                         schema.sync_type === null ? 'You must set up the sync method first' : undefined
                                     }
