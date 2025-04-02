@@ -43,6 +43,17 @@ export const groupsModel = kea<groupsModelType>([
                     )
                     return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
                 },
+                removeDetailDashboard: async (dashboardId: number) => {
+                    return values.groupTypesRaw.map((gt) => {
+                        if (gt.detail_dashboard === dashboardId) {
+                            return {
+                                ...gt,
+                                detail_dashboard: null,
+                            }
+                        }
+                        return gt
+                    })
+                },
                 setDefaultColumns: async ({
                     groupTypeIndex,
                     defaultColumns,

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
@@ -34,7 +35,7 @@ function GroupOverviewDashboard({
 }
 
 export function GroupOverview(): JSX.Element {
-    const { groupTypeName, groupData, groupTypeDetailDashboard } = useValues(groupLogic)
+    const { groupTypeName, groupTypeNamePlural, groupData, groupTypeDetailDashboard } = useValues(groupLogic)
 
     const { createDetailDashboard } = useActions(groupLogic)
     const { reportGroupTypeDetailDashboardCreated } = useActions(eventUsageLogic)
@@ -51,11 +52,16 @@ export function GroupOverview(): JSX.Element {
     return (
         <div className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4">
             <div className="flex items-center gap-8 w-full justify-center">
+                <div>
+                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
+                        <BuilderHog3 className="w-full h-full" />
+                    </div>
+                </div>
                 <div className="flex-shrink max-w-140">
-                    <h2>No {groupTypeName} dashboard yet</h2>
+                    <h2>No {groupTypeName} dashboard template yet</h2>
                     <p className="ml-0">
-                        Create a standard dashboard to use with each {groupTypeName} to see weekly active users, most
-                        used features, and more.
+                        Create a standard dashboard template to be used across all {groupTypeNamePlural}. See weekly
+                        active users, most used features, and more.
                     </p>
                     <div className="flex items-center gap-x-4 gap-y-2 mt-6">
                         <LemonButton
@@ -67,7 +73,7 @@ export function GroupOverview(): JSX.Element {
                             }}
                             disabled={creatingDetailDashboard}
                         >
-                            Generate dashboard
+                            Generate dashboard template
                         </LemonButton>
                     </div>
                 </div>

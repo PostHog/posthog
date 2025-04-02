@@ -64,10 +64,10 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
             group_type_mapping = GroupTypeMapping.objects.get(
-                team=self.team, project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
-            raise NotFound()
+            raise NotFound(detail="Group type not found")
 
         if group_type_mapping.detail_dashboard:
             return response.Response(
@@ -84,10 +84,10 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
     def set_default_columns(self, request: request.Request, **kw):
         try:
             group_type_mapping = GroupTypeMapping.objects.get(
-                team=self.team, project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
-            raise NotFound()
+            raise NotFound(detail="Group type not found")
 
         group_type_mapping.default_columns = request.data["default_columns"]
         group_type_mapping.save()
@@ -217,7 +217,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                     )
             try:
                 group_type_mapping = GroupTypeMapping.objects.get(
-                    team=self.team, project_id=self.team.project_id, group_type_index=group.group_type_index
+                    project_id=self.team.project_id, group_type_index=group.group_type_index
                 )
             except GroupTypeMapping.DoesNotExist:
                 raise NotFound()
@@ -308,7 +308,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                     )
             try:
                 group_type_mapping = GroupTypeMapping.objects.get(
-                    team=self.team, project_id=self.team.project_id, group_type_index=group.group_type_index
+                    project_id=self.team.project_id, group_type_index=group.group_type_index
                 )
             except GroupTypeMapping.DoesNotExist:
                 raise NotFound()
