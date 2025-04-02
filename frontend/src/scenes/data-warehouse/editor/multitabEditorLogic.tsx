@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
+import { removeUndefinedAndNull } from 'lib/utils'
 import isEqual from 'lodash.isequal'
 import { editor, Uri } from 'monaco-editor'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -49,20 +50,6 @@ export const activeModelStateKey = (key: string | number): string => `${key}/act
 export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
 
 export const NEW_QUERY = 'Untitled'
-
-const removeUndefinedAndNull = (obj: object): object => {
-    if (Array.isArray(obj)) {
-        return obj.map(removeUndefinedAndNull)
-    } else if (obj && typeof obj === 'object') {
-        return Object.entries(obj).reduce((acc, [key, value]) => {
-            if (value !== undefined && value !== null) {
-                acc[key] = removeUndefinedAndNull(value)
-            }
-            return acc
-        }, {} as Record<string, any>)
-    }
-    return obj
-}
 
 const getNextUntitledNumber = (tabs: QueryTab[]): number => {
     const untitledNumbers = tabs
