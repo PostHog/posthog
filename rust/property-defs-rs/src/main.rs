@@ -82,6 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
 
     let cache = Arc::new(InMemoryCache::new(config.cache_capacity));
+    let layered_cache = Arc::new(LayeredCache::new(cache.clone(), NoOpCache::new()));
 
     let mut handles = Vec::new();
 
@@ -91,13 +92,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             consumer.clone(),
             tx.clone(),
             cache.clone(),
+            layered_cache.clone(),
         ));
 
         handles.push(handle);
     }
-
-    // Create layered cache wrapping the in-memory cache
-    let layered_cache = Arc::new(LayeredCache::new(cache.clone(), NoOpCache::new()));
 
     handles.push(tokio::spawn(update_consumer_loop(
         config.clone(),

@@ -18,11 +18,11 @@ impl<T: SecondaryCache> LayeredCache<T> {
     pub async fn insert_batch(&self, keys: Vec<Update>) {
         let mut new_keys = Vec::new();
 
-        for key in keys {
-            if self.memory.get(&key).is_none() {
+        for key in &keys {
+            if self.memory.get(key).is_none() {
                 new_keys.push(key.clone());
             }
-            self.memory.insert(key, ());
+            self.memory.insert(key.clone(), ());
         }
 
         if !new_keys.is_empty() {
@@ -32,33 +32,28 @@ impl<T: SecondaryCache> LayeredCache<T> {
         }
     }
 
-    pub async fn get_batch(&self, keys: &[Update]) -> Vec<Update> {
-        let mut found = Vec::new();
-        let mut missing = Vec::new();
+    pub async fn filter_cached_updates(&self, updates: Vec<Update>) -> Vec<Update> {
+        let mut check_secondary = Vec::new();
 
-        for key in keys {
-            if self.memory.get(key).is_some() {
-                found.push(key.clone());
-            } else {
-                missing.push(key.clone());
+        // First pass: check memory cache and collect items not in memory
+        for update in &updates {
+            if self.memory.get(update).is_none() {
+                check_secondary.push(update.clone());
             }
         }
 
-        if !missing.is_empty() {
-            match self.secondary.get_batch(&missing).await {
-                Ok(updates) => {
-                    for update in updates {
-                        self.memory.insert(update.clone(), ());
-                        found.push(update);
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to get batch from secondary cache: {}", e);
-                }
-            }
+        if check_secondary.is_empty() {
+            return Vec::new();
         }
 
-        found
+        // Second pass: check secondary cache
+        match self.secondary.filter_cached_updates(&check_secondary).await {
+            Ok(not_in_cache) => not_in_cache,
+            Err(e) => {
+                warn!("Failed to check secondary cache: {}", e);
+                check_secondary
+            }
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -90,9 +85,12 @@ mod tests {
             })
             .collect();
 
+        // First insert the events
         cache.insert_batch(events.clone()).await;
-        let found = cache.get_batch(&events).await;
-        assert_eq!(found.len(), events.len());
+
+        // Then verify none of them are returned by filter_cached_updates
+        let not_in_cache = cache.filter_cached_updates(events.clone()).await;
+        assert_eq!(not_in_cache.len(), 0);
     }
 
     #[tokio::test]
@@ -112,8 +110,11 @@ mod tests {
             })
             .collect();
 
+        // First insert the events
         cache.insert_batch(events.clone()).await;
-        let found = cache.get_batch(&events).await;
-        assert_eq!(found.len(), events.len());
+
+        // Then verify none of them are returned by filter_cached_updates
+        let not_in_cache = cache.filter_cached_updates(events.clone()).await;
+        assert_eq!(not_in_cache.len(), 0);
     }
 }

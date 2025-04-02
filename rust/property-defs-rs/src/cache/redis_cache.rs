@@ -38,7 +38,7 @@ impl SecondaryCache for RedisCache {
         Ok(())
     }
 
-    async fn get_batch(&self, updates: &[Update]) -> Result<Vec<Update>, RedisError> {
+    async fn filter_cached_updates(&self, updates: &[Update]) -> Result<Vec<Update>, RedisError> {
         if updates.is_empty() {
             return Ok(Vec::new());
         }
@@ -50,11 +50,13 @@ impl SecondaryCache for RedisCache {
             .query_async(&mut conn)
             .await?;
 
-        Ok(values
-            .into_iter()
-            .filter_map(|opt_str| {
-                opt_str.and_then(|s| serde_json::from_str(&s).ok())
-            })
-            .collect())
+        let mut not_in_cache = Vec::new();
+        for (update, value) in updates.iter().zip(values.iter()) {
+            if value.is_none() {
+                not_in_cache.push(update.clone());
+            }
+        }
+
+        Ok(not_in_cache)
     }
 }

@@ -18,7 +18,8 @@ impl SecondaryCache for NoOpCache {
         Ok(())
     }
 
-    async fn get_batch(&self, _updates: &[Update]) -> Result<Vec<Update>, RedisError> {
-        Ok(Vec::new())
+    async fn filter_cached_updates(&self, updates: &[Update]) -> Result<Vec<Update>, RedisError> {
+        // NoOpCache assumes nothing is cached, so return all updates
+        Ok(updates.to_vec())
     }
 }

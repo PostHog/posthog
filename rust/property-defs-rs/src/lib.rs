@@ -161,11 +161,38 @@ async fn process_batch_v1(
     issue_time.fin();
 }
 
+async fn filter_v1(updates: Vec<Update>, cache: &Cache<Update, ()>) -> Vec<Update> {
+    updates
+        .into_iter()
+        .filter(|update| {
+            let is_cached = cache.get(update).is_some();
+            if is_cached {
+                metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(1);
+                metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
+            } else {
+                metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
+                cache.insert(update.clone(), ());
+            }
+            !is_cached
+        })
+        .collect()
+}
+
+async fn filter_v2(updates: Vec<Update>, cache: &LayeredCache<NoOpCache>) -> Vec<Update> {
+    let input_count = updates.len();
+    let not_cached = cache.filter_cached_updates(updates).await;
+    let filtered_count = input_count - not_cached.len();
+    metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(filtered_count as u64);
+    metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(filtered_count as u64);
+    not_cached
+}
+
 pub async fn update_producer_loop(
     config: Config,
     consumer: SingleTopicConsumer,
     channel: mpsc::Sender<Update>,
     shared_cache: Arc<Cache<Update, ()>>,
+    layered_cache: Arc<LayeredCache<NoOpCache>>,
 ) {
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
@@ -235,30 +262,21 @@ pub async fn update_producer_loop(
             || last_send.elapsed() > Duration::from_secs(10)
         {
             last_send = tokio::time::Instant::now();
-            for update in batch.drain() {
-                if shared_cache.get(&update).is_some() {
-                    metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(1);
-                    // the above can replace this metric when we have new hit/miss stats both flowing
-                    metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
-                    continue;
-                }
+            let updates: Vec<Update> = batch.drain().collect();
 
-                // for v1 processing pipeline, we cache before we know the batch is
-                // persisted safely. for v2, we do this downstream. The bonus: this
-                // avoids the internal queue backups that can occur when batch writes
-                // fail and the entire contents must be manually removed from the cache
-                if !config.enable_v2 {
-                    metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
-                    shared_cache.insert(update.clone(), ());
-                }
+            let filtered_updates = if config.enable_v2 {
+                filter_v2(updates, &layered_cache).await
+            } else {
+                filter_v1(updates, &shared_cache).await
+            };
 
+            // Send filtered updates to channel
+            for update in filtered_updates {
                 match channel.try_send(update) {
                     Ok(_) => {}
                     Err(TrySendError::Full(update)) => {
                         warn!("Worker blocked");
                         metrics::counter!(WORKER_BLOCKED).increment(1);
-                        // Workers should just die if the channel is dropped, since that indicates
-                        // the main loop is dead.
                         channel.send(update).await.unwrap();
                     }
                     Err(e) => {
