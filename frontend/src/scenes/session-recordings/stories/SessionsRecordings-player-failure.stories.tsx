@@ -8,8 +8,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { recordingPlaylists } from './__mocks__/recording_playlists'
-import { recordings } from './__mocks__/recordings'
+import { recordingPlaylists } from '../__mocks__/recording_playlists'
+import { recordings } from '../__mocks__/recordings'
 
 const meta: Meta = {
     title: 'Replay/Player/Failure',

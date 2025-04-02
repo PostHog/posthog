@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 import { ReplayTabs } from '~/types'
 
-import { recordingPlaylists } from './__mocks__/recording_playlists'
+import { recordingPlaylists } from '../__mocks__/recording_playlists'
 
 const meta: Meta = {
     title: 'Replay/Listings',

@@ -10,8 +10,8 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { PropertyFilterType, PropertyOperator, SessionRecordingPlaylistType } from '~/types'
 
-import { recordingPlaylists } from './__mocks__/recording_playlists'
-import { recordings } from './__mocks__/recordings'
+import { recordingPlaylists } from '../__mocks__/recording_playlists'
+import { recordings } from '../__mocks__/recordings'
 
 const playlist = (playlistId: string): SessionRecordingPlaylistType => {
     return {
