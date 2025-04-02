@@ -32,11 +32,11 @@
          if(count() > 0, min(timestamp), null) as first_seen,
          if(count() > 0, max(timestamp), null) as last_seen
   FROM events
-  WHERE team_id = '150'
+  WHERE team_id = '152'
     AND event IN ('survey shown',
                   'survey dismissed',
                   'survey sent')
-    AND JSONExtractString(properties, '$survey_id') = '01946c68-e000-0000-6d7a-2670cad09da7'
+    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0005-eeeb-b36e98124080'
   GROUP BY event
   '''
 # ---
