@@ -299,7 +299,7 @@ function EmbeddedHeatmapBrowser({
     return browserUrl ? (
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel {...embeddedFilterPanelProps} isEmpty={heatmapEmpty} />
-            <div className="relative flex-1 w-full h-full">
+            <div className="relative flex-1 w-full h-full border-l mt-2">
                 {loading ? <LoadingOverlay /> : null}
                 {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
                 <ViewportChooser setWidth={setWidthOverride} selectedWidth={widthOverride} />
@@ -382,7 +382,7 @@ export function HeatmapsBrowser(): JSX.Element {
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
                     <UrlSearchHeader />
 
-                    <div className="relative flex flex-1 bg-surface-primary overflow-hidden">
+                    <div className="relative flex flex-1 overflow-hidden">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : browserUrl ? (
