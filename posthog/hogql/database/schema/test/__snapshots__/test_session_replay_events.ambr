@@ -139,7 +139,7 @@
 # name: TestFilterSessionReplaysByEvents.test_select_event_property
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__events.`properties___$current_url`)
+         any(raw_session_replay_events__events.`properties___$current_url`) AS `any(events.properties.$current_url)`
   FROM session_replay_events
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
@@ -253,7 +253,7 @@
 # name: TestFilterSessionReplaysByPerson.test_select_person_property
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__pdi__person.properties___person_property)
+         any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
@@ -289,7 +289,7 @@
 # name: TestFilterSessionReplaysByPerson.test_select_where_person_property_with_join_optimization
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__pdi__person.properties___person_property)
+         any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
@@ -325,7 +325,7 @@
 # name: TestFilterSessionReplaysByPerson.test_select_where_person_property_without_join_optimization
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__pdi__person.properties___person_property)
+         any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
