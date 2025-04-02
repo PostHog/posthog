@@ -5,13 +5,13 @@ import { useEffect } from 'react'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 
-import { heatmapLogic } from '../elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '../elements/heatmapToolbarMenuLogic'
 
 export function HedgehogButton(): JSX.Element {
     const { hedgehogMode, hedgehogActor } = useValues(toolbarLogic)
     const { syncWithHedgehog, setHedgehogActor, toggleMinimized } = useActions(toolbarLogic)
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { heatmapEnabled } = useValues(heatmapLogic)
+    const { heatmapEnabled } = useValues(heatmapToolbarMenuLogic)
 
     useEffect(() => {
         if (heatmapEnabled) {

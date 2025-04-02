@@ -139,8 +139,10 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
     if (!is_remote_configuration) {
         return undefined
     }
-
-    return payload === undefined ? 'Payload is required for remote configuration flags.' : undefined
+    if (payload === undefined || payload === '') {
+        return 'Payload is required for remote configuration flags.'
+    }
+    return undefined
 }
 
 export interface FeatureFlagLogicProps {

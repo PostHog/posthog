@@ -262,6 +262,7 @@ export function PersonScene(): JSX.Element | null {
                                     <SessionRecordingsPlaylist
                                         logicKey={`person-scene-${person.uuid}`}
                                         personUUID={person.uuid}
+                                        distinctIds={person.distinct_ids}
                                         updateSearchParams
                                     />
                                 </div>

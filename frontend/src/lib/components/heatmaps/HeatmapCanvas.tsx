@@ -1,19 +1,23 @@
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
+import { cn } from 'lib/utils/css-classes'
 import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
-
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
 import { useMousePosition } from './useMousePosition'
 
 function HeatmapMouseInfo({
     heatmapJsRef,
+    containerRef,
 }: {
     heatmapJsRef: MutableRefObject<HeatmapJS<'value', 'x', 'y'> | undefined>
+    containerRef: MutableRefObject<HTMLDivElement | null | undefined>
 }): JSX.Element | null {
-    const { shiftPressed, heatmapTooltipLabel } = useValues(heatmapLogic)
+    const shiftPressed = useShiftKeyPressed()
+    const { heatmapTooltipLabel } = useValues(heatmapDataLogic)
 
-    const mousePosition = useMousePosition()
+    const mousePosition = useMousePosition(containerRef?.current)
     const value = heatmapJsRef.current?.getValueAt(mousePosition)
 
     if (!mousePosition || (!value && !shiftPressed)) {
@@ -47,9 +51,15 @@ function HeatmapMouseInfo({
     )
 }
 
-export function Heatmap(): JSX.Element | null {
-    const { heatmapJsData, heatmapEnabled, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
-        useValues(heatmapLogic)
+export function HeatmapCanvas({
+    positioning = 'fixed',
+    widthOverride,
+}: {
+    positioning?: 'absolute' | 'fixed'
+    widthOverride?: number | null
+}): JSX.Element | null {
+    const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
+        useValues(heatmapDataLogic)
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
 
@@ -112,15 +122,19 @@ export function Heatmap(): JSX.Element | null {
         })
     }, [heatmapJSColorGradient])
 
-    if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
+    if (!heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
         return null
     }
 
     return (
-        <div className="fixed inset-0 overflow-hidden w-full h-full">
+        <div className={cn('inset-0 overflow-hidden w-full h-full', positioning)}>
             {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas */}
-            <div key={`${windowWidth}x${windowHeight}`} className="absolute inset-0" ref={setHeatmapContainer} />
-            <HeatmapMouseInfo heatmapJsRef={heatmapsJsRef} />
+            <div
+                key={`${widthOverride ?? windowWidth}x${windowHeight}`}
+                className="absolute inset-0"
+                ref={setHeatmapContainer}
+            />
+            <HeatmapMouseInfo heatmapJsRef={heatmapsJsRef} containerRef={heatmapsJsContainerRef} />
         </div>
     )
 }
