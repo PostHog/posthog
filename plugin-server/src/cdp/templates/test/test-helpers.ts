@@ -5,7 +5,6 @@ import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
-    HogFunctionFilterGlobals,
     HogFunctionInputType,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
@@ -14,7 +13,6 @@ import {
     HogFunctionType,
 } from '../../types'
 import { createInvocation } from '../../utils'
-import { checkHogFunctionFilters } from '../../utils/hog-function-filtering'
 import { compileHog } from '../compiler'
 import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
@@ -121,47 +119,7 @@ export class TemplateTester {
             return acc
         }, {} as Record<string, HogFunctionInputType>)
 
-        let mappingInputs: Record<string, HogFunctionInputType> = {}
-
-        if (this.template.mapping_templates && _globals) {
-            this.template.mapping_templates.forEach((mapping) => {
-                const filterResults = checkHogFunctionFilters({
-                    hogFunction: {
-                        ...this.template,
-                        team_id: 1,
-                        enabled: true,
-                        created_at: '2024-01-01T00:00:00Z',
-                        updated_at: '2024-01-01T00:00:00Z',
-                        deleted: false,
-                    },
-                    filters: mapping.filters,
-                    filterGlobals: _globals as HogFunctionFilterGlobals,
-                    eventUuid: _globals?.event?.uuid,
-                    enabledTelemetry: true,
-                })
-
-                console.log(filterResults, 'filterResults')
-                console.log(mapping.filters, 'mapping.filters')
-                console.log(_globals, 'globals')
-
-                if (!mapping.inputs_schema) {
-                    return
-                }
-
-                mappingInputs = mapping.inputs_schema.reduce((acc, input) => {
-                    if (typeof input.default !== 'undefined') {
-                        acc[input.key] = input.default
-                    }
-                    return acc
-                }, {} as Record<string, HogFunctionInputType>)
-            })
-        }
-
-        const allInputs = { ...defaultInputs, ..._inputs, ...mappingInputs }
-
-        console.log(allInputs, 'allInputs')
-
-        console.log(this.template.mapping_templates, 'mappings')
+        const allInputs = { ...defaultInputs, ..._inputs }
 
         const compiledEntries = await Promise.all(
             Object.entries(allInputs).map(async ([key, value]) => [key, await this.compileObject(value)])
@@ -174,6 +132,61 @@ export class TemplateTester {
             }
             return acc
         }, {} as Record<string, HogFunctionInputType>)
+
+        if (this.template.mapping_templates) {
+            const realMappings = this.template.mapping_templates.map((mapping) => ({
+                ...mapping,
+                inputs: {},
+            }))
+
+            await Promise.all(
+                realMappings.map(async (mapping) => {
+                    if (!mapping.inputs_schema) {
+                        return
+                    }
+
+                    const processedInputs = await Promise.all(
+                        mapping.inputs_schema
+                            .filter((input) => typeof input.default !== 'undefined')
+                            .map(async (input) => {
+                                return {
+                                    key: input.key,
+                                    value: input.default,
+                                    bytecode: await this.compileObject(input.default),
+                                }
+                            })
+                    )
+
+                    const inputsObj = processedInputs.reduce((acc, item) => {
+                        acc[item.key] = {
+                            value: item.value,
+                            bytecode: item.bytecode,
+                        }
+                        return acc
+                    }, {} as Record<string, HogFunctionInputType>)
+
+                    mapping.inputs = inputsObj
+                })
+            )
+
+            const invocations = this.executor.buildHogFunctionInvocations(
+                [
+                    {
+                        ...this.template,
+                        team_id: 1,
+                        enabled: true,
+                        created_at: '2024-01-01T00:00:00Z',
+                        updated_at: '2024-01-01T00:00:00Z',
+                        deleted: false,
+                        inputs: compiledInputs,
+                        mappings: realMappings,
+                    },
+                ],
+                this.createGlobals(_globals)
+            )
+
+            return invocations.invocations.map((invocation) => this.executor.execute(invocation))
+        }
 
         const globals = this.createGlobals(_globals)
 
@@ -201,7 +214,7 @@ export class TemplateTester {
 
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
 
-        return this.executor.execute(invocation, { functions: extraFunctions })
+        return [this.executor.execute(invocation, { functions: extraFunctions })]
     }
 
     invokeFetchResponse(invocation: HogFunctionInvocation, response: HogFunctionQueueParametersFetchResponse) {
