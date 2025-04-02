@@ -1,15 +1,11 @@
 from abc import abstractmethod
-from typing import Literal, Union, overload
+from typing import Literal
 from dagster import Any
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from posthog.schema import (
     AssistantContextualTool,
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
 )
 from langchain_core.runnables import RunnableConfig
 
@@ -45,6 +41,8 @@ CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT: dict[AssistantContextualTool, str] 
 class MaxTool(BaseTool):
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
 
+    thinking_message: str
+
     @abstractmethod
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
         """Tool execution, which should return a tuple of (content, artifact)"""
@@ -61,8 +59,8 @@ class MaxTool(BaseTool):
                 f"MaxTool name '{cls.name}' is not a recognized AssistantContextualTool value. Fix this name, or update AssistantContextualTool in schema-assistant-messages.ts and run `pnpm schema:build`"
             )
         CONTEXTUAL_TOOL_NAME_TO_TOOL[accepted_name] = cls
-        if not getattr(cls, "description", None):
-            raise ValueError("You must set `description` on the tool, so that the LLM knows how to use it")
+        if not getattr(cls, "thinking_message", None):
+            raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         self._context = config["configurable"]["contextual_tools"].get(self.get_name(), {})
@@ -73,25 +71,3 @@ class MaxTool(BaseTool):
         if not hasattr(self, "_context"):
             raise AttributeError("Tool has not been run yet")
         return self._context
-
-    @overload
-    def delegate_to_insight_creation(
-        self, instructions: str, specific_insight_kind: Literal["trends"]
-    ) -> AssistantTrendsQuery: ...
-    @overload
-    def delegate_to_insight_creation(
-        self, instructions: str, specific_insight_kind: Literal["funnel"]
-    ) -> AssistantFunnelsQuery: ...
-    @overload
-    def delegate_to_insight_creation(
-        self, instructions: str, specific_insight_kind: Literal["retention"]
-    ) -> AssistantRetentionQuery: ...
-    @overload
-    def delegate_to_insight_creation(
-        self, instructions: str, specific_insight_kind: Literal["sql"]
-    ) -> AssistantHogQLQuery: ...
-    def delegate_to_insight_creation(
-        self, instructions: str, specific_insight_kind: MaxSupportedQueryKind
-    ) -> Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]:
-        # TODO
-        pass

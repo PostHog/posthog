@@ -1579,9 +1579,14 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "type": {
+                    "const": "tool_call",
+                    "default": "tool_call",
+                    "type": "string"
                 }
             },
-            "required": ["id", "name", "args"],
+            "required": ["id", "name", "args", "type"],
             "type": "object"
         },
         "AssistantToolCallMessage": {
@@ -16940,7 +16945,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query"],
+            "required": ["type", "query", "answer"],
             "type": "object"
         },
         "VizSpecificOptions": {

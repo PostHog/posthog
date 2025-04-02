@@ -21,7 +21,7 @@ from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
-from ee.hogai.utils.types import PartialAssistantState
+from ee.hogai.utils.types import AssistantNodeName, PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.models import Action
 from posthog.schema import (
@@ -42,7 +42,7 @@ from posthog.schema import (
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
 
 from ..assistant import Assistant
-from ..graph import AssistantGraph, AssistantNodeName
+from ..graph import AssistantGraph
 
 
 class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):

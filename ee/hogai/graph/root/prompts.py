@@ -148,14 +148,6 @@ The SQL insights have the following features:
 - You can nest subqueries as needed.
 """.strip()
 
-ROOT_VALIDATION_EXCEPTION_PROMPT = """
-The function call you previously provided didn't pass the validation and raised a Pydantic validation exception.
-<pydantic_exception>
-{{{exception}}}
-</pydantic_exception>
-You must fix the exception and try again.
-""".strip()
-
 ROOT_HARD_LIMIT_REACHED_PROMPT = """
 You have reached the maximum number of iterations, a security measure to prevent infinite loops. Now, summarize the conversation so far and answer my question if you can. Then, ask me if I'd like to continue what you were doing.
 """.strip()

@@ -220,6 +220,7 @@ class AssistantToolCall(BaseModel):
     args: dict[str, Any]
     id: str
     name: str
+    type: Literal["tool_call"] = "tool_call"
 
 
 class AssistantToolCallMessage(BaseModel):
@@ -6997,9 +6998,7 @@ class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Optional[
-        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    ] = None
+    answer: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None

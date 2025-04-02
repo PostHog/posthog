@@ -11,17 +11,20 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
     trim_messages,
 )
-from langchain_core.output_parsers import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel
+from ee.hogai.tool import (
+    CONTEXTUAL_TOOL_NAME_TO_TOOL,
+    CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT,
+    create_and_query_insight,
+    search_documentation,
+)
 
 from .prompts import (
     ROOT_HARD_LIMIT_REACHED_PROMPT,
-    ROOT_INSIGHT_DESCRIPTION_PROMPT,
     ROOT_SYSTEM_PROMPT,
-    ROOT_VALIDATION_EXCEPTION_PROMPT,
 )
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -33,57 +36,20 @@ from posthog.schema import (
     HumanMessage,
     FailureMessage,
 )
+import importlib
+import pkgutil
+import products
+
+# Dynamically import max_tools from all products
+for module_info in pkgutil.iter_modules(products.__path__):
+    try:
+        importlib.import_module(f"products.{module_info.name}.backend.max_tools")
+    except ModuleNotFoundError:
+        pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
 
 RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters"]
 
-
-# Lower casing matters here. Do not change it.
-class create_and_query_insight(BaseModel):
-    """
-    Retrieve results for a specific data question by creating a query or iterate on a previous query.
-    This tool only retrieves data for a single insight at a time.
-    The `trends` insight type is the only insight that can display multiple trends insights in one request.
-    All other insight types strictly return data for a single insight.
-    This tool is also relevant if the user asks to write SQL.
-    """
-
-    query_description: str = Field(description="The description of the query being asked.")
-    query_kind: Literal["trends", "funnel", "retention", "sql"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
-
-
-class search_documentation(BaseModel):
-    """
-    Search PostHog documentation to answer questions about features, concepts, and usage.
-    Use this tool when the user asks about how to use PostHog, its features, or needs help understanding concepts.
-    Don't use this tool if the necessary information is already in the conversation.
-    """
-
-
-class search_session_recordings(BaseModel):
-    """
-    Update session recordings filters on this page, in order to search for session recordings by any criteria.
-    """
-
-    change: str = Field(description="The specific change to be made to recordings filters, briefly described.")
-
-
-CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL = {
-    AssistantContextualTool.SEARCH_SESSION_RECORDINGS: search_session_recordings,
-}
-CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT = {
-    AssistantContextualTool.SEARCH_SESSION_RECORDINGS: """
-Current recordings filters are:
-{{{search_session_recordings_current_filters}}}
-""".strip(),
-}
-CONTEXTUAL_TOOL_MODELS = tuple(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL.values())
-
-
-RootToolCall = create_and_query_insight | search_documentation | search_session_recordings
-root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight, search_documentation, *CONTEXTUAL_TOOL_MODELS])
-
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
-
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 
@@ -107,7 +73,7 @@ class RootNode(AssistantNode):
                     *[
                         (
                             "system",
-                            f"<{tool_name}>\n{CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT.get(cast(AssistantContextualTool, tool_name), 'No context provided for this tool')}\n</{tool_name}>",
+                            f"<{tool_name}>\n{CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT.get(AssistantContextualTool(tool_name), 'No context provided for this tool')}\n</{tool_name}>",
                         )
                         for tool_name in self._get_contextual_tools(config).keys()
                         if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT
@@ -166,10 +132,11 @@ class RootNode(AssistantNode):
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         for tool_name in self._get_contextual_tools(config).keys():
-            if tool_name not in CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL:
-                continue  # Possibly a deployment mismatch
-            available_tools.append(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL[cast(AssistantContextualTool, tool_name)])
-
+            try:
+                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
+            except ValueError:
+                continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
+            available_tools.append(ToolClass())  # type: ignore
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
@@ -196,22 +163,20 @@ class RootNode(AssistantNode):
             if isinstance(message, HumanMessage):
                 history.append(LangchainHumanMessage(content=message.content, id=message.id))
             elif isinstance(message, AssistantMessage):
-                # Filter out tool calls without a tool response, so the completion doesn't fail.
-                tool_calls = [
-                    tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_messages
-                ]
-
-                history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls, id=message.id))
-
-                # Append associated tool call messages.
-                for tool_call in tool_calls:
-                    tool_call_id = tool_call["id"]
-                    result_message = tool_result_messages[tool_call_id]
-                    history.append(
-                        LangchainToolMessage(
-                            content=result_message.content, tool_call_id=tool_call_id, id=result_message.id
-                        )
+                history.append(
+                    LangchainAIMessage(
+                        content=message.content,
+                        # Filter out tool calls without a tool response, so the completion doesn't fail.
+                        tool_calls=[call.model_dump() for call in message.tool_calls if call.id in tool_result_messages]
+                        if message.tool_calls
+                        else [],
+                        id=message.id,
                     )
+                )
+            elif isinstance(message, AssistantToolCallMessage):
+                history.append(
+                    LangchainToolMessage(content=message.content, tool_call_id=message.tool_call_id, id=message.id)
+                )
             elif isinstance(message, FailureMessage):
                 history.append(
                     LangchainAIMessage(content=message.content or "An unknown failure occurred.", id=message.id)
@@ -288,36 +253,38 @@ class RootNodeTools(AssistantNode):
 
         tool_call_count = state.root_tool_calls_count or 0
 
-        try:
-            langchain_msg = self._construct_langchain_ai_message(last_message)
-            parsed_tool_calls: list[RootToolCall] = root_tools_parser.invoke(langchain_msg)
-        except ValidationError as e:
-            content = (
-                ChatPromptTemplate.from_template(ROOT_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
-                .format_messages(exception=e.errors(include_url=False))[0]
-                .content
-            )
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(content=str(content), id=str(uuid4()), tool_call_id=last_message.id)
-                ],
-                root_tool_calls_count=tool_call_count + 1,
-            )
-
-        if len(parsed_tool_calls) != 1:
+        tools_calls = last_message.tool_calls
+        if len(tools_calls) != 1:
             raise ValueError("Expected exactly one tool call.")
 
-        tool_call = parsed_tool_calls[0]
-        if isinstance(tool_call, create_and_query_insight):
+        tool_call = tools_calls[0]
+        if tool_call.name == "create_and_query_insight":
             return PartialAssistantState(
-                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
-                root_tool_insight_plan=tool_call.query_description,
-                root_tool_insight_type=tool_call.query_kind,
+                root_tool_call_id=tool_call.id,
+                root_tool_insight_plan=tool_call.args["query_description"],
+                root_tool_insight_type=tool_call.args["query_kind"],
+                root_tool_calls_count=tool_call_count + 1,
+            )
+        elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(AssistantContextualTool(tool_call.name)):
+            result = ToolClass().invoke(tool_call.model_dump(), config)  # type: ignore
+            assert isinstance(result, LangchainToolMessage)
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content=result.content,
+                        ui_payload={tool_call.name: result.artifact},
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                    )
+                ],
+                root_tool_call_id=None,  # Tool handled already
+                root_tool_insight_plan=None,  # No insight plan here
+                root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
         else:
             return PartialAssistantState(
-                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
+                root_tool_call_id=tool_call.id,
                 root_tool_insight_plan=None,  # No insight plan here
                 root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
@@ -326,13 +293,7 @@ class RootNodeTools(AssistantNode):
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
         if isinstance(last_message, AssistantToolCallMessage):
-            return "root"
-        if state.root_tool_call_id:
-            if state.root_tool_insight_type:
-                return "insights"
-            # For all other tools, we route based on tool name
-            return cast(RouteName, self._get_tool_call(state.messages, state.root_tool_call_id).name)
+            return "root"  # Let the root either proceed or finish, since it now can see the tool call result
+        if state.root_tool_insight_type:
+            return "insights"
         return "end"
-
-    def _construct_langchain_ai_message(self, message: AssistantMessage):
-        return LangchainAIMessage(content=message.content, tool_calls=message.model_dump()["tool_calls"] or [])
