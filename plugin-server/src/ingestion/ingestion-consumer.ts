@@ -173,6 +173,11 @@ export class IngestionConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
+        // TODO 1. Get all Teams for the events with lazyloader
+        // TODO 2. use getHogFunctionIdsForTeams to get the hog function ids for the teams
+        // TODO 3. use hogTransformer.saveHogFunctionStates to save the hog function states for the teams
+        // TODO 4. after batch is processed use hogTransformer.clearHogFunctionStates to clear the hog function states
+
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
                 Object.values(parsedMessages).map(async (x) => {
