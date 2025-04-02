@@ -1,4 +1,4 @@
-import { IconClock, IconEllipsis, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import { IconEllipsis, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -15,12 +15,11 @@ import {
 } from 'scenes/session-recordings/components/PanelSettings'
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
 import { PlayerMetaBreakpoints } from 'scenes/session-recordings/player/player-meta/PlayerMeta'
-import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -67,37 +66,6 @@ function SkipInactivity(): JSX.Element {
     )
 }
 
-function SetTimeFormat(): JSX.Element {
-    const { timestampFormat } = useValues(playerSettingsLogic)
-    const { setTimestampFormat } = useActions(playerSettingsLogic)
-
-    return (
-        <SettingsMenu
-            matchWidth={true}
-            highlightWhenActive={false}
-            items={[
-                {
-                    label: 'UTC',
-                    onClick: () => setTimestampFormat(TimestampFormat.UTC),
-                    active: timestampFormat === TimestampFormat.UTC,
-                },
-                {
-                    label: 'Device',
-                    onClick: () => setTimestampFormat(TimestampFormat.Device),
-                    active: timestampFormat === TimestampFormat.Device,
-                },
-                {
-                    label: 'Relative',
-                    onClick: () => setTimestampFormat(TimestampFormat.Relative),
-                    active: timestampFormat === TimestampFormat.Relative,
-                },
-            ]}
-            icon={<IconClock />}
-            label={TimestampFormatToLabel[timestampFormat]}
-        />
-    )
-}
-
 function InspectDOM(): JSX.Element {
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { openExplorer } = useActions(sessionRecordingPlayerLogic)
@@ -121,40 +89,11 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
-    const { skipInactivitySetting, timestampFormat } = useValues(playerSettingsLogic)
-    const { setSkipInactivitySetting, setTimestampFormat } = useActions(playerSettingsLogic)
+    const { skipInactivitySetting } = useValues(playerSettingsLogic)
+    const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
     const isSmall = size === 'small'
 
     const menuItems: LemonMenuItem[] = [
-        isSmall
-            ? {
-                  label: TimestampFormatToLabel[timestampFormat],
-                  icon: <IconClock />,
-                  'data-attr': 'time-format-in-menu',
-                  matchWidth: true,
-
-                  items: [
-                      {
-                          label: 'UTC',
-                          onClick: () => setTimestampFormat(TimestampFormat.UTC),
-                          active: timestampFormat === TimestampFormat.UTC,
-                          size: 'xsmall',
-                      },
-                      {
-                          label: 'Device',
-                          onClick: () => setTimestampFormat(TimestampFormat.Device),
-                          active: timestampFormat === TimestampFormat.Device,
-                          size: 'xsmall',
-                      },
-                      {
-                          label: 'Relative',
-                          onClick: () => setTimestampFormat(TimestampFormat.Relative),
-                          active: timestampFormat === TimestampFormat.Relative,
-                          size: 'xsmall',
-                      },
-                  ],
-              }
-            : undefined,
         isSmall
             ? {
                   label: 'Skip inactivity',
@@ -171,7 +110,6 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
             <div className="flex w-full justify-between items-center gap-0.5">
                 <div className="flex flex-row gap-0.5 h-full items-center">
                     <SetPlaybackSpeed />
-                    {!isSmall && <SetTimeFormat />}
                     {!isSmall && <SkipInactivity />}
                     {isSmall && (
                         <SettingsMenu
