@@ -9,10 +9,10 @@ use crate::{app_context::AppContext, error::PipelineResult, metric_consts::GEOIP
 pub fn add_geoip(mut buffer: Vec<PipelineResult>, context: &AppContext) -> Vec<PipelineResult> {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct GeoIpProps {
-        #[serde(rename = "$ip")]
+        #[serde(rename = "$ip", skip_serializing_if = "Option::is_none")]
         ip: Option<String>,
 
-        #[serde(rename = "$geoip_disable")]
+        #[serde(rename = "$geoip_disable", skip_serializing_if = "Option::is_none")]
         disabled: Option<bool>,
 
         #[serde(flatten)]
@@ -50,6 +50,9 @@ pub fn add_geoip(mut buffer: Vec<PipelineResult>, context: &AppContext) -> Vec<P
         ip_props
             .other
             .extend(lookup.into_iter().map(|(k, v)| (k, Value::String(v))));
+
+        event.properties =
+            Some(serde_json::to_string(&ip_props).expect("serialization should not fail"));
     }
 
     buffer
