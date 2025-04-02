@@ -6,10 +6,12 @@ import datetime as dt
 import functools
 import io
 import json
+import logging
 import typing
 
 import pyarrow as pa
 import snowflake.connector
+import structlog
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from django.conf import settings
@@ -55,7 +57,9 @@ from posthog.temporal.batch_exports.temporary_file import (
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import configure_temporal_worker_logger
+
+LOGGER = structlog.get_logger(__name__)
 
 # One batch export allowed to connect at a time (in theory) per worker.
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
@@ -208,6 +212,7 @@ class SnowflakeClient:
         role: str | None = None,
         password: str | None = None,
         private_key: bytes | None = None,
+        base_logger: structlog.typing.FilteringBoundLogger | None = None,
     ):
         if password is None and private_key is None:
             raise SnowflakeAuthenticationError("Either password or private key must be provided")
@@ -222,8 +227,19 @@ class SnowflakeClient:
         self.schema = schema
         self._connection: SnowflakeConnection | None = None
 
+        if base_logger:
+            self._logger = base_logger
+        else:
+            self._logger = LOGGER
+
+    @property
+    def logger(self) -> structlog.typing.FilteringBoundLogger:
+        return self._logger.bind(user=self.user, account=self.account, warehouse=self.warehouse, database=self.database)
+
     @classmethod
-    def from_inputs(cls, inputs: SnowflakeInsertInputs) -> typing.Self:
+    def from_inputs(
+        cls, inputs: SnowflakeInsertInputs, base_logger: structlog.typing.FilteringBoundLogger | None = None
+    ) -> typing.Self:
         """Initialize `SnowflakeClient` from `SnowflakeInsertInputs`."""
 
         # User could have specified both password and private key in their batch export config.
@@ -253,6 +269,7 @@ class SnowflakeClient:
             role=inputs.role,
             password=password,
             private_key=private_key,
+            base_logger=base_logger,
         )
 
     @property
@@ -268,6 +285,8 @@ class SnowflakeClient:
 
         Methods that require a connection should be ran within this block.
         """
+        self.ensure_snowflake_loggers_have_our_handlers()
+
         try:
             async with CONNECTION_SEMAPHORE:
                 connection = await asyncio.to_thread(
@@ -298,6 +317,9 @@ class SnowflakeClient:
 
         self._connection = connection
 
+        # Call this again as connection re-adds handlers.
+        self.ensure_snowflake_loggers_have_our_handlers()
+
         await self.use_namespace()
         await self.execute_async_query("SET ABORT_DETACHED_QUERY = FALSE")
 
@@ -307,6 +329,13 @@ class SnowflakeClient:
         finally:
             self._connection = None
             await asyncio.to_thread(connection.close)
+
+    def ensure_snowflake_loggers_have_our_handlers(self):
+        """Set our own handlers for loggers used by inner `SnowflakeConnection`."""
+        logger = logging.getLogger("snowflake.connector")
+        logger.handlers = []
+        for handler in self.logger.handlers:  # type: ignore
+            logger.addHandler(handler)
 
     async def use_namespace(self) -> None:
         """Switch to a namespace given by database and schema.
@@ -740,7 +769,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Snowflake")
+    logger = await configure_temporal_worker_logger(logger=LOGGER, team_id=inputs.team_id, destination="Snowflake")
     await logger.ainfo(
         "Batch exporting range %s - %s to Snowflake: %s.%s.%s",
         inputs.data_interval_start or "START",
@@ -850,7 +879,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             else inputs.table_name
         )
 
-        async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
+        async with SnowflakeClient.from_inputs(inputs, base_logger=logger).connect() as snow_client:
             async with (
                 snow_client.managed_table(
                     inputs.table_name, data_interval_end_str, table_fields, delete=False
