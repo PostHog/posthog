@@ -273,6 +273,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'SQL editor',
         defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
+        hideProjectNotice: true,
     },
     [Scene.SavedInsights]: {
         projectBased: true,

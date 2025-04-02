@@ -11,12 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import {
-    deduplicateSnapshots,
-    parseEncodedSnapshots,
-    sessionRecordingDataLogic,
-} from '../player/sessionRecordingDataLogic'
+import { parseEncodedSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
+import { deduplicateSnapshots } from '../player/snapshot-processing/deduplicate-snapshots'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
 

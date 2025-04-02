@@ -4,7 +4,7 @@ from django.test import override_settings
 from pytest import mark
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.test.utils import create_data_warehouse_table
+from posthog.hogql_queries.experiments.test.utils import create_standard_group_test_events, create_data_warehouse_table
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -630,6 +630,237 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.count, 8)
         self.assertEqual(control_variant.absolute_exposure, 10)
         self.assertEqual(test_variant.absolute_exposure, 10)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_group_aggregation_mean_metric(self):
+        feature_flag = self.create_feature_flag()
+        feature_flag.filters["aggregation_group_type_index"] = 0
+        feature_flag.save()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        create_standard_group_test_events(self.team, feature_flag)
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.absolute_exposure, 2)
+        self.assertEqual(test_variant.absolute_exposure, 3)
+        self.assertEqual(control_variant.count, 6)
+        self.assertEqual(test_variant.count, 8)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_group_aggregation_mean_property_sum_metric(self):
+        feature_flag = self.create_feature_flag()
+        feature_flag.filters["aggregation_group_type_index"] = 0
+        feature_flag.save()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        create_standard_group_test_events(self.team, feature_flag)
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.absolute_exposure, 2)
+        self.assertEqual(test_variant.absolute_exposure, 3)
+        self.assertEqual(control_variant.count, 60)
+        self.assertEqual(test_variant.count, 120)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_group_aggregation_funnel_metric(self):
+        feature_flag = self.create_feature_flag()
+        feature_flag.filters["aggregation_group_type_index"] = 0
+        feature_flag.save()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="purchase"),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        create_standard_group_test_events(self.team, feature_flag)
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.success_count, 2)
+        self.assertEqual(test_variant.success_count, 3)
+        self.assertEqual(control_variant.failure_count, 0)
+        self.assertEqual(test_variant.failure_count, 0)
+
+    @snapshot_clickhouse_queries
+    def test_query_runner_group_aggregation_data_warehouse_mean_metric(self):
+        feature_flag = self.create_feature_flag()
+        feature_flag.filters["aggregation_group_type_index"] = 0
+        feature_flag.save()
+
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMeanMetric(
+            source=ExperimentDataWarehouseNode(
+                table_name=table_name,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.TOTAL,
+                math_property=None,
+            ),
+        )
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "org 1"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:2",
+            properties={"name": "org 2"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:3",
+            properties={"name": "org 3"},
+        )
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                if variant == "test":
+                    group_key = "org:2" if i > 5 else "org:3"
+                else:
+                    group_key = "org:1"
+
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                        "$group_0": group_key,
+                        "$groups": {
+                            "organization": group_key,
+                        },
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+        self.assertEqual(control_result.absolute_exposure, 1)
+        self.assertEqual(test_result.absolute_exposure, 2)
+        self.assertEqual(control_result.count, 1)
+        self.assertEqual(test_result.count, 3)
 
     @parameterized.expand(
         [

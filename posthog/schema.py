@@ -7663,6 +7663,7 @@ class RecordingsQuery(BaseModel):
     console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
     date_from: Optional[str] = "-3d"
     date_to: Optional[str] = None
+    distinct_ids: Optional[list[str]] = None
     events: Optional[list[dict[str, Any]]] = None
     filter_test_accounts: Optional[bool] = None
     having_predicates: Optional[

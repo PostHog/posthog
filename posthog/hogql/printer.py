@@ -795,6 +795,11 @@ class _Printer(Visitor):
             "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
         ):
             not_nullable = True
+        hack_sessions_timestamp = (
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+        )
+        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
+            not_nullable = True
 
         constant_lambda = None
         value_if_one_side_is_null = False
@@ -1136,8 +1141,12 @@ class _Printer(Visitor):
                         ):
                             raise QueryError("getSurveyResponse first argument must be a valid integer")
                         second_arg = node_args[1] if len(node_args) > 1 else None
+                        third_arg = node_args[2] if len(node_args) > 2 else None
                         question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                        return get_survey_response_clickhouse_query(int(question_index_obj.value), question_id)
+                        is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
+                        return get_survey_response_clickhouse_query(
+                            int(question_index_obj.value), question_id, is_multiple_choice
+                        )
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
