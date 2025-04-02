@@ -18,6 +18,8 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                         <li>
                             <LemonButton
                                 type="secondary"
+                                fullWidth={true}
+                                size="xsmall"
                                 data-attr="replay-empty-state-troubleshooting-show-hidden-recordings"
                                 onClick={() => {
                                     setShowSettings(true)
@@ -31,6 +33,8 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                     <li>
                         <LemonButton
                             type="secondary"
+                            fullWidth={true}
+                            size="xsmall"
                             data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
                             onClick={() => setFilters({ date_from: '-30d' })}
                         >
