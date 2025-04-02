@@ -614,7 +614,22 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         NB version 1 of this API has been deprecated and ClickHouse stored snapshots are no longer supported.
         """
 
-        recording = self.get_object()
+        recording: SessionRecording = self.get_object()
+
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            used_key = request.successful_authenticator.personal_api_key
+            # we want to track personal api key usage of this endpoint
+            posthoganalytics.capture(
+                self._distinct_id_from_request(request),
+                "snapshots_api_called_with_personal_api_key",
+                {
+                    "key_label": used_key.label,
+                    "key_scopes": used_key.scopes,
+                    "key_scoped_teams": used_key.scoped_teams,
+                    "session_requested": recording.session_id,
+                    "recording_start_time": recording.start_time,
+                },
+            )
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
