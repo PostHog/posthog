@@ -190,13 +190,13 @@ pub async fn process_batch_v2(
     metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
     // TODO(eli): implement v1-style delay while cache is warming?
-    let mut layered_cache = LayeredCache::new(cache, NoOpCache::new());
+    let layered_cache = LayeredCache::new(cache, NoOpCache::new());
 
     // prep reshaped, isolated data batch buffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
     let mut prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
-    let mut handles: Vec<JoinHandle<(Result<(), sqlx::Error>, Vec<Update>)>> = vec![];
+    let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
 
     // loop on the Update batch, splitting into smaller vectorized PG write batches
     // and submitted async. note for testing and simplicity, we don't work with
@@ -210,9 +210,9 @@ pub async fn process_batch_v2(
                 event_defs.append(ed);
                 if event_defs.should_flush_batch() {
                     let pool = pool.clone();
-                    let updates = event_defs.drain();
+                    let mut cache = layered_cache.clone();
                     handles.push(tokio::spawn(async move {
-                        (write_event_definitions_batch(event_defs, &pool).await, updates)
+                        write_event_definitions_batch(event_defs, &pool, &mut cache).await
                     }));
                     event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
@@ -221,9 +221,9 @@ pub async fn process_batch_v2(
                 event_props.append(ep);
                 if event_props.should_flush_batch() {
                     let pool = pool.clone();
-                    let updates = event_props.drain();
+                    let mut cache = layered_cache.clone();
                     handles.push(tokio::spawn(async move {
-                        (write_event_properties_batch(event_props, &pool).await, updates)
+                        write_event_properties_batch(event_props, &pool, &mut cache).await
                     }));
                     event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
                 }
@@ -232,9 +232,9 @@ pub async fn process_batch_v2(
                 prop_defs.append(pd);
                 if prop_defs.should_flush_batch() {
                     let pool = pool.clone();
-                    let updates = prop_defs.drain();
+                    let mut cache = layered_cache.clone();
                     handles.push(tokio::spawn(async move {
-                        (write_property_definitions_batch(prop_defs, &pool).await, updates)
+                        write_property_definitions_batch(prop_defs, &pool, &mut cache).await
                     }));
                     prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
@@ -245,38 +245,33 @@ pub async fn process_batch_v2(
     // ensure partial batches are flushed to Postgres too
     if !event_defs.is_empty() {
         let pool = pool.clone();
-        let updates = event_defs.drain();
+        let mut cache = layered_cache.clone();
         handles.push(tokio::spawn(async move {
-            (write_event_definitions_batch(event_defs, &pool).await, updates)
+            write_event_definitions_batch(event_defs, &pool, &mut cache).await
         }));
     }
     if !prop_defs.is_empty() {
         let pool = pool.clone();
-        let updates = prop_defs.drain();
+        let mut cache = layered_cache.clone();
         handles.push(tokio::spawn(async move {
-            (write_property_definitions_batch(prop_defs, &pool).await, updates)
+            write_property_definitions_batch(prop_defs, &pool, &mut cache).await
         }));
     }
     if !event_props.is_empty() {
         let pool = pool.clone();
-        let updates = event_props.drain();
+        let mut cache = layered_cache.clone();
         handles.push(tokio::spawn(async move {
-            (write_event_properties_batch(event_props, &pool).await, updates)
+            write_event_properties_batch(event_props, &pool, &mut cache).await
         }));
     }
 
     for handle in handles {
         match handle.await {
-            Ok((result, updates)) => match result {
-                Ok(_) => {
-                    let timer = common_metrics::timing_guard(V2_BATCH_CACHE_TIME, &[]);
-                    layered_cache.insert_batch(updates);
-                    timer.fin();
-                }
-                Err(db_err) => {
+            Ok(result) => {
+                if let Err(db_err) = result {
                     warn!("Batch write exhausted retries: {:?}", db_err);
                 }
-            },
+            }
             Err(join_err) => {
                 warn!("Batch query JoinError: {:?}", join_err);
             }
@@ -284,12 +279,20 @@ pub async fn process_batch_v2(
     }
 }
 
+async fn cache_updates(cache: &mut LayeredCache<NoOpCache>, updates: Vec<Update>) {
+    let timer = common_metrics::timing_guard(V2_BATCH_CACHE_TIME, &[]);
+    cache.insert_batch(updates);
+    timer.fin();
+}
+
 async fn write_event_properties_batch(
-    batch: EventPropertiesBatch,
+    mut batch: EventPropertiesBatch,
     pool: &PgPool,
+    cache: &mut LayeredCache<NoOpCache>,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_WRITE_TIME, &[]);
     let mut tries = 1;
+    let updates = batch.drain();
 
     loop {
         let result = sqlx::query(
@@ -322,12 +325,12 @@ async fn write_event_properties_batch(
                 tokio::time::sleep(Duration::from_millis(delay)).await;
                 tries += 1;
             }
-
             Ok(pgq_result) => {
                 let count = pgq_result.rows_affected();
                 metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "success")]);
                 common_metrics::inc(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
+                cache_updates(cache, updates).await;
                 return Ok(());
             }
         }
@@ -335,11 +338,13 @@ async fn write_event_properties_batch(
 }
 
 async fn write_property_definitions_batch(
-    batch: PropertyDefinitionsBatch,
+    mut batch: PropertyDefinitionsBatch,
     pool: &PgPool,
+    cache: &mut LayeredCache<NoOpCache>,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
+    let updates = batch.drain();
 
     loop {
         // what if we just ditch properties without a property_type set? why update on conflict at all?
@@ -384,12 +389,12 @@ async fn write_property_definitions_batch(
                 tokio::time::sleep(Duration::from_millis(delay)).await;
                 tries += 1;
             }
-
             Ok(pgq_result) => {
                 let count = pgq_result.rows_affected();
                 metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
                 common_metrics::inc(V2_PROP_DEFS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
+                cache_updates(cache, updates).await;
                 return Ok(());
             }
         }
@@ -397,11 +402,13 @@ async fn write_property_definitions_batch(
 }
 
 async fn write_event_definitions_batch(
-    batch: EventDefinitionsBatch,
+    mut batch: EventDefinitionsBatch,
     pool: &PgPool,
+    cache: &mut LayeredCache<NoOpCache>,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
+    let updates = batch.drain();
 
     loop {
         // TODO: is last_seen_at critical to the product UX? "ON CONFLICT DO NOTHING" may be much cheaper...
@@ -446,6 +453,7 @@ async fn write_event_definitions_batch(
                 metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
                 common_metrics::inc(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
+                cache_updates(cache, updates).await;
                 return Ok(());
             }
         }

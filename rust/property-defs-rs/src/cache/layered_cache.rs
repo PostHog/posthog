@@ -4,6 +4,7 @@ use crate::types::Update;
 use super::secondary_cache::SecondaryCache;
 use tracing::warn;
 
+#[derive(Clone)]
 pub struct LayeredCache<T: SecondaryCache> {
     memory: Arc<InMemoryCache<Update, ()>>,
     secondary: T,

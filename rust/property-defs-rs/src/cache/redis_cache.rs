@@ -2,6 +2,7 @@ use redis::Client;
 use crate::types::Update;
 use super::secondary_cache::SecondaryCache;
 
+#[derive(Clone)]
 pub struct RedisCache {
     client: Client,
     ttl: u64,
