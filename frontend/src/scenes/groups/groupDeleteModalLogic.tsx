@@ -42,20 +42,19 @@ export const groupDeleteModalLogic = kea<groupDeleteModalLogicType>([
         deletedGroup: [
             null as GroupPartial | null,
             {
-                deleteGroup: async ({ group }, breakpoint) => {
+                deleteGroup: async ({ group }) => {
                     await api.delete(
                         `api/projects/@current/groups/delete_group?group_type_index=${
                             group.group_type_index
                         }&group_key=${encodeURIComponent(group.group_key)}`
                     )
-                    await breakpoint(1000)
+                    values.groupDeleteCallback?.(group)
+                    actions.showGroupDeleteModal(null)
                     lemonToast.success(
                         <>
                             The group <strong>{group.group_key}</strong> was removed from the project.
                         </>
                     )
-                    values.groupDeleteCallback?.(group)
-                    actions.showGroupDeleteModal(null)
                     return group
                 },
             },
