@@ -3109,6 +3109,8 @@ class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
 
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
+    @snapshot_clickhouse_queries
+    @freeze_time("2024-05-01 14:40:09")
     def test_responses_count(self):
         survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
@@ -3179,8 +3181,8 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
-    @freeze_time("2025-01-16T00:00:00Z")
     @snapshot_clickhouse_queries
+    @freeze_time("2024-05-01 14:40:09")
     def test_individual_survey_stats(self):
         survey = Survey.objects.create(
             team=self.team,
