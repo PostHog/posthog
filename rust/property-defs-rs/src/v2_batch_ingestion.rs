@@ -1,11 +1,12 @@
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 
 use chrono::{DateTime, Utc};
-use quick_cache::sync::Cache as InMemoryCache;
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
 use tracing::warn;
 use uuid::Uuid;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::{
     cache::{LayeredCache, NoOpCache},
@@ -182,15 +183,14 @@ impl PropertyDefinitionsBatch {
 // HACK: making this public so the test suite file can live under "../tests/" dir
 pub async fn process_batch_v2(
     config: &Config,
-    cache: Arc<InMemoryCache<Update, ()>>,
+    layered_cache: Arc<Mutex<LayeredCache<NoOpCache>>>,
     pool: &PgPool,
     batch: Vec<Update>,
 ) {
-    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
+    let cache_utilization = layered_cache.lock().await.len() as f64 / config.cache_capacity as f64;
     metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
     // TODO(eli): implement v1-style delay while cache is warming?
-    let layered_cache = LayeredCache::new(cache, NoOpCache::new());
 
     // prep reshaped, isolated data batch buffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
@@ -210,9 +210,9 @@ pub async fn process_batch_v2(
                 event_defs.append(ed);
                 if event_defs.should_flush_batch() {
                     let pool = pool.clone();
-                    let mut cache = layered_cache.clone();
+                    let cache = layered_cache.clone();
                     handles.push(tokio::spawn(async move {
-                        write_event_definitions_batch(event_defs, &pool, &mut cache).await
+                        write_event_definitions_batch(event_defs, &pool, &mut *cache.lock().await).await
                     }));
                     event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
@@ -221,9 +221,9 @@ pub async fn process_batch_v2(
                 event_props.append(ep);
                 if event_props.should_flush_batch() {
                     let pool = pool.clone();
-                    let mut cache = layered_cache.clone();
+                    let cache = layered_cache.clone();
                     handles.push(tokio::spawn(async move {
-                        write_event_properties_batch(event_props, &pool, &mut cache).await
+                        write_event_properties_batch(event_props, &pool, &mut *cache.lock().await).await
                     }));
                     event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
                 }
@@ -232,9 +232,9 @@ pub async fn process_batch_v2(
                 prop_defs.append(pd);
                 if prop_defs.should_flush_batch() {
                     let pool = pool.clone();
-                    let mut cache = layered_cache.clone();
+                    let cache = layered_cache.clone();
                     handles.push(tokio::spawn(async move {
-                        write_property_definitions_batch(prop_defs, &pool, &mut cache).await
+                        write_property_definitions_batch(prop_defs, &pool, &mut *cache.lock().await).await
                     }));
                     prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
@@ -245,23 +245,23 @@ pub async fn process_batch_v2(
     // ensure partial batches are flushed to Postgres too
     if !event_defs.is_empty() {
         let pool = pool.clone();
-        let mut cache = layered_cache.clone();
+        let cache = layered_cache.clone();
         handles.push(tokio::spawn(async move {
-            write_event_definitions_batch(event_defs, &pool, &mut cache).await
+            write_event_definitions_batch(event_defs, &pool, &mut *cache.lock().await).await
         }));
     }
     if !prop_defs.is_empty() {
         let pool = pool.clone();
-        let mut cache = layered_cache.clone();
+        let cache = layered_cache.clone();
         handles.push(tokio::spawn(async move {
-            write_property_definitions_batch(prop_defs, &pool, &mut cache).await
+            write_property_definitions_batch(prop_defs, &pool, &mut *cache.lock().await).await
         }));
     }
     if !event_props.is_empty() {
         let pool = pool.clone();
-        let mut cache = layered_cache.clone();
+        let cache = layered_cache.clone();
         handles.push(tokio::spawn(async move {
-            write_event_properties_batch(event_props, &pool, &mut cache).await
+            write_event_properties_batch(event_props, &pool, &mut *cache.lock().await).await
         }));
     }
 

@@ -11,10 +11,12 @@ use metrics_consts::{
     UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
+use quick_cache::sync::Cache;
+use crate::cache::{LayeredCache, NoOpCache};
+use tokio::sync::Mutex;
 use v2_batch_ingestion::process_batch_v2;
 
 use ahash::AHashSet;
-use quick_cache::sync::Cache;
 
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{error, warn};
@@ -33,6 +35,7 @@ const UPDATE_RETRY_DELAY_MS: u64 = 50;
 pub async fn update_consumer_loop(
     config: Config,
     cache: Arc<Cache<Update, ()>>,
+    layered_cache: Arc<Mutex<LayeredCache<NoOpCache>>>,
     context: Arc<AppContext>,
     mut channel: mpsc::Receiver<Update>,
 ) {
@@ -78,13 +81,9 @@ pub async fn update_consumer_loop(
         batch.dedup();
 
         metrics::counter!(DUPLICATES_IN_BATCH).increment((start_len - batch.len()) as u64);
-
-        let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
-        metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
-
         // conditionall enable new write path
         if config.enable_v2 {
-            process_batch_v2(&config, cache.clone(), &context.pool, batch).await;
+            process_batch_v2(&config, layered_cache.clone(), &context.pool, batch).await;
         } else {
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
         }

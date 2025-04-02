@@ -6,7 +6,7 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 use futures::future::ready;
 use property_defs_rs::{
     api::v1::query::Manager, api::v1::routing::apply_routes, app_context::AppContext,
-    config::Config, update_consumer_loop, update_producer_loop,
+    config::Config, update_consumer_loop, update_producer_loop, cache::{LayeredCache, NoOpCache},
 };
 
 use quick_cache::sync::Cache;
@@ -15,6 +15,7 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::{
     sync::mpsc::{self},
     task::JoinHandle,
+    sync::Mutex,
 };
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -81,9 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
 
-    let cache = Cache::new(config.cache_capacity);
-
-    let cache = Arc::new(cache);
+    let cache = Arc::new(Cache::new(config.cache_capacity));
 
     let mut handles = Vec::new();
 
@@ -98,9 +97,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         handles.push(handle);
     }
 
+    // Create layered cache wrapping the in-memory cache
+    let layered_cache = Arc::new(Mutex::new(LayeredCache::new(cache.clone(), NoOpCache::new())));
+
     handles.push(tokio::spawn(update_consumer_loop(
         config.clone(),
         cache,
+        layered_cache,
         context,
         rx,
     )));
