@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0698_action_project"),
+        ("posthog", "0699_alter_integration_kind"),
     ]
 
     operations = [
