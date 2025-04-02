@@ -26,7 +26,7 @@ export function getIcon({
     checkedItems,
     handleCheckedChange,
 }: IconProps): JSX.Element {
-    const ICON_CLASSES = 'text-tertiary pt-0.5'
+    const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
 
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
@@ -43,7 +43,7 @@ export function getIcon({
     }
 
     return (
-        <div className="relative group/lemon-tree-icon-group">
+        <div className="relative group/lemon-tree-icon-group [&_svg]:size-4">
             {(enableMultiSelection || isChecked) && (
                 <div
                     className={cn(
@@ -56,9 +56,9 @@ export function getIcon({
                     )}
                 >
                     <LemonCheckbox
+                        className="size-5 ml-[2px]"
                         checked={checkedItems.includes(item.id)}
-                        onChange={(checked, e) => {
-                            e?.stopPropagation()
+                        onChange={(checked) => {
                             handleCheckedChange?.(checked)
                         }}
                     />
@@ -68,7 +68,7 @@ export function getIcon({
                 <div
                     className={cn(
                         ICON_CLASSES,
-                        'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button:opacity-100 transition-opacity duration-150'
+                        'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 transition-opacity duration-150'
                     )}
                 >
                     <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
@@ -79,7 +79,7 @@ export function getIcon({
                     ICON_CLASSES,
                     {
                         'text-tertiary': item.disabledReason,
-                        'group-hover/lemon-tree-button:opacity-0': isFolder || enableMultiSelection,
+                        'group-hover/lemon-tree-button-group:opacity-0': isFolder || (isFolder && isChecked),
                     },
                     'transition-opacity duration-150'
                 )}

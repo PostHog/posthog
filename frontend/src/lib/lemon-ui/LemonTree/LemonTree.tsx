@@ -234,9 +234,51 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className="group/lemon-tree-button-group relative"
                                                 groupVariant="side-action-group"
                                             >
+                                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                                <div
+                                                    className="absolute size-5"
+                                                    style={{ left: `${DEPTH_OFFSET + 5}px` }}
+                                                >
+                                                    {/* Icon left */}
+                                                    {getIcon({
+                                                        item,
+                                                        expandedItemIds: expandedItemIds ?? [],
+                                                        defaultNodeIcon,
+                                                        enableMultiSelection,
+                                                        checkedItems: checkedItems ?? [],
+                                                        handleCheckedChange: (checked) => {
+                                                            // Collect all child IDs recursively
+                                                            const getAllChildIds = (item: TreeDataItem): string[] => {
+                                                                let ids = [item.id]
+                                                                if (item.children) {
+                                                                    item.children.forEach((child) => {
+                                                                        ids = [...ids, ...getAllChildIds(child)]
+                                                                    })
+                                                                }
+                                                                return ids
+                                                            }
+
+                                                            const idsToUpdate = getAllChildIds(item)
+
+                                                            onSetCheckedItemIds?.(
+                                                                checked
+                                                                    ? [
+                                                                          ...new Set([
+                                                                              ...(checkedItems ?? []),
+                                                                              ...idsToUpdate,
+                                                                          ]),
+                                                                      ]
+                                                                    : (checkedItems ?? []).filter(
+                                                                          (id) => !idsToUpdate.includes(id)
+                                                                      )
+                                                            )
+                                                        },
+                                                    })}
+                                                </div>
+
                                                 <ButtonPrimitive
                                                     className={cn(
-                                                        'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)]',
+                                                        'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] pl-8',
                                                         {
                                                             'bg-fill-button-tertiary-hover':
                                                                 selectedId === item.id ||
@@ -284,42 +326,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             }}
                                                         />
                                                     )}
-
-                                                    {/* Icon left */}
-                                                    {getIcon({
-                                                        item,
-                                                        expandedItemIds: expandedItemIds ?? [],
-                                                        defaultNodeIcon,
-                                                        enableMultiSelection,
-                                                        checkedItems: checkedItems ?? [],
-                                                        handleCheckedChange: (checked) => {
-                                                            // Collect all child IDs recursively
-                                                            const getAllChildIds = (item: TreeDataItem): string[] => {
-                                                                let ids = [item.id]
-                                                                if (item.children) {
-                                                                    item.children.forEach((child) => {
-                                                                        ids = [...ids, ...getAllChildIds(child)]
-                                                                    })
-                                                                }
-                                                                return ids
-                                                            }
-
-                                                            const idsToUpdate = getAllChildIds(item)
-
-                                                            onSetCheckedItemIds?.(
-                                                                checked
-                                                                    ? [
-                                                                          ...new Set([
-                                                                              ...(checkedItems ?? []),
-                                                                              ...idsToUpdate,
-                                                                          ]),
-                                                                      ]
-                                                                    : (checkedItems ?? []).filter(
-                                                                          (id) => !idsToUpdate.includes(id)
-                                                                      )
-                                                            )
-                                                        },
-                                                    })}
 
                                                     {/* Render contents */}
                                                     {renderItem ? (

@@ -12,7 +12,7 @@ export interface LemonCheckboxProps {
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
-    onChange?: (value: boolean, e?: React.ChangeEvent<HTMLInputElement>) => void
+    onChange?: (value: boolean) => void
     label?: string | JSX.Element
     id?: string
     className?: string
@@ -94,7 +94,7 @@ export function LemonCheckbox({
                     onChange={(e) => {
                         // NOTE: We only want to setLocalChecked if the component is not controlled externally
                         checked === undefined && setLocalChecked(e.target.checked)
-                        onChange?.(e.target.checked, e)
+                        onChange?.(e.target.checked)
                     }}
                     id={id}
                     disabled={disabled}

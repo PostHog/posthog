@@ -66,12 +66,10 @@ export function ProjectTree(): JSX.Element {
                     return window.location.href.endsWith(item.record?.href)
                 }}
                 enableMultiSelection={true}
-                // TODO: Implement this
                 // defaultCheckedItems={checkedItems}
-                onSetCheckedItemIds={(ids) => {
-                    // eslint-disable-next-line no-console
-                    console.log('Selected items', ids)
-                }}
+                // onSetCheckedItemIds={(ids) => {
+                //     console.log('Selected items', ids)
+                // }}
                 onNodeClick={(node) => {
                     if (!isLayoutPanelPinned) {
                         clearActivePanelIdentifier()
