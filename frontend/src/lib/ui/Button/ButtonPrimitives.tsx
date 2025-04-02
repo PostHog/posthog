@@ -303,6 +303,18 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
     // Determine the element props
     const elementProps = href ? { href, ...rest } : rest
 
+    // If the button is an anchor and has an onClick, and is not external, prevent the default action and call the onClick
+    if (href && rest.onClick && !external) {
+        const handleClick = (e: React.MouseEvent): void => {
+            // Allow command/ctrl click to open in new tab
+            if (!e.metaKey && !e.ctrlKey) {
+                e.preventDefault()
+            }
+            rest?.onClick?.(e as any)
+        }
+        elementProps.onClick = handleClick
+    }
+
     let buttonComponent: JSX.Element = React.createElement(
         Comp,
         {
