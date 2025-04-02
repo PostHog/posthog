@@ -226,9 +226,9 @@ class EventsQueryRunner(QueryRunner):
                         """,
                         {
                             "where": stmt.where,
-                            # "limit": stmt.limit, # TODO: Add limit
                         },
                     )
+                    self.paginator.paginate(inner_query)
 
                     stmt.where = ast.And(
                         exprs=[
