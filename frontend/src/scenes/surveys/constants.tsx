@@ -361,6 +361,10 @@ export const NPS_DETRACTOR_LABEL = 'Detractors'
 export const NPS_PASSIVE_LABEL = 'Passives'
 export const NPS_PROMOTER_LABEL = 'Promoters'
 
+export const NPS_PROMOTER_VALUES = ['9', '10']
+export const NPS_PASSIVE_VALUES = ['7', '8']
+export const NPS_DETRACTOR_VALUES = ['0', '1', '2', '3', '4', '5', '6']
+
 export const QUESTION_TYPE_ICON_MAP = {
     [SurveyQuestionType.Open]: <IconComment className="text-muted" />,
     [SurveyQuestionType.Link]: <IconLink className="text-muted" />,

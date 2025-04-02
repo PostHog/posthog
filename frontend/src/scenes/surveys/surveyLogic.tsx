@@ -278,7 +278,7 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
         setInterval: (interval: IntervalType) => ({ interval }),
-        setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
+        setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -1121,7 +1121,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         compareFilter: [
-            null as CompareFilter | null,
+            { compare: true } as CompareFilter,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
             },
