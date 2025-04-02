@@ -1,5 +1,5 @@
 import { IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -8,6 +8,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
+
+import { getIntegrationSetupModalProps } from './getIntegrationSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -27,7 +29,7 @@ export function IntegrationChoice({
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
-    const { newGoogleCloudKey, newMailjetKey } = useActions(integrationsLogic)
+    const { newGoogleCloudKey } = useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -68,13 +70,20 @@ export function IntegrationChoice({
         input.click()
     }
 
-    function collectMailjetKey(): void {
-        const apiKey = prompt('Enter your Mailjet API key')
-        const secretKey = prompt('Enter your Mailjet secret key')
-        if (!apiKey || !secretKey) {
+    function showIntegrationSetupModal(): void {
+        if (!kind) {
             return
         }
-        newMailjetKey(apiKey, secretKey, (integration) => onChange?.(integration.id))
+
+        const modalProps = getIntegrationSetupModalProps({
+            integration: kind,
+            integrationName: kindName,
+            onComplete: onChange,
+        })
+
+        if (modalProps) {
+            LemonDialog.openForm(modalProps)
+        }
     }
 
     const button = (
@@ -105,7 +114,7 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: () => collectMailjetKey(),
+                                  onClick: showIntegrationSetupModal,
                                   label: 'Configure Mailjet API key',
                               },
                           ],
