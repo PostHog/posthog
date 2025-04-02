@@ -1127,7 +1127,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               }
                           }
                         : undefined,
-                    forceEditMode: canEditDashboard,
                 },
             ],
         ],
