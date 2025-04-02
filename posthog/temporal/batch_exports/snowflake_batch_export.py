@@ -372,19 +372,19 @@ class SnowflakeClient:
         """
         with self.connection.cursor() as cursor:
             # Snowflake docs incorrectly state that the 'params' argument is named 'parameters'.
-            result = cursor.execute_async(query, params=parameters, file_stream=file_stream)
+            result = await asyncio.to_thread(cursor.execute_async, query, params=parameters, file_stream=file_stream)
             query_id = cursor.sfqid or result["queryId"]
 
-            # Snowflake does a blocking HTTP request, so we send it to a thread.
-            query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+        # Snowflake does a blocking HTTP request, so we send it to a thread.
+        query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
 
         while self.connection.is_still_running(query_status):
             query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
             await asyncio.sleep(poll_interval)
 
         with self.connection.cursor() as cursor:
-            cursor.get_results_from_sfqid(query_id)
-            results = cursor.fetchall()
+            await asyncio.to_thread(cursor.get_results_from_sfqid, query_id)
+            results = await asyncio.to_thread(cursor.fetchall)
             description = cursor.description
         return results, description
 
