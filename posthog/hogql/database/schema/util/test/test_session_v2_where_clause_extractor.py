@@ -375,7 +375,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_1)s, toIntervalDay(3))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_1)s, toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions
@@ -411,7 +411,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id)
@@ -449,7 +449,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(today(), toIntervalDay(3))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(today(), toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_3)s)), events__session.session_id_v7)
@@ -527,7 +527,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s))), toIntervalDay(3))), 0), ifNull(lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s)), toIntervalDay(3))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s)), toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, %(hogql_val_7)s)), e__session.session_id_v7)
@@ -569,7 +569,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_2)s, toIntervalDay(3))), 0), ifNull(lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(now64(6, %(hogql_val_3)s), toIntervalDay(3))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_2)s, toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(now64(6, %(hogql_val_3)s), toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_4)s)), s__session.session_id_v7)
@@ -607,7 +607,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(minus(now64(6, %(hogql_val_1)s), toIntervalDay(7)), toIntervalDay(3))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(minus(now64(6, %(hogql_val_1)s), toIntervalDay(7)), toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions
