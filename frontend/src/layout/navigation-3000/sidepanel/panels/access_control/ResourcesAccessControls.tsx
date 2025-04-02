@@ -8,22 +8,21 @@ import { AccessControlLevel, AvailableFeature, OrganizationMemberType, RoleType 
 import {
     DefaultResourceAccessControls,
     MemberResourceAccessControls,
-    roleBasedAccessControlLogic,
+    resourcesAccessControlLogic,
     RoleResourceAccessControls,
-} from './roleBasedAccessControlLogic'
+} from './resourcesAccessControlLogic'
 
 export function ResourcesAccessControls(): JSX.Element {
     const {
         defaultResourceAccessControls,
         memberResourceAccessControls,
         roleResourceAccessControls,
-        rolesLoading,
         resources,
         availableLevels,
         defaultAccessLevel,
-    } = useValues(roleBasedAccessControlLogic)
+    } = useValues(resourcesAccessControlLogic)
 
-    const { updateResourceAccessControls } = useActions(roleBasedAccessControlLogic)
+    const { updateResourceAccessControls } = useActions(resourcesAccessControlLogic)
 
     // Generic function to create resource columns for a specific type
     const createResourceColumnsForType = <T extends DefaultResourceAccessControls>(
@@ -183,22 +182,14 @@ export function ResourcesAccessControls(): JSX.Element {
                     {/* Default permissions table */}
                     <div>
                         <h3>Global defaults</h3>
-                        <LemonTable
-                            columns={defaultColumns}
-                            dataSource={[defaultResourceAccessControls]}
-                            loading={rolesLoading}
-                        />
+                        <LemonTable columns={defaultColumns} dataSource={[defaultResourceAccessControls]} />
                     </div>
 
                     {/* Members permissions table */}
                     {memberResourceAccessControls.length > 0 && (
                         <div>
                             <h3>Members</h3>
-                            <LemonTable
-                                columns={memberColumns}
-                                dataSource={memberResourceAccessControls}
-                                loading={rolesLoading}
-                            />
+                            <LemonTable columns={memberColumns} dataSource={memberResourceAccessControls} />
                         </div>
                     )}
 
@@ -206,11 +197,7 @@ export function ResourcesAccessControls(): JSX.Element {
                     {roleResourceAccessControls.length > 0 && (
                         <div>
                             <h3>Roles</h3>
-                            <LemonTable
-                                columns={roleColumns}
-                                dataSource={roleResourceAccessControls}
-                                loading={rolesLoading}
-                            />
+                            <LemonTable columns={roleColumns} dataSource={roleResourceAccessControls} />
                         </div>
                     )}
                 </div>

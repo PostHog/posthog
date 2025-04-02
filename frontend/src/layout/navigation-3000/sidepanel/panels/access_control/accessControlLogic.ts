@@ -25,7 +25,7 @@ import {
 } from '~/types'
 
 import type { accessControlLogicType } from './accessControlLogicType'
-import { roleBasedAccessControlLogic } from './roleBasedAccessControlLogic'
+import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 export type AccessControlLogicProps = {
     resource: APIScopeObject
@@ -42,7 +42,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             ['sortedMembers'],
             teamLogic,
             ['currentTeam'],
-            roleBasedAccessControlLogic,
+            roleAccessControlLogic,
             ['roles'],
             upgradeModalLogic,
             ['guardAvailableFeature'],
@@ -81,7 +81,11 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         // Return empty access controls
                         return {
                             access_controls: [],
-                            available_access_levels: [AccessControlLevel.None, AccessControlLevel.Viewer, AccessControlLevel.Editor],
+                            available_access_levels: [
+                                AccessControlLevel.None,
+                                AccessControlLevel.Viewer,
+                                AccessControlLevel.Editor,
+                            ],
                             user_access_level: AccessControlLevel.None,
                             default_access_level: AccessControlLevel.None,
                             user_can_edit_access_levels: false,
@@ -256,7 +260,10 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
         accessControlMembers: [
             (s) => [s.accessControls, s.organizationAdminsAsAccessControlMember],
-            (accessControls, organizationAdminsAsAccessControlMember): (AccessControlTypeMember | AccessControlTypeOrganizationAdmins)[] => {
+            (
+                accessControls,
+                organizationAdminsAsAccessControlMember
+            ): (AccessControlTypeMember | AccessControlTypeOrganizationAdmins)[] => {
                 const members = (accessControls?.access_controls || [])
                     .filter((accessControl) => !!accessControl.organization_member)
                     .filter(

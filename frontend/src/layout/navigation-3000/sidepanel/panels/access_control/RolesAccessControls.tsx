@@ -21,12 +21,12 @@ import { userLogic } from 'scenes/userLogic'
 
 import { RoleType } from '~/types'
 
-import { roleBasedAccessControlLogic } from './roleBasedAccessControlLogic'
+import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 export function RolesAccessControls(): JSX.Element {
-    const { roles, rolesLoading, selectedRoleId } = useValues(roleBasedAccessControlLogic)
+    const { roles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
 
-    const { selectRoleId, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
+    const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
 
     const columns: LemonTableColumns<RoleType> = [
         {
@@ -99,8 +99,8 @@ export function RolesAccessControls(): JSX.Element {
 
 function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { sortedMembers, roles, canEditRoleBasedAccessControls } = useValues(roleBasedAccessControlLogic)
-    const { addMembersToRole, removeMemberFromRole, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
+    const { sortedMembers, roles, canEditRoles } = useValues(roleAccessControlLogic)
+    const { addMembersToRole, removeMemberFromRole, setEditingRoleId } = useActions(roleAccessControlLogic)
     const [membersToAdd, setMembersToAdd] = useState<string[]>([])
 
     const role = roles?.find((role) => role.id === roleId)
@@ -132,7 +132,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                             value={membersToAdd}
                             onChange={(newValues: string[]) => setMembersToAdd(newValues)}
                             mode="multiple"
-                            disabled={!canEditRoleBasedAccessControls}
+                            disabled={!canEditRoles}
                             options={usersLemonSelectOptions(
                                 membersNotInRole.map((member) => member.user),
                                 'uuid'
@@ -144,7 +144,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                         type="primary"
                         onClick={onSubmit}
                         disabledReason={
-                            !canEditRoleBasedAccessControls
+                            !canEditRoles
                                 ? 'You cannot edit this'
                                 : !onSubmit
                                 ? 'Please select members to add'
@@ -158,7 +158,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                     <LemonButton
                         type="secondary"
                         onClick={() => setEditingRoleId(role.id)}
-                        disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                        disabledReason={!canEditRoles ? 'You cannot edit this' : undefined}
                     >
                         Edit
                     </LemonButton>
@@ -199,9 +199,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                                         status="danger"
                                         size="small"
                                         type="tertiary"
-                                        disabledReason={
-                                            !canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined
-                                        }
+                                        disabledReason={!canEditRoles ? 'You cannot edit this' : undefined}
                                         onClick={() => removeMemberFromRole(role, member.id)}
                                     >
                                         Remove
@@ -218,8 +216,8 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
 }
 
 function RoleModal(): JSX.Element {
-    const { editingRoleId } = useValues(roleBasedAccessControlLogic)
-    const { setEditingRoleId, submitEditingRole, deleteRole } = useActions(roleBasedAccessControlLogic)
+    const { editingRoleId } = useValues(roleAccessControlLogic)
+    const { setEditingRoleId, submitEditingRole, deleteRole } = useActions(roleAccessControlLogic)
     const isEditing = editingRoleId !== 'new'
 
     const onDelete = (): void => {
@@ -238,7 +236,7 @@ function RoleModal(): JSX.Element {
     }
 
     return (
-        <Form logic={roleBasedAccessControlLogic} formKey="editingRole" enableFormOnSubmit>
+        <Form logic={roleAccessControlLogic} formKey="editingRole" enableFormOnSubmit>
             <LemonModal
                 isOpen={!!editingRoleId}
                 onClose={() => setEditingRoleId(null)}

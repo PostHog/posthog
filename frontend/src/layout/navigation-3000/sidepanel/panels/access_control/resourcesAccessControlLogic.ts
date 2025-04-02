@@ -1,12 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import {
     AccessControlResourceType,
@@ -15,12 +11,12 @@ import {
     AccessControlTypeRole,
     AccessControlUpdateType,
     APIScopeObject,
-    AvailableFeature,
     OrganizationMemberType,
     RoleType,
 } from '~/types'
 
-import type { roleBasedAccessControlLogicType } from './roleBasedAccessControlLogicType'
+import type { resourcesAccessControlLogicType } from './resourcesAccessControlLogicType'
+import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 export type DefaultResourceAccessControls = {
     accessControlByResource: Record<APIScopeObject, AccessControlTypeRole>
@@ -32,20 +28,10 @@ export type RoleResourceAccessControls = DefaultResourceAccessControls & {
     role?: RoleType
 }
 
-export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>([
-    path(['scenes', 'accessControl', 'roleBasedAccessControlLogic']),
+export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>([
+    path(['scenes', 'accessControl', 'resourcesAccessControlLogic']),
     connect({
-        values: [
-            membersLogic,
-            ['sortedMembers'],
-            teamLogic,
-            ['currentTeam'],
-            userLogic,
-            ['hasAvailableFeature'],
-            membersLogic,
-            ['sortedMembers'],
-        ],
-        actions: [membersLogic, ['ensureAllMembersLoaded']],
+        values: [roleAccessControlLogic, ['roles'], teamLogic, ['currentTeam'], membersLogic, ['sortedMembers']],
     }),
     actions({
         updateResourceAccessControls: (
@@ -54,25 +40,6 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
                 'resource' | 'access_level' | 'role' | 'organization_member'
             >[]
         ) => ({ accessControls }),
-        selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
-        deleteRole: (roleId: RoleType['id']) => ({ roleId }),
-        removeMemberFromRole: (role: RoleType, roleMemberId: string) => ({ role, roleMemberId }),
-        addMembersToRole: (role: RoleType, members: string[]) => ({ role, members }),
-        setEditingRoleId: (roleId: string | null) => ({ roleId }),
-    }),
-    reducers({
-        selectedRoleId: [
-            null as string | null,
-            {
-                selectRoleId: (_, { roleId }) => roleId,
-            },
-        ],
-        editingRoleId: [
-            null as string | null,
-            {
-                setEditingRoleId: (_, { roleId }) => roleId,
-            },
-        ],
     }),
     loaders(({ values }) => ({
         resourceAccessControls: [
@@ -96,99 +63,9 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
                 },
             },
         ],
-
-        roles: [
-            [] as RoleType[],
-            {
-                loadRoles: async () => {
-                    const response = await api.roles.list()
-                    return response?.results || []
-                },
-                addMembersToRole: async ({ role, members }) => {
-                    if (!values.roles) {
-                        return []
-                    }
-                    const newMembers = await Promise.all(
-                        members.map(async (userUuid: string) => await api.roles.members.create(role.id, userUuid))
-                    )
-
-                    role.members = [...role.members, ...newMembers]
-
-                    return [...values.roles]
-                },
-                removeMemberFromRole: async ({ role, roleMemberId }) => {
-                    if (!values.roles) {
-                        return []
-                    }
-                    await api.roles.members.delete(role.id, roleMemberId)
-                    role.members = role.members.filter((roleMember) => roleMember.id !== roleMemberId)
-                    return [...values.roles]
-                },
-                deleteRole: async ({ roleId }) => {
-                    const role = values.roles?.find((r) => r.id === roleId)
-                    if (!role) {
-                        return values.roles
-                    }
-                    await api.roles.delete(role.id)
-                    lemonToast.success(`Role "${role.name}" deleted`)
-                    return values.roles?.filter((r) => r.id !== role.id) || []
-                },
-            },
-        ],
     })),
-
-    forms(({ values, actions }) => ({
-        editingRole: {
-            defaults: {
-                name: '',
-            },
-            errors: ({ name }) => {
-                return {
-                    name: !name ? 'Please choose a name for the role' : null,
-                }
-            },
-            submit: async ({ name }) => {
-                if (!values.editingRoleId) {
-                    return
-                }
-                let role: RoleType | null = null
-                try {
-                    if (values.editingRoleId === 'new') {
-                        role = await api.roles.create(name)
-                    } else {
-                        role = await api.roles.update(values.editingRoleId, { name })
-                    }
-
-                    actions.loadRoles()
-                    actions.setEditingRoleId(null)
-                    actions.selectRoleId(role.id)
-                } catch (e) {
-                    const error = (e as Record<string, any>).detail || 'Failed to save role'
-                    lemonToast.error(error)
-                }
-            },
-        },
-    })),
-
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         updateResourceAccessControlsSuccess: () => actions.loadResourceAccessControls(),
-        loadRolesSuccess: () => {
-            if (router.values.hashParams.role) {
-                actions.selectRoleId(router.values.hashParams.role)
-            }
-        },
-        deleteRoleSuccess: () => {
-            actions.loadRoles()
-            actions.setEditingRoleId(null)
-            actions.selectRoleId(null)
-        },
-
-        setEditingRoleId: () => {
-            const existingRole = values.roles?.find((role) => role.id === values.editingRoleId)
-            actions.resetEditingRole({
-                name: existingRole?.name || '',
-            })
-        },
     })),
 
     selectors({
@@ -315,25 +192,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
             },
         ],
     }),
-    afterMount(({ actions, values }) => {
-        if (values.hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS)) {
-            actions.loadRoles()
-            actions.loadResourceAccessControls()
-            actions.ensureAllMembersLoaded()
-        }
+    afterMount(({ actions }) => {
+        actions.loadResourceAccessControls()
     }),
-
-    actionToUrl(({ values }) => ({
-        selectRoleId: () => {
-            const { currentLocation } = router.values
-            return [
-                currentLocation.pathname,
-                currentLocation.searchParams,
-                {
-                    ...currentLocation.hashParams,
-                    role: values.selectedRoleId ?? undefined,
-                },
-            ]
-        },
-    })),
 ])
