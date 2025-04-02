@@ -187,6 +187,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Rageclick",
             "description": "A user has rapidly and repeatedly clicked in a single place",
         },
+        "$dead_click": {
+            "label": "Dead click",
+            "description": "A user has clicked on something that is probably not clickable",
+        },
         "$exception": {
             "label": "Exception",
             "description": "An unexpected error or unhandled exception in your application",
@@ -214,6 +218,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_span": {
             "label": "AI Span (LLM)",
             "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)",
+        },
+        "$ai_embedding": {
+            "label": "AI Embedding (LLM)",
+            "description": "A call to an embedding model",
         },
         "Application Opened": {
             "label": "Application Opened",

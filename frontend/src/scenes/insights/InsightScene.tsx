@@ -10,6 +10,17 @@ import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP as NEW_TAXONOMY } from '@posthog/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP as LEGACY_TAXONOMY } from '~/lib/taxonomy'
+
+export function InsightSceneTmp(): JSX.Element {
+    return (
+        <>
+            <pre>{JSON.stringify(NEW_TAXONOMY, null, 2)}</pre>
+            <pre>{JSON.stringify(LEGACY_TAXONOMY, null, 2)}</pre>
+        </>
+    )
+}
 
 export function InsightScene(): JSX.Element {
     const { insightId, insight, insightLogicRef, insightMode } = useValues(insightSceneLogic)
@@ -39,6 +50,6 @@ export function InsightScene(): JSX.Element {
 }
 
 export const scene: SceneExport = {
-    component: InsightScene,
+    component: InsightSceneTmp,
     logic: insightSceneLogic,
 }

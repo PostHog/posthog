@@ -39,4 +39,38 @@ def generate_python_constants():
         f.write(py_output)
 
 
+def generate_typescript_constants():
+    ts_output = "export const CORE_FILTER_DEFINITIONS_BY_GROUP = {\n"
+
+    for group, definitions in CORE_FILTER_DEFINITIONS_BY_GROUP.items():
+        ts_output += f"    {group}: {{\n"
+        for def_key, definition in definitions.items():
+            # Handle empty string keys and keys with spaces
+            if def_key == "" or " " in def_key:
+                key_str = f"'{def_key}'"
+            else:
+                key_str = def_key
+
+            ts_output += f"        {key_str}: {{\n"
+            for key, value in definition.items():
+                if isinstance(value, str):
+                    # Handle multiline strings and escape apostrophes
+                    value_escaped = value.replace("'", "\\'").replace("\n", "\\n")
+                    ts_output += f"            {key}: '{value_escaped}',\n"
+                elif isinstance(value, bool):
+                    # Convert Python True/False to JavaScript true/false
+                    ts_output += f"            {key}: {str(value).lower()},\n"
+                else:
+                    ts_output += f"            {key}: {value},\n"
+            ts_output += "        },\n"
+        ts_output += "    },\n"
+
+    ts_output += "};\n\n"
+    ts_output += "export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties);\n"
+
+    with open(os.path.join(output_dir, "typescript", "taxonomy.ts"), "w") as f:
+        f.write(ts_output)
+
+
 generate_python_constants()
+generate_typescript_constants()

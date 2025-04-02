@@ -10,7 +10,8 @@
             "@posthog/ee/exports": ["../ee/exports", "@posthog/ee/exports"],
             "~/*": ["src/*"],
             "public/*": ["public/*"],
-            "products/*": ["../products/*"]
+            "products/*": ["../products/*"],
+            "@posthog/taxonomy": ["../taxonomy/dist/typescript/index"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled
@@ -47,7 +48,8 @@
         "products/**/manifest.tsx",
         "common/esbuilder/*",
         "common/eslint_rules/*",
-        "common/storybook/*"
+        "common/storybook/*",
+        "taxonomy/dist/typescript/*"
     ],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {

@@ -61,7 +61,8 @@
         "stylelint-config-recess-order": "^4.3.0",
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.3",
-        "syncpack": "^13.0.1"
+        "syncpack": "^13.0.1",
+        "ts-node": "^10.9.1"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.2"
