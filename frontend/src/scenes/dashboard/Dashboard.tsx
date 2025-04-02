@@ -127,7 +127,9 @@ function DashboardScene(): JSX.Element {
                         {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
                             dashboard?.id && (
                                 <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
-                                    Edit dashboard
+                                    {placement === DashboardPlacement.Group
+                                        ? 'Edit dashboard template'
+                                        : 'Edit dashboard'}
                                 </LemonButton>
                             )}
                         {placement !== DashboardPlacement.Export && (

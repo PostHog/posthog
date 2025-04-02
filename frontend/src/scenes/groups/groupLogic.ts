@@ -173,6 +173,10 @@ export const groupLogic = kea<groupLogicType>([
             (s, p) => [s.aggregationLabel, p.groupTypeIndex],
             (aggregationLabel, index): string => aggregationLabel(index).singular,
         ],
+        groupTypeNamePlural: [
+            (s, p) => [s.aggregationLabel, p.groupTypeIndex],
+            (aggregationLabel, index): string => aggregationLabel(index).plural,
+        ],
         groupType: [
             (s, p) => [s.groupTypes, p.groupTypeIndex],
             (groupTypes, index): string | null => groupTypes.get(index as GroupTypeIndex)?.group_type ?? null,
