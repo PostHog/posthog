@@ -17,7 +17,10 @@ common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
+common-redis = { path = "../common/redis" }
+limiters = { path = "../common/limiters" }
 posthog-symbol-data = "0.1.0"
+common-geoip = { path = "../common/geoip" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
 serde_json = { workspace = true }

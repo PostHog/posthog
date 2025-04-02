@@ -4,6 +4,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -26,7 +27,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <div className="deprecated-space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="deprecated-space-x-1">
-                            <TZLabel time={record.last_seen as string} className="border-dotted border-b" />
+                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
                         </div>
                     </div>
                 }
@@ -35,6 +36,12 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             />
         </div>
     )
+}
+
+const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
+    const aggregations = (record as ErrorTrackingIssue).aggregations
+    const count = aggregations[columnName as 'occurrences' | 'users']
+    return <span className="text-lg font-medium">{humanFriendlyLargeNumber(count)}</span>
 }
 
 const context: QueryContext = {
@@ -48,9 +55,11 @@ const context: QueryContext = {
         },
         users: {
             align: 'right',
+            render: CountColumn,
         },
         occurrences: {
             align: 'right',
+            render: CountColumn,
         },
     },
 }

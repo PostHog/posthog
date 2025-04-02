@@ -28,7 +28,7 @@ uuid = { workspace = true }
 rand = { workspace = true }
 anyhow = { workspace = true }
 thiserror.workspace = true
-regex = "1.11.1"
+regex.workspace = true
 
 [lints]
 workspace = true

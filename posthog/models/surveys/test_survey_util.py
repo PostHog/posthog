@@ -58,3 +58,13 @@ class TestSurveyResponseFunctions(TestCase):
         NULLIF(JSONExtractString(properties, '$survey_response'), '')
     )"""
         self.assertEqual(query, expected)
+
+    def test_get_survey_response_clickhouse_query_multiple_choice(self):
+        """Test the full query generation with a multiple choice question"""
+        query = get_survey_response_clickhouse_query(1, "abc123", True)
+        expected = """if(
+        JSONHas(properties, '$survey_response_abc123') AND length(JSONExtractArrayRaw(properties, '$survey_response_abc123')) > 0,
+        JSONExtractArrayRaw(properties, '$survey_response_abc123'),
+        JSONExtractArrayRaw(properties, '$survey_response_1')
+    )"""
+        self.assertEqual(query, expected)

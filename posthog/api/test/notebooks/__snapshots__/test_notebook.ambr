@@ -532,6 +532,7 @@
 # name: TestNotebooks.test_updates_notebook.19
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -542,7 +543,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '00000000-0000-0000-0000-000000000000'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'notebook')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -974,6 +975,7 @@
 # name: TestNotebooks.test_updates_notebook.6
   '''
   SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -984,7 +986,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '00000000-0000-0000-0000-000000000000'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'notebook')
   ORDER BY "posthog_filesystem"."id" ASC

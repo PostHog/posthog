@@ -85,6 +85,9 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub should_compress_vm_state: bool,
+
+    #[envconfig(default = "false")]
+    pub should_use_bulk_job_copy: bool,
 }
 
 #[allow(dead_code)]
@@ -108,6 +111,7 @@ pub struct AppConfig {
     pub retry_backoff_base: Duration, // Job retry backoff times are this * attempt count
     pub allow_internal_ips: bool,
     pub should_compress_vm_state: bool, // Default "false" (for now!)
+    pub should_use_bulk_job_copy: bool, // Default "false" (for now!)
 }
 
 impl Config {
@@ -127,6 +131,7 @@ impl Config {
             retry_backoff_base: Duration::milliseconds(self.retry_backoff_base_ms),
             allow_internal_ips: self.allow_internal_ips,
             should_compress_vm_state: self.should_compress_vm_state,
+            should_use_bulk_job_copy: self.should_use_bulk_job_copy,
         };
 
         let pool_config = PoolConfig {
@@ -146,6 +151,7 @@ impl Config {
             max_bytes_buffered: Some(self.max_bytes_buffered),
             flush_loop_interval_ms: Some(self.flush_loop_interval_ms),
             should_compress_vm_state: Some(self.should_compress_vm_state),
+            should_use_bulk_job_copy: Some(self.should_use_bulk_job_copy),
         };
 
         (app_config, pool_config, self.kafka, worker_config)
