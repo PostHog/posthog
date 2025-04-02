@@ -285,6 +285,7 @@ class SnowflakeClient:
 
         Methods that require a connection should be ran within this block.
         """
+        await self.logger.ainfo("Initializing Snowflake connection")
         # TODO: Revert this back to 'INFO'
         self.ensure_snowflake_logger_level("DEBUG")
 
@@ -315,6 +316,8 @@ class SnowflakeClient:
 
         except InterfaceError as err:
             raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
+
+        await self.logger.ainfo("Connected to Snowflake")
 
         self._connection = connection
 
