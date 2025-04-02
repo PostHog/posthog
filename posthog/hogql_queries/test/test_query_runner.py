@@ -102,6 +102,7 @@ class TestQueryRunner(BaseTest):
                 "sessionTableVersion": "auto",
                 "useMaterializedViews": True,
                 "sessionsV2JoinMode": "string",
+                "usePresortedEventsTable": False,
             },
             "limit_context": "query",
             "query": {"kind": "TestQuery", "some_attr": "bla"},
