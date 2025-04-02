@@ -285,7 +285,8 @@ class SnowflakeClient:
 
         Methods that require a connection should be ran within this block.
         """
-        self.ensure_snowflake_loggers_have_our_handlers()
+        # TODO: Revert this back to 'INFO'
+        self.ensure_snowflake_logger_level("DEBUG")
 
         try:
             async with CONNECTION_SEMAPHORE:
@@ -317,8 +318,8 @@ class SnowflakeClient:
 
         self._connection = connection
 
-        # Call this again as connection re-adds handlers.
-        self.ensure_snowflake_loggers_have_our_handlers()
+        # Call this again in case level was reset.
+        self.ensure_snowflake_logger_level("DEBUG")
 
         await self.use_namespace()
         await self.execute_async_query("SET ABORT_DETACHED_QUERY = FALSE")
@@ -330,12 +331,10 @@ class SnowflakeClient:
             self._connection = None
             await asyncio.to_thread(connection.close)
 
-    def ensure_snowflake_loggers_have_our_handlers(self):
-        """Set our own handlers for loggers used by inner `SnowflakeConnection`."""
+    def ensure_snowflake_logger_level(self, level: str):
+        """Ensure the log level for logger used by inner `SnowflakeConnection`."""
         logger = logging.getLogger("snowflake.connector")
-        logger.handlers = []
-        for handler in self.logger.handlers:  # type: ignore
-            logger.addHandler(handler)
+        logger.setLevel(level)
 
     async def use_namespace(self) -> None:
         """Switch to a namespace given by database and schema.
