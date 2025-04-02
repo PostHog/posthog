@@ -31,7 +31,7 @@ class GroupsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        select = [
+        select: list[ast.Expr] = [
             ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
         ]
         for col in self.columns[1:]:
