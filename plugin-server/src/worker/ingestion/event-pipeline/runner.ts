@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
-import { HogFunctionType } from '../../../cdp/types'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -108,7 +107,7 @@ export class EventPipelineRunner {
         return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks)
     }
 
-    async runEventPipeline(event: PipelineEvent, teamHogFunctions: HogFunctionType[]): Promise<EventPipelineResult> {
+    async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.originalEvent = event
 
         try {
@@ -125,7 +124,7 @@ export class EventPipelineRunner {
             const { eventWithTeam, team } =
                 (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
             if (eventWithTeam != null && team != null) {
-                result = await this.runEventPipelineSteps(eventWithTeam, team, teamHogFunctions)
+                result = await this.runEventPipelineSteps(eventWithTeam, team)
             } else {
                 result = this.registerLastStep('populateTeamDataStep', [event])
             }
@@ -150,11 +149,7 @@ export class EventPipelineRunner {
         }
     }
 
-    async runEventPipelineSteps(
-        event: PluginEvent,
-        team: Team,
-        teamHogFunctions: HogFunctionType[]
-    ): Promise<EventPipelineResult> {
+    async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
@@ -247,11 +242,7 @@ export class EventPipelineRunner {
             event: transformedEvent,
             messagePromises,
             watcherPromises,
-        } = await this.runStep(
-            transformEventStep,
-            [processedEvent, this.hogTransformer, teamHogFunctions],
-            event.team_id
-        )
+        } = await this.runStep(transformEventStep, [processedEvent, this.hogTransformer], event.team_id)
 
         // Add message promises to kafkaAcks
         if (messagePromises) {

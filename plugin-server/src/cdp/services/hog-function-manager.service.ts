@@ -149,6 +149,31 @@ export class HogFunctionManagerService {
         return result
     }
 
+    public async getHogFunctionIdsForTeams(
+        teamIds: Team['id'][],
+        types: HogFunctionTypeType[]
+    ): Promise<Record<Team['id'], string[]>> {
+        const result = teamIds.reduce<Record<Team['id'], string[]>>((acc, teamId) => {
+            acc[teamId] = []
+            return acc
+        }, {})
+
+        const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
+
+        if (!teamHogFunctions) {
+            return result
+        }
+
+        // For each team, filter functions by type and collect their IDs
+        Object.entries(teamHogFunctions).forEach(([teamId, teamFns]) => {
+            if (teamFns) {
+                result[parseInt(teamId)] = teamFns.filter((fn) => types.includes(fn.type)).map((fn) => fn.id)
+            }
+        })
+
+        return result
+    }
+
     public async getHogFunctionsForTeam(teamId: Team['id'], types: HogFunctionTypeType[]): Promise<HogFunctionType[]> {
         return (await this.getHogFunctionsForTeams([teamId], types))[teamId] ?? []
     }

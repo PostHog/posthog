@@ -10,7 +10,7 @@ import { CdpRedis, createCdpRedisPool } from '../redis'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
-import { HogWatcherService } from '../services/hog-watcher.service'
+import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
@@ -62,6 +62,7 @@ export class HogTransformerService {
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private hogWatcher: HogWatcherService
     private redis: CdpRedis
+    private cachedStates: Record<string, HogWatcherState> = {}
 
     constructor(hub: Hub) {
         this.hub = hub
@@ -113,14 +114,15 @@ export class HogTransformerService {
         }
     }
 
-    public transformEventAndProduceMessages(
-        event: PluginEvent,
-        teamHogFunctions: HogFunctionType[]
-    ): Promise<TransformationResult> {
+    public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
                 hogTransformationAttempts.inc({ type: 'with_messages' })
+
+                const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, [
+                    'transformation',
+                ])
 
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
@@ -146,6 +148,22 @@ export class HogTransformerService {
 
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
+
+                    // Check if function is in a degraded state
+                    let functionState = this.getHogFunctionState(hogFunction.id)
+                    if (!functionState) {
+                        functionState = await this.handleCacheMiss(hogFunction.id)
+                    }
+
+                    // If the function is in a degraded state, skip it
+                    // If no state is found, we will continue with the transformation
+                    if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
+                        logger.info(
+                            '🚫',
+                            `Would filter out disabled HogFunction: ${hogFunction.name} (${hogFunction.id}) for team ${hogFunction.team_id}, state: ${functionState}`
+                        )
+                        // For now we continue with the transformation, but in the future this will be a skip
+                    }
 
                     // Check if we should apply this transformation based on its filters
                     if (this.hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS.includes(event.team_id)) {
@@ -317,5 +335,45 @@ export class HogTransformerService {
             ? await this.pluginExecutor.execute(invocation)
             : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
         return result
+    }
+
+    private async handleCacheMiss(hogFunctionId: string): Promise<HogWatcherState | null> {
+        logger.error('⚠️', 'HogFunction state cache miss - this should not happen', { hogFunctionId })
+        const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
+        const states = await this.hogWatcher.getStates([hogFunctionId])
+        timer()
+
+        if (states[hogFunctionId]) {
+            this.cachedStates[hogFunctionId] = states[hogFunctionId].state
+            return states[hogFunctionId].state
+        }
+        return null
+    }
+
+    public async saveHogFunctionStates(functionIds: string[]): Promise<void> {
+        const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
+        const states = await this.hogWatcher.getStates(functionIds)
+        timer()
+
+        // Save only the state enum value to cache
+        Object.entries(states).forEach(([id, state]) => {
+            this.cachedStates[id] = state.state
+        })
+    }
+
+    public clearHogFunctionStates(functionIds?: string[]): void {
+        if (functionIds) {
+            // Clear specific function states
+            functionIds.forEach((id) => {
+                delete this.cachedStates[id]
+            })
+        } else {
+            // Clear all states if no IDs provided
+            this.cachedStates = {}
+        }
+    }
+
+    private getHogFunctionState(hogFunctionId: string): HogWatcherState | null {
+        return this.cachedStates[hogFunctionId] || null
     }
 }

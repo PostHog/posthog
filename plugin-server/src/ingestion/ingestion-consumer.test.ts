@@ -688,13 +688,10 @@ describe('IngestionConsumer', () => {
                 name: 'GeoIP Transformation',
                 hog: geoipTemplate.hog,
                 bytecode: hogByteCode,
-                team_id: team.id,
             })
 
             ingester = new IngestionConsumer(hub)
             await ingester.start()
-            // Register the function with the HogFunctionManager
-            ingester['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [transformationFunction.id])
         })
 
         it(
@@ -702,7 +699,6 @@ describe('IngestionConsumer', () => {
             async () => {
                 // make the geoip lookup fail
                 const event = createEvent({
-                    team_id: team.id,
                     ip: '256.256.256.256',
                     properties: { $ip: '256.256.256.256' },
                 })
@@ -768,7 +764,6 @@ describe('IngestionConsumer', () => {
                             message: expect.stringMatching(
                                 /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: ''$/
                             ),
-                            team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
                         },
                     },
@@ -855,179 +850,6 @@ describe('IngestionConsumer', () => {
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
-    })
-
-    describe('HogWatcher integration', () => {
-        let transformationFunction: HogFunctionType
-        const TRANSFORMATION_TEST_TIMEOUT = 30000
-
-        beforeAll(() => {
-            jest.setTimeout(TRANSFORMATION_TEST_TIMEOUT)
-        })
-
-        afterAll(() => {
-            jest.setTimeout(DEFAULT_TEST_TIMEOUT)
-        })
-
-        const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
-            const { hog, bytecode, name } = hogFunction
-            const item = await _insertHogFunction(hub.postgres, team.id, {
-                hog,
-                bytecode,
-                name: name || 'Test Function',
-                type: 'transformation',
-            })
-            return item
-        }
-
-        beforeEach(async () => {
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
-            // Create a simple transformation function
-            const template = {
-                hog: `
-                    let returnEvent := event
-                    returnEvent.properties.test_property := true
-                    return returnEvent
-                `,
-            }
-            const hogByteCode = await compileHog(template.hog)
-            transformationFunction = await insertHogFunction({
-                name: 'Test Transformation',
-                hog: template.hog,
-                bytecode: hogByteCode,
-                team_id: team.id,
-            })
-
-            ingester = new IngestionConsumer(hub)
-            await ingester.start()
-            // Register the function with the HogFunctionManager
-            ingester['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [transformationFunction.id])
-        })
-
-        it('should skip HogWatcher operations when sample rate is 0', async () => {
-            // Set sample rate to 0
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
-
-            // Create spies for HogWatcher methods
-            const getStatesSpy = jest.spyOn(ingester['hogWatcher'], 'getStates')
-
-            const event = createEvent({
-                team_id: team.id,
-                properties: { test: true },
-            })
-            const messages = createKafkaMessages([event])
-
-            await ingester.handleKafkaBatch(messages)
-
-            // Verify HogWatcher methods were not called
-            expect(getStatesSpy).not.toHaveBeenCalled()
-
-            getStatesSpy.mockRestore()
-        })
-
-        it('should log but not skip functions that would be disabled', async () => {
-            // Create spy for info level since that's what the code uses
-            const logSpy = jest.spyOn(logger, 'info')
-
-            // Mock the getStates method to return a disabled state for our function
-            const getStatesSpy = jest.spyOn(ingester['hogWatcher'], 'getStates').mockImplementation((ids) => {
-                const states: Record<string, any> = {}
-                ids.forEach((id) => {
-                    states[id] = {
-                        state: 3, // HogWatcherState.disabledForPeriod
-                        tokens: 0,
-                        rating: 0,
-                    }
-                })
-                return Promise.resolve(states)
-            })
-
-            const event = createEvent({
-                team_id: team.id,
-                properties: { test: true },
-            })
-            const messages = createKafkaMessages([event])
-
-            await ingester.handleKafkaBatch(messages)
-
-            // Verify that the appropriate monitoring log was created
-            const expectedLogMessage = `Would filter out disabled HogFunction: ${transformationFunction.name} (${transformationFunction.id}) for team ${team.id}, state: 3`
-            const disabledFunctionLogs = logSpy.mock.calls.filter(
-                (call) => call[0] === '🚫' && call[1] === expectedLogMessage
-            )
-            expect(disabledFunctionLogs.length).toBe(1)
-            expect(disabledFunctionLogs[0]).toEqual(['🚫', expectedLogMessage])
-
-            getStatesSpy.mockRestore()
-            logSpy.mockRestore()
-        })
-
-        it('should log monitoring status for functions with different states', async () => {
-            // Create spy for info level since that's what the code uses
-            const logSpy = jest.spyOn(logger, 'info')
-
-            // Two functions: one would be disabled, one healthy
-            const template2 = {
-                hog: `
-                    let returnEvent := event
-                    returnEvent.properties.test_property2 := true
-                    return returnEvent
-                `,
-            }
-            const hogByteCode2 = await compileHog(template2.hog)
-            const healthyFunction = await insertHogFunction({
-                name: 'Healthy Transformation',
-                hog: template2.hog,
-                bytecode: hogByteCode2,
-                team_id: team.id,
-            })
-
-            // Mock getStates to return different states for different functions
-            jest.spyOn(ingester['hogWatcher'], 'getStates').mockImplementation((ids) => {
-                const states: Record<string, any> = {}
-                ids.forEach((id) => {
-                    if (id === transformationFunction.id) {
-                        states[id] = {
-                            state: 4, // HogWatcherState.disabledIndefinitely
-                            tokens: 0,
-                            rating: 0,
-                        }
-                    } else {
-                        states[id] = {
-                            state: 0, // HogWatcherState.healthy
-                            tokens: 100,
-                            rating: 1.0,
-                        }
-                    }
-                })
-                return Promise.resolve(states)
-            })
-
-            const event = createEvent({
-                team_id: team.id,
-                properties: { test: true },
-            })
-            const messages = createKafkaMessages([event])
-
-            await ingester.handleKafkaBatch(messages)
-
-            // Verify that the appropriate monitoring logs were created
-            const expectedLogMessage = `Would filter out disabled HogFunction: ${transformationFunction.name} (${transformationFunction.id}) for team ${team.id}, state: 4`
-            const disabledFunctionLogs = logSpy.mock.calls.filter(
-                (call) => call[0] === '🚫' && call[1] === expectedLogMessage
-            )
-            expect(disabledFunctionLogs.length).toBe(1)
-            expect(disabledFunctionLogs[0]).toEqual(['🚫', expectedLogMessage])
-
-            // Verify we didn't log anything for the healthy function
-            const healthyLogMessage = `Would filter out disabled HogFunction: ${healthyFunction.name} (${healthyFunction.id}) for team ${team.id}, state: 0`
-            const healthyLogCalls = logSpy.mock.calls.filter(
-                (call) => call[0] === '🚫' && call[1] === healthyLogMessage
-            )
-            expect(healthyLogCalls.length).toBe(0)
-
-            logSpy.mockRestore()
-        })
     })
 
     describe('testing topic', () => {

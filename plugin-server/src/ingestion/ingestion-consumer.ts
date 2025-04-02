@@ -1,11 +1,10 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
-import { HogTransformerService, hogWatcherLatency } from '../cdp/hog-transformations/hog-transformer.service'
+import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { CdpRedis, createCdpRedisPool } from '../cdp/redis'
 import { HogFunctionManagerService } from '../cdp/services/hog-function-manager.service'
-import { HogWatcherService, HogWatcherState } from '../cdp/services/hog-watcher.service'
-import { HogFunctionType } from '../cdp/types'
+import { HogWatcherService } from '../cdp/services/hog-watcher.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -190,42 +189,11 @@ export class IngestionConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
-        // Pre-fetch HogFunction states for all teams in the batch
-        const teamIds = new Set<number>()
-        Object.values(parsedMessages).forEach((events) => {
-            events.forEach(({ event }) => {
-                if (event.team_id) {
-                    teamIds.add(event.team_id)
-                }
-            })
-        })
-
-        // Create a map of team_id -> filtered HogFunctions to reduce the number of calls to the HogFunctionManager
-        const teamHogFunctionsMap = new Map<number, HogFunctionType[]>()
-        if (teamIds.size > 0) {
-            await Promise.all(
-                Array.from(teamIds).map(async (teamId) => {
-                    const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(teamId, [
-                        'transformation',
-                    ])
-                    if (teamHogFunctions.length > 0) {
-                        const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-                        if (shouldRunHogWatcher) {
-                            const filteredFunctions = await this.filterDegradedHogFunctions(teamHogFunctions)
-                            teamHogFunctionsMap.set(teamId, filteredFunctions)
-                        } else {
-                            teamHogFunctionsMap.set(teamId, teamHogFunctions)
-                        }
-                    }
-                })
-            )
-        }
-
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
                 Object.values(parsedMessages).map(async (x) => {
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(x, teamHogFunctionsMap)
+                        this.processEventsForDistinctId(x)
                     )
                 })
             )
@@ -244,10 +212,7 @@ export class IngestionConsumer {
         }
     }
 
-    private async processEventsForDistinctId(
-        incomingEvents: IncomingEvent[],
-        teamHogFunctionsMap: Map<number, HogFunctionType[]>
-    ): Promise<void> {
+    private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
         // Process every message sequentially, stash promises to await on later
         for (const { message, event } of incomingEvents) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
@@ -294,12 +259,7 @@ export class IngestionConsumer {
                     continue
                 }
 
-                // Get pre-filtered HogFunctions for this team
-                const filteredHogFunctions = event.team_id ? teamHogFunctionsMap.get(event.team_id) || [] : []
-
-                const result = await this.runInstrumented('runEventPipeline', () =>
-                    this.runEventPipeline(event, filteredHogFunctions)
-                )
+                const result = await this.runInstrumented('runEventPipeline', () => this.runEventPipeline(event))
 
                 logger.debug('🔁', `Processed event`, {
                     event,
@@ -319,13 +279,10 @@ export class IngestionConsumer {
         }
     }
 
-    private async runEventPipeline(
-        event: PipelineEvent,
-        teamHogFunctions: HogFunctionType[] = []
-    ): Promise<EventPipelineResult> {
+    private async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         return await retryIfRetriable(async () => {
             const runner = new EventPipelineRunner(this.hub, event, this.hogTransformer)
-            return await runner.runEventPipeline(event, teamHogFunctions)
+            return await runner.runEventPipeline(event)
         })
     }
 
@@ -556,38 +513,5 @@ export class IngestionConsumer {
                 })
             )
         )
-    }
-
-    private async filterDegradedHogFunctions(hogFunctions: HogFunctionType[]): Promise<HogFunctionType[]> {
-        if (!hogFunctions.length) {
-            return hogFunctions
-        }
-
-        try {
-            // Get states for all functions at once - this is more efficient than individual calls
-            const functionIds = hogFunctions.map((func) => func.id)
-            const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
-            const states = await this.hogWatcher.getStates(functionIds)
-            timer()
-
-            // Just log which functions would be filtered, but return all of them for now
-            hogFunctions.forEach((func) => {
-                const state = states[func.id]?.state
-
-                // Log functions that would be disabled (temporarily or permanently)
-                if (state >= HogWatcherState.disabledForPeriod) {
-                    logger.info(
-                        '🚫',
-                        `Would filter out disabled HogFunction: ${func.name} (${func.id}) for team ${func.team_id}, state: ${state}`
-                    )
-                }
-            })
-            // Return all functions for now - no actual filtering yet
-            return hogFunctions
-        } catch (error) {
-            // If we can't check the watcher state, allow all functions to proceed
-            logger.warn('⚠️', 'Error filtering degraded HogFunctions', { error })
-            return hogFunctions
-        }
     }
 }
