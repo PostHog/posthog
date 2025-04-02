@@ -9132,6 +9132,13 @@
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
                 },
+                "optional": {
+                    "default": [],
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
                 "resultCustomizations": {
                     "additionalProperties": {
                         "$ref": "#/definitions/ResultCustomizationByValue"
