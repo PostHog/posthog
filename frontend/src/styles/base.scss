@@ -588,6 +588,7 @@
     --project-navbar-width: 250px;
     --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
+    --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
 
     // Toasts
     // Update and override from react-toastify

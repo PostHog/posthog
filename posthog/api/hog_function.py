@@ -481,7 +481,7 @@ class HogFunctionViewSet(
 
         response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
-        if "results" not in response:
+        if not hasattr(response, "results"):
             return Response({"error": "No results from actors query"}, status=400)
 
         for result in response.results:

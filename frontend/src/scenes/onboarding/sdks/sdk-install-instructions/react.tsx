@@ -59,7 +59,7 @@ export function SDKInstallReactInstructions({ hideWizard }: { hideWizard?: boole
             {showSetupWizard && (
                 <>
                     <h2>Automated Installation</h2>
-                    <SetupWizardBanner />
+                    <SetupWizardBanner integrationName="React" />
                     <LemonDivider label="OR" />
                     <h2>Manual Installation</h2>
                 </>

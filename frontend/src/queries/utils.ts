@@ -1,7 +1,6 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionsNode,
@@ -547,6 +546,9 @@ function isHogQlIdentifier(value: any): value is HogQLIdentifier {
 }
 
 function formatHogQlValue(value: any): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { teamLogic } = require('scenes/teamLogic')
+
     if (Array.isArray(value)) {
         return `[${value.map(formatHogQlValue).join(', ')}]`
     } else if (dayjs.isDayjs(value)) {

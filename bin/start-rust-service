@@ -36,7 +36,7 @@ case "$RS_SVC" in
     # NOTE: to ensure the exceptions topic exists and avoid crash loops in dev:
     # cd rust
     # cargo run --bin generate_test_events
-    export RUST_LOG=debug
+    export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export KAFKA_CONSUMER_GROUP=cymbal
     export KAFKA_CONSUMER_TOPIC=exception_symbolification_events

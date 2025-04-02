@@ -304,6 +304,7 @@ function sortRecordings(
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
     personUUID?: PersonUUID
+    distinctIds?: string[]
     updateSearchParams?: boolean
     autoPlay?: boolean
     filters?: RecordingUniversalFilters
@@ -394,6 +395,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
+                        // KLUDGE: some persons have >8MB of distinct_ids,
+                        // which wouldn't fit in the URL,
+                        // so we limit to 100 distinct_ids for now
+                        // if you have so many that it is an issue,
+                        // you probably want the person UUID PoE optimisation anyway
+                        // TODO: maybe we can slice this instead
+                        distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
                         limit: RECORDINGS_LIMIT,
                     }
 

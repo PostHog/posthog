@@ -50,7 +50,7 @@ export function IntegrationChoice({
             ? 'Google Ads'
             : kind == 'linkedin-ads'
             ? 'LinkedIn Ads'
-            : kind == 'mail'
+            : kind == 'email'
             ? 'Mailjet'
             : capitalizeFirstLetter(kind)
 
@@ -101,7 +101,7 @@ export function IntegrationChoice({
                               },
                           ],
                       }
-                    : ['mail'].includes(kind)
+                    : ['email'].includes(kind)
                     ? {
                           items: [
                               {
