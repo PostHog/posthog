@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Add "project_id" to the action. Splitting state and database operations to add the index concurrently
+        # Add "project_id" to the datacolortheme. Splitting state and database operations to add the index concurrently
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.AddField(
