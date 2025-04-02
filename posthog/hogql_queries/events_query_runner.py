@@ -221,6 +221,7 @@ class EventsQueryRunner(QueryRunner):
                     inner_query = parse_select(
                         "SELECT timestamp, event, cityHash64(distinct_id) as did, cityHash64(uuid) as uuid FROM events"
                     )
+                    assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
                     inner_query.order_by = order_by
                     self.paginator.paginate(inner_query)
