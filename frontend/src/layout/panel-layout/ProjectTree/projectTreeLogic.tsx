@@ -704,23 +704,31 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     )
                     breakpoint() // bail if we opened some other item in the meanwhile
                     if (resp.results && resp.results.length > 0) {
+                        const { lastNewOperation } = values
                         const result = resp.results[0]
                         path = result.path
-                        actions.createSavedItem(result)
-                        const { lastNewOperation } = values
 
                         // TODO: check that this was created by you... and not an accident by hitting "back"
                         // const createdBy = result.meta?.created_by
 
-                        if (lastNewOperation && lastNewOperation.objectType === result.type) {
+                        if (
+                            result.path.startsWith('Unfiled/') &&
+                            lastNewOperation &&
+                            lastNewOperation.objectType === result.type
+                        ) {
                             const newPath = joinPath([
                                 ...splitPath(lastNewOperation.folder),
-                                ...splitPath(path).slice(-1),
+                                ...splitPath(result.path).slice(-1),
                             ])
-                            actions.moveItem(path, newPath)
+                            actions.createSavedItem({ ...result, path: newPath })
+                            path = newPath
+                            await api.fileSystem.move(result.id, newPath)
+                        } else {
+                            actions.createSavedItem(result)
                         }
-
-                        actions.setLastNewOperation(null, null)
+                        if (lastNewOperation) {
+                            actions.setLastNewOperation(null, null)
+                        }
                     }
                 }
 
