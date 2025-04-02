@@ -1,9 +1,8 @@
 import { IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Button } from 'lib/ui/Button/Button'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -34,15 +33,16 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
 
                     <div className="flex gap-px items-center justify-end">
                         {!isMobileLayout && (
-                            <Button.Root onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}>
-                                <Button.Icon customIconSize>
-                                    {isLayoutPanelPinned ? (
-                                        <IconPinFilled className="size-3 text-tertiary" />
-                                    ) : (
-                                        <IconPin className="size-3 text-tertiary" />
-                                    )}
-                                </Button.Icon>
-                            </Button.Root>
+                            <ButtonPrimitive
+                                onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
+                                tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                            >
+                                {isLayoutPanelPinned ? (
+                                    <IconPinFilled className="size-3 text-tertiary" />
+                                ) : (
+                                    <IconPin className="size-3 text-tertiary" />
+                                )}
+                            </ButtonPrimitive>
                         )}
 
                         {panelActions ?? null}
@@ -55,9 +55,9 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                             placeholder={searchPlaceholder}
                             className="w-full"
                             prefix={
-                                <IconWrapper>
-                                    <IconSearch />
-                                </IconWrapper>
+                                <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
+                                    <IconSearch className="size-4" />
+                                </div>
                             }
                             autoFocus
                             size="small"
@@ -65,18 +65,15 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                             onChange={(value) => setSearchTerm(value)}
                             suffix={
                                 searchTerm ? (
-                                    <LemonButton
-                                        size="small"
-                                        type="tertiary"
+                                    <ButtonPrimitive
+                                        size="sm"
+                                        iconOnly
                                         onClick={() => clearSearch()}
-                                        icon={
-                                            <IconWrapper>
-                                                <IconX />
-                                            </IconWrapper>
-                                        }
-                                        className="bg-transparent [&_svg]:opacity-30 hover:[&_svg]:opacity-100"
+                                        className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
                                         tooltip="Clear search"
-                                    />
+                                    >
+                                        <IconX className="size-4" />
+                                    </ButtonPrimitive>
                                 ) : null
                             }
                             onKeyDown={(e) => {

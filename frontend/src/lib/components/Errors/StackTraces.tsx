@@ -3,11 +3,12 @@ import './StackTraces.scss'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
-import { stackFrameLogic } from './stackFrameLogic'
+import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
 import {
     ErrorTrackingException,
     ErrorTrackingStackFrame,
@@ -19,12 +20,15 @@ export function ChainedStackTraces({
     exceptionList,
     showAllFrames,
     embedded = false,
+    fingerprintRecords = [],
 }: {
     exceptionList: ErrorTrackingException[]
+    fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded?: boolean
 }): JSX.Element {
     const { loadFromRawIds } = useActions(stackFrameLogic)
+    const checkers = useFingerprintRecords(fingerprintRecords)
 
     useEffect(() => {
         const frames: ErrorTrackingStackFrame[] = exceptionList.flatMap((e) => {
@@ -39,14 +43,13 @@ export function ChainedStackTraces({
 
     return (
         <div className="flex flex-col gap-y-2">
-            {exceptionList.map(({ stacktrace, value, type }, index) => {
+            {exceptionList.map(({ stacktrace, value, type, id }, index) => {
                 if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
                     if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
                         // if we're not showing all frames and there are no in_app frames, skip this exception
                         return null
                     }
-
                     return (
                         <div
                             key={index}
@@ -55,15 +58,32 @@ export function ChainedStackTraces({
                             <div className="flex flex-col gap-0.5">
                                 <h3 className="StackTrace__type mb-0" title={type}>
                                     {type}
+                                    {checkers.includesExceptionType(id) && (
+                                        <IconFingerprint
+                                            className="ml-1"
+                                            color={checkers.isExceptionTypeHighlighted(id) ? 'red' : 'gray'}
+                                        />
+                                    )}
                                 </h3>
                                 <div
                                     className="StackTrace__value line-clamp-2 text-secondary italic text-xs"
                                     title={value}
                                 >
                                     {value}
+                                    {checkers.includesExceptionValue(id) && (
+                                        <IconFingerprint
+                                            className="ml-1"
+                                            color={checkers.isExceptionValueHighlighted(id) ? 'red' : 'gray'}
+                                        />
+                                    )}
                                 </div>
                             </div>
-                            <Trace frames={frames || []} showAllFrames={showAllFrames} embedded={embedded} />
+                            <Trace
+                                frames={frames || []}
+                                showAllFrames={showAllFrames}
+                                embedded={embedded}
+                                fingerprintRecords={fingerprintRecords}
+                            />
                         </div>
                     )
                 }
@@ -74,19 +94,25 @@ export function ChainedStackTraces({
 
 function Trace({
     frames,
+    fingerprintRecords,
     showAllFrames,
     embedded,
 }: {
     frames: ErrorTrackingStackFrame[]
+    fingerprintRecords: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded: boolean
 }): JSX.Element | null {
     const { stackFrameRecords } = useValues(stackFrameLogic)
+    const checkers = useFingerprintRecords(fingerprintRecords)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     const panels = displayFrames.map(
         ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }, index) => {
             const record = stackFrameRecords[raw_id]
+            const isUsedInFingerprint = checkers.includesFrame(raw_id)
+            const isHighlighted = checkers.isFrameHighlighted(raw_id)
+
             return {
                 key: index,
                 header: (
@@ -109,7 +135,10 @@ function Trace({
                                 </div>
                             ) : null}
                         </div>
-                        <div className="flex gap-x-1">
+                        <div className="flex gap-x-1 items-center">
+                            {isUsedInFingerprint && (
+                                <IconFingerprint color={isHighlighted ? 'red' : 'gray'} fontSize="18px" />
+                            )}
                             {in_app && <LemonTag>In App</LemonTag>}
                             {!resolved && (
                                 <Tooltip title={resolve_failure}>
@@ -129,6 +158,63 @@ function Trace({
     )
 
     return <LemonCollapse embedded={embedded} multiple panels={panels} size="xsmall" />
+}
+
+function useFingerprintRecords(fingerprintRecords: FingerprintRecordPart[]): {
+    includesExceptionType(exc_id: string): boolean
+    includesExceptionValue(exc_id: string): boolean
+    includesFrame(frame_id: string): boolean
+    isExceptionTypeHighlighted(exc_id: string): boolean
+    isExceptionValueHighlighted(exc_id: string): boolean
+    isFrameHighlighted(frame_id: string): boolean
+} {
+    const { highlightedRecordPart } = useValues(stackFrameLogic)
+    return useMemo(() => {
+        return {
+            includesExceptionType(exc_id: string) {
+                return !!fingerprintRecords.find(
+                    (record) =>
+                        record.type === 'exception' &&
+                        record.id === exc_id &&
+                        record.pieces.some((piece) => piece === 'Exception Type')
+                )
+            },
+            isExceptionTypeHighlighted(exc_id: string) {
+                return !!(
+                    highlightedRecordPart &&
+                    highlightedRecordPart.type === 'exception' &&
+                    highlightedRecordPart.id === exc_id &&
+                    highlightedRecordPart.pieces.some((piece) => piece === 'Exception Type')
+                )
+            },
+            includesExceptionValue(exc_id: string) {
+                return !!fingerprintRecords.find(
+                    (record) =>
+                        record.type === 'exception' &&
+                        record.id === exc_id &&
+                        record.pieces.some((piece) => piece === 'Exception Message')
+                )
+            },
+            isExceptionValueHighlighted(exc_id: string) {
+                return !!(
+                    highlightedRecordPart &&
+                    highlightedRecordPart.type === 'exception' &&
+                    highlightedRecordPart.id === exc_id &&
+                    highlightedRecordPart.pieces.some((piece) => piece === 'Exception Message')
+                )
+            },
+            includesFrame(frame_id: string) {
+                return !!fingerprintRecords.find((record) => record.type === 'frame' && record.raw_id === frame_id)
+            },
+            isFrameHighlighted(frame_id: string) {
+                return !!(
+                    highlightedRecordPart &&
+                    highlightedRecordPart.type === 'frame' &&
+                    highlightedRecordPart.raw_id === frame_id
+                )
+            },
+        }
+    }, [fingerprintRecords, highlightedRecordPart])
 }
 
 function FrameContext({

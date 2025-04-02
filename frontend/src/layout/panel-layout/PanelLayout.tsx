@@ -77,10 +77,6 @@ const panelLayoutStyles = cva({
             className: 'w-[var(--project-navbar-width)]',
         },
     ],
-    defaultVariants: {
-        isLayoutPanelPinned: false,
-        isLayoutPanelVisible: false,
-    },
 })
 
 export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement> }): JSX.Element {

@@ -59,34 +59,34 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.insightView(ref as InsightShortId),
         },
     },
-    treeItems: [
+    treeItemsNew: [
         {
-            path: `Create new/Insight/Trends`,
+            path: `Insight - Trends`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.TRENDS }),
         },
         {
-            path: `Create new/Insight/Funnels`,
+            path: `Insight - Funnels`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.FUNNELS }),
         },
         {
-            path: `Create new/Insight/Retention`,
+            path: `Insight - Retention`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.RETENTION }),
         },
         {
-            path: `Create new/Insight/User paths`,
+            path: `Insight - User paths`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.PATHS }),
         },
         {
-            path: `Create new/Insight/Stickiness`,
+            path: `Insight - Stickiness`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.STICKINESS }),
         },
         {
-            path: `Create new/Insight/Lifecycle`,
+            path: `Insight - Lifecycle`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
         },
