@@ -38,7 +38,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
     AccessControlResourceType,
@@ -262,18 +262,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonButton
                                                 data-attr="edit-insight-sql"
                                                 onClick={() => {
-                                                    router.actions.push(
-                                                        urls.insightNew({
-                                                            query: {
-                                                                kind: NodeKind.DataTableNode,
-                                                                source: {
-                                                                    kind: NodeKind.HogQLQuery,
-                                                                    query: hogQL,
-                                                                },
-                                                                full: true,
-                                                            } as DataTableNode,
-                                                        })
-                                                    )
+                                                    router.actions.push(urls.sqlEditor(hogQL))
                                                 }}
                                                 fullWidth
                                             >

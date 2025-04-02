@@ -16,6 +16,7 @@ import {
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
+import { isValidRegexPattern } from 'lib/utils/regexp'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -59,7 +60,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             heatmapDataLogic,
             ['heatmapEmpty'],
         ],
-        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setUrlMatch']],
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref']],
     }),
 
     actions({
@@ -289,7 +290,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (replayIframeData && replayIframeData.url) {
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
-                actions.setHref(replayIframeData.url)
+                actions.setHref(replayIframeData.url, isValidRegexPattern(replayIframeData.url) ? 'regex' : 'exact')
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
@@ -413,6 +414,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         maybeLoadTopUrls: () => {
             if (!values.topUrls && !values.topUrlsLoading) {
                 actions.loadTopUrls()
+            }
+        },
+
+        setReplayIframeDataURL: async ({ url }, breakpoint) => {
+            await breakpoint(150)
+            if (url?.trim().length) {
+                // we don't want to use the toolbar fetch or the iframe message approach
+                actions.setFetchFn('native')
+                actions.setHref(url, isValidRegexPattern(url) ? 'regex' : 'exact')
             }
         },
 

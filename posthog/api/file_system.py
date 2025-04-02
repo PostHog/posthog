@@ -20,7 +20,7 @@ from posthog.models.team import Team
 def has_permissions_to_access_tree_view(user, team):
     tree_view_enabled = posthoganalytics.feature_enabled(
         "tree-view",
-        str(team.organization_id),
+        str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
     )

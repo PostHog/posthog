@@ -18,6 +18,9 @@ export function convertFileSystemEntryToTreeDataItem(
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
 
+    // All folder nodes. Used later to add mock "empty folder" items.
+    const allFolderNodes: TreeDataItem[] = []
+
     // Helper to find an existing folder node or create one if it doesn't exist.
     const findOrCreateFolder = (nodes: TreeDataItem[], folderName: string, fullPath: string): TreeDataItem => {
         let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
@@ -29,6 +32,7 @@ export function convertFileSystemEntryToTreeDataItem(
                 record: { type: 'folder', id: `${root}/${fullPath}`, path: fullPath },
                 children: [],
             }
+            allFolderNodes.push(folderNode)
             nodes.push(folderNode)
         }
         if (!folderNode.children) {
@@ -95,6 +99,7 @@ export function convertFileSystemEntryToTreeDataItem(
                     icon: <Spinner />,
                 })
             }
+            allFolderNodes.push(node)
         }
     }
 
@@ -116,6 +121,18 @@ export function convertFileSystemEntryToTreeDataItem(
         }
     }
     sortNodes(rootNodes)
+
+    for (const folderNode of allFolderNodes) {
+        if (folderNode.children && folderNode.children.length === 0) {
+            folderNode.children.push({
+                id: `empty-${root}/${folderNode.id}`,
+                name: 'Empty folder',
+                displayName: <em className="text-muted">Empty folder</em>,
+                icon: <IconPlus />,
+            })
+        }
+    }
+
     return rootNodes
 }
 

@@ -13,15 +13,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
-import { WatchNextPanel } from 'scenes/project-homepage/WatchNextPanel'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
 import { DashboardPlacement } from '~/types'
-
-import { RecentInsights } from './RecentInsights'
-import { RecentPersons } from './RecentPersons'
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
@@ -60,11 +56,6 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="ProjectHomepage">
             <PageHeader delimited buttons={headerButtons} />
-            <div className="ProjectHomepage__lists">
-                <RecentInsights />
-                <RecentPersons />
-                <WatchNextPanel />
-            </div>
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
             ) : (
