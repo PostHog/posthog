@@ -21,7 +21,7 @@ from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyQuery,
 )
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class ToolkitTool(TypedDict):

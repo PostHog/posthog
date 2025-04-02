@@ -1,4 +1,4 @@
-from posthog.taxonomy.taxonomy import (
+from taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     CAMPAIGN_PROPERTIES,
     SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,

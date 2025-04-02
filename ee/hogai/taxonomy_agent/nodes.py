@@ -52,7 +52,7 @@ from posthog.schema import (
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):

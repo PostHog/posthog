@@ -22,7 +22,13 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
-from posthog.taxonomy.taxonomy import PROPERTY_NAME_ALIASES, CORE_FILTER_DEFINITIONS_BY_GROUP
+from taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+PROPERTY_NAME_ALIASES = {
+    key: value["label"]
+    for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
+    if "label" in value and "deprecated" not in value["label"]
+}
 
 # list of all event properties defined in the taxonomy, that don't start with $
 EXCLUDED_EVENT_CORE_PROPERTIES = [

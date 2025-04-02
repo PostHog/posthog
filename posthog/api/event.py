@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, List, Optional, Union  # noqa: UP035
 from posthog.hogql.query import execute_hogql_query
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.hogql import ast
 from django.utils import timezone
 from posthog.utils import relative_date_parse
