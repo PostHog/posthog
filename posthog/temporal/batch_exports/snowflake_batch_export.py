@@ -282,6 +282,7 @@ class SnowflakeClient:
                     private_key=self.private_key,
                     login_timeout=5,
                 )
+            connection.telemetry_enabled = False
 
         except OperationalError as err:
             if err.errno == 251012:
