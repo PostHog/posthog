@@ -815,7 +815,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "Invalid date format. Please use ISO 8601 format with timezone info (e.g. 2024-01-01T00:00:00Z or 2024-01-01T00:00:00+00:00)"
             )
 
-    def _process_survey_results(self, results: EventStats) -> SurveyStats:
+    def _process_survey_results(
+        self, results: list[tuple[str, int, int, datetime | None, datetime | None]]
+    ) -> SurveyStats:
         """Process raw survey event results into stats format.
 
         Args:
@@ -848,7 +850,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Update stats with actual results
         for event_name, total_count, unique_persons, first_seen, last_seen in results:
-            event_stats = {
+            event_stats: EventStats = {
                 "total_count": total_count,
                 "unique_persons": unique_persons,
                 "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
