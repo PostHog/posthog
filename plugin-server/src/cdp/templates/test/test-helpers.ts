@@ -134,13 +134,13 @@ export class TemplateTester {
         }, {} as Record<string, HogFunctionInputType>)
 
         if (this.template.mapping_templates) {
-            const realMappings = this.template.mapping_templates.map((mapping) => ({
+            const compiledMappingInputs = this.template.mapping_templates.map((mapping) => ({
                 ...mapping,
                 inputs: {},
             }))
 
             await Promise.all(
-                realMappings.map(async (mapping) => {
+                compiledMappingInputs.map(async (mapping) => {
                     if (!mapping.inputs_schema) {
                         return
                     }
@@ -179,7 +179,7 @@ export class TemplateTester {
                         updated_at: '2024-01-01T00:00:00Z',
                         deleted: false,
                         inputs: compiledInputs,
-                        mappings: realMappings,
+                        mappings: compiledMappingInputs,
                     },
                 ],
                 this.createGlobals(_globals)
