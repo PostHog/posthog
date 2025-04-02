@@ -1,9 +1,8 @@
-import json
 import openai
 
 from prometheus_client import Histogram
-import yaml
 
+from ee.session_recordings.ai.output_data import load_session_summary_from_llm_content
 from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData, shorten_url
 from ee.session_recordings.session_summary.utils import (
     load_session_metadata_from_json,
@@ -115,6 +114,9 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
                 "SUMMARY_EXAMPLE": summary_example,
             }
         )
+        # TODO: Remove after testing
+        with open("wakawaka.txt", "w") as f:
+            f.write(rendered_summary_template)
 
     instance_region = get_instance_region() or "HOBBY"
 
@@ -181,18 +183,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         usage = result.usage.prompt_tokens if result.usage else None
         if usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
-
-    if result.choices[0].message.content:
-        raw_content: str = result.choices[0].message.content
-        # Strip the first and the last line of the content to keep the YAML data only
-        # TODO Work on a more robust solution
-        yaml_content = yaml.safe_load(raw_content.strip("```yaml\n").strip("```").strip())  # noqa: B005
-        content = json.dumps(yaml_content)
-        # TODO Add schema to validate the content against (to avoid hallucinations)
-        # TODO Enrich the content with the URLs/timestamps/window ids/etc. based on the event_id
-    else:
-        # TODO Log the error, add the retry for the LLM calls above to avoid returning empty content
-        content = ""
+    session_summary = load_session_summary_from_llm_content(result, recording.session_id)
     # TODO Make the output streamable (the main reason behing using YAML
     # to keep it partially parsable to avoid waiting for the LLM to finish)
-    return {"content": content, "timings": timer.get_all_timings()}
+    return {"content": session_summary.data, "timings": timer.get_all_timings()}
