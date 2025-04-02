@@ -133,8 +133,8 @@ function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Elemen
 }
 
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent } = surveyUserStats
-    const total = seen + dismissed + sent
+    const { uniqueUsersOnlySeen, uniqueUsersDismissed, uniqueUsersSent, totalSent } = surveyUserStats
+    const total = uniqueUsersOnlySeen + uniqueUsersDismissed + uniqueUsersSent
 
     return (
         <div className="inline-flex mb-4">
@@ -142,10 +142,18 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
                 <div className="text-4xl font-bold">{humanFriendlyNumber(total)}</div>
                 <div className="font-semibold text-secondary">Unique user(s) shown</div>
             </div>
-            {sent > 0 && (
+            {uniqueUsersSent > 0 && (
                 <div className="ml-10">
-                    <div className="text-4xl font-bold">{humanFriendlyNumber(sent)}</div>
-                    <div className="font-semibold text-secondary">Response(s) sent</div>
+                    <div className="text-4xl font-bold">{humanFriendlyNumber(uniqueUsersSent)}</div>
+                    <div className="font-semibold text-secondary">Response(s) by unique user(s)</div>
+                </div>
+            )}
+            {totalSent > 0 && totalSent !== uniqueUsersSent && (
+                <div className="ml-10">
+                    <div className="text-4xl font-bold">{humanFriendlyNumber(totalSent)}</div>
+                    <div className="font-semibold text-secondary">
+                        Response(s) sent (more than one response per user)
+                    </div>
                 </div>
             )}
         </div>
@@ -153,12 +161,12 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
 }
 
 export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent } = surveyUserStats
+    const { uniqueUsersOnlySeen, uniqueUsersDismissed, uniqueUsersSent } = surveyUserStats
 
     const segments: StackedBarSegment[] = [
-        { count: seen, label: 'Unanswered', colorClass: 'bg-brand-blue' },
-        { count: dismissed, label: 'Dismissed', colorClass: 'bg-warning' },
-        { count: sent, label: 'Submitted', colorClass: 'bg-success' },
+        { count: uniqueUsersOnlySeen, label: 'Unanswered', colorClass: 'bg-brand-blue' },
+        { count: uniqueUsersDismissed, label: 'Dismissed', colorClass: 'bg-warning' },
+        { count: uniqueUsersSent, label: 'Submitted', colorClass: 'bg-success' },
     ]
 
     return <StackedBar segments={segments} />
@@ -569,6 +577,7 @@ export function MultipleChoiceQuestionBarChart({
                                         hoverBackgroundColor: barColor,
                                     },
                                 ]}
+                                showPercentView={true}
                                 labels={surveyMultipleChoiceResults[questionIndex].labels}
                             />
                         </BindLogic>
