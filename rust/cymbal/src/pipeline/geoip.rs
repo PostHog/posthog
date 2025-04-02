@@ -6,7 +6,6 @@ use serde_json::Value;
 
 use crate::{app_context::AppContext, error::PipelineResult, metric_consts::GEOIP_PROCESSED};
 
-// Delete the $IP property from the event if it exists, doing geoip lookup unless $geoip_disable is true
 pub fn add_geoip(mut buffer: Vec<PipelineResult>, context: &AppContext) -> Vec<PipelineResult> {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct GeoIpProps {
