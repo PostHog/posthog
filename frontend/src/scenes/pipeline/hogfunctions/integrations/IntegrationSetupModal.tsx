@@ -67,15 +67,15 @@ export function IntegrationSetupModal({
             return
         }
 
-        const errors = integrationConfig.fields.reduce((acc, field) => {
+        const formErrors = integrationConfig.fields.reduce((acc, field) => {
             if (field.required && !credentials[field.key]) {
                 acc[field.key] = 'Required'
             }
             return acc
         }, {} as Record<string, string>)
 
-        if (Object.keys(errors).length > 0) {
-            setErrors(errors)
+        if (Object.keys(formErrors).length > 0) {
+            setErrors(formErrors)
             return
         }
 
