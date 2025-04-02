@@ -39,13 +39,14 @@ class MockStripeAPI:
             case _:
                 raise ValueError(f"Mock Stripe API: Unknown resource: {resource}")
 
-        query = parse_qs(urlparse(request.url).query)
         # Stripe returns data in reverse chronological order
         filtered_data = sorted(data, key=lambda x: x["created"], reverse=True)
 
         if self.max_created:
             filtered_data = [tx for tx in filtered_data if tx["created"] <= self.max_created]
 
+        # Handle query params (only those we use are implemented here)
+        query = parse_qs(urlparse(request.url).query)
         if "created[gte]" in query:
             created_gte = int(query["created[gte]"][0])
             filtered_data = [tx for tx in filtered_data if tx["created"] >= created_gte]
@@ -63,14 +64,12 @@ class MockStripeAPI:
             has_more = len(filtered_data) > limit
             filtered_data = filtered_data[:limit]
 
-        result = {
+        return {
             "object": "list",
             "data": filtered_data,
             "has_more": has_more,
             "url": f"/v1/{resource}",
         }
-
-        return result
 
     def get_all_api_calls(self):
         return self.requests_mock.request_history
@@ -78,5 +77,4 @@ class MockStripeAPI:
 
 @pytest.fixture
 def mock_stripe_api(requests_mock):
-    # requests_mock.get(re.compile(r"https://api\.stripe\.com/v1/.*"), json=get_resources)
     return MockStripeAPI(requests_mock)

@@ -147,6 +147,8 @@ async def _run_test(
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
+        # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating
+        # the incremental field last value
         mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
         mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
@@ -202,6 +204,10 @@ async def _run_test(
 async def test_stripe_source_full_refresh(
     team, mock_stripe_api, external_data_source, external_data_schema_full_refresh
 ):
+    """Test that a full refresh sync works as expected.
+
+    We expect a single API call to be made to our mock Stripe API, which returns all the balance transactions.
+    """
     table_name = "stripe_balancetransaction"
     expected_num_rows = len(BALANCE_TRANSACTIONS)
 
@@ -224,6 +230,14 @@ async def test_stripe_source_full_refresh(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_incremental(team, mock_stripe_api, external_data_source, external_data_schema_incremental):
+    """Test that an incremental sync works as expected.
+
+    We set the 'max_created' value to the created timestamp of the third item in the BALANCE_TRANSACTIONS list. This
+    means on the first sync it will return all the data, except for the most recent 2 balance transactions.
+
+    Then, after resetting the 'max_created' value, we expect the incremental sync to return the most recent 2 balance
+    transactions when it is called again.
+    """
     table_name = "stripe_balancetransaction"
 
     # mock the API so it doesn't return all data on initial sync
