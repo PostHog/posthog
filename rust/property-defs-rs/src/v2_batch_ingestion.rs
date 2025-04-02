@@ -1,21 +1,21 @@
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
-use quick_cache::sync::Cache;
+use quick_cache::sync::Cache as InMemoryCache;
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
+    cache::{LayeredCache, NoOpCache},
     config::Config,
     metrics_consts::{
-        CACHE_CONSUMED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_CACHE_TIME,
-        V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, V2_EVENT_DEFS_BATCH_WRITE_TIME,
-        V2_EVENT_PROPS_BATCH_ATTEMPT, V2_EVENT_PROPS_BATCH_CACHE_TIME,
+        CACHE_CONSUMED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_ROWS_AFFECTED,
+        V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_PROPS_BATCH_ATTEMPT,
         V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, V2_EVENT_PROPS_BATCH_WRITE_TIME,
-        V2_PROP_DEFS_BATCH_ATTEMPT, V2_PROP_DEFS_BATCH_CACHE_TIME,
-        V2_PROP_DEFS_BATCH_ROWS_AFFECTED, V2_PROP_DEFS_BATCH_WRITE_TIME,
+        V2_PROP_DEFS_BATCH_ATTEMPT, V2_PROP_DEFS_BATCH_ROWS_AFFECTED,
+        V2_PROP_DEFS_BATCH_WRITE_TIME, V2_BATCH_CACHE_TIME,
     },
     types::{EventDefinition, EventProperty, GroupType, PropertyDefinition, Update},
 };
@@ -52,7 +52,6 @@ impl EventPropertiesBatch {
         self.project_ids.push(ep.project_id);
         self.event_names.push(ep.event.clone());
         self.property_names.push(ep.property.clone());
-
         self.to_cache.push_back(Update::EventProperty(ep));
     }
 
@@ -64,12 +63,8 @@ impl EventPropertiesBatch {
         self.to_cache.len() == 0
     }
 
-    pub fn cache_batch(&mut self, cache: &mut Arc<Cache<Update, ()>>) {
-        let timer = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_CACHE_TIME, &[]);
-        for update in self.to_cache.drain(..) {
-            cache.insert(update, ());
-        }
-        timer.fin();
+    pub fn drain(&mut self) -> Vec<Update> {
+        self.to_cache.drain(..).collect()
     }
 }
 
@@ -103,7 +98,6 @@ impl EventDefinitionsBatch {
         self.team_ids.push(ed.team_id);
         self.project_ids.push(ed.project_id);
         self.last_seen_ats.push(ed.last_seen_at);
-
         self.to_cache.push_back(Update::Event(ed));
     }
 
@@ -115,12 +109,8 @@ impl EventDefinitionsBatch {
         self.to_cache.len() == 0
     }
 
-    pub fn cache_batch(mut self, cache: &mut Arc<Cache<Update, ()>>) {
-        let timer = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_CACHE_TIME, &[]);
-        for update in self.to_cache.drain(..) {
-            cache.insert(update, ());
-        }
-        timer.fin();
+    pub fn drain(&mut self) -> Vec<Update> {
+        self.to_cache.drain(..).collect()
     }
 }
 
@@ -173,7 +163,6 @@ impl PropertyDefinitionsBatch {
         self.property_types.push(property_type);
         self.event_types.push(pd.event_type as i16);
         self.group_type_indices.push(group_type_index);
-
         self.to_cache.push_back(Update::Property(pd));
     }
 
@@ -185,19 +174,15 @@ impl PropertyDefinitionsBatch {
         self.to_cache.len() == 0
     }
 
-    pub fn cache_batch(&mut self, cache: &mut Arc<Cache<Update, ()>>) {
-        let timer = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_CACHE_TIME, &[]);
-        for update in self.to_cache.drain(..) {
-            cache.insert(update, ());
-        }
-        timer.fin();
+    pub fn drain(&mut self) -> Vec<Update> {
+        self.to_cache.drain(..).collect()
     }
 }
 
 // HACK: making this public so the test suite file can live under "../tests/" dir
 pub async fn process_batch_v2(
     config: &Config,
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<InMemoryCache<Update, ()>>,
     pool: &PgPool,
     batch: Vec<Update>,
 ) {
@@ -205,12 +190,13 @@ pub async fn process_batch_v2(
     metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
     // TODO(eli): implement v1-style delay while cache is warming?
+    let mut layered_cache = LayeredCache::new(cache, NoOpCache::new());
 
-    // prep reshaped, isolated data batch bufffers and async join handles
+    // prep reshaped, isolated data batch buffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
     let mut prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
-    let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
+    let mut handles: Vec<JoinHandle<(Result<(), sqlx::Error>, Vec<Update>)>> = vec![];
 
     // loop on the Update batch, splitting into smaller vectorized PG write batches
     // and submitted async. note for testing and simplicity, we don't work with
@@ -224,9 +210,9 @@ pub async fn process_batch_v2(
                 event_defs.append(ed);
                 if event_defs.should_flush_batch() {
                     let pool = pool.clone();
-                    let cache = cache.clone();
+                    let updates = event_defs.drain();
                     handles.push(tokio::spawn(async move {
-                        write_event_definitions_batch(cache, event_defs, &pool).await
+                        (write_event_definitions_batch(event_defs, &pool).await, updates)
                     }));
                     event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
@@ -235,9 +221,9 @@ pub async fn process_batch_v2(
                 event_props.append(ep);
                 if event_props.should_flush_batch() {
                     let pool = pool.clone();
-                    let cache = cache.clone();
+                    let updates = event_props.drain();
                     handles.push(tokio::spawn(async move {
-                        write_event_properties_batch(cache, event_props, &pool).await
+                        (write_event_properties_batch(event_props, &pool).await, updates)
                     }));
                     event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
                 }
@@ -246,9 +232,9 @@ pub async fn process_batch_v2(
                 prop_defs.append(pd);
                 if prop_defs.should_flush_batch() {
                     let pool = pool.clone();
-                    let cache = cache.clone();
+                    let updates = prop_defs.drain();
                     handles.push(tokio::spawn(async move {
-                        write_property_definitions_batch(cache, prop_defs, &pool).await
+                        (write_property_definitions_batch(prop_defs, &pool).await, updates)
                     }));
                     prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
                 }
@@ -259,30 +245,34 @@ pub async fn process_batch_v2(
     // ensure partial batches are flushed to Postgres too
     if !event_defs.is_empty() {
         let pool = pool.clone();
-        let cache = cache.clone();
+        let updates = event_defs.drain();
         handles.push(tokio::spawn(async move {
-            write_event_definitions_batch(cache, event_defs, &pool).await
+            (write_event_definitions_batch(event_defs, &pool).await, updates)
         }));
     }
     if !prop_defs.is_empty() {
         let pool = pool.clone();
-        let cache = cache.clone();
+        let updates = prop_defs.drain();
         handles.push(tokio::spawn(async move {
-            write_property_definitions_batch(cache, prop_defs, &pool).await
+            (write_property_definitions_batch(prop_defs, &pool).await, updates)
         }));
     }
     if !event_props.is_empty() {
         let pool = pool.clone();
-        let cache = cache.clone();
+        let updates = event_props.drain();
         handles.push(tokio::spawn(async move {
-            write_event_properties_batch(cache, event_props, &pool).await
+            (write_event_properties_batch(event_props, &pool).await, updates)
         }));
     }
 
     for handle in handles {
         match handle.await {
-            Ok(result) => match result {
-                Ok(_) => continue,
+            Ok((result, updates)) => match result {
+                Ok(_) => {
+                    let timer = common_metrics::timing_guard(V2_BATCH_CACHE_TIME, &[]);
+                    layered_cache.insert_batch(updates);
+                    timer.fin();
+                }
                 Err(db_err) => {
                     warn!("Batch write exhausted retries: {:?}", db_err);
                 }
@@ -295,8 +285,7 @@ pub async fn process_batch_v2(
 }
 
 async fn write_event_properties_batch(
-    mut cache: Arc<Cache<Update, ()>>,
-    mut batch: EventPropertiesBatch,
+    batch: EventPropertiesBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_WRITE_TIME, &[]);
@@ -339,10 +328,6 @@ async fn write_event_properties_batch(
                 metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "success")]);
                 common_metrics::inc(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
-
-                // now it's safe to cache the original updates
-                batch.cache_batch(&mut cache);
-
                 return Ok(());
             }
         }
@@ -350,8 +335,7 @@ async fn write_event_properties_batch(
 }
 
 async fn write_property_definitions_batch(
-    mut cache: Arc<Cache<Update, ()>>,
-    mut batch: PropertyDefinitionsBatch,
+    batch: PropertyDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
@@ -406,10 +390,6 @@ async fn write_property_definitions_batch(
                 metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
                 common_metrics::inc(V2_PROP_DEFS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
-
-                // now it's safe to cache the original updates
-                batch.cache_batch(&mut cache);
-
                 return Ok(());
             }
         }
@@ -417,7 +397,6 @@ async fn write_property_definitions_batch(
 }
 
 async fn write_event_definitions_batch(
-    mut cache: Arc<Cache<Update, ()>>,
     batch: EventDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
@@ -467,10 +446,6 @@ async fn write_event_definitions_batch(
                 metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
                 common_metrics::inc(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
-
-                // now it's safe to cache the original updates
-                batch.cache_batch(&mut cache);
-
                 return Ok(());
             }
         }
