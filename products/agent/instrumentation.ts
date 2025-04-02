@@ -1,8 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { mapLimit } from 'async'
 import * as fg from 'fast-glob'
 import * as fsSync from 'fs'
 import * as fs from 'fs/promises'
+import OpenAI from 'openai'
 import * as path from 'path'
 
 interface AnalyticsEvent {
@@ -73,8 +73,8 @@ Key features:
 const AGENT_OPTIONS: AgentOptions = {
   concurrency: 5,
   costs: {
-    inputTokenRate: 3,   // $3 per million tokens for Claude 3.7
-    outputTokenRate: 15   // $15 per million tokens for Claude 3.7
+    inputTokenRate: 1.10,   // $1.10 per million tokens for o3-mini
+    outputTokenRate: 4.40   // $4.40 per million tokens for o3-mini
   },
   ignore: [
     '**/node_modules/**',
@@ -85,7 +85,7 @@ const AGENT_OPTIONS: AgentOptions = {
     '**/__tests__/**',
     '**/*.d.ts'
   ],
-  model: 'claude-3-7-sonnet-20250219'
+  model: 'o3-mini'
 }
 
 // Configuration for different file types
@@ -168,8 +168,8 @@ General Rules:
 - You should avoid adding analytics events that will break the code, so if you are unsure whether an event will break the code, just skip it.
 - Make sure events are not duplicated, if an event is already being tracked, do not add another one.`
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
 })
 
 let inputTokens = 0
@@ -189,27 +189,25 @@ Description: ${PRODUCT_CONFIG.description}
 Analytics Setup and Examples:
 ${analyticsDoc}`
 
-  const userPrompt = `Analyze and add analytics events to this file:
+  const message = await openai.chat.completions.create({
+    model: AGENT_OPTIONS.model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user', content: `Analyze and add analytics events to this file:
 
 Current file path: ${filePath}
 Current file content:
 ${content}`
-
-  const message = await anthropic.messages.create({
-    model: AGENT_OPTIONS.model,
-    system: systemPrompt,
-    messages: [
-      { role: 'user', content: userPrompt }
+      }
     ],
-    max_tokens: 4096,
-    temperature: 0.1
+    reasoning_effort: "high"
   })
 
-  inputTokens += message.usage?.input_tokens || 0
-  outputTokens += message.usage?.output_tokens || 0
+  inputTokens += message.usage?.prompt_tokens || 0
+  outputTokens += message.usage?.completion_tokens || 0
 
-  // Get the text content, handling potential text/image content blocks
-  const modifiedContent = message.content.find(block => block.type === 'text')?.text || ''
+  const modifiedContent = message.choices[0]?.message?.content || ''
   const addedEvents = extractAddedEvents(content, modifiedContent, filePath)
 
   return {
