@@ -3,19 +3,17 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ReactNode, useState } from 'react'
 
-import { IntegrationKind } from '~/types'
-
 interface IntegrationSetupModalProps {
     isOpen: boolean
     onClose: () => void
-    integration: IntegrationKind
+    integration: string
     integrationName: string
     onComplete?: (integrationId: number) => void
 }
 
 type IntegrationCredentials = Partial<
     Record<
-        IntegrationKind,
+        string,
         {
             fields: Array<{
                 key: string

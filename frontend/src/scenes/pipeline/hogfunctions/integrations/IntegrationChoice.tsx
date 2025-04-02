@@ -8,7 +8,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionInputSchemaType, IntegrationKind } from '~/types'
+import { HogFunctionInputSchemaType } from '~/types'
 
 import { IntegrationSetupModal } from './IntegrationSetupModal'
 
@@ -17,7 +17,7 @@ export type IntegrationConfigureProps = {
     onChange?: (value: number | null) => void
     redirectUrl?: string
     schema?: HogFunctionInputSchemaType
-    integration?: IntegrationKind
+    integration?: string
     beforeRedirect?: () => void
 }
 
