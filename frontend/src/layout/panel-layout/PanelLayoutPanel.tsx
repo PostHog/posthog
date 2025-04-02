@@ -25,7 +25,9 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
     return (
         <>
             <nav
-                className={clsx('flex flex-col max-h-screen min-h-screen relative w-[320px] border-r border-primary')}
+                className={clsx(
+                    'flex flex-col max-h-screen min-h-screen relative w-[var(--project-panel-width)] border-r border-primary'
+                )}
                 ref={containerRef}
             >
                 <div className="flex justify-between p-1 bg-surface-tertiary">
