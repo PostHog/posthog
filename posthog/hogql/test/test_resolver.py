@@ -391,15 +391,17 @@ class TestResolver(BaseTest):
 
     def test_lambda_parent_scope(self):
         # does not raise
-        node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) from events")
+        node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) as am from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # found a type
-        lambda_type: ast.SelectQueryType = cast(ast.SelectQueryType, cast(ast.Call, node.select[1]).args[0].type)
+        lambda_type: ast.SelectQueryType = cast(
+            ast.SelectQueryType, cast(ast.Call, cast(ast.Alias, node.select[1]).expr).args[0].type
+        )
         self.assertEqual(lambda_type.parent, node.type)
         self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
         assert isinstance(lambda_type.parent, ast.SelectQueryType)
-        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
+        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp", "am"])
 
     def test_field_traverser_double_dot(self):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
