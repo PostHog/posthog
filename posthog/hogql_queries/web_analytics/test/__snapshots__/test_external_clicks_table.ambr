@@ -25,7 +25,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -68,7 +68,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -111,7 +111,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -154,7 +154,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -197,7 +197,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -250,7 +250,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -293,7 +293,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -336,7 +336,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -379,7 +379,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -422,7 +422,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
@@ -465,7 +465,7 @@
        (SELECT min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')), toIntervalDay(3))))
         GROUP BY raw_sessions.session_id_v7,
                  raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
      LEFT OUTER JOIN
