@@ -21,6 +21,7 @@ type IntegrationCredentials = Partial<
                 key: string
                 label: string
                 type: 'password' | 'text'
+                required: boolean
             }>
             helpText?: ReactNode
             createFn: (credentials: Record<string, string>, callback: (integration: any) => void) => void
@@ -31,8 +32,8 @@ type IntegrationCredentials = Partial<
 const INTEGRATION_CREDENTIALS: IntegrationCredentials = {
     email: {
         fields: [
-            { key: 'apiKey', label: 'API Key', type: 'text' },
-            { key: 'secretKey', label: 'Secret Key', type: 'password' },
+            { key: 'apiKey', label: 'API Key', type: 'text', required: true },
+            { key: 'secretKey', label: 'Secret Key', type: 'password', required: true },
         ],
         helpText: (
             <>
@@ -59,11 +60,25 @@ export function IntegrationSetupModal({
 }: IntegrationSetupModalProps): JSX.Element {
     const [credentials, setCredentials] = useState<Record<string, string>>({})
     const integrationConfig = INTEGRATION_CREDENTIALS[integration]
+    const [errors, setErrors] = useState<Record<string, string>>({})
 
     const handleSubmit = (): void => {
         if (!integrationConfig) {
             return
         }
+
+        const errors = integrationConfig.fields.reduce((acc, field) => {
+            if (field.required && !credentials[field.key]) {
+                acc[field.key] = 'Required'
+            }
+            return acc
+        }, {} as Record<string, string>)
+
+        if (Object.keys(errors).length > 0) {
+            setErrors(errors)
+            return
+        }
+
         integrationConfig.createFn(credentials, (integration) => {
             onComplete?.(integration.id)
             onClose()
@@ -96,13 +111,13 @@ export function IntegrationSetupModal({
                     <div className="text-sm text-gray-500">{integrationConfig.helpText}</div>
                 )}
                 {integrationConfig.fields.map((field) => (
-                    <LemonField key={field.key} label={field.label} name={field.key}>
+                    <LemonField.Pure key={field.key} label={field.label} error={errors[field.key]}>
                         <LemonInput
                             type={field.type}
                             value={credentials[field.key] || ''}
                             onChange={(value) => setCredentials((prev) => ({ ...prev, [field.key]: value }))}
                         />
-                    </LemonField>
+                    </LemonField.Pure>
                 ))}
             </div>
         </LemonModal>
