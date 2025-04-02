@@ -212,6 +212,74 @@ class EventsQueryRunner(QueryRunner):
                     order_by=order_by,
                 )
 
+                if (
+                    self.modifiers.usePresortedEventsTable
+                    and (order_by is not None and len(order_by) == 1 and order_by[0].expr.chain == ["timestamp"])
+                    and not has_any_aggregation
+                ):
+                    stmt.where = ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Tuple(
+                                    exprs=[
+                                        ast.Field(chain=["e", "timestamp"]),
+                                        ast.Field(chain=["e", "event"]),
+                                        ast.Call(
+                                            name="cityHash64",
+                                            args=[ast.Field(chain=["e", "distinct_id"])],
+                                            distinct=False,
+                                        ),
+                                        ast.Call(name="cityHash64", args=[ast.Field(chain=["e", "uuid"])]),
+                                    ]
+                                ),
+                                right=ast.SelectQuery(
+                                    select=[
+                                        [
+                                            ast.Field(chain=["needle", "timestamp"]),
+                                            ast.Field(chain=["needle", "event"]),
+                                            ast.Field(chain=["needle", "did"]),
+                                            ast.Field(chain=["needle", "uuid"]),
+                                        ]
+                                    ],
+                                    select_from=ast.JoinExpr(
+                                        alias="needle",
+                                        table=ast.SelectQuery(
+                                            select=[
+                                                ast.Field(chain=["timestamp"]),
+                                                ast.Field(chain=["event"]),
+                                                ast.Alias(
+                                                    alias="did",
+                                                    expr=ast.Call(
+                                                        name="cityHash64", args=[ast.Field(chain=["distinct_id"])]
+                                                    ),
+                                                ),
+                                                ast.Alias(
+                                                    alias="uuid",
+                                                    expr=ast.Call(name="cityHash64", args=[ast.Field(chain=["uuid"])]),
+                                                ),
+                                            ],
+                                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                                            where=ast.And(exprs=[stmt.where]),
+                                            order_by=[
+                                                ast.OrderExpr(
+                                                    expr=ast.Call(
+                                                        name="toDate",
+                                                        args=[
+                                                            ast.Field(chain=["events", "timestamp"]),
+                                                        ],
+                                                    ),
+                                                    order="DESC",  # TODO: use order from order_by
+                                                )
+                                            ],
+                                            # limit=ast.Constant(value=50000), # TODO: implement using limit context
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            stmt.where,
+                        ]
+                    )
                 return stmt
 
     def calculate(self) -> EventsQueryResponse:
