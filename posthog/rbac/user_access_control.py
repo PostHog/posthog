@@ -37,6 +37,13 @@ NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
+ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
+    "feature_flag",
+    "dashboard",
+    "insight",
+    "notebook",
+)
+
 
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
     if resource in ["project", "organization"]:

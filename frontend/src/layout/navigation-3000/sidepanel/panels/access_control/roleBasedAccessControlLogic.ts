@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    AccessControlResourceType,
     AccessControlResponseType,
     AccessControlType,
     AccessControlTypeRole,
@@ -233,8 +234,12 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
         resources: [
             () => [],
             (): AccessControlType['resource'][] => {
-                // TODO: Sync this as an enum
-                return ['feature_flag', 'dashboard', 'insight', 'notebook']
+                return [
+                    AccessControlResourceType.FeatureFlag,
+                    AccessControlResourceType.Dashboard,
+                    AccessControlResourceType.Insight,
+                    AccessControlResourceType.Notebook,
+                ]
             },
         ],
 
