@@ -620,6 +620,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.NotFound("Recording not found")
 
         source = request.GET.get("source")
+        allow_blob_v2 = request.GET.get("allow_blob_v2", "false") == "true"
 
         event_properties = {
             "team_id": self.team.pk,
@@ -643,7 +644,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if personal_api_key:
             SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=personal_api_key, source=source).inc()
 
-        is_v2_enabled = posthoganalytics.feature_enabled(
+        # we let people opt in to the API via query param or enforce it via feature flag
+        is_v2_enabled = allow_blob_v2 or posthoganalytics.feature_enabled(
             "recordings-blobby-v2-replay",
             str(self.team.pk),
             groups={"organization": str(self.team.organization_id)},
