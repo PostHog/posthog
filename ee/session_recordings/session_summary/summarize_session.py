@@ -90,6 +90,10 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     with timer("get_events"):
         session_events_columns, session_events = _get_session_events(recording.session_id, team)
 
+    # TODO Get web analytics data on URLs to better understand what the user was doing
+    # related to average visitors of the same pages (left the page too fast, unexpected bounce, etc.).
+    # Keep in mind that in-app behavior (like querying insights a lot) differs from the web (visiting a lot of pages).
+
     with timer("generate_prompt"):
         prompt_data = SessionSummaryPromptData()
         prompt_data.load_session_data(session_events, session_metadata, session_events_columns)
@@ -133,10 +137,13 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
                     "role": "user",
                     "content": rendered_summary_template,
                 },
+                # TODO Check why the pre-defining the response with assistant text doesn't work properly
+                # (LLM still starts with ```yaml, while it should continue the assistant text)
                 # {
                 #     "role": "assistant",
                 #     "content": assistant_start_text,
                 # },
+                # TODO Integrate good parts from the parts below into the new prompt
                 #     {
                 #         "role": "system",
                 #         "content": """
@@ -186,10 +193,13 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
 
     if result.choices[0].message.content:
         raw_content: str = result.choices[0].message.content
-        # Strip the first and the last line of the content
+        # Strip the first and the last line of the content to keep the YAML data only
         # TODO Work on a more robust solution
         yaml_content = yaml.safe_load(raw_content.strip("```yaml\n").strip("```").strip())  # noqa: B005
         content = json.dumps(yaml_content)
+        # TODO Add schema to validate the content against (to avoid hallucinations)
+        # TODO Enrich the content with the URLs/timestamps/window ids/etc. based on the event_id
     else:
+        # TODO Log the error, add the retry for the LLM calls above to avoid returning empty content
         content = ""
     return {"content": content, "timings": timer.get_all_timings()}

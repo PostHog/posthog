@@ -163,14 +163,15 @@ class SessionSummaryPromptData:
                 return val.isoformat()
             return str(val)
 
-        # Join with a null byte as delimiter since it won't appear in normal strings
+        # Join with a null byte as delimiter since it won't appear in normal strings,
+        # so we can the same string using the same combination of values only.
         event_string = "\0".join(format_value(x) for x in event)
         return hashlib.sha256(event_string.encode()).hexdigest()[:length]
 
 
-def shorten_url(url: str, max_length: int = 128) -> str:
+def shorten_url(url: str, max_length: int = 256) -> str:
     """
-    Shorten long URLs to a more readable format.
+    Shorten long URLs to a more readable length, trying to keep the context.
     """
     if len(url) <= max_length:
         return url
