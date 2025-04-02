@@ -6,8 +6,10 @@ use quick_cache::sync::Cache;
 use rand::Rng;
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use tokio::sync::Mutex;
 
 use property_defs_rs::{
+    cache::{LayeredCache, NoOpCache},
     config::Config,
     types::{Event, PropertyParentType, Update},
     v2_batch_ingestion::process_batch_v2,
@@ -16,12 +18,13 @@ use property_defs_rs::{
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_simple_batch_write(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
-    let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));
+    let base_cache = Arc::new(Cache::new(config.cache_capacity));
+    let layered_cache = Arc::new(Mutex::new(LayeredCache::new(base_cache, NoOpCache::new())));
     let updates = gen_test_event_updates("$pageview", 100, None);
     // should decompose into 1 event def, 100 event props, 100 prop defs (of event type)
     assert_eq!(updates.len(), 201);
 
-    process_batch_v2(&config, cache, &db, updates).await;
+    process_batch_v2(&config, layered_cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -48,12 +51,13 @@ async fn test_simple_batch_write(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_group_batch_write(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
-    let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));
+    let base_cache = Arc::new(Cache::new(config.cache_capacity));
+    let layered_cache = Arc::new(Mutex::new(LayeredCache::new(base_cache, NoOpCache::new())));
     let updates = gen_test_event_updates("$groupidentify", 100, Some(PropertyParentType::Group));
     // should decompose into 1 group event def, 100 prop defs (of group type), 100 event props
     assert_eq!(updates.len(), 201);
 
-    process_batch_v2(&config, cache, &db, updates).await;
+    process_batch_v2(&config, layered_cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -80,13 +84,14 @@ async fn test_group_batch_write(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_person_batch_write(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
-    let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));
+    let base_cache = Arc::new(Cache::new(config.cache_capacity));
+    let layered_cache = Arc::new(Mutex::new(LayeredCache::new(base_cache, NoOpCache::new())));
     let updates =
         gen_test_event_updates("event_with_person", 100, Some(PropertyParentType::Person));
     // should decompose into 1 event def, 100 event props, 100 prop defs (50 $set, 50 $set_once props)
     assert_eq!(updates.len(), 201);
 
-    process_batch_v2(&config, cache, &db, updates).await;
+    process_batch_v2(&config, layered_cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
