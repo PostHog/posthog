@@ -397,6 +397,20 @@ export function objectCleanWithEmpty<T extends Record<string | number | symbol, 
     return response
 }
 
+export const removeUndefinedAndNull = (obj: any): any => {
+    if (Array.isArray(obj)) {
+        return obj.map(removeUndefinedAndNull)
+    } else if (obj && typeof obj === 'object') {
+        return Object.entries(obj).reduce((acc, [key, value]) => {
+            if (value !== undefined && value !== null) {
+                acc[key] = removeUndefinedAndNull(value)
+            }
+            return acc
+        }, {} as Record<string, any>)
+    }
+    return obj
+}
+
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
 export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
     const response: Record<string, any> = { ...obj2 }

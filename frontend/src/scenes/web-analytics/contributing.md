@@ -33,3 +33,10 @@ Note that web analytics and products analytics events are the same, the 2 produc
 
 Some web analytics features are present in the [toolbar](https://posthog.com/docs/toolbar), for example the toolbar will show you web vitals for the page you are on.
 
+## More resources
+* Clickhouse
+  * PostHog maintains a [Clickhouse manual](https://posthog.com/handbook/engineering/clickhouse) 
+  * Clickhouse has a [video course](https://learn.clickhouse.com/visitor_class_catalog/category/116050), which has been recommended by some team members
+    * You can skip the videos that are about e.g. migrating from another tool to Clickhouse
+  * [Designing Data-Intensive Applications](https://dataintensive.net/) is a great book about distributed systems, and chapter 3 introduces OLAP / columnar databases.
+    * If you already know what an OLAP database is, you'd probably get more out of the Clickhouse course than this book. This book is good at introducing concepts but won't touch on Clickhouse specifically.
