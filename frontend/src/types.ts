@@ -5143,6 +5143,15 @@ export interface ProductManifest {
 }
 
 export interface ProjectTreeRef {
+    /**
+     * Type of file system object.
+     * Use "/" as a separator to add an internal type, e.g. "hog/site_destination".
+     * Search with "hog/" to match all internal types.
+     */
     type: string
+    /**
+     * The ref of the file system object.
+     * Usually the "id" or "short_id" of the database object.
+     */
     ref: string
 }

@@ -69,6 +69,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createFolder: (parentPath: string) => ({ parentPath }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
+        setLastNewOperation: (objectType: string | null, folder: string | null) => ({ objectType, folder }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -284,6 +285,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+            },
+        ],
+        lastNewOperation: [
+            null as { objectType: string; folder: string } | null,
+            {
+                setLastNewOperation: (_, { folder, objectType }) => {
+                    if (folder && objectType) {
+                        return { folder, objectType }
+                    }
+                    return null
+                },
             },
         ],
         pendingActions: [
@@ -692,11 +704,38 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     )
                     breakpoint() // bail if we opened some other item in the meanwhile
                     if (resp.results && resp.results.length > 0) {
+                        const { lastNewOperation } = values
                         const result = resp.results[0]
                         path = result.path
-                        actions.createSavedItem(result)
+
+                        // Check if a "new" action was recently initiated for this object type.
+                        // If so, move the item to the new path.
+                        // TODO: also check that this was created by you (after we add more metadata to items)
+                        // - const createdBy = result.meta?.created_by
+                        if (
+                            result.path.startsWith('Unfiled/') &&
+                            lastNewOperation &&
+                            (lastNewOperation.objectType === result.type ||
+                                (lastNewOperation.objectType.includes('/') &&
+                                    result.type?.includes('/') &&
+                                    lastNewOperation.objectType.split('/')[0] === result.type.split('/')[0]))
+                        ) {
+                            const newPath = joinPath([
+                                ...splitPath(lastNewOperation.folder),
+                                ...splitPath(result.path).slice(-1),
+                            ])
+                            actions.createSavedItem({ ...result, path: newPath })
+                            path = newPath
+                            await api.fileSystem.move(result.id, newPath)
+                        } else {
+                            actions.createSavedItem(result)
+                        }
+                        if (lastNewOperation) {
+                            actions.setLastNewOperation(null, null)
+                        }
                     }
                 }
+
                 if (path) {
                     const expandedSet = new Set(values.expandedFolders)
                     const allFolders = splitPath(path).slice(0, -1)

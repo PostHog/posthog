@@ -82,22 +82,22 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
         {
             path: `Data source`,
-            type: 'source',
+            type: 'hog/source',
             href: () => urls.pipelineNodeNew(PipelineStage.Source),
         },
         {
             path: `Data destination`,
-            type: 'destination',
+            type: 'hog/destination',
             href: () => urls.pipelineNodeNew(PipelineStage.Destination),
         },
         {
             path: `Data transformation`,
-            type: 'transformation',
+            type: 'hog/transformation',
             href: () => urls.pipelineNodeNew(PipelineStage.Transformation),
         },
         {
             path: `Site app`,
-            type: 'site_app',
+            type: 'hog/site_app',
             href: () => urls.pipelineNodeNew(PipelineStage.SiteApp),
         },
     ].sort((a, b) => a.path.localeCompare(b.path))

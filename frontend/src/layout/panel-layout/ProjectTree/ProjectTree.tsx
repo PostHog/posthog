@@ -27,6 +27,7 @@ export function ProjectTree(): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
+        setLastNewOperation,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -196,6 +197,11 @@ export function ProjectTree(): JSX.Element {
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                const objectType: string | undefined = treeItem.record?.type
+                                                const folder = item.record?.path
+                                                if (objectType && folder) {
+                                                    setLastNewOperation(objectType, folder)
+                                                }
                                                 treeItem.onClick?.()
                                             }}
                                         >
@@ -248,6 +254,11 @@ export function ProjectTree(): JSX.Element {
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                const objectType: string | undefined = treeItem.record?.type
+                                                const folder = item.record?.path
+                                                if (objectType && folder) {
+                                                    setLastNewOperation(objectType, folder)
+                                                }
                                                 treeItem.onClick?.()
                                             }}
                                         >
