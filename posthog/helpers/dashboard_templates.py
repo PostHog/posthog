@@ -698,7 +698,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
     plural = group_type_mapping.name_plural or group_type_mapping.group_type + "s"
 
     dashboard = Dashboard.objects.create(
-        name=f"{singular.capitalize()} group type dashboard template",
+        name=f"Template dashboard for {singular} overview",
         description=f"This dashboard template powers the Overview page for all {plural}. Any insights will automatically filter to the selected {singular}.",
         team=group_type_mapping.team,
         created_by=user,
