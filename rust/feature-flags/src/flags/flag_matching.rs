@@ -920,19 +920,17 @@ impl FeatureFlagMatcher {
 
             // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
-                // Get the person ID for the current distinct ID – this value should be cached at this point, but as a fallback we fetch from the database
-                let person_id = self.get_person_id().await;
-                if let Some(person_id) = person_id {
-                    if !self
-                        .evaluate_cohort_filters(
-                            &cohort_filters,
-                            &person_or_group_properties,
-                            person_id,
-                        )
-                        .await?
-                    {
-                        return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
-                    }
+                // Get the person ID for the current distinct ID – this value should be cached at this point, and if we can't get it we return false.
+                let person_id = self.get_person_id().await?;
+                if !self
+                    .evaluate_cohort_filters(
+                        &cohort_filters,
+                        &person_or_group_properties,
+                        person_id,
+                    )
+                    .await?
+                {
+                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
         }
@@ -984,7 +982,7 @@ impl FeatureFlagMatcher {
     /// Retrieves the `PersonId` from the properties cache.
     /// If the cache does not contain a `PersonId`, it fetches it from the database
     /// and updates the cache accordingly.
-    async fn get_person_id(&mut self) -> Option<PersonId> {
+    async fn get_person_id(&mut self) -> Result<PersonId, FlagError> {
         match self.properties_cache.person_id {
             Some(id) => {
                 inc(
@@ -992,7 +990,7 @@ impl FeatureFlagMatcher {
                     &[("type".to_string(), "person_id".to_string())],
                     1,
                 );
-                Some(id)
+                Ok(id)
             }
             None => {
                 inc(
@@ -1000,7 +998,7 @@ impl FeatureFlagMatcher {
                     &[("type".to_string(), "person_id".to_string())],
                     1,
                 );
-                None
+                Err(FlagError::PersonNotFound)
             }
         }
     }
