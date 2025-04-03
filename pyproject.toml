@@ -124,6 +124,7 @@ dependencies = [
     "zstd==1.5.5.1",
     "zxcvbn==4.4.28",
     "pyyaml==6.0.1",
+    "tenacity>=8.4.2",
 ]
 
 [dependency-groups]
