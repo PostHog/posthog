@@ -720,6 +720,21 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Name of the device",
             "examples": ["iPhone 12 Pro", "Samsung Galaxy 10"],
         },
+        "$is_emulator": {
+            "label": "Is Emulator",
+            "description": "Indicates whether the app is running on an emulator or a physical device",
+            "examples": ["true", "false"],
+        },
+        "$is_mac_catalyst_app": {
+            "label": "Is Mac Catalyst App",
+            "description": "Indicates whether the app is a Mac Catalyst app running on macOS",
+            "examples": ["true", "false"],
+        },
+        "$is_ios_running_on_mac": {
+            "label": "Is iOS App Running on Mac",
+            "description": "Indicates whether the app is an iOS app running on macOS (Apple Silicon)",
+            "examples": ["true", "false"],
+        },
         "$locale": {
             "label": "Locale",
             "description": "The locale of the device",

@@ -733,6 +733,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The manufacturer of the device',
             examples: ['Apple', 'Samsung'],
         },
+        $device_name: {
+            label: 'Device Name',
+            description: 'Name of the device',
+            examples: ['iPhone 12 Pro', 'Samsung Galaxy 10'],
+        },
         $is_emulator: {
             label: 'Is Emulator',
             description: 'Indicates whether the app is running on an emulator or a physical device',
@@ -747,11 +752,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Is iOS App Running on Mac',
             description: 'Indicates whether the app is an iOS app running on macOS (Apple Silicon)',
             examples: ['true', 'false'],
-        },
-        $device_name: {
-            label: 'Device Name',
-            description: 'Name of the device',
-            examples: ['iPhone 12 Pro', 'Samsung Galaxy 10'],
         },
         $locale: {
             label: 'Locale',
