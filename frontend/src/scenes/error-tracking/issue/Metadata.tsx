@@ -13,7 +13,7 @@ export const Metadata = (): JSX.Element => {
 
     return (
         <LemonCard hoverEffect={false} className="grid grid-cols-[min-content_1fr] p-0">
-            <div className="flex flex-col justify-around items-start h-full px-6 py-3 border-r w-full">
+            <div className="flex flex-col justify-around items-start h-full p-4 border-r w-full">
                 {renderMetric('Occurrences', aggregations?.occurrences, summaryLoading)}
                 {renderMetric(
                     'Sessions',
