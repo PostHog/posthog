@@ -532,7 +532,7 @@ async fn write_event_definitions_batch(
                 // now it's safe to cache the original updates
                 batch.cache_batch(&mut cache);
 
-                // don't report success if the batch cache insetions failed!
+                // don't report success if the batch cache insertions failed!
                 common_metrics::inc(
                     V2_EVENT_DEFS_BATCH_ATTEMPT,
                     &[(String::from("result"), String::from("success"))],
