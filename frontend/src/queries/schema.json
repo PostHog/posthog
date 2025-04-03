@@ -10431,6 +10431,9 @@
                 "hidePersonsModal": {
                     "type": "boolean"
                 },
+                "hideTooltipOnScroll": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "InsightVizNode",
                     "type": "string"
@@ -15430,6 +15433,9 @@
                     "type": "boolean"
                 },
                 "hidePersonsModal": {
+                    "type": "boolean"
+                },
+                "hideTooltipOnScroll": {
                     "type": "boolean"
                 },
                 "kind": {

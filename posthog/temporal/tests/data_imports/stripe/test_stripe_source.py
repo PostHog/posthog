@@ -260,14 +260,14 @@ async def test_stripe_source_incremental(team, mock_stripe_api, external_data_so
     api_calls_made = mock_stripe_api.get_all_api_calls()
     assert len(api_calls_made) == 1
     assert parse_qs(urlparse(api_calls_made[0].url).query) == {
-        "created[gte]": ["0"],
+        "created[gt]": ["0"],
         "limit": ["100"],
     }
 
     mock_stripe_api.reset_max_created()
     # run the incremental sync
-    # we expect this to bring in 2 more rows but we actually sync one row twice since we use 'gte' in the query
-    expected_rows_synced = 3
+    # we expect this to bring in 2 more rows
+    expected_rows_synced = 2
     expected_total_rows = len(BALANCE_TRANSACTIONS)
 
     await _run_test(
@@ -284,6 +284,6 @@ async def test_stripe_source_incremental(team, mock_stripe_api, external_data_so
     # Check that the API was called once more
     assert len(api_calls_made) == 2
     assert parse_qs(urlparse(api_calls_made[1].url).query) == {
-        "created[gte]": [f"{third_item_created}"],
+        "created[gt]": [f"{third_item_created}"],
         "limit": ["100"],
     }

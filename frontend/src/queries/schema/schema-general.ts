@@ -892,6 +892,7 @@ interface InsightVizNodeViewProps {
     embedded?: boolean
     suppressSessionAnalysisWarning?: boolean
     hidePersonsModal?: boolean
+    hideTooltipOnScroll?: boolean
     vizSpecificOptions?: VizSpecificOptions
 }
 
