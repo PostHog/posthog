@@ -1,12 +1,10 @@
 from typing import TypedDict
 
 import tiktoken
-import tree_sitter_rust as rust
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from tree_sitter import Language, Node as SyntaxNode, Parser
+from tree_sitter import Node as SyntaxNode, Parser
 
-TS_LANGUAGE = Language(rust.language())
-parser = Parser(TS_LANGUAGE)
+from .parser import ProgrammingLanguage, get_parser_language
 
 
 def get_token_count(content: str):
@@ -26,9 +24,9 @@ class TreeWalker:
         "method_definition",
     }
 
-    def __init__(self, source_code: str, lookup_lines: set[int]):
+    def __init__(self, lang: ProgrammingLanguage, source_code: str, lookup_lines: set[int]):
         self.source_code = source_code.encode()
-        self.root = parser.parse(self.source_code).root_node
+        self.root = Parser(get_parser_language(lang)).parse(self.source_code).root_node
         self.context: dict[int, str] = {}
         self.visited: set[SyntaxNode] = set()
         self.path: list[tuple[int, SyntaxNode]] = []
@@ -122,7 +120,7 @@ class Chunk(TypedDict):
     content: str
 
 
-def chunk_code(path: str, content: str, chunk_size: int = 300, chunk_overlap: float = 0.2):
+def chunk_code(lang: ProgrammingLanguage, content: str, chunk_size: int = 300, chunk_overlap: float = 0.2):
     token_count = get_token_count(content)
     if token_count < chunk_size:
         return content
@@ -150,7 +148,7 @@ def chunk_code(path: str, content: str, chunk_size: int = 300, chunk_overlap: fl
         )
         capture_context_for.add(line_number)
 
-    context = TreeWalker(content, capture_context_for).traverse()
+    context = TreeWalker(lang, content, capture_context_for).traverse()
 
     for chunk in chunks_with_positions:
         chunk["context"] = context[chunk["line_start"]]
