@@ -1491,6 +1491,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
             ],
         },
+        "$ai_output_choices": {
+            "label": "AI Output (LLM)",
+            "description": "The output message choices JSON that was received from the LLM API",
+            "examples": [
+                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
+            ],
+        },
         "$ai_output_tokens": {
             "label": "AI Output Tokens (LLM)",
             "description": "The number of tokens in the output from the LLM API",
