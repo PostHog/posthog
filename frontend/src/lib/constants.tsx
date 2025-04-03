@@ -182,7 +182,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
-    HOG_FUNCTIONS_LINKED: 'hog-functions-linked', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
     ERROR_TRACKING: 'error-tracking', // owner: #team-error-tracking
@@ -256,6 +255,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS: 'web-analytics-data-warehouse-revenue-settings', // owner: @rafaeelaudibert #team-web-analytics
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
+    B2B_ANALYTICS: 'b2b-analytics', // owner: @danielbachhuber #team-crm
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
