@@ -4297,6 +4297,19 @@ export interface ExternalDataSource {
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
 }
+
+export interface DataModelingJob {
+    id: string
+    saved_query_id: string
+    status: 'Running' | 'Completed' | 'Failed'
+    rows_materialized: number
+    error: string | null
+    created_at: string
+    last_run_at: string
+    workflow_id: string
+    workflow_run_id: string
+}
+
 export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
