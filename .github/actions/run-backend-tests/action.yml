@@ -38,8 +38,33 @@ runs:
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
               export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
               cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-              docker compose -f docker-compose.dev.yml down
-              docker compose -f docker-compose.dev.yml up -d
+
+              max_attempts=3
+              attempt=1
+              delay=5
+
+              while [ $attempt -le $max_attempts ]; do
+                  echo "Attempt $attempt of $max_attempts to start stack..."
+                  
+                  if docker compose -f docker-compose.dev.yml down && \
+                     docker compose -f docker-compose.dev.yml up -d; then
+                      echo "Stack started successfully"
+                      exit 0
+                  fi
+                  
+                  echo "Failed to start stack on attempt $attempt"
+                  
+                  if [ $attempt -lt $max_attempts ]; then
+                      sleep_time=$((delay * 2 ** (attempt - 1)))
+                      echo "Waiting ${sleep_time} seconds before retry..."
+                      sleep $sleep_time
+                  fi
+                  
+                  attempt=$((attempt + 1))
+              done
+
+              echo "Failed to start stack after $max_attempts attempts"
+              exit 1
 
         - name: Add Kafka and ClickHouse to /etc/hosts
           shell: bash
@@ -53,10 +78,11 @@ runs:
               cache-dependency-path: '**/requirements*.txt'
               token: ${{ inputs.token }}
 
-        # uv is a fast pip alternative: https://github.com/astral-sh/uv/
         - name: Install uv
-          shell: bash
-          run: pip install uv
+          uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+          with:
+              enable-cache: true
+              pyproject-file: 'pyproject.toml'
 
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
@@ -95,7 +121,7 @@ runs:
         - name: Install Python dependencies
           shell: bash
           run: |
-              uv pip install --system -r requirements.txt -r requirements-dev.txt
+              UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
         - name: Install the working version of hogql-parser
           if: steps.hogql-parser-diff.outputs.changed == 'true'
@@ -121,7 +147,7 @@ runs:
               sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
               sudo ldconfig
               cd ..
-              uv pip install --system ./common/hogql_parser
+              uv pip install ./common/hogql_parser
 
         - name: Set up needed files
           shell: bash
@@ -160,7 +186,7 @@ runs:
               pytest ${{
                   inputs.person-on-events == 'true'
                   && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
-                  || 'posthog dags'
+                  || 'posthog'
               }} ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --ignore=posthog/temporal \
                   --ignore=common/hogvm/python/test \

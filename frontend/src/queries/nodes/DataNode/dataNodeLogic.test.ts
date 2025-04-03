@@ -469,10 +469,10 @@ describe('dataNodeLogic', () => {
         expect(performQuery).toHaveBeenCalledWith(
             query,
             expect.anything(),
-            false,
+            'blocking',
             expect.any(String),
             expect.any(Function),
-            filtersOverride,
+            { date_from: '2022-12-24T17:00:41.165000Z' },
             undefined,
             false
         )
@@ -502,11 +502,11 @@ describe('dataNodeLogic', () => {
         expect(performQuery).toHaveBeenCalledWith(
             query,
             expect.anything(),
-            false,
+            'blocking',
             expect.any(String),
             expect.any(Function),
             undefined,
-            variablesOverride,
+            { test_1: { code_name: 'some_name', value: 'hello world', variableId: 'some_id' } },
             false
         )
     })
@@ -527,7 +527,7 @@ describe('dataNodeLogic', () => {
         expect(performQuery).toHaveBeenCalledWith(
             query,
             expect.anything(),
-            false,
+            'blocking',
             expect.any(String),
             expect.any(Function),
             undefined,
@@ -552,7 +552,7 @@ describe('dataNodeLogic', () => {
         expect(performQuery).toHaveBeenCalledWith(
             query,
             expect.anything(),
-            false,
+            'blocking',
             expect.any(String),
             expect.any(Function),
             undefined,

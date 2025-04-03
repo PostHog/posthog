@@ -9,12 +9,12 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql.database.schema.exchange_rate import (
-    revenue_expression,
-    revenue_events_where_expr,
-    revenue_currency_expression,
+    DEFAULT_CURRENCY,
+    revenue_expression_for_events,
+    revenue_where_expr_for_events,
+    currency_expression_for_all_events,
 )
 from posthog.schema import (
-    CurrencyCode,
     RevenueTrackingConfig,
     RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
@@ -62,12 +62,15 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
                 ),
                 ast.Field(chain=["event"]),
                 ast.Alias(
-                    alias="original_revenue", expr=revenue_expression(tracking_config, do_currency_conversion=False)
+                    alias="original_revenue",
+                    expr=revenue_expression_for_events(tracking_config, do_currency_conversion=False),
                 ),
-                ast.Alias(alias="revenue", expr=revenue_expression(tracking_config, self.do_currency_conversion)),
-                ast.Alias(alias="original_currency", expr=revenue_currency_expression(tracking_config)),
+                ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(tracking_config)),
                 ast.Alias(
-                    alias="currency", expr=ast.Constant(value=(tracking_config.baseCurrency or CurrencyCode.USD).value)
+                    alias="revenue", expr=revenue_expression_for_events(tracking_config, self.do_currency_conversion)
+                ),
+                ast.Alias(
+                    alias="currency", expr=ast.Constant(value=(tracking_config.baseCurrency or DEFAULT_CURRENCY).value)
                 ),
                 ast.Call(
                     name="tuple",
@@ -84,7 +87,7 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
-                    revenue_events_where_expr(tracking_config),
+                    revenue_where_expr_for_events(tracking_config),
                     ast.CompareOperation(
                         op=CompareOperationOp.NotEq,
                         left=ast.Field(chain=["revenue"]),  # refers to the Alias above
@@ -136,9 +139,9 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
                 "*",
                 "event",
                 "original_revenue",
+                "original_currency",
                 "revenue",
-                "original_revenue_currency",
-                "revenue_currency",
+                "currency",
                 "person",
                 "session_id",
                 "timestamp",

@@ -44,7 +44,7 @@ logger = structlog.get_logger(__name__)
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
-FLAG_MATCHING_QUERY_TIMEOUT_MS = 300  # 300 ms. Any longer and we'll just error out.
+FLAG_MATCHING_QUERY_TIMEOUT_MS = 500  # 500 ms. Any longer and we'll just error out.
 
 FLAG_EVALUATION_ERROR_COUNTER = Counter(
     "flag_evaluation_error_total",
@@ -327,11 +327,10 @@ class FeatureFlagMatcher:
         )
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
+        # Calculate hash once outside the loop since it's the same for all variants
+        variant_hash = self.get_hash(feature_flag, salt="variant")
         for variant in self.variant_lookup_table(feature_flag):
-            if (
-                self.get_hash(feature_flag, salt="variant") >= variant["value_min"]
-                and self.get_hash(feature_flag, salt="variant") < variant["value_max"]
-            ):
+            if variant_hash >= variant["value_min"] and variant_hash < variant["value_max"]:
                 return variant["key"]
         return None
 
@@ -729,16 +728,23 @@ class FeatureFlagMatcher:
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     # we can do _hash(key, identifier) < 0.2
     def get_hash(self, feature_flag: FeatureFlag, salt="") -> float:
-        hash_key = f"{feature_flag.key}.{self.hashed_identifier(feature_flag)}{salt}"
-        hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
-        return hash_val / __LONG_SCALE__
+        return self.calculate_hash(f"{feature_flag.key}.", self.hashed_identifier(feature_flag), salt)
 
     # This function takes a identifier and a feature flag and returns a float between 0 and 1.
     # Given the same identifier and key, it'll always return the same float. These floats are
     # uniformly distributed between 0 and 1, and are keyed only on user's distinct id / group key.
     # Thus, irrespective of the flag, the same user will always get the same value.
     def get_holdout_hash(self, feature_flag: FeatureFlag, salt="") -> float:
-        hash_key = f"holdout-{self.hashed_identifier(feature_flag)}{salt}"
+        return self.calculate_hash("holdout-", self.hashed_identifier(feature_flag), salt)
+
+    @classmethod
+    def calculate_hash(cls, prefix: str, hash_identifier: str | None, salt="") -> float:
+        if hash_identifier is None:
+            # Return a hash value that will make the flag evaluate to false; since we
+            # can't evaluate a flag without an identifier.
+            # NB: A flag with 0.0 hash will always evaluate to false
+            return 0
+        hash_key = f"{prefix}{hash_identifier}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 

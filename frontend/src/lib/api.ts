@@ -1,10 +1,10 @@
+import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
 import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
-import { ChatCompletionUserMessageParam } from 'openai/resources/chat/completions'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -17,6 +17,7 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
+    FileSystemCount,
     FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
@@ -170,7 +171,6 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
-    async?: boolean
 }
 
 export class ApiError extends Error {
@@ -385,6 +385,12 @@ class ApiRequest {
     }
     public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id)
+    }
+    public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('move')
+    }
+    public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
     }
 
     // # Plugins
@@ -763,7 +769,7 @@ class ApiRequest {
 
     // Error tracking
     public errorTracking(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('error_tracking')
+        return this.environmentsDetail(teamId).addPathComponent('error_tracking')
     }
 
     public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
@@ -794,16 +800,8 @@ class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
-    public errorTrackingStackFrames({
-        raw_ids,
-        symbol_set,
-    }: {
-        raw_ids?: ErrorTrackingStackFrame['raw_id'][]
-        symbol_set?: ErrorTrackingSymbolSet['id']
-    }): ApiRequest {
-        return this.errorTracking()
-            .addPathComponent('stack_frames')
-            .withQueryString(toParams({ raw_ids, symbol_set }, true))
+    public errorTrackingStackFrames(): ApiRequest {
+        return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
     // # Warehouse
@@ -1234,13 +1232,29 @@ const api = {
     },
 
     fileSystem: {
-        async list(
-            parent?: string,
-            depth?: number,
-            limit?: number,
+        async list({
+            parent,
+            depth,
+            limit,
+            offset,
+            search,
+            ref,
+            type,
+            type__startswith,
+        }: {
+            parent?: string
+            depth?: number
+            limit?: number
             offset?: number
-        ): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset }).get()
+            search?: string
+            ref?: string
+            type?: string
+            type__startswith?: string
+        }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest()
+                .fileSystem()
+                .withQueryString({ parent, depth, limit, offset, search, ref, type, type__startswith })
+                .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
@@ -1253,6 +1267,12 @@ const api = {
         },
         async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).delete()
+        },
+        async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
+        },
+        async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
+            return await new ApiRequest().fileSystemCount(id).create()
         },
     },
 
@@ -1597,6 +1617,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            exclude_core_properties?: boolean
             properties?: string[]
             filter_by_event_names?: boolean
             type?: PropertyDefinitionType
@@ -1623,6 +1644,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            exclude_core_properties?: boolean
             filter_by_event_names?: boolean
             is_feature_flag?: boolean
             limit?: number
@@ -2040,6 +2062,9 @@ const api = {
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
         },
+        async sendBroadcast(id: HogFunctionType['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).withAction('broadcast').create()
+        },
         async logs(
             id: HogFunctionType['id'],
             params: LogEntryRequestParams = {}
@@ -2142,12 +2167,13 @@ const api = {
             return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
         },
 
-        async bulkResolve(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'resolve', ids } })
-        },
-
-        async bulkSuppress(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'suppress', ids } })
+        async bulkMarkStatus(
+            ids: ErrorTrackingIssue['id'][],
+            status: ErrorTrackingIssue['status']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingIssueBulk()
+                .create({ data: { action: 'set_status', ids, status: status } })
         },
 
         async bulkAssign(
@@ -2181,13 +2207,13 @@ const api = {
         async symbolSetStackFrames(
             id: ErrorTrackingSymbolSet['id']
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
-            return await new ApiRequest().errorTrackingStackFrames({ symbol_set: id }).get()
+            return await new ApiRequest().errorTrackingStackFrames().create({ data: { symbol_set: id } })
         },
 
         async stackFrames(
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
-            return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
+            return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
         },
     },
 
@@ -2335,10 +2361,6 @@ const api = {
                 .withAction('recordings')
                 .withAction(session_recording_id)
                 .delete()
-        },
-
-        async aiFilters(messages: ChatCompletionUserMessageParam[]): Promise<{ result: string; data: any }> {
-            return await new ApiRequest().recordings().withAction('ai/filters').create({ data: { messages } })
         },
 
         async aiRegex(regex: string): Promise<{ result: string; data: any }> {
@@ -3006,7 +3028,12 @@ const api = {
 
     conversations: {
         async stream(
-            data: { content: string; conversation?: string | null; trace_id: string },
+            data: {
+                content: string
+                contextual_tools?: Record<string, any>
+                conversation?: string | null
+                trace_id: string
+            },
             options?: ApiMethodOptions
         ): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)
@@ -3110,6 +3137,54 @@ const api = {
                 },
             })
         )
+    },
+
+    /** Stream server-sent events over an EventSource. */
+    async stream(
+        url: string,
+        {
+            method = 'GET',
+            data,
+            onMessage,
+            onError,
+            headers,
+            signal,
+        }:
+            | {
+                  method?: 'GET'
+                  /** GET requests cannot contain a body, use URL params instead. */
+                  data?: never
+                  onMessage: (data: EventSourceMessage) => void
+                  onError: (error: any) => void
+                  headers?: Record<string, string>
+                  signal?: AbortSignal
+              }
+            | {
+                  method: 'POST'
+                  /** Any JSON-serializable object. */
+                  data: any
+                  onMessage: (data: EventSourceMessage) => void
+                  onError: (error: any) => void
+                  headers?: Record<string, string>
+                  signal?: AbortSignal
+              }
+    ): Promise<void> {
+        await fetchEventSource(url, {
+            method,
+            headers: {
+                ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+                'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                ...objectClean(headers ?? {}),
+            },
+            body: data !== undefined ? JSON.stringify(data) : undefined,
+            signal,
+            onmessage: onMessage,
+            onerror: onError,
+            // By default fetch-event-source stops connection when document is no longer focused, but that is not how
+            // EventSource works normally, hence reverting (https://github.com/Azure/fetch-event-source/issues/36)
+            openWhenHidden: true,
+        })
     },
 
     async loadPaginatedResults<T extends Record<string, any>>(

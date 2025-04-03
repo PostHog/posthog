@@ -121,7 +121,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         .funnel-bar {
             position: relative;
             height: 100%;
-            background: var(--accent-primary);
+            background: var(--accent);
             transition: width 0.2s ease, height 0.2s ease;
 
             &.first {
