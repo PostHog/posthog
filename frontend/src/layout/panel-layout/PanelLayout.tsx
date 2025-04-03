@@ -103,6 +103,14 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         }
     }, [mainRef, setMainContentRef])
 
+    // Watch for switch to mobile, if panel is visible, hide it
+    useEffect(() => {
+        if (isLayoutPanelVisible && isMobileLayout) {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
+        }
+    }, [isMobileLayout, isLayoutPanelVisible, clearActivePanelIdentifier, showLayoutPanel])
+
     return (
         <div className="relative" ref={containerRef}>
             <div
