@@ -11,6 +11,7 @@ use crate::{
     metrics_consts::{
         CACHE_WARMING_STATE, GROUP_TYPE_CACHE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME,
         SINGLE_UPDATE_ISSUE_TIME, UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME,
+        V2_ISOLATED_DB_SELECTED,
     },
     types::{GroupType, Update},
 };
@@ -105,7 +106,20 @@ impl AppContext {
 
         let transaction_time = common_metrics::timing_guard(UPDATE_TRANSACTION_TIME, &[]);
         if !self.skip_writes && !self.skip_reads {
-            let mut tx = self.pool.begin().await?;
+            // if enable_v2 is TRUE and we are in the mirror deploy, use propdefs write DB.
+            let mut write_pool = &self.pool;
+            if self.enable_v2 {
+                if let Some(resolved) = &self.propdefs_pool {
+                    metrics::counter!(
+                        V2_ISOLATED_DB_SELECTED,
+                        &[(String::from("processor"), String::from("v1"))]
+                    )
+                    .increment(1);
+                    write_pool = resolved;
+                }
+            }
+
+            let mut tx = write_pool.begin().await?;
 
             for update in updates {
                 let issue_time = common_metrics::timing_guard(SINGLE_UPDATE_ISSUE_TIME, &[]);

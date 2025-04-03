@@ -17,7 +17,7 @@ use ahash::AHashSet;
 use quick_cache::sync::Cache;
 
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 pub mod api;
 pub mod app_context;
@@ -81,7 +81,11 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // conditionally enable new write path
+        // conditionally enable new v2 batch write path
+        // ************* IMPORANT ***************************
+        // THIS IS STILL BEING USED BY V2 BATCH WRITE TESTING
+        // AND MUST RELINQUISH OWNERSHIP OF IT BEFORE THE MIRROR
+        // DEPLOYMENT PR YOU SEE HERE CAN LAND SAFELY!
         if config.enable_v2 {
             // enrich batch group events with resolved group_type_indices
             // before passing along to process_batch_v2. We can refactor this
@@ -96,13 +100,17 @@ pub async fn update_consumer_loop(
                     )
                 });
 
-            // if enable_v2 is TRUE, we are in the mirror deploy and should use propdefs write DB
+            // if enable_v2 is TRUE, we are in the mirror deploy and should use propdefs write DB.
             let mut resolved_pool = &context.pool;
             if let Some(resolved) = &context.propdefs_pool {
-                metrics::counter!(V2_ISOLATED_DB_SELECTED).increment(1);
-                info!("using isolated write DB connection pool in process_batch_v2");
+                metrics::counter!(
+                    V2_ISOLATED_DB_SELECTED,
+                    &[(String::from("processor"), String::from("v2"))]
+                )
+                .increment(1);
                 resolved_pool = resolved;
             }
+
             process_batch_v2(&config, cache.clone(), resolved_pool, batch).await;
         } else {
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
