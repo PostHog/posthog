@@ -24,6 +24,7 @@ import {
 } from '../types'
 import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
+import { createMailjetRequest } from '../utils/hog-mailjet-request'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -400,6 +401,7 @@ export class HogExecutorService {
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
+                        sendEmail: async () => Promise.resolve(),
                     },
                     functions: {
                         print: (...args) => {
@@ -503,7 +505,7 @@ export class HogExecutorService {
 
                 if (execRes.asyncFunctionName) {
                     switch (execRes.asyncFunctionName) {
-                        case 'fetch':
+                        case 'fetch': {
                             // Sanitize the args
                             const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
 
@@ -533,6 +535,31 @@ export class HogExecutorService {
                             result.invocation.queue = 'fetch'
                             result.invocation.queueParameters = fetchQueueParameters
                             break
+                        }
+                        case 'sendEmail': {
+                            // Sanitize the args
+                            const [inputs] = args
+
+                            if (!inputs) {
+                                throw new Error('sendEmail: Invalid inputs')
+                            }
+
+                            const { auth, email } = inputs
+
+                            if (!auth) {
+                                throw new Error('sendEmail: Must provide a mail integration')
+                            }
+
+                            const fetchQueueParameters = this.enrichFetchRequest({
+                                // TODO: Add support for other providers
+                                ...createMailjetRequest(email, auth),
+                                return_queue: 'hog',
+                            })
+
+                            result.invocation.queue = 'fetch'
+                            result.invocation.queueParameters = fetchQueueParameters
+                            break
+                        }
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }

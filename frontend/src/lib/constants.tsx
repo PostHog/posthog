@@ -204,7 +204,7 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
-    MESSAGING: 'messaging', // owner @haven #team-messaging
+    MESSAGING: 'messaging-product', // owner @haven #team-messaging
     MESSAGING_AUTOMATION: 'messaging-automation', // owner @haven #team-messaging
     MESSAGING_LIBRARY: 'messaging-library', // owner @haven #team-messaging
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
@@ -337,6 +337,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
 
 export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '0194a763-9a13-0000-8088-32b52acf7156'
+export const SESSION_RECORDING_OPT_OUT_SURVEY_ID_2 = '0195ec93-5f91-0000-15fa-55aaf5e0c562'
 
 export const TAILWIND_BREAKPOINTS = {
     sm: 526,

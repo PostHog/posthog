@@ -16,17 +16,24 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
-import { getResponseFieldWithId } from 'scenes/surveys/utils'
+import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
 
-import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL, SURVEY_EVENT_NAME } from './constants'
-import { surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
+import {
+    NPS_DETRACTOR_LABEL,
+    NPS_DETRACTOR_VALUES,
+    NPS_PASSIVE_LABEL,
+    NPS_PASSIVE_VALUES,
+    NPS_PROMOTER_LABEL,
+    NPS_PROMOTER_VALUES,
+    SURVEY_EVENT_NAME,
+} from './constants'
 import {
     MultipleChoiceQuestionBarChart,
     NPSStackedBar,
@@ -432,18 +439,17 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 }
 
 function createNPSTrendSeries(
-    key: string,
     values: string[],
-    label: string
+    label: string,
+    questionIndex: number,
+    questionId?: string
 ): {
     event: string
     kind: NodeKind.EventsNode
     custom_name: string
     properties: Array<{
-        type: PropertyFilterType.Event
+        type: PropertyFilterType.HogQL
         key: string
-        operator: PropertyOperator.Exact
-        value: string[]
     }>
 } {
     return {
@@ -452,10 +458,10 @@ function createNPSTrendSeries(
         custom_name: label,
         properties: [
             {
-                type: PropertyFilterType.Event,
-                key,
-                operator: PropertyOperator.Exact,
-                value: values,
+                type: PropertyFilterType.HogQL,
+                key: `getSurveyResponse(${questionIndex}, ${questionId ? `'${questionId}'` : ''}) in (${values.join(
+                    ','
+                )})`,
             },
         ],
     }
@@ -544,34 +550,17 @@ function SurveyNPSResults({
                             },
                             series: [
                                 createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
-                                    ['9', '10'],
-                                    NPS_PROMOTER_LABEL
+                                    NPS_PROMOTER_VALUES,
+                                    NPS_PROMOTER_LABEL,
+                                    questionIndex,
+                                    questionId
                                 ),
+                                createNPSTrendSeries(NPS_PASSIVE_VALUES, NPS_PASSIVE_LABEL, questionIndex, questionId),
                                 createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
-                                    ['9', '10'],
-                                    NPS_PROMOTER_LABEL
-                                ),
-                                createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
-                                    ['7', '8'],
-                                    NPS_PASSIVE_LABEL
-                                ),
-                                createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
-                                    ['7', '8'],
-                                    NPS_PASSIVE_LABEL
-                                ),
-                                createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
-                                    ['0', '1', '2', '3', '4', '5', '6'],
-                                    NPS_DETRACTOR_LABEL
-                                ),
-                                createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
-                                    ['0', '1', '2', '3', '4', '5', '6'],
-                                    NPS_DETRACTOR_LABEL
+                                    NPS_DETRACTOR_VALUES,
+                                    NPS_DETRACTOR_LABEL,
+                                    questionIndex,
+                                    questionId
                                 ),
                             ],
                             properties: [
@@ -583,24 +572,12 @@ function SurveyNPSResults({
                                 },
                             ],
                             trendsFilter: {
-                                /**
-                                 * We now have two response fields to consider: both index-based and id-based.
-                                 * So we need to sum up the promoters and detractors from both fields.
-                                 * A+B is promoters
-                                 * C+D is passives
-                                 * E+F is detractors
-                                 *
-                                 * A+B+C+D+E+F is total responses
-                                 *
-                                 * The old formula is formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
-                                 *
-                                 * The new formula is formula: '((A+B) / (A+B+C+D+E+F) * 100) - ((E+F) / (A+B+C+D+E+F) * 100)',
-                                 */
-                                formula: '((A+B) / (A+B+C+D+E+F) * 100) - ((E+F) / (A+B+C+D+E+F) * 100)',
+                                formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
                                 display: 'ActionsBar',
                             },
                         },
                     }}
+                    readOnly
                 />
             </div>
         </div>

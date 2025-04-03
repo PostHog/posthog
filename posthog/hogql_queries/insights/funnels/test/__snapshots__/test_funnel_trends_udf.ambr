@@ -8,7 +8,7 @@
          data.breakdown AS prop
   FROM
     (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-            arrayJoin(aggregate_funnel_array_trends_v5(0, 3, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
+            arrayJoin(aggregate_funnel_array_trends_v6(0, 3, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
                                                                                                                                                                                                        and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
                                                                                                                                                                                                                                        and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -49,7 +49,8 @@
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=23622320128,
-                      allow_experimental_analyzer=1
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1
   '''
 # ---
 # name: TestFunnelTrendsUDF.test_timezones_trends.1
@@ -61,7 +62,7 @@
          data.breakdown AS prop
   FROM
     (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'US/Pacific')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-            arrayJoin(aggregate_funnel_array_trends_v5(0, 3, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
+            arrayJoin(aggregate_funnel_array_trends_v6(0, 3, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
                                                                                                                                                                                                        and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
                                                                                                                                                                                                                                        and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -102,7 +103,8 @@
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=23622320128,
-                      allow_experimental_analyzer=1
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1
   '''
 # ---
 # name: TestFunnelTrendsUDF.test_week_interval
@@ -114,7 +116,7 @@
          data.breakdown AS prop
   FROM
     (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfWeek(timestamp, 0), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-            arrayJoin(aggregate_funnel_array_trends_v5(0, 3, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
+            arrayJoin(aggregate_funnel_array_trends_v6(0, 3, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
                                                                                                                                                                                                        and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
                                                                                                                                                                                                                                        and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -155,7 +157,8 @@
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=23622320128,
-                      allow_experimental_analyzer=1
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1
   '''
 # ---
 # name: TestFunnelTrendsUDF.test_week_interval.1
