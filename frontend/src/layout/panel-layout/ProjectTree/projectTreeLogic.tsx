@@ -70,6 +70,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
         setLastNewOperation: (objectType: string | null, folder: string | null) => ({ objectType, folder }),
+        setCheckedItems: (checkedItems: string[]) => ({ checkedItems }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -344,6 +345,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             true,
             {
                 setHelpNoticeVisibility: (_, { visible }) => visible,
+            },
+        ],
+        checkedItems: [
+            [] as string[],
+            {
+                setCheckedItems: (_, { checkedItems }) => checkedItems,
             },
         ],
     }),
@@ -710,7 +717,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                         // Check if a "new" action was recently initiated for this object type.
                         // If so, move the item to the new path.
-                        // TODO: also check that this was created by you (after we add more metadata to items)
+                        // TODO: also check that this was created by you (we need to add the user's uuid to metadata)
                         // - const createdBy = result.meta?.created_by
                         if (
                             result.path.startsWith('Unfiled/') &&

@@ -87,7 +87,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** Whether the item is unapplied */
     isItemUnapplied?: (item: TreeDataItem) => boolean
     /** The default checked items. */
-    defaultCheckedItems?: string[]
+    checkedItems?: string[]
     /** The function to call when the item is checked. */
     onSetCheckedIds?: (ids: string[]) => void
     /** The render function for the item. */
@@ -454,7 +454,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             itemContextMenu,
             isFinishedBuildingTreeData,
             enableMultiSelection = false,
-            defaultCheckedItems,
+            checkedItems,
             onSetCheckedItemIds,
             ...props
         },
@@ -482,7 +482,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
-        const [checkedItemsState, setCheckedItemsState] = useState<string[]>([...(defaultCheckedItems ?? [])])
+        const [checkedItemsState, setCheckedItemsState] = useState<string[]>([...(checkedItems ?? [])])
 
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
@@ -1019,7 +1019,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             if (expandedItemIds && expandedItemIds.join(',') !== expandedItemIdsState.join(',')) {
                 setExpandedItemIdsState(expandedItemIds ?? [])
             }
-        }, [expandedItemIds, expandedItemIdsState]) // only trigger if external ids change not when expandedItemIdsState changes
+        }, [expandedItemIds, expandedItemIdsState])
+
+        useEffect(() => {
+            if (checkedItems && checkedItems.join(',') !== checkedItemsState.join(',')) {
+                setCheckedItemsState(checkedItems ?? [])
+            }
+        }, [checkedItems, checkedItemsState])
 
         return (
             <DndContext
