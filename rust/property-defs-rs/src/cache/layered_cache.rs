@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use quick_cache::sync::Cache as InMemoryCache;
 use crate::types::Update;
+use crate::errors::CacheError;
 use super::{SecondaryCache, CacheOperations};
 use tracing::warn;
 
@@ -26,8 +27,10 @@ impl LayeredCache {
         }
 
         if !new_keys.is_empty() {
-            if let Err(e) = self.secondary.insert_batch(&new_keys).await {
-                warn!("Failed to insert batch into secondary cache: {}", e);
+            match self.secondary.insert_batch(&new_keys).await {
+                Ok(()) => (),
+                Err(CacheError::NotSupported) => (),
+                Err(e) => warn!("Failed to insert batch into secondary cache: {}", e),
             }
         }
     }
@@ -49,6 +52,7 @@ impl LayeredCache {
         // Second pass: check secondary cache
         match self.secondary.filter_cached_updates(&check_secondary).await {
             Ok(not_in_cache) => not_in_cache,
+            Err(CacheError::NotSupported) => check_secondary,
             Err(e) => {
                 warn!("Failed to check secondary cache: {}", e);
                 check_secondary

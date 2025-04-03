@@ -1,4 +1,5 @@
 use crate::types::Update;
+use crate::errors::CacheError;
 use super::CacheOperations;
 use redis::RedisError;
 
@@ -17,7 +18,7 @@ impl RedisCache {
 
 #[async_trait::async_trait]
 impl CacheOperations for RedisCache {
-    async fn insert_batch(&self, updates: &[Update]) -> Result<(), RedisError> {
+    async fn insert_batch(&self, updates: &[Update]) -> Result<(), CacheError> {
         if updates.is_empty() {
             return Ok(());
         }
@@ -33,11 +34,11 @@ impl CacheOperations for RedisCache {
         }
 
         let mut conn = self.conn.clone();
-        let _: () = pipe.query_async(&mut conn).await?;
+        let _: () = pipe.query_async(&mut conn).await.map_err(CacheError::from)?;
         Ok(())
     }
 
-    async fn filter_cached_updates(&self, updates: &[Update]) -> Result<Vec<Update>, RedisError> {
+    async fn filter_cached_updates(&self, updates: &[Update]) -> Result<Vec<Update>, CacheError> {
         if updates.is_empty() {
             return Ok(Vec::new());
         }
@@ -47,7 +48,8 @@ impl CacheOperations for RedisCache {
         let values: Vec<Option<String>> = redis::cmd("MGET")
             .arg(&redis_keys)
             .query_async(&mut conn)
-            .await?;
+            .await
+            .map_err(CacheError::from)?;
 
         let mut not_in_cache = Vec::new();
         for (update, value) in updates.iter().zip(values.iter()) {

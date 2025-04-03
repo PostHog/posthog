@@ -26,6 +26,7 @@ pub mod config;
 pub mod metrics_consts;
 pub mod types;
 pub mod v2_batch_ingestion;
+pub mod errors;
 
 const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 2;
 const UPDATE_RETRY_DELAY_MS: u64 = 50;
