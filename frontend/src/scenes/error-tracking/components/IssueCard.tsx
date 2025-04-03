@@ -126,8 +126,9 @@ function StacktraceExpander(): JSX.Element {
         <span className="flex items-center gap-1 text-muted group-hover:text-brand-red">
             {match([propertiesLoading, hasStacktrace])
                 .with([true, P.any], () => (
-                    <span>
+                    <span className="text-muted space-x-2 text-xs">
                         <Spinner />
+                        <span>Loading stacktrace...</span>
                     </span>
                 ))
                 .with([false, false], () => (

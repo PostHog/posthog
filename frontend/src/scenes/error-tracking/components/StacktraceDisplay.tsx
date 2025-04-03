@@ -1,4 +1,4 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ChainedStackTraces, FingerprintCheckers } from 'lib/components/Errors/StackTraces'
@@ -18,6 +18,7 @@ export function StacktraceDisplay({ className }: { className?: string }): JSX.El
         showFingerprint,
         showAllFrames,
         fingerprintRecords,
+        issueLoading,
         propertiesLoading,
     } = useValues(errorTrackingIssueSceneLogic)
 
@@ -44,14 +45,27 @@ export function StacktraceDisplay({ className }: { className?: string }): JSX.El
 
     return (
         <div className={className}>
-            {match([propertiesLoading, hasStacktrace])
-                .with([true, P.any], () => (
-                    <div className="space-y-2">
-                        <LemonSkeleton className="w-[25%] h-5" />
-                        <LemonSkeleton className="w-[50%] h-5" />
+            {match([propertiesLoading, issueLoading, hasStacktrace])
+                .with([true, true, P.any], () => (
+                    <div>
+                        <div className="h-14 flex flex-col justify-around">
+                            <LemonSkeleton className="w-[25%] h-3" />
+                            <LemonSkeleton className="w-[50%] h-3" />
+                        </div>
+                        <div className="flex justify-center items-center h-32">
+                            <Spinner />
+                        </div>
                     </div>
                 ))
-                .with([false, true], () => (
+                .with([true, false, P.any], () => (
+                    <div>
+                        {renderTraceHeader(undefined, issue?.name || 'Unknown', issue?.description || 'Unknown')}
+                        <div className="flex justify-center items-center h-32">
+                            <Spinner />
+                        </div>
+                    </div>
+                ))
+                .with([false, P.any, true], () => (
                     <ChainedStackTraces
                         showAllFrames={showAllFrames}
                         exceptionList={exceptionList}
@@ -59,7 +73,7 @@ export function StacktraceDisplay({ className }: { className?: string }): JSX.El
                         fingerprintRecords={showFingerprint ? fingerprintRecords : undefined}
                     />
                 ))
-                .with([false, false], () => (
+                .with([false, P.any, false], () => (
                     <div>
                         {renderTraceHeader(undefined, issue?.name || 'Unknown', issue?.description || 'Unknown')}
                         <EmptyMessage

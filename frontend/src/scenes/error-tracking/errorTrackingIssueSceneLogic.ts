@@ -179,6 +179,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         properties: {
             loadProperties: async ({ dateRange }) => {
+                // TODO: When properties are loaded for the first time, change stacktrace order to match exception name.
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
@@ -197,6 +198,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         lastSeen: {
             loadLastSeen: async () => {
+                // TODO: Load last seen from API
                 return dayjs()
             },
         },
