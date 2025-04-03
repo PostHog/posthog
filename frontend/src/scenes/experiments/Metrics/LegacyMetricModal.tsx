@@ -26,7 +26,7 @@ export function LegacyMetricModal({
         editingSecondaryMetricIndex,
     } = useValues(experimentLogic({ experimentId }))
     const {
-        updateExperimentGoal,
+        updateExperimentMetrics,
         setExperiment,
         closePrimaryMetricModal,
         closeSecondaryMetricModal,
@@ -73,7 +73,7 @@ export function LegacyMetricModal({
                                         setExperiment({
                                             [metricsField]: newMetrics,
                                         })
-                                        updateExperimentGoal()
+                                        updateExperimentMetrics()
                                         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                                     },
                                     size: 'small',
@@ -100,7 +100,7 @@ export function LegacyMetricModal({
                             }
                             form="edit-experiment-goal-form"
                             onClick={() => {
-                                updateExperimentGoal()
+                                updateExperimentMetrics()
                                 isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                             }}
                             type="primary"

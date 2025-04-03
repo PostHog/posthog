@@ -41,7 +41,7 @@ export function FunnelTooltip({
     breakdownFilter,
     embedded = false,
 }: FunnelTooltipProps): JSX.Element {
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
         <div
@@ -58,7 +58,7 @@ export function FunnelTooltip({
                     {formatBreakdownLabel(
                         series.breakdown_value,
                         breakdownFilter,
-                        cohorts.results,
+                        allCohorts.results,
                         formatPropertyValueForDisplay
                     )}
                 </strong>

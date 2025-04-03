@@ -10,7 +10,6 @@ export type BillingGaugeItemType = {
     text: string | JSX.Element
     prefix?: string
     value: number
-    top: boolean
 }
 
 export type BillingSectionId = 'overview' | 'usage'

@@ -2,7 +2,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { urls } from 'scenes/urls'
@@ -13,8 +13,12 @@ import { DESTINATION_TYPES, TRANSFORMATION_TYPES } from './destinations/constant
 import { DestinationsTable } from './destinations/Destinations'
 
 export function Overview(): JSX.Element {
-    const menuItems = [
-        { label: 'Source', to: urls.pipelineNodeNew(PipelineStage.Source) },
+    const menuItems: LemonMenuItems = [
+        {
+            label: 'Source',
+            to: urls.pipelineNodeNew(PipelineStage.Source),
+            'data-attr': 'data-warehouse-data-pipelines-overview-new-source',
+        },
         { label: 'Transformation', to: urls.pipelineNodeNew(PipelineStage.Transformation) },
         { label: 'Destination', to: urls.pipelineNodeNew(PipelineStage.Destination) },
     ]
@@ -66,6 +70,7 @@ export function Overview(): JSX.Element {
                         types={TRANSFORMATION_TYPES}
                         hideFeedback={true}
                         hideAddDestinationButton={false}
+                        hideChangeOrderButton={true}
                     />
                 </div>
                 <div>
@@ -76,7 +81,12 @@ export function Overview(): JSX.Element {
                         Send your data to destinations in real time or with batch exports. Only active Destinations are
                         shown here. <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
                     </p>
-                    <DestinationsTable types={DESTINATION_TYPES} hideFeedback={true} hideAddDestinationButton={false} />
+                    <DestinationsTable
+                        types={DESTINATION_TYPES}
+                        hideFeedback={true}
+                        hideAddDestinationButton={false}
+                        hideChangeOrderButton={true}
+                    />
                 </div>
             </div>
         </>

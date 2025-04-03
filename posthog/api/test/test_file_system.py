@@ -1,10 +1,56 @@
 from rest_framework import status
+from posthog.api.file_system import has_permissions_to_access_tree_view
 from posthog.test.base import APIBaseTest
 from posthog.models import FeatureFlag, Dashboard, Experiment, Insight, Notebook
-from posthog.models.file_system import FileSystem, FileSystemType
+from posthog.models.file_system.file_system import FileSystem
+from unittest.mock import patch
+from rest_framework.exceptions import PermissionDenied
+
+
+class TestFileSystemAPIPermissions(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = False
+        self.user.save()
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_permissions_no_staff_no_feature(self, mock_feature_flag):
+        with self.assertRaises(PermissionDenied):
+            has_permissions_to_access_tree_view(self.user, self.team)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_permissions_no_staff_yes_feature(self, mock_feature_flag):
+        try:
+            has_permissions_to_access_tree_view(self.user, self.team)
+        except Exception as e:
+            self.fail(f"Permission check raised an exception unexpectedly: {e}")
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_permissions_yes_staff_no_feature(self, mock_feature_flag):
+        self.user.is_staff = True
+        self.user.save()
+        try:
+            has_permissions_to_access_tree_view(self.user, self.team)
+        except Exception as e:
+            self.fail(f"Permission check raised an exception unexpectedly: {e}")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_permissions_yes_staff_yes_feature(self, mock_feature_flag):
+        self.user.is_staff = True
+        self.user.save()
+        try:
+            has_permissions_to_access_tree_view(self.user, self.team)
+        except Exception as e:
+            self.fail(f"Permission check raised an exception unexpectedly: {e}")
 
 
 class TestFileSystemAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The user must be a staff user while we're beta testing
+        self.user.is_staff = True
+        self.user.save()
+
     def test_list_files_initially_empty(self):
         """
         When no FileSystem objects exist in the DB for the team, the list should be empty.
@@ -100,6 +146,7 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem rows for the same objects.
         """
         FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         first_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(first_response.status_code, status.HTTP_200_OK)
@@ -126,6 +173,7 @@ class TestFileSystemAPI(APIBaseTest):
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -140,11 +188,11 @@ class TestFileSystemAPI(APIBaseTest):
 
         # check that each type is present
         types = {item["type"] for item in results}
-        self.assertIn(FileSystemType.FEATURE_FLAG, types)
-        self.assertIn(FileSystemType.EXPERIMENT, types)
-        self.assertIn(FileSystemType.DASHBOARD, types)
-        self.assertIn(FileSystemType.INSIGHT, types)
-        self.assertIn(FileSystemType.NOTEBOOK, types)
+        self.assertIn("feature_flag", types)
+        self.assertIn("experiment", types)
+        self.assertIn("dashboard", types)
+        self.assertIn("insight", types)
+        self.assertIn("notebook", types)
 
     def test_unfiled_endpoint_with_type_filtering(self):
         """
@@ -152,6 +200,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         flag = FeatureFlag.objects.create(team=self.team, name="Only Flag", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # Filter for feature_flag only => creates 1 new 'leaf' item
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/?type=feature_flag")
@@ -163,7 +212,7 @@ class TestFileSystemAPI(APIBaseTest):
 
         # Verify that no experiment row was created
         self.assertFalse(
-            FileSystem.objects.exclude(type="folder").filter(type=FileSystemType.EXPERIMENT).exists(),
+            FileSystem.objects.exclude(type="folder").filter(type="experiment").exists(),
             "Should not have created an experiment row yet!",
         )
 
@@ -274,6 +323,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # Create a FeatureFlag
         FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # Call unfiled - that should create the new FileSystem item
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
@@ -296,6 +346,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # If a user enters something with a slash in the name...
         FeatureFlag.objects.create(team=self.team, name="Flag / With Slash", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # This becomes "Unfiled/Feature Flags/Flag \/ With Slash"
         # but that is still 3 path segments from the perspective of split_path()
@@ -400,3 +451,86 @@ class TestFileSystemAPI(APIBaseTest):
             folder = FileSystem.objects.get(path=folder_path, team=self.team)
             self.assertEqual(folder.depth, depth_index)
             self.assertEqual(folder.type, "folder")
+
+    def test_move_files_and_folders(self):
+        """
+        Moving a folder should update all child paths correctly.
+        """
+        # Create a folder and some files inside it
+        folder = FileSystem.objects.create(team=self.team, path="OldFolder", type="folder", created_by=self.user)
+        file1 = FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
+        file2 = FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
+
+        # Move the folder
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{folder.pk}/move",
+            {"new_path": "NewFolder"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        # Check that the folder and files have been moved
+        folder.refresh_from_db()
+        self.assertEqual(folder.path, "NewFolder")
+
+        file1.refresh_from_db()
+        self.assertEqual(file1.path, "NewFolder/File1")
+
+        file2.refresh_from_db()
+        self.assertEqual(file2.path, "NewFolder/File2")
+
+    def test_count_of_files(self):
+        """
+        Moving a folder should update all child paths correctly.
+        """
+        # Create a folder and some files inside it
+        folder = FileSystem.objects.create(team=self.team, path="OldFolder", type="folder", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
+
+        # Move the folder
+        response = self.client.post(f"/api/projects/{self.team.id}/file_system/{folder.pk}/count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_list_by_type_filter(self):
+        """
+        Ensure that the list endpoint filters results by the 'type' query parameter.
+        """
+        # Create several FileSystem items with different types
+        FileSystem.objects.create(team=self.team, path="FileA.txt", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="FileB.txt", type="img", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="FileC.txt", type="doc", created_by=self.user)
+
+        # Filter by type 'doc'
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?type=doc")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Expecting 2 items with type 'doc'
+        self.assertEqual(data["count"], 2)
+        for item in data["results"]:
+            self.assertEqual(item["type"], "doc")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?type__startswith=d")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Expecting 2 items with type starting with 'd'
+        self.assertEqual(data["count"], 2)
+
+    def test_search_files_by_ref(self):
+        """
+        Ensure that searching with the ?search= query param returns items matching on the 'ref' field.
+        """
+        # Create items with unique ref values
+        FileSystem.objects.create(
+            team=self.team, path="SomePath/File1", type="doc", ref="unique-ref-123", created_by=self.user
+        )
+        FileSystem.objects.create(
+            team=self.team, path="OtherPath/File2", type="doc", ref="other-ref-456", created_by=self.user
+        )
+        # Using search to filter by part of the ref value
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=unique-ref")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Expecting only the item with ref "unique-ref-123"
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["ref"], "unique-ref-123")

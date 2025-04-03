@@ -1,8 +1,11 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
+import { randomBytes } from 'crypto'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
+import { parse } from 'ipaddr.js'
 import { DateTime } from 'luxon'
+import { isIPv6 } from 'net'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
@@ -12,12 +15,7 @@ import { CookielessServerHashMode, PluginsServerConfig } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { now } from '../../utils/now'
-import {
-    base64StringToUint32ArrayLE,
-    createRandomUint32x4,
-    uint32ArrayLEToBase64String,
-    UUID7,
-} from '../../utils/utils'
+import { bufferToUint32ArrayLE, uint32ArrayLEToBuffer, UUID7 } from '../../utils/utils'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { RedisHelpers } from './redis-helpers'
@@ -89,7 +87,7 @@ export class CookielessManager {
     public readonly redisHelpers: RedisHelpers
     public readonly config: CookielessConfig
 
-    private readonly localSaltMap: Record<string, Uint32Array> = {}
+    private readonly localSaltMap: Record<string, Buffer> = {}
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
@@ -113,7 +111,7 @@ export class CookielessManager {
         this.cleanupInterval.unref()
     }
 
-    getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<Uint32Array> {
+    getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<Buffer> {
         if (!isCalendarDateValid(yyyymmdd)) {
             throw new Error('Date is out of range')
         }
@@ -125,7 +123,7 @@ export class CookielessManager {
 
         // get the salt for the day from redis, but only do this once for this node process
         return this.mutex.run({
-            fn: async (): Promise<Uint32Array> => {
+            fn: async (): Promise<Buffer> => {
                 // check if we got the salt while waiting for the mutex
                 if (this.localSaltMap[yyyymmdd]) {
                     return this.localSaltMap[yyyymmdd]
@@ -135,40 +133,43 @@ export class CookielessManager {
                 const saltBase64 = await this.redisHelpers.redisGet<string | null>(
                     `cookieless_salt:${yyyymmdd}`,
                     null,
-                    'cookielessServerHashStep'
+                    'cookielessServerHashStep',
+                    { jsonSerialize: false }
                 )
                 if (saltBase64) {
                     cookielessCacheHitCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
-                    const salt = base64StringToUint32ArrayLE(saltBase64)
+                    const salt = Buffer.from(saltBase64, 'base64')
                     this.localSaltMap[yyyymmdd] = salt
                     return salt
                 }
                 cookielessCacheMissCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
 
                 // try to write a new one to redis, but don't overwrite
-                const newSaltParts = createRandomUint32x4()
+                const newSalt = randomBytes(16)
                 const setResult = await this.redisHelpers.redisSetNX(
                     `cookieless_salt:${yyyymmdd}`,
-                    uint32ArrayLEToBase64String(newSaltParts),
+                    newSalt.toString('base64'),
                     'cookielessServerHashStep',
-                    this.config.saltTtlSeconds
+                    this.config.saltTtlSeconds,
+                    { jsonSerialize: false }
                 )
                 if (setResult === 'OK') {
-                    this.localSaltMap[yyyymmdd] = newSaltParts
-                    return newSaltParts
+                    this.localSaltMap[yyyymmdd] = newSalt
+                    return newSalt
                 }
 
                 // if we couldn't write, it means that it exists in redis already
                 const saltBase64Retry = await this.redisHelpers.redisGet<string | null>(
                     `cookieless_salt:${yyyymmdd}`,
                     null,
-                    'cookielessServerHashStep'
+                    'cookielessServerHashStep',
+                    { jsonSerialize: false }
                 )
                 if (!saltBase64Retry) {
                     throw new Error('Failed to get salt from redis')
                 }
 
-                const salt = base64StringToUint32ArrayLE(saltBase64Retry)
+                const salt = Buffer.from(saltBase64Retry, 'base64')
                 this.localSaltMap[yyyymmdd] = salt
 
                 return salt
@@ -199,7 +200,7 @@ export class CookielessManager {
         this.deleteAllLocalSalts()
     }
 
-    async doHash({
+    async doHashForDay({
         timestampMs,
         eventTimeZone,
         teamTimeZone,
@@ -222,11 +223,27 @@ export class CookielessManager {
     }) {
         const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestampMs, eventTimeZone, teamTimeZone)
         const salt = await this.getSaltForDay(yyyymmdd, timestampMs)
-        const rootDomain = getDomain(host) || host
-        return siphashDouble.hash(
-            salt,
+        const rootDomain = extractRootDomain(host)
+        return CookielessManager.doHash(salt, teamId, ip, rootDomain, userAgent, n, hashExtra)
+    }
+
+    static doHash(
+        salt: Buffer,
+        teamId: number,
+        ip: string,
+        rootDomain: string,
+        userAgent: string,
+        n: number,
+        hashExtra: string
+    ): Buffer {
+        if (salt.length !== 16) {
+            throw new Error('Salt must be 16 bytes')
+        }
+        const array = siphashDouble.hash(
+            bufferToUint32ArrayLE(salt),
             `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}-${n}-${hashExtra.slice(0, 100)}`
         )
+        return uint32ArrayLEToBuffer(array)
     }
 
     async processEvent(event: PluginEvent): Promise<PluginEvent | undefined> {
@@ -368,7 +385,7 @@ export class CookielessManager {
                 return undefined
             }
 
-            const hashValue = await this.doHash({
+            const hashValue = await this.doHashForDay({
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone,
@@ -395,7 +412,7 @@ export class CookielessManager {
             // ASSUMPTION: all events are processed in order, for this to happen we need them to be in the same kafka topic at this point
 
             // Find the base hash value, before we take the number of identifies into account
-            const baseHashValue = await this.doHash({
+            const baseHashValue = await this.doHashForDay({
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone,
@@ -412,7 +429,7 @@ export class CookielessManager {
             newProperties['$device_id'] = hashToDistinctId(baseHashValue)
             const identifiesRedisKey = getRedisIdentifiesKey(baseHashValue, teamId)
 
-            let hashValue: Uint32Array
+            let hashValue: Buffer
             if (event.event === '$identify') {
                 // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
 
@@ -420,7 +437,7 @@ export class CookielessManager {
                 const numIdentifies = await this.redisHelpers.redisSAddAndSCard(identifiesRedisKey, event.uuid)
 
                 // we want the number of identifies that happened before this one
-                hashValue = await this.doHash({
+                hashValue = await this.doHashForDay({
                     timestampMs,
                     eventTimeZone,
                     teamTimeZone,
@@ -436,7 +453,7 @@ export class CookielessManager {
                 newProperties['$anon_distinct_id'] = hashToDistinctId(hashValue)
             } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
                 const numIdentifies = await this.redisHelpers.redisSCard(identifiesRedisKey)
-                hashValue = await this.doHash({
+                hashValue = await this.doHashForDay({
                     timestampMs,
                     eventTimeZone,
                     teamTimeZone,
@@ -453,7 +470,7 @@ export class CookielessManager {
                 const numIdentifies = await this.redisHelpers.redisSCard(identifiesRedisKey)
 
                 // this event is after identify has been called, so subtract 1 from the numIdentifies
-                hashValue = await this.doHash({
+                hashValue = await this.doHashForDay({
                     timestampMs,
                     eventTimeZone,
                     teamTimeZone,
@@ -548,21 +565,21 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
     return isGteMinimum && isLtMaximum
 }
 
-export function hashToDistinctId(hash: Uint32Array): string {
+export function hashToDistinctId(hash: Buffer): string {
     // add a prefix so that we can recognise one of these in the wild
-    return 'cookieless_' + uint32ArrayLEToBase64String(hash).replace(/=+$/, '')
+    return 'cookieless_' + hash.toString('base64').replace(/=+$/, '')
 }
 
-export function getRedisIdentifiesKey(hash: Uint32Array, teamId: number): string {
+export function getRedisIdentifiesKey(hash: Buffer, teamId: number): string {
     // assuming 6 digits for team id, this is 6 + 2 + 6 + 24 = 38 characters
     // cklsi = cookieless identifies
-    return `cklsi:${teamId}:${uint32ArrayLEToBase64String(hash)}`
+    return `cklsi:${teamId}:${hash.toString('base64').replace(/=+$/, '')}`
 }
 
-export function getRedisSessionsKey(hash: Uint32Array, teamId: number): string {
+export function getRedisSessionsKey(hash: Buffer, teamId: number): string {
     // assuming 6 digits for team id, this is 6 + 2 + 6 + 24 = 38 characters
     // cklss = cookieless sessions
-    return `cklss:${teamId}:${uint32ArrayLEToBase64String(hash)}`
+    return `cklss:${teamId}:${hash.toString('base64').replace(/=+$/, '')}`
 }
 
 export function toYYYYMMDDInTimezoneSafe(
@@ -611,7 +628,7 @@ export function createStatelessSessionId(
     timestamp: number,
     eventTimezone: string | undefined,
     teamTimeZone: string,
-    hash: Uint32Array
+    hash: Buffer
 ): UUID7 {
     // A sessionId is a UUIDv7, which has a timestamp part and a random part. We need to find a deterministic way to
     // generate this ID whilst meeting the requirements of posthog session IDs
@@ -622,7 +639,7 @@ export function createStatelessSessionId(
 
     // For the random part, use the first 10 bytes of the hash (74 bits are actually used), as a way of ensuring
     // determinism with no state
-    const fakeRandomBytes = Buffer.from(hash.buffer).subarray(0, 10)
+    const fakeRandomBytes = hash.subarray(0, 10)
 
     return new UUID7(timestampOfStartOfDay, fakeRandomBytes)
 }
@@ -671,3 +688,62 @@ const cookielessCacheMissCounter = new Counter({
     help: 'Number of local cache misses for cookieless salt',
     labelNames: ['operation', 'day'],
 })
+
+/**
+ * Extract the root domain from a host string
+ *
+ * This function handles various formats including:
+ * - URLs with protocols (e.g., https://example.com)
+ * - Hosts with ports (e.g., example.com:8000)
+ * - Subdomains (e.g., sub.example.com)
+ * - IPv4 and IPv6 addresses
+ *
+ * It returns the root domain (eTLD+1) for valid domains, or the original host for
+ * special cases like IP addresses, localhost, etc.
+ * The port is preserved if present in the original host.
+ */
+export function extractRootDomain(input: string): string {
+    // If the host is empty, return it as is
+    if (!input) {
+        return input
+    }
+
+    if (isIPv6(input)) {
+        // Usually we would expect URLS, which would need to wrap literal ipv6 addresses in square brackets per RFC 2732.
+        // Handle raw ipv6 addresses just in case, and return them normalized with square brackets.
+        try {
+            const ip = parse(input)
+            return `[${ip.toString()}]`
+        } catch {
+            return input
+        }
+    }
+
+    if (!input.includes('://')) {
+        // add a fake protocol to make URL parsing work
+        input = `http://${input}`
+    }
+
+    // Extract hostname and port
+    let hostname: string
+    let port: string | undefined
+    try {
+        const url = new URL(input)
+        hostname = url.hostname
+        port = url.port
+    } catch {
+        // If the URL parsing fails, return the original host
+        return input
+    }
+
+    // Get the root domain using tldts
+    let domain = getDomain(hostname) ?? hostname
+
+    // if domain is localhost, map to 127.0.0.1 to make local dev easier
+    if (domain === 'localhost') {
+        domain = '127.0.0.1'
+    }
+
+    // Add the port back if it exists
+    return port ? `${domain}:${port}` : domain
+}

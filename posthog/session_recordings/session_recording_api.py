@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
 
+import structlog
 from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
 
@@ -42,7 +43,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
 )
-from posthog.schema import HogQLQueryModifiers, QueryTiming, RecordingsQuery
+from posthog.schema import HogQLQueryModifiers, PropertyFilterType, QueryTiming, RecordingsQuery
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -53,12 +54,10 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
-from posthog.storage import object_storage
-from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
+from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
-from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
-from posthog.settings.session_replay import SESSION_REPLAY_AI_DEFAULT_MODEL, SESSION_REPLAY_AI_REGEX_MODEL
+from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
@@ -66,6 +65,8 @@ from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
 )
 from posthog.session_recordings.utils import clean_prompt_whitespace
+from posthog.session_recordings.session_recording_v2_service import list_blocks
+from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -93,6 +94,8 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
 )
+
+logger = structlog.get_logger(__name__)
 
 
 def filter_from_params_to_query(params: dict) -> RecordingsQuery:
@@ -442,9 +445,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 "Must specify exactly one session_id",
             )
 
-        if not query.events and not query.actions:
+        has_event_properties = any(
+            getattr(p, "type", None) == PropertyFilterType.EVENT for p in (query.properties or [])
+        )
+
+        if not query.events and not query.actions and not has_event_properties:
             raise exceptions.ValidationError(
-                "Must specify at least one event or action filter",
+                "Must specify at least one event or action filter, or event properties filter",
             )
 
         distinct_id = str(cast(User, request.user).distinct_id)
@@ -636,14 +643,27 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if personal_api_key:
             SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=personal_api_key, source=source).inc()
 
+        is_v2_enabled = posthoganalytics.feature_enabled(
+            "recordings-blobby-v2-replay",
+            str(self.team.pk),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+        )
+
         if not source:
-            return self._gather_session_recording_sources(recording)
+            return self._gather_session_recording_sources(recording, is_v2_enabled)
         elif source == "realtime":
             return self._send_realtime_snapshots_to_client(recording, request, event_properties)
         elif source == "blob":
             return self._stream_blob_to_client(recording, request, event_properties)
+        elif source == "blob_v2":
+            blob_key = request.GET.get("blob_key")
+            if blob_key:
+                return self._stream_blob_v2_to_client(recording, request, event_properties)
+            else:
+                return self._gather_session_recording_sources(recording, is_v2_enabled)
         else:
-            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
+            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2]")
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
@@ -667,13 +687,25 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 team=team,
             )
 
-    def _gather_session_recording_sources(self, recording: SessionRecording) -> Response:
+    def _gather_session_recording_sources(self, recording: SessionRecording, is_v2_enabled: bool = False) -> Response:
         might_have_realtime = True
         newest_timestamp = None
         response_data = {}
         sources: list[dict] = []
         blob_keys: list[str] | None = None
         blob_prefix = ""
+
+        if is_v2_enabled:
+            blocks = list_blocks(recording)
+            for i, block in enumerate(blocks):
+                sources.append(
+                    {
+                        "source": "blob_v2",
+                        "start_timestamp": block["start_time"],
+                        "end_timestamp": block["end_time"],
+                        "blob_key": str(i),
+                    }
+                )
 
         if recording.object_storage_path:
             blob_prefix = recording.object_storage_path
@@ -852,6 +884,61 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 return response
 
+    def _stream_blob_v2_to_client(
+        self, recording: SessionRecording, request: request.Request, event_properties: dict
+    ) -> HttpResponse:
+        """Stream a v2 session recording blob to the client.
+
+        The blob_key is the block index in the metadata arrays.
+        """
+        blob_key = request.GET.get("blob_key", "")
+        if not blob_key:
+            raise exceptions.ValidationError("Must provide a blob key")
+
+        try:
+            block_index = int(blob_key)
+        except ValueError:
+            raise exceptions.ValidationError("Blob key must be an integer")
+
+        event_properties["source"] = "blob_v2"
+        event_properties["blob_key"] = blob_key
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request),
+            "session recording snapshots v2 loaded",
+            event_properties,
+        )
+
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
+            blocks = list_blocks(recording)
+            if not blocks:
+                raise exceptions.NotFound("Session recording not found")
+
+            if block_index >= len(blocks):
+                raise exceptions.NotFound("Block index out of range")
+
+            block = blocks[block_index]
+            try:
+                decompressed_block = session_recording_v2_object_storage.client().fetch_block(block["url"])
+            except BlockFetchError:
+                logger.exception(
+                    "Failed to fetch block",
+                    recording_id=recording.session_id,
+                    team_id=self.team.id,
+                    block_index=block_index,
+                )
+                raise exceptions.APIException("Failed to load recording block")
+
+            response = HttpResponse(
+                content=decompressed_block,
+                content_type="application/jsonl",
+            )
+
+            # Set caching headers - blocks are immutable so we can cache for a while
+            response["Cache-Control"] = "max-age=3600"
+            response["Content-Disposition"] = "inline"
+
+            return response
+
     def _send_realtime_snapshots_to_client(
         self, recording: SessionRecording, request: request.Request, event_properties: dict
     ) -> HttpResponse | Response:
@@ -860,7 +947,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
             snapshot_lines = (
                 get_realtime_snapshots(
-                    team_id=self.team.pk,
+                    team_id=str(self.team.pk),
                     session_id=str(recording.session_id),
                 )
                 or []
@@ -893,64 +980,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             return response
         else:
             raise exceptions.ValidationError(f"Invalid version: {version}")
-
-    @extend_schema(
-        description="Generate session recording filters using AI. This is in development and likely to change, you should not depend on this API."
-    )
-    @action(methods=["POST"], detail=False, url_path="ai/filters")
-    def ai_filters(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not request.user.is_authenticated:
-            raise exceptions.NotAuthenticated()
-
-        try:
-            # Validate request data against schema
-            request_data = AiFilterRequest(messages=[ChatMessage(**msg) for msg in request.data.get("messages", [])])
-        except ValidationError:
-            raise exceptions.ValidationError(
-                "Invalid message format. Messages must be a list of objects with 'role' (either 'user' or 'assistant') and 'content' fields."
-            )
-
-        # Create system prompt by combining the initial and properties prompts
-        system_message = ChatCompletionSystemMessageParam(
-            role="system", content=clean_prompt_whitespace(AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT)
-        )
-
-        # Convert messages to OpenAI format and combine with system message
-        messages: list[ChatCompletionMessageParam] = [system_message]
-        for msg in request_data.messages:
-            if msg.role == "user":
-                messages.append(
-                    ChatCompletionUserMessageParam(role="user", content=clean_prompt_whitespace(msg.content))
-                )
-            else:
-                messages.append(
-                    ChatCompletionAssistantMessageParam(role="assistant", content=clean_prompt_whitespace(msg.content))
-                )
-
-        client = _get_openai_client()
-
-        completion = client.beta.chat.completions.parse(
-            model=SESSION_REPLAY_AI_DEFAULT_MODEL,
-            messages=messages,
-            response_format=AiFilterSchema,
-            # need to type ignore before, this will be a WrappedParse
-            # but the type detection can't figure that out
-            posthog_distinct_id=self._distinct_id_from_request(request),  # type: ignore
-            posthog_properties={
-                "ai_product": "session_replay",
-                "ai_feature": "ai_filters",
-            },
-        )
-
-        if not completion.choices or not completion.choices[0].message.content:
-            raise exceptions.ValidationError("Invalid response from OpenAI")
-
-        try:
-            response_data = json.loads(completion.choices[0].message.content)
-        except JSONDecodeError:
-            raise exceptions.ValidationError("Invalid JSON response from OpenAI")
-
-        return Response(response_data)
 
     @extend_schema(
         description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API."
@@ -992,6 +1021,44 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError("Invalid JSON response from OpenAI")
 
         return Response(response_data)
+
+    @action(methods=["GET"], detail=True, url_path="analyze/similar")
+    def similar_recordings(self, request: request.Request, **kwargs) -> Response:
+        """Find recordings with similar event sequences to the given recording."""
+        timer = ServerTimingsGathered()
+        recording = self.get_object()
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
+            raise exceptions.NotFound("Recording not found")
+
+        # Find recordings with similar event sequences using ClickHouse
+        with timer("get_similar_recordings"):
+            similar_recordings = SessionReplayEvents().get_similar_recordings(
+                session_id=str(recording.session_id), team=self.team, limit=10, similarity_range=0.9
+            )
+
+        recordings = []
+        recording_ids = []
+        for rec in similar_recordings:
+            recording_instance = SessionRecording.get_or_build(session_id=rec["session_id"], team=self.team)
+            recordings.append(recording_instance)
+            recording_ids.append(recording_instance.session_id)
+
+        # Filter out recordings that have been viewed by the current user
+        with timer("filter_viewed_recordings"):
+            viewed_recordings = current_user_viewed(recording_ids, cast(User, request.user), self.team)
+            unviewed_recordings = [rec for rec in recordings if rec.session_id not in viewed_recordings]
+
+        response = Response(
+            {"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]}
+        )
+        response.headers["Server-Timing"] = ", ".join(
+            f"{key};dur={round(duration, ndigits=2)}" for key, duration in _generate_timings(None, timer).items()
+        )
+        return response
 
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
@@ -1067,7 +1134,7 @@ def list_recordings_from_query(
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
-        distinct_ids = sorted([x.distinct_id for x in recordings])
+        distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
         person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
             "person"
         )
@@ -1083,7 +1150,7 @@ def list_recordings_from_query(
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
-            person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if person:
                 recording.person = person
 

@@ -3,7 +3,7 @@ use std::ops::Not;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use time::OffsetDateTime;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::util::empty_string_is_none;
@@ -43,11 +43,12 @@ pub struct CapturedEvent {
     pub now: String,
     #[serde(
         with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
+        skip_serializing_if = "Option::is_none",
+        default // Necessary as time::serde::rfc3339::option fails to deserialize if the key is not found
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
-    #[serde(skip_serializing_if = "<&bool>::not")] // only store if true
+    #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub is_cookieless_mode: bool,
 }
 
@@ -82,7 +83,8 @@ pub enum PersonMode {
 pub struct ClickHouseEvent {
     pub uuid: Uuid,
     pub team_id: i32,
-    pub project_id: i64,
+    // NOTE - option - this is a nullable column in the DB, so :shrug:
+    pub project_id: Option<i64>,
     pub event: String,
     pub distinct_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -93,7 +95,7 @@ pub struct ClickHouseEvent {
     pub timestamp: String,
     // TODO: verify timestamp format
     pub created_at: String,
-    pub elements_chain: String,
+    pub elements_chain: Option<String>,
     // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub person_created_at: Option<String>,
@@ -204,5 +206,12 @@ impl RawEvent {
         if let Some(value) = self.properties.get_mut(key) {
             *value = f(value.take());
         }
+    }
+}
+
+impl CapturedEvent {
+    pub fn get_sent_at_as_rfc3339(&self) -> Option<String> {
+        self.sent_at
+            .map(|sa| sa.format(&Rfc3339).expect("is a valid datetime"))
     }
 }

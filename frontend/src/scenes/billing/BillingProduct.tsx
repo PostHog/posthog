@@ -16,7 +16,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
-import { summarizeUsage } from './billing-utils'
+import { getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
@@ -42,7 +42,7 @@ export const getTierDescription = (
         : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
-export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath, isUnlicensedDebug } = useValues(billingLogic)
     const {
@@ -81,6 +81,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const isTemporaryFreeProduct =
         (!product.tiered && !product.free_allocation && !product.inclusion_only) ||
         (product.tiered && product.tiers?.length === 1 && product.tiers[0].unit_amount_usd === '0')
+
+    // If the feature flag `billing_hide_product_{product.type}` is true,
+    // don't show the product in the billing page.
+    const hideProductFlag = `billing_hide_product_${product.type}`
+    if (featureFlags[hideProductFlag] === true) {
+        return null
+    }
 
     return (
         <div
@@ -195,7 +202,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="grow">
                                             <div className="grow">
                                                 <BillingGauge items={billingGaugeItems} product={product} />
-                                                <FeatureFlagUsageNotice product={product} />
                                             </div>
                                             {/* TODO: rms: remove this notice after August 8 2024 */}
                                             {product.type == ProductKey.DATA_WAREHOUSE &&
@@ -229,9 +235,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 )}
                                                 <div className="grow">
                                                     <BillingGauge items={billingGaugeItems} product={product} />
-                                                    {!product.subscribed && (
-                                                        <FeatureFlagUsageNotice product={product} />
-                                                    )}
                                                 </div>
                                             </div>
                                             {product.subscribed ? (
@@ -338,13 +341,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 data-attr="billing-page-addon-cta-upgrade-cta"
                                                 disableClientSideRouting
                                                 loading={!!billingProductLoading}
-                                                onClick={showPaymentEntryModal}
+                                                onClick={() => showPaymentEntryModal()}
                                             >
                                                 Upgrade now
                                             </BillingUpgradeCTA>
                                         ) : (
                                             <BillingUpgradeCTA
-                                                to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
+                                                to={getUpgradeProductLink({
+                                                    product,
+                                                    redirectPath,
+                                                })}
                                                 type="primary"
                                                 status="alt"
                                                 data-attr="billing-page-addon-cta-upgrade-cta"
@@ -377,6 +383,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
                 </div>
                 {!isTemporaryFreeProduct && <BillingLimit product={product} />}
+                <FeatureFlagUsageNotice product={product} />
             </div>
             <ProductPricingModal
                 modalOpen={isPricingModalOpen}
@@ -390,13 +397,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
 export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     return product.type === 'feature_flags' ? (
-        <p className="mt-4 ml-0 text-sm text-secondary italic">
-            <IconInfo className="mr-1" />
-            Questions? Here's{' '}
-            <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
-                how we calculate usage
-            </Link>{' '}
-            for feature flags.
-        </p>
+        <div className="p-4 px-8 pb-8 sm:pb-0 border-t border-border">
+            <p className="mt-0 ml-0 text-sm text-secondary italic">
+                <IconInfo className="mr-1" />
+                Questions? Here's{' '}
+                <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
+                    how we calculate usage
+                </Link>{' '}
+                for feature flags.
+            </p>
+        </div>
     ) : null
 }

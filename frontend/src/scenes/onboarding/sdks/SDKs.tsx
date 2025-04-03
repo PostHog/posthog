@@ -50,7 +50,6 @@ export function SDKs({
     const { goToNextStep, completeOnboarding } = useActions(onboardingLogic)
     const [showListeningFor, setShowListeningFor] = React.useState(false)
     const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
-    const { isUserInNonTechnicalTest } = useValues(sdksLogic)
 
     const {
         windowSize: { width },
@@ -89,7 +88,6 @@ export function SDKs({
                         !showSideBySide && panel !== 'options' ? 'hidden' : 'flex'
                     }`}
                 >
-                    {isUserInNonTechnicalTest && <InviteHelpCard />}
                     {showSourceOptionsSelect && (
                         <LemonSelect
                             allowClear
@@ -123,7 +121,7 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
-                    {!isUserInNonTechnicalTest && <InviteHelpCard />}
+                    <InviteHelpCard />
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div

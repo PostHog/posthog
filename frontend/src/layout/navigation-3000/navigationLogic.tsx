@@ -4,7 +4,6 @@ import {
     IconCursorClick,
     IconDashboard,
     IconDatabase,
-    IconFeatures,
     IconGraph,
     IconHome,
     IconLive,
@@ -37,7 +36,6 @@ import React from 'react'
 import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -76,8 +74,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['mobileLayout'],
             teamLogic,
             ['hasOnboardedAnyProduct'],
-            replayLandingPageLogic,
-            ['replayLandingPage'],
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
             ['playlists', 'playlistsLoading'],
         ],
@@ -355,7 +351,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
                 s.hasOnboardedAnyProduct,
-                s.replayLandingPage,
                 s.playlists,
                 s.playlistsLoading,
             ],
@@ -364,7 +359,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 dashboardsLoading,
                 pinnedDashboards,
                 hasOnboardedAnyProduct,
-                replayLandingPage,
                 playlists,
                 playlistsLoading
             ): NavbarItem[][] => {
@@ -463,16 +457,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     })
                 }
 
-                if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
-                    sectionOne.splice(4, 0, {
-                        identifier: Scene.FeatureManagement,
-                        label: 'Features',
-                        icon: <IconFeatures />,
-                        logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
-                        to: isUsingSidebar ? undefined : urls.featureManagement(),
-                    })
-                }
-
                 return [
                     sectionOne,
                     [
@@ -508,7 +492,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.Replay,
                             label: 'Session replay',
                             icon: <IconRewindPlay />,
-                            to: urls.replay(replayLandingPage),
+                            to: urls.replay(),
                             sideAction: {
                                 identifier: 'replay-dropdown',
                                 dropdown: {

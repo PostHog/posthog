@@ -2,26 +2,27 @@ import json
 import re
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from unittest.mock import Mock, patch, sentinel
 
 import pytest
 from clickhouse_driver import Client
 
-from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import (
+    AlterTableMutationRunner,
     ClickhouseCluster,
     HostInfo,
-    Mutation,
-    MutationNotFound,
-    AlterTableMutationRunner,
     LightweightDeleteMutationRunner,
-    T,
+    MutationNotFound,
+    MutationWaiter,
     Query,
     RetryPolicy,
+    T,
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.test.base import materialized
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:
     with pytest.raises(ValueError):
-        AlterTableMutationRunner("table", "command", parameters={"__invalid_key": True})
+        AlterTableMutationRunner("table", {"command"}, parameters={"__invalid_key": True})
 
 
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
@@ -115,41 +116,10 @@ def test_retry_policy_exception_test():
     assert non_retryable_callable.call_count == 1
 
 
-def test_mutations(cluster: ClickhouseCluster) -> None:
-    table = EVENTS_DATA_TABLE()
-    count = 100
-
-    # make sure there is some data to play with first
-    def populate_random_data(client: Client) -> None:
-        client.execute(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")
-
-    cluster.map_one_host_per_shard(populate_random_data).result()
-
-    # construct the runner
-    sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
-    runner = AlterTableMutationRunner(
-        table,
-        """
-        UPDATE
-            person_id = %(uuid)s,
-            properties = %(properties)s
-        -- this is a comment that will not appear in system.mutations
-        WHERE 1 = /* this will also be stripped out during formatting */ 01
-        """,
-        parameters={"uuid": sentinel_uuid, "properties": json.dumps({"uuid": sentinel_uuid.hex})},
-    )
-
-    # nothing should be running yet
-    existing_mutations = cluster.map_all_hosts(runner.find).result()
-    assert all(mutation is None for mutation in existing_mutations.values())
-
-    # start all mutations
-    shard_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
+def wait_and_check_mutations_on_shards(
+    cluster: ClickhouseCluster, shard_mutations: Mapping[HostInfo, MutationWaiter]
+) -> None:
     assert len(shard_mutations) > 0
-
-    # check results
-    def get_person_ids(client: Client) -> list[tuple[uuid.UUID, int]]:
-        return client.execute(f"SELECT person_id, count() FROM {table} GROUP BY ALL ORDER BY ALL")
 
     for host_info, mutation in shard_mutations.items():
         assert host_info.shard_num is not None
@@ -160,24 +130,128 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
         # check to make sure all mutations are marked as done
         assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
 
-        # check to ensure data is as expected to be after update
-        query_results = cluster.map_all_hosts_in_shard(host_info.shard_num, get_person_ids).result()
+
+def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
+    table = EVENTS_DATA_TABLE()
+    count = 100
+
+    # make sure there is some data to play with first
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+
+    # construct the runner
+    sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
+    runner = AlterTableMutationRunner(
+        table,
+        {
+            """
+            UPDATE person_id = %(uuid)s, properties = %(properties)s
+            -- this is a comment that will not appear in system.mutations
+            WHERE 1 = /* this will also be stripped out during formatting */ 01
+            """
+        },
+        parameters={"uuid": sentinel_uuid, "properties": json.dumps({"uuid": sentinel_uuid.hex})},
+    )
+
+    # nothing should be running yet
+    existing_mutations = cluster.map_all_hosts(runner.find_existing_mutations).result()
+    assert all(not mutations for mutations in existing_mutations.values())
+
+    # start all mutations
+    shard_mutations = cluster.map_one_host_per_shard(runner).result()
+    wait_and_check_mutations_on_shards(cluster, shard_mutations)
+
+    # check to ensure data is as expected to be after update
+    for host_info in shard_mutations.keys():
+        assert host_info.shard_num is not None
+        query_results = cluster.map_all_hosts_in_shard(
+            host_info.shard_num, Query(f"SELECT person_id, count() FROM {table} GROUP BY ALL ORDER BY ALL")
+        ).result()
         assert all(result == [(sentinel_uuid, count)] for result in query_results.values())
 
     # submitting a duplicate mutation should just return the original and not schedule anything new
-    def get_mutations_count(client: Client) -> int:
-        [[result]] = client.execute("SELECT count() FROM system.mutations")
-        return result
+    get_mutations_count_query = Query("SELECT count() FROM system.mutations")
+    mutations_count_before = cluster.map_all_hosts(get_mutations_count_query).result()
 
-    mutations_count_before = cluster.map_all_hosts(get_mutations_count).result()
-
-    duplicate_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
+    duplicate_mutations = cluster.map_one_host_per_shard(runner).result()
     assert shard_mutations == duplicate_mutations
 
-    assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
+    assert cluster.map_all_hosts(get_mutations_count_query).result() == mutations_count_before
 
     with pytest.raises(MutationNotFound):
-        assert cluster.any_host(Mutation("x", "y").is_done).result()
+        assert cluster.any_host(MutationWaiter("x", {"y"}).is_done).result()
+
+
+def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
+    table = EVENTS_DATA_TABLE()
+    count = 100
+
+    # make sure there is some data to play with first
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+
+    sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
+
+    with (
+        materialized("events", f"{sentinel_uuid}_a") as column_a,
+        materialized("events", f"{sentinel_uuid}_b") as column_b,
+        materialized("events", f"{sentinel_uuid}_c") as column_c,
+    ):
+        runner = AlterTableMutationRunner(
+            table,
+            {f"MATERIALIZE COLUMN {column_a.name}", f"MATERIALIZE COLUMN {column_b.name}"},
+        )
+
+        # nothing should be running yet
+        existing_mutations = cluster.map_all_hosts(runner.find_existing_mutations).result()
+        assert all(not mutations for mutations in existing_mutations.values())
+
+        # start all mutations
+        shard_mutations = cluster.map_one_host_per_shard(runner).result()
+        wait_and_check_mutations_on_shards(cluster, shard_mutations)
+
+        # all commands should have an associated mutation id at this point
+        existing_mutations = cluster.map_all_hosts(runner.find_existing_mutations).result()
+        assert all(mutations.keys() == runner.commands for mutations in existing_mutations.values())
+
+        # if we run the same mutation with a subset of commands, nothing new should be scheduled (this ensures after a
+        # code change that removes a command from the mutation, we won't error when we mutations from previous versions)
+        runner_with_single_command = AlterTableMutationRunner(
+            table,
+            {f"MATERIALIZE COLUMN {column_a.name}"},
+        )
+
+        # "start" all mutations (in actuality, this is a noop)
+        shard_mutations = cluster.map_one_host_per_shard(runner_with_single_command).result()
+        wait_and_check_mutations_on_shards(cluster, shard_mutations)
+
+        # the command should still be the same from the previous run
+        assert all(
+            mutations == {command: existing_mutations[host][command] for command in runner_with_single_command.commands}
+            for host, mutations in (
+                cluster.map_all_hosts(runner_with_single_command.find_existing_mutations).result().items()
+            )
+        )
+
+        # if we run the same mutation with additional commands, only the new command should be executed
+        new_command = f"MATERIALIZE COLUMN {column_c.name}"
+        runner_with_extra_command = AlterTableMutationRunner(
+            table,
+            {*runner.commands, new_command},
+        )
+
+        # the new command should not yet be findable
+        assert cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations).result() == existing_mutations
+
+        # start all mutations
+        shard_mutations = cluster.map_one_host_per_shard(runner_with_extra_command).result()
+        wait_and_check_mutations_on_shards(cluster, shard_mutations)
+
+        # now all commands should be present
+        assert all(
+            mutations.keys() == runner_with_extra_command.commands
+            for mutations in (
+                cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations).result().values()
+            )
+        )
 
 
 def test_map_hosts_by_role() -> None:
@@ -186,7 +260,7 @@ def test_map_hosts_by_role() -> None:
     bootstrap_client_mock.execute.return_value = [
         ("host1", "9000", "1", "1", "online", "data"),
         ("host2", "9000", "1", "2", "online", "data"),
-        ("host3", "9000", "1", "3", "online", "data"),
+        ("host3", "9000", "1", "3", "offline", "data"),
         ("host4", "9000", "1", "4", "online", "coordinator"),
     ]
 
@@ -215,27 +289,29 @@ def test_map_hosts_by_role() -> None:
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
         assert times_called[NodeRole.DATA] == 3
         assert times_called[NodeRole.COORDINATOR] == 1
+        times_called.clear()
+
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL, workload=Workload.OFFLINE).result()
+        assert times_called[NodeRole.DATA] == 1
+        assert times_called[NodeRole.COORDINATOR] == 0
+        times_called.clear()
+
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA, workload=Workload.ONLINE).result()
+        assert times_called[NodeRole.DATA] == 2
+        assert times_called[NodeRole.COORDINATOR] == 0
+        times_called.clear()
 
 
 def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
 
-    def truncate_table(client: Client) -> None:
-        client.execute(f"TRUNCATE TABLE {table}")
-
-    cluster.map_one_host_per_shard(truncate_table).result()
+    cluster.map_one_host_per_shard(Query(f"TRUNCATE TABLE {table}")).result()
 
     # make sure there is some data to play with first
-    def populate_random_data(client: Client) -> None:
-        client.execute(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
 
-    cluster.map_one_host_per_shard(populate_random_data).result()
-
-    def get_random_row(client: Client) -> list[tuple[uuid.UUID]]:
-        return client.execute(f"SELECT uuid FROM {table} ORDER BY rand() LIMIT 1")
-
-    [[[eid]]] = cluster.map_all_hosts(get_random_row).result().values()
+    [[[eid]]] = cluster.map_all_hosts(Query(f"SELECT uuid FROM {table} ORDER BY rand() LIMIT 1")).result().values()
 
     # construct the runner with a DELETE command
     runner = LightweightDeleteMutationRunner(
@@ -245,22 +321,13 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     )
 
     # start all mutations
-    shard_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
-    assert len(shard_mutations) > 0
+    shard_mutations = cluster.map_one_host_per_shard(runner).result()
+    wait_and_check_mutations_on_shards(cluster, shard_mutations)
 
-    # check results
-    def get_row_exists_count(client: Client) -> list[tuple[int]]:
-        return client.execute(f"SELECT count(1) FROM {table}")
-
-    for host_info, mutation in shard_mutations.items():
+    # check to ensure data is as expected to be after update (fewer rows visible than initially created)
+    for host_info in shard_mutations.keys():
         assert host_info.shard_num is not None
-
-        # wait for mutations to complete on shard
-        cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
-
-        # check to make sure all mutations are marked as done
-        assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
-
-        # check to ensure data is as expected to be after update (fewer rows visible than initially created)
-        query_results = cluster.map_all_hosts_in_shard(host_info.shard_num, get_row_exists_count).result()
+        query_results = cluster.map_all_hosts_in_shard(
+            host_info.shard_num, Query(f"SELECT count(1) FROM {table}")
+        ).result()
         assert all(result[0][0] < count for result in query_results.values())

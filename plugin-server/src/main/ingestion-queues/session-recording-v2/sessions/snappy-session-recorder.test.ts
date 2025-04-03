@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { ParsedMessageData } from '../kafka/types'
-import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
+import { RRWebEventType } from '../rrweb-types'
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
 describe('SnappySessionRecorder', () => {
@@ -46,7 +47,7 @@ describe('SnappySessionRecorder', () => {
             .split('\n')
             .map((line) => line.trim())
             .filter(Boolean)
-            .map((line) => JSON.parse(line))
+            .map((line) => parseJSON(line))
     }
 
     describe('recordMessage', () => {
@@ -244,9 +245,6 @@ describe('SnappySessionRecorder', () => {
             expect(result.keypressCount).toBe(0)
             expect(result.mouseActivityCount).toBe(0)
             expect(result.activeMilliseconds).toBe(0)
-            expect(result.consoleLogCount).toBe(0)
-            expect(result.consoleWarnCount).toBe(0)
-            expect(result.consoleErrorCount).toBe(0)
             expect(result.size).toBe(0)
             expect(result.messageCount).toBe(0)
             expect(result.snapshotSource).toBeNull()
@@ -329,6 +327,46 @@ describe('SnappySessionRecorder', () => {
 
             expect(result.firstUrl).toBe('https://example.com')
             expect(result.urls).toEqual(['https://example.com'])
+        })
+
+        it('should limit URL length to 4KB', async () => {
+            // Create a URL that exceeds the 4KB limit
+            const longUrl = 'https://example.com/' + 'a'.repeat(5000)
+
+            const events = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: 1000,
+                    data: { href: longUrl },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            // URL should be truncated to 4KB (4096 characters)
+            expect(result.firstUrl?.length).toBe(4096)
+            expect(result.urls?.[0].length).toBe(4096)
+        })
+
+        it('should limit the number of URLs to 25', async () => {
+            // Create 30 different URLs
+            const events = Array.from({ length: 30 }, (_, i) => ({
+                type: RRWebEventType.Meta,
+                timestamp: 1000 + i * 100,
+                data: { href: `https://example${i}.com` },
+            }))
+
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            // Only the first 25 URLs should be stored
+            expect(result.urls?.length).toBe(25)
+            // First URL should be the first one in the events array
+            expect(result.firstUrl).toBe('https://example0.com')
         })
 
         it('should accumulate URLs from multiple messages', async () => {
@@ -874,6 +912,26 @@ describe('SnappySessionRecorder', () => {
             expect(result.snapshotLibrary).toBe('posthog-android')
         })
 
+        it('should limit snapshot source and library fields to 1000 characters', async () => {
+            const message = createMessage('window1', [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+
+            const longString = 'a'.repeat(2000)
+            message.snapshot_source = longString
+            message.snapshot_library = longString
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.snapshotSource).toBe('a'.repeat(1000))
+            expect(result.snapshotLibrary).toBe('a'.repeat(1000))
+        })
+
         it('should use values from first message when multiple messages have different values', async () => {
             const message1 = createMessage('window1', [
                 {
@@ -942,166 +1000,6 @@ describe('SnappySessionRecorder', () => {
 
             const decompressedBuffer = await readSnappyBuffer(result.buffer)
             expect(result.size).toBe(decompressedBuffer.length)
-        })
-    })
-
-    describe('Console log counting', () => {
-        it('should count console log events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.Plugin,
-                    timestamp: 1000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Log,
-                            content: ['Test log message'],
-                        },
-                    },
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.consoleLogCount).toBe(1)
-            expect(result.consoleWarnCount).toBe(0)
-            expect(result.consoleErrorCount).toBe(0)
-        })
-
-        it('should count console warn events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.Plugin,
-                    timestamp: 1000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Warn,
-                            content: ['Test warning message'],
-                        },
-                    },
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.consoleLogCount).toBe(0)
-            expect(result.consoleWarnCount).toBe(1)
-            expect(result.consoleErrorCount).toBe(0)
-        })
-
-        it('should count console error events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.Plugin,
-                    timestamp: 1000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Error,
-                            content: ['Test error message'],
-                        },
-                    },
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.consoleLogCount).toBe(0)
-            expect(result.consoleWarnCount).toBe(0)
-            expect(result.consoleErrorCount).toBe(1)
-        })
-
-        it('should count multiple console events of different types', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.Plugin,
-                    timestamp: 1000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Log,
-                            content: ['Test log message 1'],
-                        },
-                    },
-                },
-                {
-                    type: RRWebEventType.Plugin,
-                    timestamp: 1500,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Warn,
-                            content: ['Test warning message'],
-                        },
-                    },
-                },
-                {
-                    type: RRWebEventType.Plugin,
-                    timestamp: 2000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Error,
-                            content: ['Test error message'],
-                        },
-                    },
-                },
-                {
-                    type: RRWebEventType.Plugin,
-                    timestamp: 2500,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Log,
-                            content: ['Test log message 2'],
-                        },
-                    },
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.consoleLogCount).toBe(2)
-            expect(result.consoleWarnCount).toBe(1)
-            expect(result.consoleErrorCount).toBe(1)
-        })
-
-        it('should not count non-console events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 1000,
-                    data: {},
-                },
-                {
-                    type: RRWebEventType.Plugin,
-                    timestamp: 1500,
-                    data: {
-                        plugin: 'some-other-plugin',
-                        payload: {
-                            level: 'log',
-                            content: ['This should not be counted'],
-                        },
-                    },
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.consoleLogCount).toBe(0)
-            expect(result.consoleWarnCount).toBe(0)
-            expect(result.consoleErrorCount).toBe(0)
         })
     })
 

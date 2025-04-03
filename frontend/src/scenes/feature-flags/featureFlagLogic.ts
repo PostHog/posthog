@@ -49,6 +49,7 @@ import {
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
     ProductKey,
+    ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
@@ -138,8 +139,10 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
     if (!is_remote_configuration) {
         return undefined
     }
-
-    return payload === undefined ? 'Payload is required for remote configuration flags.' : undefined
+    if (payload === undefined || payload === '') {
+        return 'Payload is required for remote configuration flags.'
+    }
+    return undefined
 }
 
 export interface FeatureFlagLogicProps {
@@ -1148,6 +1151,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],
+        projectTreeRef: [
+            () => [(_, props: FeatureFlagLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'feature_flag', ref: String(id) }),
+        ],
+
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.featureFlag, s.currentTeam],
             (featureFlag, currentTeam): SidePanelSceneContext | null => {

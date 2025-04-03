@@ -1,5 +1,6 @@
 import { createServer, Server } from 'http'
 
+import { parseJSON } from '../src/utils/json-parse'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam } from './api'
 import { waitForExpect } from './expectations'
@@ -18,7 +19,7 @@ beforeAll(async () => {
         })
         req.on('end', () => {
             webHookCalledWith[req.url!] = webHookCalledWith[req.url!] ?? []
-            webHookCalledWith[req.url!].push(JSON.parse(body))
+            webHookCalledWith[req.url!].push(parseJSON(body))
             res.writeHead(200, { 'Content-Type': 'text/plain' })
             res.end()
         })

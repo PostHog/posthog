@@ -60,7 +60,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
         stage = validated_data.get("stage", None)
 
-        if instance.stage != EarlyAccessFeature.Stage.BETA and stage == EarlyAccessFeature.Stage.BETA:
+        if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
             super_conditions = lambda feature_flag_key: [
                 {
                     "properties": [
@@ -91,7 +91,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 )
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
-        elif stage is not None and stage != EarlyAccessFeature.Stage.BETA:
+        elif stage is not None and (stage not in EarlyAccessFeature.ReleaseStage):
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
                 related_feature_flag.filters = {
@@ -174,7 +174,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
             feature_flag_key = feature_flag.key
 
-            if validated_data.get("stage") == EarlyAccessFeature.Stage.BETA:
+            if validated_data.get("stage") in EarlyAccessFeature.ReleaseStage:
                 serialized_data_filters = {
                     **feature_flag.filters,
                     "super_groups": super_conditions(feature_flag_key),
@@ -195,7 +195,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 "groups": default_condition,
             }
 
-            if validated_data.get("stage") == EarlyAccessFeature.Stage.BETA:
+            if validated_data.get("stage") in EarlyAccessFeature.ReleaseStage:
                 filters["super_groups"] = super_conditions(feature_flag_key)
 
             feature_flag_serializer = FeatureFlagSerializer(
@@ -243,6 +243,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 @csrf_exempt
 def early_access_features(request: Request):
     token = get_token(None, request)
+    stages = request.GET.getlist("stage", [EarlyAccessFeature.Stage.BETA])
 
     if not token:
         return cors_response(
@@ -270,9 +271,9 @@ def early_access_features(request: Request):
         )
 
     early_access_features = MinimalEarlyAccessFeatureSerializer(
-        EarlyAccessFeature.objects.filter(
-            team__project_id=team.project_id, stage=EarlyAccessFeature.Stage.BETA
-        ).select_related("feature_flag"),
+        EarlyAccessFeature.objects.filter(team__project_id=team.project_id, stage__in=stages).select_related(
+            "feature_flag"
+        ),
         many=True,
     ).data
 

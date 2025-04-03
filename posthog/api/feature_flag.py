@@ -50,6 +50,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
@@ -68,8 +69,9 @@ from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
 from posthog.rate_limit import BurstRateThrottle
-from loginas.utils import is_impersonated_session
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from django.dispatch import receiver
+from posthog.models.signals import model_activity_signal
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -369,6 +371,7 @@ class FeatureFlagSerializer(
         validated_data["created_by"] = request.user
         validated_data["last_modified_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
+        validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         creation_context = validated_data.pop(
             "creation_context", "feature_flags"
@@ -400,7 +403,8 @@ class FeatureFlagSerializer(
 
         self.check_flag_evaluation(validated_data)
 
-        instance: FeatureFlag = super().create(validated_data)
+        with ImpersonatedContext(request):
+            instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
 
@@ -467,7 +471,8 @@ class FeatureFlagSerializer(
             validated_data["version"] = locked_version + 1
             old_key = instance.key
 
-            instance = super().update(instance, validated_data)
+            with ImpersonatedContext(request):
+                instance = super().update(instance, validated_data)
 
         # Continue with the update outside of the transaction. This is an intentional choice
         # to avoid deadlocks. Not to mention, before making the concurrency changes, these
@@ -634,6 +639,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "active",
             "ensure_experience_continuity",
             "has_encrypted_payloads",
+            "version",
         ]
 
 
@@ -1130,41 +1136,21 @@ class FeatureFlagViewSet(
         )
         return activity_page_response(activity_page, limit, page, request)
 
-    def perform_create(self, serializer):
-        serializer.save()
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
-            scope="FeatureFlag",
-            activity="created",
-            detail=Detail(name=serializer.instance.key),
-        )
 
-    def perform_update(self, serializer):
-        instance_id = serializer.instance.id
-
-        try:
-            before_update = FeatureFlag.objects.get(pk=instance_id)
-        except FeatureFlag.DoesNotExist:
-            before_update = None
-
-        serializer.save()
-
-        changes = changes_between("FeatureFlag", previous=before_update, current=serializer.instance)
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=instance_id,
-            scope="FeatureFlag",
-            activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.key),
-        )
+@receiver(model_activity_signal, sender=FeatureFlag)
+def handle_feature_flag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=after_update.last_modified_by,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.key
+        ),
+    )
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):

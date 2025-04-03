@@ -124,7 +124,19 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
 
         assert hog_function.hog == snapshot(
             """\
-let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {
+let hook_path := inputs.hook;
+let prefix := 'https://hooks.zapier.com/';
+// Remove the prefix if it exists
+if (position(hook_path, prefix) == 1) {
+  hook_path := replaceOne(hook_path, prefix, '');
+}
+
+// Remove leading slash if present to avoid double slashes
+if (position(hook_path, '/') == 1) {
+  hook_path := replaceOne(hook_path, '/', '');
+}
+
+let res := fetch(f'https://hooks.zapier.com/{hook_path}', {
   'method': 'POST',
   'body': inputs.body
 });
@@ -225,7 +237,7 @@ if (inputs.debug) {
                 id=hook_id,
                 user=self.user,
                 team=self.team,
-                resource_id=20,
+                resource_id=self.action.id,
                 target=f"https://hooks.zapier.com/hooks/standard/{hook_id}",
             )
 

@@ -39,9 +39,8 @@ export class TemplateTester {
         }
 
         this.mockHub = {} as any
-        const mockHogFunctionManager = {} as any
 
-        this.executor = new HogExecutorService(this.mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutorService(this.mockHub)
     }
 
     /*
@@ -64,8 +63,7 @@ export class TemplateTester {
 
         this.mockHub = { mmdb: undefined } as any
 
-        const mockHogFunctionManager = {} as any
-        this.executor = new HogExecutorService(this.mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutorService(this.mockHub)
     }
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
@@ -116,9 +114,7 @@ export class TemplateTester {
     async invoke(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
         const defaultInputs = this.template.inputs_schema.reduce((acc, input) => {
             if (typeof input.default !== 'undefined') {
-                acc[input.key] = {
-                    value: input.default,
-                }
+                acc[input.key] = input.default
             }
             return acc
         }, {} as Record<string, HogFunctionInputType>)

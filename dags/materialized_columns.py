@@ -1,8 +1,8 @@
 import datetime
 import itertools
-from collections.abc import Iterator
-from functools import reduce
-from typing import ClassVar
+from collections import defaultdict
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from typing import ClassVar, TypeVar, cast
 
 import dagster
 import pydantic
@@ -11,7 +11,27 @@ from dateutil.relativedelta import relativedelta
 
 from dags.common import JobOwners
 from posthog import settings
-from posthog.clickhouse.cluster import ClickhouseCluster, AlterTableMutationRunner
+from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, HostInfo
+
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+def zip_values(mapping: Mapping[K, Iterable[V]]) -> Iterator[Mapping[K, V]]:
+    """
+    Takes a mapping that contains values of sequences if identical lengths, returns an iterator of dictionaries for each
+    index in the sequence, with keys for each value taken from the input mapping.
+    """
+    keys, values = [], []
+    for key, value in mapping.items():
+        keys.append(key)
+        values.append(value)
+
+    if len({len(value) for value in values}) > 1:
+        raise ValueError("expected all value sequences to be of the same length")
+
+    for chunk in zip(*values):
+        yield dict(zip(keys, chunk))
 
 
 class PartitionRange(dagster.Config):
@@ -48,12 +68,13 @@ class PartitionRange(dagster.Config):
         return datetime.datetime.strptime(value, cls.FORMAT).date()
 
 
-class MaterializeColumnConfig(dagster.Config):
+class MaterializationConfig(dagster.Config):
     table: str
-    column: str  # TODO: maybe make this a list/set so we can minimize the number of mutations?
+    columns: list[str]
+    indexes: list[str]
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
 
-    def get_remaining_partitions(self, client: Client) -> set[str]:
+    def get_mutations_to_run(self, client: Client) -> Sequence[AlterTableMutationRunner]:
         # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
         # have the target column materialized by finding parts where the key column exists but the target column does
         # not.
@@ -71,9 +92,9 @@ class MaterializeColumnConfig(dagster.Config):
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
         )
 
-        return {
-            partition
-            for [partition] in client.execute(
+        columns_remaining_by_partition = defaultdict(set)
+        for column in self.columns:
+            results = client.execute(
                 """
                 SELECT partition
                 FROM system.parts_columns
@@ -92,52 +113,61 @@ class MaterializeColumnConfig(dagster.Config):
                     "database": settings.CLICKHOUSE_DATABASE,
                     "table": self.table,
                     "key_column": key_column,
-                    "column": self.column,
+                    "column": column,
                     "partitions": [*self.partitions.iter_ids()],
                 },
             )
-        }
+            for [partition] in results:
+                columns_remaining_by_partition[partition].add(column)
+
+        mutations = []
+
+        for partition in reversed([*self.partitions.iter_ids()]):
+            commands = set()
+
+            for column in columns_remaining_by_partition[partition]:
+                commands.add(f"MATERIALIZE COLUMN {column} IN PARTITION %(partition)s")
+
+            # XXX: there is no way to determine whether or not the index already exists, so unfortunately we need to
+            # materialize it unconditionally
+            for index in self.indexes:
+                commands.add(f"MATERIALIZE INDEX {index} IN PARTITION %(partition)s")
+
+            if commands:
+                mutations.append(AlterTableMutationRunner(self.table, commands, parameters={"partition": partition}))
+
+        return mutations
+
+
+T = TypeVar("T")
+
+
+def _convert_hostinfo_keys_to_shard_num(input: Mapping[HostInfo, T]) -> Mapping[int, T]:
+    """Convert the keys of the input mapping to (non-optional) shard numbers."""
+    # this is mostly to appease the type checker, as the shard operations on the cluster interface do not have a method
+    # to return a shard_num that is non-optional. this should be able to be removed in the future once that is improved
+    result = {host.shard_num: value for host, value in input.items()}
+    assert None not in result.keys()
+    return cast(Mapping[int, T], result)
 
 
 @dagster.op
 def run_materialize_mutations(
     context: dagster.OpExecutionContext,
-    config: MaterializeColumnConfig,
+    config: MaterializationConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
     # Since this is only being run on a single host in the shard, we're assuming that the other hosts either have the
     # same set of partitions already materialized, or that a materialization mutation already exists (and is running) if
     # they are lagging behind. (If _this_ host is lagging behind the others, the mutation runner should prevent us from
     # scheduling duplicate mutations on the shard.)
-    remaining_partitions_by_shard = {
-        host.shard_num: partitions
-        for host, partitions in cluster.map_one_host_per_shard(config.get_remaining_partitions).result().items()
-    }
-
-    requested_partitions = set(config.partitions.iter_ids())
-    remaining_partitions = reduce(lambda x, y: x | y, remaining_partitions_by_shard.values())
-    context.log.info(
-        "Materializing %s of %s requested partitions (%s already materialized in all shards)",
-        len(remaining_partitions),
-        len(requested_partitions),
-        len(requested_partitions - remaining_partitions),
+    mutations_to_run_by_shard = _convert_hostinfo_keys_to_shard_num(
+        cluster.map_one_host_per_shard(config.get_mutations_to_run).result()
     )
 
-    # Step through the remaining partitions, materializing the column in any shards where the column hasn't already been
-    # materialized.
-    for partition in sorted(remaining_partitions, reverse=True):
-        AlterTableMutationRunner(
-            config.table,
-            f"MATERIALIZE COLUMN {config.column} IN PARTITION %(partition)s",
-            parameters={"partition": partition},
-        ).run_on_shards(
-            cluster,
-            shards={
-                shard_num
-                for shard_num, remaining_partitions_for_shard in remaining_partitions_by_shard.items()
-                if partition in remaining_partitions_for_shard
-            },
-        )
+    for mutations in zip_values(mutations_to_run_by_shard):
+        shard_waiters = _convert_hostinfo_keys_to_shard_num(cluster.map_any_host_in_shards(mutations).result())
+        cluster.map_all_hosts_in_shards(shard_waiters).result()
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})

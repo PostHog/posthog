@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -22,7 +24,7 @@ use super::{Fetcher, Parser, S3Client};
 // source bytes into s3, and the storage pointer into a postgres database.
 pub struct Saving<F> {
     inner: F,
-    s3_client: S3Client,
+    s3_client: Arc<S3Client>,
     pool: PgPool,
     bucket: String,
     prefix: String,
@@ -56,7 +58,7 @@ impl<F> Saving<F> {
     pub fn new(
         inner: F,
         pool: sqlx::PgPool,
-        s3_client: S3Client,
+        s3_client: Arc<S3Client>,
         bucket: String,
         prefix: String,
     ) -> Self {
@@ -101,7 +103,7 @@ impl<F> Saving<F> {
             record.id // The call to save() above ensures that this id is correct
         )
         .fetch_one(&self.pool)
-        .await?.map_or(0, |v| {
+        .await.expect("Got at least one row back").map_or(0, |v| {
             v.max(0) as u64
         });
 
@@ -148,13 +150,14 @@ impl<F> Saving<F> {
 #[async_trait]
 impl<F> Fetcher for Saving<F>
 where
-    F: Fetcher<Fetched = Vec<u8>>,
+    F: Fetcher<Fetched = Vec<u8>, Err = Error>,
     F::Ref: ToString + Send,
 {
     type Ref = F::Ref;
     type Fetched = Saveable;
+    type Err = F::Err;
 
-    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Error> {
+    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
         let set_ref = r.to_string();
         info!("Fetching symbol set data for {}", set_ref);
         metrics::counter!(SYMBOL_SET_DB_FETCHES).increment(1);
@@ -221,12 +224,14 @@ where
 #[async_trait]
 impl<F> Parser for Saving<F>
 where
-    F: Parser<Source = Vec<u8>>,
+    F: Parser<Source = Vec<u8>, Err = Error>,
     F::Set: Send,
 {
     type Source = Saveable;
     type Set = F::Set;
-    async fn parse(&self, data: Saveable) -> Result<Self::Set, Error> {
+    type Err = F::Err;
+
+    async fn parse(&self, data: Saveable) -> Result<Self::Set, Self::Err> {
         match self.inner.parse(data.data.clone()).await {
             Ok(s) => {
                 info!("Parsed symbol set data for {}", data.set_ref);
@@ -295,7 +300,7 @@ impl SymbolSetRecord {
             self.content_hash
         )
         .fetch_one(e)
-        .await?;
+        .await.expect("Got at least one row back");
 
         metrics::counter!(SYMBOL_SET_SAVED).increment(1);
 
@@ -305,9 +310,11 @@ impl SymbolSetRecord {
 
 #[cfg(test)]
 mod test {
-    use common_symbol_data::write_symbol_data;
+    use std::sync::Arc;
+
     use httpmock::MockServer;
     use mockall::predicate;
+    use posthog_symbol_data::write_symbol_data;
     use reqwest::Url;
     use sqlx::PgPool;
 
@@ -325,7 +332,7 @@ mod test {
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
 
     fn get_symbol_data_bytes() -> Vec<u8> {
-        write_symbol_data(common_symbol_data::SourceAndMap {
+        write_symbol_data(posthog_symbol_data::SourceAndMap {
             minified_source: String::from_utf8(MINIFIED.to_vec()).unwrap(),
             sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
         })
@@ -376,7 +383,7 @@ mod test {
         let saving_smp = Saving::new(
             smp,
             db.clone(),
-            client,
+            Arc::new(client),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
@@ -415,7 +422,7 @@ mod test {
         let saving_smp = Saving::new(
             smp,
             db.clone(),
-            client,
+            Arc::new(client),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
@@ -465,7 +472,7 @@ mod test {
         let saving_smp = Saving::new(
             smp,
             db.clone(),
-            client,
+            Arc::new(client),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );

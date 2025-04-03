@@ -16,6 +16,7 @@ import {
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
+    HogQLQuery,
     InsightVizNode,
     Node,
     NodeKind,
@@ -333,10 +334,10 @@ export function formatBreakdownLabel(
     }
 
     // stringified numbers
-    if (!Number.isNaN(Number(breakdown_value))) {
+    if (breakdown_value && /^\d+$/.test(breakdown_value)) {
         const numericValue =
             Number.isInteger(Number(breakdown_value)) && !Number.isSafeInteger(Number(breakdown_value))
-                ? BigInt(breakdown_value!)
+                ? BigInt(breakdown_value)
                 : Number(breakdown_value)
         return formatNumericBreakdownLabel(
             numericValue,
@@ -387,7 +388,7 @@ export const INSIGHT_TYPE_URLS = {
     PATHS_V2: urls.insightNew({ type: InsightType.PATHS_V2 }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
-    SQL: urls.insightNew({ query: examples.DataVisualization }),
+    SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */

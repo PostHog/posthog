@@ -1,5 +1,5 @@
 import { IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -8,6 +8,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
+
+import { getIntegrationSetupModalProps } from './getIntegrationSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -29,6 +31,7 @@ export function IntegrationChoice({
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { newGoogleCloudKey } = useActions(integrationsLogic)
     const kind = integration
+
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
 
@@ -47,6 +50,10 @@ export function IntegrationChoice({
             ? 'Google Cloud Storage'
             : kind == 'google-ads'
             ? 'Google Ads'
+            : kind == 'linkedin-ads'
+            ? 'LinkedIn Ads'
+            : kind == 'email'
+            ? 'Mailjet'
             : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
@@ -61,6 +68,22 @@ export function IntegrationChoice({
             newGoogleCloudKey(kind, file, (integration) => onChange?.(integration.id))
         }
         input.click()
+    }
+
+    function showIntegrationSetupModal(): void {
+        if (!kind) {
+            return
+        }
+
+        const modalProps = getIntegrationSetupModalProps({
+            integration: kind,
+            integrationName: kindName,
+            onComplete: onChange,
+        })
+
+        if (modalProps) {
+            LemonDialog.openForm(modalProps)
+        }
     }
 
     const button = (
@@ -87,6 +110,15 @@ export function IntegrationChoice({
                               },
                           ],
                       }
+                    : ['email'].includes(kind)
+                    ? {
+                          items: [
+                              {
+                                  onClick: showIntegrationSetupModal,
+                                  label: 'Configure Mailjet API key',
+                              },
+                          ],
+                      }
                     : {
                           items: [
                               {
@@ -97,8 +129,8 @@ export function IntegrationChoice({
                                   disableClientSideRouting: true,
                                   onClick: beforeRedirect,
                                   label: integrationsOfKind?.length
-                                      ? `Connect to a different ${kind} integration`
-                                      : `Connect to ${kind}`,
+                                      ? `Connect to a different integration for ${kindName}`
+                                      : `Connect to ${kindName}`,
                               },
                           ],
                       },

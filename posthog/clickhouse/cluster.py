@@ -3,10 +3,9 @@ from __future__ import annotations
 import abc
 import itertools
 import logging
-import re
 import time
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import (
     ALL_COMPLETED,
     FIRST_EXCEPTION,
@@ -24,7 +23,7 @@ from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
 from posthog import settings
-from posthog.clickhouse.client.connection import NodeRole, _make_ch_pool, default_client
+from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
@@ -186,6 +185,16 @@ class ClickhouseCluster:
 
         return task
 
+    def __hosts_by_role(
+        self, hosts: set[HostInfo], node_role: NodeRole, workload: Workload = Workload.DEFAULT
+    ) -> set[HostInfo]:
+        return {
+            host
+            for host in hosts
+            if (host.host_cluster_role == node_role.value.lower() or node_role == NodeRole.ALL)
+            and (host.host_cluster_type == workload.value.lower() or workload == Workload.DEFAULT)
+        }
+
     @property
     def __hosts(self) -> set[HostInfo]:
         """Set containing all hosts in the cluster."""
@@ -194,18 +203,24 @@ class ClickhouseCluster:
             hosts.update(shard_hosts)
         return hosts
 
+    @property
+    def shards(self) -> list[int]:
+        return list(self.__shards.keys())
+
     def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
         with ThreadPoolExecutor() as executor:
             host = next(iter(self.__hosts))
             return executor.submit(self.__get_task_function(host, fn))
 
-    def any_host_by_role(self, fn: Callable[[Client], T], node_role: NodeRole) -> Future[T]:
+    def any_host_by_role(
+        self, fn: Callable[[Client], T], node_role: NodeRole, workload: Workload = Workload.DEFAULT
+    ) -> Future[T]:
         """
         Execute the callable once for any host with the given node role.
         """
         with ThreadPoolExecutor() as executor:
             try:
-                host = next(host for host in self.__hosts if host.host_cluster_role == node_role.value.lower())
+                host = next(iter(self.__hosts_by_role(self.__hosts, node_role, workload)))
             except StopIteration:
                 raise ValueError(f"No hosts found with role {node_role.value}")
             return executor.submit(self.__get_task_function(host, fn))
@@ -224,6 +239,7 @@ class ClickhouseCluster:
         fn: Callable[[Client], T],
         node_role: NodeRole,
         concurrency: int | None = None,
+        workload: Workload = Workload.DEFAULT,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster with the given node role.
@@ -235,8 +251,7 @@ class ClickhouseCluster:
             return FuturesMap(
                 {
                     host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts
-                    if host.host_cluster_role == node_role.value.lower() or node_role == NodeRole.ALL
+                    for host in self.__hosts_by_role(self.__hosts, node_role, workload)
                 }
             )
 
@@ -249,13 +264,34 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        return self.map_hosts_in_shard_by_role(shard_num, fn, concurrency, NodeRole.ALL, Workload.DEFAULT)
+
+    def map_hosts_in_shard_by_role(
+        self,
+        shard_num: int,
+        fn: Callable[[Client], T],
+        concurrency: int | None = None,
+        node_role: NodeRole = NodeRole.ALL,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the specified shard and role.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host in self.__shards[shard_num]}
+                {
+                    host: executor.submit(self.__get_task_function(host, fn))
+                    for host in self.__hosts_by_role(self.__shards[shard_num], node_role, workload)
+                }
             )
 
     def map_all_hosts_in_shards(
-        self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
+        self,
+        shard_fns: dict[int, Callable[[Client], T]],
+        concurrency: int | None = None,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the specified shards.
@@ -284,10 +320,35 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        return self.map_any_host_in_shards_by_role(
+            shard_fns,
+            concurrency=concurrency,
+            node_role=NodeRole.ALL,
+            workload=Workload.DEFAULT,
+        )
+
+    def map_any_host_in_shards_by_role(
+        self,
+        shard_fns: dict[int, Callable[[Client], T]],
+        concurrency: int | None = None,
+        node_role: NodeRole = NodeRole.ALL,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable on one host for each of the specified shards and role.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
         shard_host_fns = {}
         for shard, fn in shard_fns.items():
-            host = next(iter(self.__shards[shard]))
-            shard_host_fns[host] = fn
+            try:
+                host = next(iter(self.__hosts_by_role(self.__shards[shard], node_role, workload)))
+                shard_host_fns[host] = fn
+            except StopIteration:
+                raise ValueError(
+                    f"No hosts found with role {node_role.value} and workload {workload.value} in shard {shard}"
+                )
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
@@ -394,28 +455,36 @@ class MutationNotFound(Exception):
 
 
 @dataclass
-class Mutation:
+class MutationWaiter:
     table: str
-    mutation_id: str
+    mutation_ids: Set[str]
+
+    def __call__(self, client: Client) -> None:
+        return self.wait(client)
 
     def is_done(self, client: Client) -> bool:
+        # TODO: this should maybe raise if the number of commands per mutation is incorrect?
         rows = client.execute(
             f"""
-            SELECT is_done
+            SELECT
+                mutation_id,  -- ensure no rows are returned if the mutation we're looking for doesn't exist
+                countIf(is_done) = count() as all_commands_done -- multiple commands can be issued in a single mutation, consolidate all statuses into one value
             FROM system.mutations
-            WHERE database = %(database)s AND table = %(table)s AND mutation_id = %(mutation_id)s
-            ORDER BY create_time DESC
+            WHERE database = %(database)s AND table = %(table)s AND mutation_id IN %(mutation_ids)s
+            GROUP BY ALL
             """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
+            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_ids": list(self.mutation_ids)},
         )
 
-        if len(rows) == 1:
-            [[is_done]] = rows
-            return is_done
-        elif len(rows) == 0:
-            raise MutationNotFound(f"could not find mutation matching {self!r}")
+        statuses = dict(rows)
+        assert len(rows) == len(statuses)
+
+        if missing_mutations := (self.mutation_ids - statuses.keys()):
+            raise MutationNotFound(f"could not find mutation(s): {missing_mutations!r}")
+        elif unexpected_mutations := (statuses.keys() - self.mutation_ids):
+            raise ValueError(f"received unexpected mutation(s): {unexpected_mutations!r}")  # should never happen
         else:
-            raise ValueError(f"expected zero or one mutations, found {len(rows)}")
+            return all(statuses.values())
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
@@ -429,72 +498,99 @@ class MutationRunner(abc.ABC):
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
 
     @abc.abstractmethod
-    def get_statement(self) -> str:
-        """Returns the full statement that can be used to enqueue the mutation."""
+    def get_all_commands(self) -> Set[str]:
+        """Returns all of the commands that are considered part of this mutation."""
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_command(self) -> str:
-        """Returns the command that can be used to find the mutation in the ``system.mutations`` table."""
+    def get_statement(self, commands: Set[str]) -> str:
+        """Returns a statement that can be used to enqueue a mutation for the provided commands."""
         raise NotImplementedError
 
     def __post_init__(self) -> None:
         if invalid_keys := {key for key in self.parameters.keys() if key.startswith("__")}:
             raise ValueError(f"invalid parameter names: {invalid_keys!r} (keys cannot start with double underscore)")
 
-    def find(self, client: Client) -> Mutation | None:
-        """Find the running mutation task, if one exists."""
+    def __call__(self, client: Client) -> MutationWaiter:
+        """
+        Ensure that all mutation commands are either running, or have previously run to completion. Returns an object
+        that can be used to check the status of the mutation and wait for it to be finished.
+        """
+        expected_commands = self.get_all_commands()
+        mutations_running = self.find_existing_mutations(client, expected_commands)
 
-        command = self.get_command().strip()
-        if (command_kind_match := re.match(r"^(\w+)\s*", command)) is None:
-            raise ValueError(f"could not determine command kind from {command!r}")
+        commands_to_enqueue = expected_commands - mutations_running.keys()
+        if not commands_to_enqueue:
+            return MutationWaiter(self.table, set(mutations_running.values()))
 
-        results = client.execute(
+        client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+
+        # mutations are not always immediately visible, so give anything new a bit of time to show up
+        start = time.time()
+        for _ in range(5):
+            mutations_running = self.find_existing_mutations(client, expected_commands)
+            if mutations_running.keys() == expected_commands:
+                return MutationWaiter(self.table, set(mutations_running.values()))
+            time.sleep(1.0)
+
+        raise Exception(
+            f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"
+        )
+
+    def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
+        """
+        Find the mutation ID (if it exists) associated with each command provided (or all commands if no commands are
+        specified.)
+        """
+        if commands is None:
+            commands = self.get_all_commands()
+
+        if unexpected_commands := (commands - self.get_all_commands()):
+            raise ValueError(f"unexpected commands: {unexpected_commands!r}")
+
+        # we match commands by position, so require a stable ordering - this is because this class is provided the
+        # command template without parameter values, while the record in the mutation log will have the values inlined
+        command_list = [*commands]
+        mutations = client.execute(
             f"""
             SELECT mutation_id
-            FROM system.mutations
-            WHERE
-                database = %(__database)s
-                AND table = %(__table)s
-                -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
-                -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
-                AND NOT throwIf(
-                    length(splitByString(%(__command_kind)s, replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {command}$__sql$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
-                    'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
-                )
-                AND command = %(__command_kind)s || ' ' || trim(lines[2])
-                AND NOT is_killed  -- ok to restart a killed mutation
-            ORDER BY create_time DESC
+            FROM (
+                SELECT
+                    (arrayJoin(
+                        arrayZip(
+                            arrayMap(
+                                command -> extract(command, '^\\s*(.*?)(?:,)?\\s*$'),  -- strip leading/trailing whitespace and optional trailing comma
+                                arraySlice(  -- drop "ALTER TABLE" preamble line
+                                    splitByChar('\n', formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {", ".join(command_list)}$__sql$)),
+                                    2
+                                )
+                            ) as commands,
+                            arrayEnumerate(commands)
+                        )
+                    ) as t).1 as command,
+                    t.2 as position
+            ) commands
+            LEFT OUTER JOIN (
+                SELECT *
+                FROM system.mutations
+                WHERE
+                    database = %(__database)s
+                    AND table = %(__table)s
+                    AND NOT is_killed  -- ok to restart a killed mutation
+            ) mutations USING (command)
+            ORDER BY position ASC
+            SETTINGS join_use_nulls = 1
             """,
             {
                 f"__database": settings.CLICKHOUSE_DATABASE,
                 f"__table": self.table,
-                f"__command_kind": command_kind_match.group(1),
                 **self.parameters,
             },
         )
-        if not results:
-            return None
-        else:
-            assert len(results) == 1
-            [[mutation_id]] = results
-            return Mutation(self.table, mutation_id)
-
-    def enqueue(self, client: Client) -> Mutation:
-        """Enqueue the mutation (or return the existing mutation if it is already running or has run.)"""
-        if task := self.find(client):
-            return task
-
-        client.execute(self.get_statement(), self.parameters, settings=self.settings)
-
-        # mutations are not always immediately visible, so give it a bit of time to show up
-        start = time.time()
-        for _ in range(5):
-            if task := self.find(client):
-                return task
-            time.sleep(1.0)
-
-        raise Exception(f"unable to find mutation after {time.time() - start:0.2f}s!")
+        assert len(mutations) == len(command_list)
+        return {
+            command: mutation_id for command, (mutation_id,) in zip(command_list, mutations) if mutation_id is not None
+        }
 
     def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
         """
@@ -502,44 +598,48 @@ class MutationRunner(abc.ABC):
         hosts within the affected shards.
         """
         if shards is not None:
-            shard_host_mutations = cluster.map_any_host_in_shards({shard: self.enqueue for shard in shards})
+            shard_host_mutation_waiters = cluster.map_any_host_in_shards({shard: self for shard in shards})
         else:
-            shard_host_mutations = cluster.map_one_host_per_shard(self.enqueue)
+            shard_host_mutation_waiters = cluster.map_one_host_per_shard(self)
 
         # XXX: need to convert the `shard_num` of type `int | None` to `int` to appease the type checker -- but nothing
         # should have actually been filtered out, since we're using the cluster shard functions for targeting
         shard_mutations = {
             host.shard_num: mutations
-            for host, mutations in shard_host_mutations.result().items()
+            for host, mutations in shard_host_mutation_waiters.result().items()
             if host.shard_num is not None
         }
-        assert len(shard_mutations) == len(shard_host_mutations)
+        assert len(shard_mutations) == len(shard_host_mutation_waiters)
 
         # during periods of elevated replication lag, it may take some time for mutations to become available on
         # the shards, so give them a little bit of breathing room with retries
         retry_policy = RetryPolicy(max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
         cluster.map_all_hosts_in_shards(
-            {shard_num: retry_policy(mutation.wait) for shard_num, mutation in shard_mutations.items()}
+            {shard_num: retry_policy(waiter) for shard_num, waiter in shard_mutations.items()}
         ).result()
 
 
 @dataclass
 class AlterTableMutationRunner(MutationRunner):
-    command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
+    commands: Set[str]  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
 
-    def get_statement(self) -> str:
-        return f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}"
+    def get_all_commands(self) -> Set[str]:
+        return self.commands
 
-    def get_command(self) -> str:
-        return self.command
+    def get_statement(self, commands: Set[str]) -> str:
+        return f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} " + ", ".join(commands)
 
 
 @dataclass
 class LightweightDeleteMutationRunner(MutationRunner):
     predicate: str
 
-    def get_statement(self) -> str:
-        return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table} WHERE {self.predicate}"
+    def get_all_commands(self) -> Set[str]:
+        return {f"UPDATE _row_exists = 0 WHERE {self.predicate}"}
 
-    def get_command(self) -> str:
-        return f"UPDATE _row_exists = 0 WHERE {self.predicate}"
+    def get_statement(self, commands: Set[str]) -> str:
+        # XXX: lightweight deletes should only be called with the same command represented by the predicate
+        if commands != self.get_all_commands():
+            raise ValueError(f"unexpected commands: {commands!r}")
+
+        return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table} WHERE {self.predicate}"

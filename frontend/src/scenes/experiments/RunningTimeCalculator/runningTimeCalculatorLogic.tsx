@@ -29,20 +29,45 @@ export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
 export const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
 export const VARIANCE_SCALING_FACTOR_SUM = 0.25
 
-const getKindField = (metric: ExperimentMetric): NodeKind => {
-    return metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig
-        ? NodeKind.EventsNode
-        : metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig
-        ? NodeKind.ActionsNode
-        : NodeKind.DataWarehouseNode
+export enum ConversionRateInputType {
+    MANUAL = 'manual',
+    AUTOMATIC = 'automatic',
 }
 
-const getEventField = (metric: ExperimentMetric): string | number => {
-    return metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig
-        ? metric.metric_config.event
-        : metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig
-        ? metric.metric_config.action
-        : metric.metric_config.table_name
+const getKindField = (metric: ExperimentMetric): NodeKind => {
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        return NodeKind.FunnelsQuery
+    }
+
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        const { kind } = metric.source
+        // For most sources, we can return the kind directly
+        if ([NodeKind.EventsNode, NodeKind.ActionsNode, NodeKind.ExperimentDataWarehouseNode].includes(kind)) {
+            return kind
+        }
+    }
+
+    return NodeKind.EventsNode
+}
+
+const getEventField = (metric: ExperimentMetric): string | number | null | undefined => {
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        const { source } = metric
+        return source.kind === NodeKind.ExperimentDataWarehouseNode
+            ? source.table_name
+            : source.kind === NodeKind.EventsNode
+            ? source.event
+            : source.kind === NodeKind.ActionsNode
+            ? source.id
+            : null
+    }
+
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        const step = metric.series[0]
+        return step.kind === NodeKind.EventsNode ? step.event : step.kind === NodeKind.ActionsNode ? step.id : null
+    }
+
+    return null
 }
 
 const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
@@ -83,8 +108,10 @@ const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQu
                 kind: getKindField(metric),
                 event: getEventField(metric),
                 math: PropertyMathType.Sum,
-                math_property: metric.metric_config.math_property,
                 math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+                ...(metric.metric_type === ExperimentMetricType.MEAN && {
+                    math_property: metric.source.math_property,
+                }),
             },
         ],
         trendsFilter: {},
@@ -139,8 +166,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             uniqueUsers: number
             averageEventsPerUser?: number
             averagePropertyValuePerUser?: number
-            conversionRate?: number
+            automaticConversionRateDecimal?: number
         }) => ({ value }),
+        setConversionRateInputType: (value: string) => ({ value }),
+        setManualConversionRate: (value: number) => ({ value }),
     }),
     reducers({
         metricIndex: [
@@ -156,6 +185,11 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 setMinimumDetectableEffect: (_, { value }) => value,
             },
         ],
+        conversionRateInputType: [
+            ConversionRateInputType.MANUAL as string,
+            { setConversionRateInputType: (_, { value }) => value },
+        ],
+        manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
     }),
     loaders(({ values }) => ({
         metricResult: {
@@ -172,27 +206,30 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 const query =
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                         ? getTotalCountQuery(metric, values.experiment)
                         : metric.metric_type === ExperimentMetricType.MEAN &&
-                          metric.metric_config.math === ExperimentMetricMathType.Sum
+                          metric.source.math === ExperimentMetricMathType.Sum
                         ? getSumQuery(metric, values.experiment)
                         : getFunnelQuery(metric, values.experiment)
 
-                const result = (await performQuery(query)) as Partial<TrendsQueryResponse>
+                const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
                 return {
                     uniqueUsers: result?.results?.[0]?.count ?? null,
                     ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                         ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
                         : {}),
                     ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                         ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
                         : {}),
                     ...(metric.metric_type === ExperimentMetricType.FUNNEL
-                        ? { conversionRate: result?.results?.[1]?.count / result?.results?.[0]?.count || null }
+                        ? {
+                              automaticConversionRateDecimal:
+                                  result?.results?.[1]?.count / result?.results?.[0]?.count || null,
+                          }
                         : {}),
                 }
             },
@@ -223,9 +260,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             (metricResult: { averagePropertyValuePerUser: number }) =>
                 metricResult?.averagePropertyValuePerUser ?? null,
         ],
-        conversionRate: [
+        automaticConversionRateDecimal: [
             (s) => [s.metricResult],
-            (metricResult: { conversionRate: number }) => metricResult?.conversionRate ?? null,
+            (metricResult: { automaticConversionRateDecimal: number }) =>
+                metricResult?.automaticConversionRateDecimal ?? null,
         ],
         variance: [
             (s) => [s.metric, s.averageEventsPerUser, s.averagePropertyValuePerUser],
@@ -236,12 +274,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                 ) {
                     return VARIANCE_SCALING_FACTOR_TOTAL_COUNT * averageEventsPerUser
                 } else if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                 ) {
                     return VARIANCE_SCALING_FACTOR_SUM * averagePropertyValuePerUser ** 2
                 }
@@ -260,7 +298,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 s.variance,
                 s.averageEventsPerUser,
                 s.averagePropertyValuePerUser,
-                s.conversionRate,
+                s.automaticConversionRateDecimal,
+                s.manualConversionRate,
+                s.conversionRateInputType,
                 s.numberOfVariants,
             ],
             (
@@ -269,7 +309,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 variance: number,
                 averageEventsPerUser: number,
                 averagePropertyValuePerUser: number,
-                conversionRate: number,
+                automaticConversionRateDecimal: number,
+                manualConversionRate: number,
+                conversionRateInputType: string,
                 numberOfVariants: number
             ): number | null => {
                 if (!metric) {
@@ -283,7 +325,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                 ) {
                     /*
                         Count Per User Metric:
@@ -310,7 +352,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     sampleSizeFormula = (16 * variance) / d ** 2
                 } else if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                 ) {
                     /*
                         Continuous property metric:
@@ -333,6 +375,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     */
                     sampleSizeFormula = (16 * variance) / d ** 2
                 } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+                    const manualConversionRateDecimal = manualConversionRate / 100
+                    const conversionRate =
+                        conversionRateInputType === ConversionRateInputType.MANUAL
+                            ? manualConversionRateDecimal
+                            : automaticConversionRateDecimal
+
                     /*
                         Binomial metric (conversion rate):
                         - Here, "mean" does not exist in the same way as for count/continuous metrics.

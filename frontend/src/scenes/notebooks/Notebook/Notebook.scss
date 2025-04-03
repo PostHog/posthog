@@ -130,13 +130,13 @@
             }
 
             &.Backlink--selected {
-                border-color: var(--accent-primary);
+                border-color: var(--accent);
             }
 
             &.Backlink--active {
                 color: var(--white);
-                background: var(--accent-primary);
-                border: 1px solid var(--accent-primary);
+                background: var(--accent);
+                border: 1px solid var(--accent);
 
                 & .Backlink__label,
                 & svg {
@@ -292,7 +292,7 @@
             inset: 0;
             z-index: -1;
             content: '';
-            background: var(--accent-primary);
+            background: var(--accent);
             opacity: var(--notebook-comment-background-opacity);
         }
     }

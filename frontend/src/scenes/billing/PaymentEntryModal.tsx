@@ -1,9 +1,7 @@
-import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { useActions, useValues } from 'kea'
-import { WavingHog } from 'lib/components/hedgehogs'
 import { useEffect, useState } from 'react'
-import { urls } from 'scenes/urls'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 
@@ -59,13 +57,7 @@ export const PaymentForm = (): JSX.Element => {
     )
 }
 
-interface PaymentEntryModalProps {
-    redirectPath?: string | null
-}
-
-export const PaymentEntryModal = ({
-    redirectPath = urls.organizationBilling(),
-}: PaymentEntryModalProps): JSX.Element => {
+export const PaymentEntryModal = (): JSX.Element => {
     const { clientSecret, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
@@ -84,9 +76,9 @@ export const PaymentEntryModal = ({
 
     useEffect(() => {
         if (paymentEntryModalOpen) {
-            initiateAuthorization(redirectPath)
+            initiateAuthorization()
         }
-    }, [paymentEntryModalOpen, initiateAuthorization, redirectPath])
+    }, [paymentEntryModalOpen, initiateAuthorization])
 
     return (
         <LemonModal
@@ -103,13 +95,13 @@ export const PaymentEntryModal = ({
                     </Elements>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
-                        <p className="text-secondary text-md mt-4">We're contacting the Hedgehogs for approval.</p>
-                        <div className="flex items-center deprecated-space-x-2">
-                            <div className="text-4xl">
-                                <Spinner />
-                            </div>
-                            <WavingHog className="w-18 h-18" />
+                        <div className="text-4xl">
+                            <img
+                                src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                alt="Loading animation"
+                            />
                         </div>
+                        <p className="text-secondary text-md mt-4">We're contacting the Hedgehogs for approval.</p>
                     </div>
                 )}
             </div>

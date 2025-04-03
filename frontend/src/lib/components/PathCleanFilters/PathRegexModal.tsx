@@ -65,10 +65,8 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                             <p className="text-secondary">
                                 <span>
                                     Example:{' '}
-                                    <span className="font-mono text-accent-primary text-xs">
-                                        /merchant/\d+/dashboard$
-                                    </span>{' '}
-                                    (no need to escape slashes)
+                                    <span className="font-mono text-accent text-xs">/merchant/\d+/dashboard$</span> (no
+                                    need to escape slashes)
                                 </span>{' '}
                                 <br />
                                 <span>

@@ -95,10 +95,11 @@ class MatrixManager:
 
     def reset_master(self):
         if self.matrix.is_complete is None:
+            if self.print_steps:
+                print(f"Simulating data...")
             self.matrix.simulate()
         master_team = self._prepare_master_team(ensure_blank_slate=True)
         self._save_analytics_data(master_team)
-        self._sleep_until_person_data_in_clickhouse(self.MASTER_TEAM_ID)
 
     @staticmethod
     def create_team(organization: Organization, **kwargs) -> Team:
@@ -123,12 +124,8 @@ class MatrixManager:
                 if self.print_steps:
                     print(f"Simulating data...")
                 self.matrix.simulate()
-            if self.print_steps:
-                print(f"Saving simulated data...")
             self._save_analytics_data(source_team)
         if self.use_pre_save:
-            if self.print_steps:
-                print(f"Copying simulated data from master team...")
             self._copy_analytics_data_from_master_team(team)
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
@@ -146,6 +143,8 @@ class MatrixManager:
         print(f"Demo data ready for team ID {team.pk}.")
 
     def _save_analytics_data(self, data_team: Team):
+        if self.print_steps:
+            print(f"Saving simulated data...")
         sim_persons = self.matrix.people
         bulk_group_type_mappings = []
         if len(self.matrix.groups.keys()) + self.matrix.group_type_index_offset > 5:
@@ -179,6 +178,7 @@ class MatrixManager:
 
     @classmethod
     def _prepare_master_team(cls, *, ensure_blank_slate: bool = False) -> Team:
+        print("Preparing master team...")
         master_team = Team.objects.filter(id=cls.MASTER_TEAM_ID).first()
         if master_team is None:
             master_team = cls._create_master_team()
@@ -213,6 +213,9 @@ class MatrixManager:
             COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS,
             COPY_PERSONS_BETWEEN_TEAMS,
         )
+
+        if self.print_steps:
+            print(f"Copying simulated data from master team...")
 
         copy_params = {
             "source_team_id": self.MASTER_TEAM_ID,
@@ -370,10 +373,7 @@ class MatrixManager:
         raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
 
     def _sleep_until_person_data_in_clickhouse(self, team_id: int):
-        from posthog.models.person.sql import (
-            GET_PERSON_COUNT_FOR_TEAM,
-            GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM,
-        )
+        from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
         for _ in range(120):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]

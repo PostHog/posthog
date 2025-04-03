@@ -3,7 +3,10 @@ import contextvars
 import threading
 import typing
 
+import structlog
 from temporalio import activity
+
+LOGGER = structlog.get_logger()
 
 
 class WorkerShuttingDownError(Exception):
@@ -66,10 +69,30 @@ class ShutdownMonitor:
         else:
             return f"<ShutdownMonitor: Worker running>"
 
+    @property
+    def logger(self):
+        """Return a logger with activity context (if available)."""
+        try:
+            activity_info = activity.info()
+        except RuntimeError:
+            return LOGGER
+        return LOGGER.bind(
+            activity_id=activity_info.activity_id,
+            activity_type=activity_info.activity_type,
+            attempt=activity_info.attempt,
+            workflow_type=activity_info.workflow_type,
+            workflow_id=activity_info.workflow_id,
+            workflow_run_id=activity_info.workflow_run_id,
+            workflow_namespace=activity_info.workflow_namespace,
+            task_queue=activity_info.task_queue,
+        )
+
     def start(self):
         """Start an `asyncio.Task` to monitor for worker shutdown."""
 
         async def monitor() -> None:
+            await self.logger.ainfo("Starting shutdown monitoring task.")
+
             try:
                 await activity.wait_for_worker_shutdown()
             except RuntimeError:
@@ -89,17 +112,23 @@ class ShutdownMonitor:
         context = contextvars.copy_context()
 
         def monitor() -> None:
+            self.logger.info("Starting shutdown monitoring thread.")
+
             while not self._stop_event_sync.is_set():
                 try:
                     activity.wait_for_worker_shutdown_sync(timeout=0.1)
                 except RuntimeError:
                     # Not running in an activity context.
                     return
+                except Exception:
+                    self.logger.exception("An unknown error has occurred in the shutdown monitor thread.")
+                    raise
 
                 # Temporal does not return anything from previous call, despite claiming
                 # it's a wrapper on `threading.Event.wait`, which does return a `bool`
                 # indicating the reason. So we must also check if the event was set.
                 if activity.is_worker_shutdown():
+                    self.logger.debug("Shutdown detected.")
                     self._is_shutdown_event_sync.set()
                     break
 
@@ -152,4 +181,7 @@ class ShutdownMonitor:
     def raise_if_is_worker_shutdown(self):
         """Raise an exception if worker is shutting down."""
         if self.is_worker_shutdown():
+            self.logger.debug("Worker is shutting down.")
             raise WorkerShuttingDownError.from_activity_context()
+
+        self.logger.debug("Worker is not shutting down.")

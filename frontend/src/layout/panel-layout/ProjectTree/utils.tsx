@@ -1,0 +1,188 @@
+import { IconPlus } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
+import { router } from 'kea-router'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+
+import { iconForType } from './defaultTree'
+import { FolderState } from './types'
+
+export function convertFileSystemEntryToTreeDataItem(
+    imports: (FileSystemImport | FileSystemEntry)[],
+    folderStates: Record<string, FolderState>,
+    root = 'project',
+    searchTerm = ''
+): TreeDataItem[] {
+    // The top-level nodes for our project tree
+    const rootNodes: TreeDataItem[] = []
+
+    // All folder nodes. Used later to add mock "empty folder" items.
+    const allFolderNodes: TreeDataItem[] = []
+
+    // Helper to find an existing folder node or create one if it doesn't exist.
+    const findOrCreateFolder = (nodes: TreeDataItem[], folderName: string, fullPath: string): TreeDataItem => {
+        let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
+        if (!folderNode) {
+            folderNode = {
+                id: `${root}/${fullPath}`,
+                name: folderName,
+                displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm} />,
+                record: { type: 'folder', id: `${root}/${fullPath}`, path: fullPath },
+                children: [],
+            }
+            allFolderNodes.push(folderNode)
+            nodes.push(folderNode)
+        }
+        if (!folderNode.children) {
+            folderNode.children = []
+        }
+        return folderNode
+    }
+
+    // Iterate over each raw project item.
+    for (const item of imports) {
+        const pathSplit = splitPath(item.path)
+        const itemName = pathSplit.pop()!
+        const folderPath = joinPath(pathSplit)
+
+        // Split the folder path by "/" (ignoring empty parts).
+        const folderParts = folderPath ? splitPath(folderPath) : []
+
+        // Start at the root level.
+        let currentLevel = rootNodes
+        let folderNode: TreeDataItem | undefined = undefined
+        const accumulatedPath: string[] = []
+
+        // Create (or find) nested folders as needed.
+        for (const part of folderParts) {
+            accumulatedPath.push(part)
+            folderNode = findOrCreateFolder(currentLevel, part, joinPath(accumulatedPath))
+            currentLevel = folderNode.children!
+        }
+
+        if (item.type === 'folder' && currentLevel.find((node) => node.record?.path === item.path)) {
+            continue
+        }
+
+        // Create the actual item node.
+        const node: TreeDataItem = {
+            id: `${root}/${item.type === 'folder' ? item.path : item.id || item.path}`,
+            name: itemName,
+            displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm} />,
+            icon: item._loading ? <Spinner /> : ('icon' in item && item.icon) || iconForType(item.type),
+            record: item,
+            onClick: () => {
+                if (item.href) {
+                    router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)
+                }
+            },
+        }
+        // Place the item in the current (deepest) folder.
+        currentLevel.push(node)
+
+        if (item.type === 'folder') {
+            if (!node.children) {
+                node.children = []
+            }
+            if (folderStates[item.path] === 'has-more') {
+                node.children.push({
+                    id: `${root}-load-more/${item.path}`,
+                    name: 'Load more...',
+                    icon: <IconPlus />,
+                })
+            } else if (folderStates[item.path] === 'loading') {
+                node.children.push({
+                    id: `${root}-loading/${item.path}`,
+                    name: 'Loading...',
+                    icon: <Spinner />,
+                })
+            }
+            allFolderNodes.push(node)
+        }
+    }
+
+    // Helper function to sort nodes (and their children) alphabetically by name.
+    const sortNodes = (nodes: TreeDataItem[]): void => {
+        nodes.sort((a, b) => {
+            if (a.id.startsWith(`${root}-load-more/`) || a.id.startsWith(`${root}-loading/`)) {
+                return 1
+            }
+            if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
+                return -1
+            }
+            return String(a.name).localeCompare(String(b.name))
+        })
+        for (const node of nodes) {
+            if (node.children) {
+                sortNodes(node.children)
+            }
+        }
+    }
+    sortNodes(rootNodes)
+
+    for (const folderNode of allFolderNodes) {
+        if (folderNode.children && folderNode.children.length === 0) {
+            folderNode.children.push({
+                id: `empty-${root}/${folderNode.id}`,
+                name: 'Empty folder',
+                displayName: <em className="text-muted">Empty folder</em>,
+                icon: <IconPlus />,
+            })
+        }
+    }
+
+    return rootNodes
+}
+
+/**
+ * Splits `path` by unescaped "/" delimiters.
+ *   - splitPath("a/b")            => ["a", "b"]
+ *   - splitPath("a\\/b/c")        => ["a/b", "c"]
+ *   - splitPath("a\\/b\\\\/c")    => ["a/b\\", "c"]
+ *   - splitPath("a\n\t/b")        => ["a\n\t", "b"]
+ *   - splitPath("a")              => ["a"]
+ *   - splitPath("")               => []
+ */
+export function splitPath(path: string): string[] {
+    const segments: string[] = []
+    let current = ''
+    for (let i = 0; i < path.length; i++) {
+        if (path[i] === '\\' && i < path.length - 1 && (path[i + 1] === '/' || path[i + 1] === '\\')) {
+            current += path[i + 1]
+            i++
+            continue
+        } else if (path[i] === '/') {
+            segments.push(current)
+            current = ''
+        } else {
+            current += path[i]
+        }
+    }
+    segments.push(current)
+    return segments.filter((s) => s !== '')
+}
+
+export function joinPath(path: string[]): string {
+    return path.map(escapePath).join('/')
+}
+
+export function escapePath(path: string): string {
+    return path.replace(/\\/g, '\\\\').replace(/\//g, '\\/')
+}
+
+export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): TreeDataItem | undefined {
+    for (const node of projectTree) {
+        if (node.id === itemId) {
+            return node
+        }
+        if (node.children) {
+            const found = findInProjectTree(itemId, node.children)
+            if (found) {
+                return found
+            }
+        }
+    }
+    return undefined
+}

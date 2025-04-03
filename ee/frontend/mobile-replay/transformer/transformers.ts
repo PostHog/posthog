@@ -1299,7 +1299,7 @@ export const makeFullEvent = (
     // we can restart the id sequence on each full snapshot
     globalIdSequence = ids()
 
-    if (!('wireframes' in mobileEvent.data)) {
+    if (!(isObject(mobileEvent.data) && 'wireframes' in mobileEvent.data)) {
         return mobileEvent as unknown as fullSnapshotEvent & {
             timestamp: number
             delay?: number

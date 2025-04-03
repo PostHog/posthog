@@ -1,9 +1,12 @@
 import { LemonDivider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { SupportedWebVitalsMetrics } from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
+import { ProductKey } from '~/types'
 
 function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMetrics }): JSX.Element {
     const { userLoading } = useValues(userLogic)
@@ -97,7 +100,7 @@ export function AutocaptureSettings(): JSX.Element {
 export function ExceptionAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
 
     return (
@@ -108,7 +111,10 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             </p>
             <p>
                 Autocapture is also available for our{' '}
-                <Link to="https://posthog.com/docs/libraries/react-native#autocapture" target="_blank">
+                <Link
+                    to="https://posthog.com/docs/error-tracking/installation?tab=Python#setting-up-python-exception-autocapture"
+                    target="_blank"
+                >
                     Python SDK
                 </Link>
                 , where it can be configured directly in code.
@@ -116,6 +122,12 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             <LemonSwitch
                 id="posthog-autocapture-exceptions-switch"
                 onChange={(checked) => {
+                    if (checked) {
+                        addProductIntent({
+                            product_type: ProductKey.ERROR_TRACKING,
+                            intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
+                        })
+                    }
                     updateCurrentTeam({
                         autocapture_exceptions_opt_in: checked,
                     })

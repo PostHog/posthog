@@ -1,20 +1,23 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
+import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
-import { Events } from './issue/Events'
+import { GenericSelect } from './issue/GenericSelect'
+import { IssueStatus, StatusIndicator } from './issue/Indicator'
 import { Metadata } from './issue/Metadata'
-import { SparklinePanel } from './issue/Sparkline'
+import { EventsTab } from './issue/tabs/EventsTab'
+import { DetailsWidget } from './issue/widgets/DetailsWidget'
+import { StacktraceWidget } from './issue/widgets/StacktraceWidget'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -25,78 +28,87 @@ export const scene: SceneExport = {
     }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
 }
 
-const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
+export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     active: 'Active',
     archived: 'Archived',
     resolved: 'Resolved',
     pending_release: 'Pending release',
+    suppressed: 'Suppressed',
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, initIssue, assignIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
+    const [activeTab, setActiveTab] = useState('stacktrace')
 
     useEffect(() => {
-        initIssue()
-    }, [])
+        loadIssue()
+    }, [loadIssue])
 
     return (
         <ErrorTrackingSetupPrompt>
             <>
                 <PageHeader
                     buttons={
-                        issue ? (
-                            issue.status === 'active' ? (
-                                <div className="flex divide-x gap-x-2">
-                                    <AssigneeSelect
-                                        assignee={issue.assignee}
-                                        onChange={assignIssue}
-                                        type="secondary"
-                                        showName
-                                    />
-                                    <div className="flex pl-2 gap-x-2">
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={() => updateIssue({ status: 'archived' })}
-                                        >
-                                            Archive
-                                        </LemonButton>
-                                        <LemonButton type="primary" onClick={() => updateIssue({ status: 'resolved' })}>
-                                            Resolve
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            ) : (
-                                <LemonButton
+                        <div className="flex gap-x-2">
+                            {!issueLoading && issue?.status == 'active' && (
+                                <AssigneeSelect
+                                    assignee={issue?.assignee}
+                                    onChange={updateAssignee}
                                     type="secondary"
-                                    className="upcasefirst-letter:uppercase"
-                                    onClick={() => updateIssue({ status: 'active' })}
-                                    tooltip="Mark as active"
-                                >
-                                    {STATUS_LABEL[issue.status]}
-                                </LemonButton>
-                            )
-                        ) : (
-                            false
-                        )
+                                    showName
+                                />
+                            )}
+                            {!issueLoading && (
+                                <GenericSelect
+                                    size="small"
+                                    current={issue?.status}
+                                    values={['active', 'resolved', 'suppressed']}
+                                    placeholder="Mark as"
+                                    renderValue={(value) => (
+                                        <StatusIndicator
+                                            status={value as IssueStatus}
+                                            size="small"
+                                            withTooltip={true}
+                                        />
+                                    )}
+                                    onChange={updateStatus}
+                                />
+                            )}
+                        </div>
                     }
                 />
-                {issue ? (
-                    <div className="ErrorTrackingIssue">
-                        <Metadata />
-                        <LemonDivider className="my-4" />
-                        <PanelLayout>
-                            <PanelLayout.Container column primary>
-                                <SparklinePanel />
-                                <PanelLayout.Panel primary>
-                                    <Events />
-                                </PanelLayout.Panel>
-                            </PanelLayout.Container>
-                        </PanelLayout>
-                    </div>
-                ) : (
-                    <Spinner />
-                )}
+                <div className="ErrorTrackingIssue">
+                    <Metadata />
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(key) => setActiveTab(key)}
+                        tabs={[
+                            {
+                                key: 'stacktrace',
+                                label: 'Overview',
+                                content: (
+                                    <div className="space-y-2">
+                                        <DetailsWidget />
+                                        <StacktraceWidget />
+                                    </div>
+                                ),
+                            },
+                            {
+                                key: 'events',
+                                label: 'Events',
+                                content: (
+                                    <div className="space-y-2">
+                                        <ErrorTrackingFilters />
+                                        <div className="border-1 overflow-hidden border-accent border-primary rounded bg-surface-primary relative">
+                                            <EventsTab />
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
             </>
         </ErrorTrackingSetupPrompt>
     )

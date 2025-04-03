@@ -1,4 +1,4 @@
-import { RRWebEvent } from '~/src/types'
+import { SnapshotEvent } from './kafka/types'
 
 export enum RRWebEventType {
     DomContentLoaded = 0,
@@ -56,27 +56,31 @@ const MOUSE_ACTIVITY_SOURCES = [
     RRWebEventSource.TouchMove,
 ]
 
-export function isClick(event: RRWebEvent): boolean {
+export function isClick(inputEvent: SnapshotEvent): boolean {
+    const event = inputEvent as { type?: number; data?: { source?: number; type?: number } } | undefined
     return (
-        event.type === RRWebEventType.IncrementalSnapshot &&
-        event.data?.source === RRWebEventSource.MouseInteraction &&
-        CLICK_TYPES.includes(event.data?.type || -1)
+        event?.type === RRWebEventType.IncrementalSnapshot &&
+        event?.data?.source === RRWebEventSource.MouseInteraction &&
+        CLICK_TYPES.includes(event?.data?.type ?? -1)
     )
 }
 
-export function isKeypress(event: RRWebEvent): boolean {
-    return event.type === RRWebEventType.IncrementalSnapshot && event.data?.source === RRWebEventSource.Input
+export function isKeypress(inputEvent: SnapshotEvent): boolean {
+    const event = inputEvent as { type?: number; data?: { source?: number } } | undefined
+    return event?.type === RRWebEventType.IncrementalSnapshot && event?.data?.source === RRWebEventSource.Input
 }
 
-export function isMouseActivity(event: RRWebEvent): boolean {
+export function isMouseActivity(inputEvent: SnapshotEvent): boolean {
+    const event = inputEvent as { type?: number; data?: { source?: number } } | undefined
     return (
-        event.type === RRWebEventType.IncrementalSnapshot && MOUSE_ACTIVITY_SOURCES.includes(event.data?.source || -1)
+        event?.type === RRWebEventType.IncrementalSnapshot && MOUSE_ACTIVITY_SOURCES.includes(event?.data?.source ?? -1)
     )
 }
 
-export function hrefFrom(event: RRWebEvent): string | undefined {
-    const metaHref = event.data?.href?.trim?.()
-    const customHref = event.data?.payload?.href?.trim?.()
+export function hrefFrom(inputEvent: SnapshotEvent): string | undefined {
+    const event = inputEvent as { type?: number; data?: { href?: string; payload?: { href?: string } } } | undefined
+    const metaHref = event?.data?.href?.trim?.()
+    const customHref = event?.data?.payload?.href?.trim?.()
     return metaHref || customHref || undefined
 }
 
@@ -90,9 +94,12 @@ export enum ConsoleLogLevel {
 /**
  * Checks if an event is a console event and returns its log level, or null if it's not a console event
  */
-export function getConsoleLogLevel(event: RRWebEvent): ConsoleLogLevel | null {
-    if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
-        const level = event.data?.payload?.level
+export function getConsoleLogLevel(inputEvent: SnapshotEvent): ConsoleLogLevel | null {
+    const event = inputEvent as
+        | { type?: number; data?: { plugin?: string; payload?: { level?: ConsoleLogLevel } } }
+        | undefined
+    if (event?.type === RRWebEventType.Plugin && event?.data?.plugin === 'rrweb/console@1') {
+        const level = event?.data?.payload?.level
         if (level === ConsoleLogLevel.Log) {
             return ConsoleLogLevel.Log
         } else if (level === ConsoleLogLevel.Warn) {

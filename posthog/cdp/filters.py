@@ -1,4 +1,5 @@
 from typing import Optional
+from posthog.hogql.visitor import TraversingVisitor
 from posthog.models.action.action import Action
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr
@@ -46,8 +47,7 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
                     action = Action.objects.get(id=action_id, team__project_id=team.project_id)
                 exprs.append(action_to_expr(action))
             except KeyError:
-                # If an action doesn't exist, we want to return no events
-                exprs.append(parse_expr("1 = 2"))
+                exprs.append(parse_expr("1 = 2"))  # No events match
 
         # Properties
         if filter.get("properties"):
@@ -88,10 +88,29 @@ def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[
     return hog_function_filters_to_expr(filters, team, actions)
 
 
+class SelectFinder(TraversingVisitor):
+    found = False
+
+    def visit_select_query(self, node):
+        self.found = True
+        return
+
+    # class method
+    @classmethod
+    def has_select(cls, node):
+        visitor = cls()
+        visitor.visit(node)
+        return visitor.found
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
-        filters["bytecode"] = create_bytecode(compile_filters_expr(filters, team, actions)).bytecode
+        expr = compile_filters_expr(filters, team, actions)
+        if SelectFinder.has_select(expr):
+            raise Exception("Select queries are not allowed in filters")
+
+        filters["bytecode"] = create_bytecode(expr).bytecode
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except Exception as e:

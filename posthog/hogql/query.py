@@ -113,7 +113,7 @@ class HogQLQueryExecutor:
                 self.select_query = replace_placeholders(self.select_query, self.placeholders)
 
     def _apply_limit(self):
-        if self.limit_context == LimitContext.SAVED_QUERY:
+        if self.limit_context in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY):
             self.context.limit_top_select = False
 
         with self.timings.measure("max_limit"):
@@ -176,7 +176,7 @@ class HogQLQueryExecutor:
             LimitContext.QUERY_ASYNC,
             LimitContext.SAVED_QUERY,
         ):
-            settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+            settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
         try:
             self.clickhouse_context = dataclasses.replace(
                 self.context,

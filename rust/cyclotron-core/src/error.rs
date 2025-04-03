@@ -10,6 +10,10 @@ pub enum QueueError {
     TimedOutWaitingForCapacity,
     #[error(transparent)]
     JobError(#[from] JobError),
+    #[error("vm_state compression error: {0}")]
+    CompressionError(String),
+    #[error("writing in-mem CSV buffer at {0}: {1}")]
+    CsvError(&'static str, csv::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -24,4 +28,6 @@ pub enum JobError {
     DeadlineExceeded(Uuid),
     #[error("Update dropped before being flushed.")]
     UpdateDropped,
+    #[error("vm_state compression error: {0}")]
+    CompressionError(String),
 }

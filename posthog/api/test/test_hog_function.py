@@ -18,6 +18,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.team import Team
+from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
 
 
 EXAMPLE_FULL = {
@@ -189,6 +190,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
             HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
 
+        # Create the action referenced in EXAMPLE_FULL
+        if not Action.objects.filter(id=9, team=self.team).exists():
+            Action.objects.create(id=9, name="Test Action", team=self.team, created_by=self.user)
+
     def _get_function_activity(
         self,
         function_id: Optional[int] = None,
@@ -309,8 +314,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_creates_with_template_values_if_not_provided(self, *args):
         payload: dict = {
-            "name": "Fetch URL",
-            "description": "Test description",
             "template_id": template_webhook.id,
             "type": "destination",
         }
@@ -329,6 +332,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["hog"] == template_webhook.hog
         assert response.json()["inputs_schema"] == template_webhook.inputs_schema
+        assert response.json()["name"] == template_webhook.name
+        assert response.json()["description"] == template_webhook.description
+        assert response.json()["icon_url"] == template_webhook.icon_url
 
     def test_deletes_via_update(self, *args):
         response = self.client.post(
@@ -1473,7 +1479,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "name": "Template Transform",
                         "type": "transformation",
                         "template_id": template_slack.id,
-                        "hog": "return modified_event",
+                        "hog": "return event",
                         "inputs": {
                             "slack_workspace": {"value": 1},
                             "channel": {"value": "#general"},
@@ -1504,7 +1510,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "Test Function",
                 "description": "Test description",
                 "template_id": template_slack.id,
-                "hog": "return custom_event",  # This should be ignored
+                "hog": "return event",  # This should be ignored
                 "inputs": {
                     "slack_workspace": {"value": 1},
                     "channel": {"value": "#general"},
@@ -1628,11 +1634,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={
                 "name": "Custom Transform",
                 "type": "transformation",
-                "hog": "return modified_event",
+                "hog": "return event",
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["hog"] == "return modified_event"
+        assert response.json()["hog"] == "return event"
 
         # Create and switch to team 3
         team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
@@ -1643,7 +1649,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={
                 "name": "Custom Transform",
                 "type": "transformation",
-                "hog": "return modified_event",
+                "hog": "return event",
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
@@ -1669,7 +1675,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "name": "Template Transform",
                     "type": "transformation",
                     "template_id": template_slack.id,
-                    "hog": "return custom_event",
+                    "hog": "return event",
                     "inputs": {
                         "slack_workspace": {"value": 1},
                         "channel": {"value": "#general"},
@@ -1677,7 +1683,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
-            assert response.json()["hog"] == "return custom_event"  # Custom code allowed
+            assert response.json()["hog"] == "return event"  # Custom code allowed
 
             # Create and test with team ID 3
             team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
@@ -1689,7 +1695,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "name": "Template Transform",
                     "type": "transformation",
                     "template_id": template_slack.id,
-                    "hog": "return custom_event",
+                    "hog": "return event",
                     "inputs": {
                         "slack_workspace": {"value": 1},
                         "channel": {"value": "#general"},
@@ -1736,4 +1742,245 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
 
-            # We don't need to validate everything as its just a duplicate of the other tests so just check a few fields
+    def test_can_update_with_null_filters(self):
+        # First create a function with filters
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Test Function",
+                "type": "destination",
+                "hog": "print('hello world')",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "filter_test_accounts": True,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        function_id = response.json()["id"]
+
+        # Verify filters were saved
+        function = HogFunction.objects.get(id=function_id)
+        assert function.filters.get("events") is not None
+        assert function.filters.get("filter_test_accounts") is True
+        assert function.filters.get("bytecode") is not None
+
+        # Now update the function with null filters
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={"filters": None},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        # Verify filters were updated to an empty object with valid bytecode
+        function.refresh_from_db()
+        assert function.filters.get("events", None) is None
+        assert function.filters.get("filter_test_accounts", None) is None
+        assert function.filters.get("bytecode") is not None
+
+        # Also test with empty object
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={"filters": {}},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        # Verify filters remain an empty object with valid bytecode
+        function.refresh_from_db()
+        assert function.filters.get("events", None) is None
+        assert function.filters.get("filter_test_accounts", None) is None
+        assert function.filters.get("bytecode") is not None
+
+    def test_limits_transformation_functions_per_team(self):
+        """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            # 1. Create several disabled transformations (more than the limit)
+            for i in range(5):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": f"Disabled Transformation {i}",
+                        "type": "transformation",
+                        "hog": "return event",
+                        "enabled": False,
+                    },
+                )
+                assert response.status_code == status.HTTP_201_CREATED
+
+            # 2. Create enabled transformations up to the limit
+            for i in range(MAX_TRANSFORMATIONS_PER_TEAM):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": f"Enabled Transformation {i}",
+                        "type": "transformation",
+                        "hog": "return event",
+                        "enabled": True,
+                    },
+                )
+                assert response.status_code == status.HTTP_201_CREATED
+
+            # 3. Verify we hit the limit when trying to create one more enabled transformation
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "One Too Many",
+                    "type": "transformation",
+                    "hog": "return event",
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "Maximum of 20 enabled transformation functions" in response.json()["detail"]
+
+            # 4. Verify we can still create disabled transformations when at the limit
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Another Disabled",
+                    "type": "transformation",
+                    "hog": "return event",
+                    "enabled": False,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+
+            # 5. Test that we can enable after deleting an enabled one
+            # First delete an enabled transformation
+            enabled_transformation = HogFunction.objects.filter(
+                team=self.team, type="transformation", deleted=False, enabled=True
+            ).first()
+
+            assert enabled_transformation is not None, "No enabled transformation found to delete"
+            self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{enabled_transformation.id}/",
+                data={"deleted": True},
+            )
+
+            # Then enable a disabled transformation
+            disabled_transformation = HogFunction.objects.filter(
+                team=self.team, type="transformation", deleted=False, enabled=False
+            ).first()
+
+            assert disabled_transformation is not None, "No disabled transformation found to enable"
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{disabled_transformation.id}/",
+                data={"enabled": True},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+    def test_validates_raw_hog_code_size(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that we validate the raw HOG code size before compiling it."""
+            # Generate a large HOG code string that exceeds the maximum allowed size
+            large_hog_code = "return " + "x" * (MAX_HOG_CODE_SIZE_BYTES + 1000)
+
+            # Try to create a function with HOG code exceeding the size limit
+            # No need to mock compile_hog as we're checking the string size directly
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Large HOG Code Function",
+                    "type": "transformation",
+                    "hog": large_hog_code,
+                },
+            )
+
+            # Verify the creation was rejected with the correct error
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert "HOG code exceeds maximum size" in response.json()["detail"]
+            assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in response.json()["detail"]
+
+    def test_validates_raw_hog_code_size_during_update(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that we validate the raw HOG code size when updating an existing function."""
+            # First create a hog function with small, valid code
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Valid HOG Code Function",
+                    "type": "transformation",
+                    "hog": "return event",
+                },
+            )
+
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            function_id = response.json()["id"]
+
+            # Generate a large HOG code string for the update that exceeds the limit
+            large_hog_code = "return " + "x" * (MAX_HOG_CODE_SIZE_BYTES + 1000)
+
+            # Update the function with large HOG code
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+                data={
+                    "hog": large_hog_code,
+                },
+            )
+
+            # Verify the update was rejected with the correct error
+            assert update_response.status_code == status.HTTP_400_BAD_REQUEST, update_response.json()
+            assert "HOG code exceeds maximum size" in update_response.json()["detail"]
+            assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in update_response.json()["detail"]
+
+    def test_validation_catches_runtime_exceeded_in_python_vm_for_transformations(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that runtime exceeded errors during validation in our Python VM are properly handled for transformations"""
+            # Create a function with an infinite loop that will exceed the 100ms validation timeout
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Slow Function",
+                    "type": "transformation",
+                    "hog": """
+                    while (true) { print('hello'); } return event;
+                    """,
+                },
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert "Your function is taking too long to run (over 0.1 seconds)" in response.json()["detail"]
+
+            # Test that the same code is allowed for destinations
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Slow Function",
+                    "type": "destination",
+                    "hog": """
+                    while (true) { print('hello'); } return event;
+                    """,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_validation_catches_memory_exceeded_in_python_vm_for_transformations(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that memory exceeded errors during validation in our Python VM are properly handled for transformations"""
+            memory_hungry_code = """
+                let arr := arrayMap(x -> toString(x), range(10000000));  // Create array with 10M strings
+                return event;
+                """
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Memory Hungry Function",
+                    "type": "transformation",
+                    "hog": memory_hungry_code,
+                },
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert "Your function needs too much memory" in response.json()["detail"]
+
+            # Test that the same code is allowed for destinations
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Memory Hungry Function",
+                    "type": "destination",
+                    "hog": memory_hungry_code,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()

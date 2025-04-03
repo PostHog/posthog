@@ -2,16 +2,19 @@ import asyncio
 import dataclasses
 import datetime as dt
 import gzip
+import io
 import json
 import operator
 import os
 import re
 import tempfile
+import typing as t
 import unittest.mock
 import uuid
 from collections import deque
 from uuid import uuid4
 
+import paramiko
 import pytest
 import pytest_asyncio
 import responses
@@ -91,8 +94,8 @@ class FakeSnowflakeCursor:
     """A fake Snowflake cursor that can fail on PUT and COPY queries."""
 
     def __init__(self, *args, failure_mode: str | None = None, **kwargs):
-        self._execute_calls = []
-        self._execute_async_calls = []
+        self._execute_calls: list[dict[str, t.Any]] = []
+        self._execute_async_calls: list[dict[str, t.Any]] = []
         self._sfqid = 1
         self._fail = failure_mode
 
@@ -158,7 +161,7 @@ class FakeSnowflakeConnection:
         failure_mode: str | None = None,
         **kwargs,
     ):
-        self._cursors = []
+        self._cursors: list[FakeSnowflakeCursor] = []
         self._is_running = True
         self.failure_mode = failure_mode
 
@@ -217,7 +220,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
         sql_text = json.loads(gzip.decompress(request.body))["sqlText"]
         queries.append(sql_text)
 
-        rowset = [("test", "LOADED", 456, 192, "NONE", "GZIP", "UPLOADED", "")]
+        rowset: list[tuple[t.Any, ...]] = [("test", "LOADED", 456, 192, "NONE", "GZIP", "UPLOADED", "")]
 
         # If the query is something that looks like `PUT file:///tmp/tmp50nod7v9
         # @%"events"` we extract the /tmp/tmp50nod7v9 and store the file
@@ -1053,6 +1056,7 @@ def snowflake_cursor(snowflake_config):
         warehouse=snowflake_config["warehouse"],
         private_key=private_key,
     ) as connection:
+        connection.telemetry_enabled = False
         cursor = connection.cursor()
         cursor.execute(f'CREATE DATABASE "{snowflake_config["database"]}"')
         cursor.execute(f'CREATE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
@@ -1965,6 +1969,75 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
 def test_load_private_key_raises_error_if_key_is_invalid():
     with pytest.raises(InvalidPrivateKeyError):
         load_private_key("invalid_key", None)
+
+
+def test_load_private_key_raises_error_if_incorrect_passphrase():
+    """Test we raise the right error when passing an incorrect passphrase."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password="a-passphrase")
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), "another-passphrase")
+
+    assert "incorrect passphrase" in str(exc_info.value)
+
+
+def test_load_private_key_raises_error_if_passphrase_not_empty():
+    """Test we raise the right error when passing a passphrase to a key without one."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer)
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), "a-passphrase")
+
+    assert "passphrase was given but private key is not encrypted" in str(exc_info.value)
+
+
+def test_load_private_key_raises_error_if_passphrase_missing():
+    """Test we raise the right error when missing a passphrase to an encrypted key."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password="a-passphrase")
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), None)
+
+    assert "passphrase was not given but private key is encrypted" in str(exc_info.value)
+
+
+def test_load_private_key_passes_with_empty_passphrase_and_no_encryption():
+    """Test we succeed in loading a passphrase without encryption and an empty passphrase."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password=None)
+    _ = buffer.seek(0)
+
+    loaded = load_private_key(buffer.read(), "")
+
+    assert loaded
+
+
+@pytest.mark.parametrize("passphrase", ["a-passphrase", None, ""])
+def test_load_private_key(passphrase: str | None):
+    """Test we can load a private key.
+
+    We treat `None` and empty string the same (no passphrase) because paramiko does
+    not support passphrases smaller than 1 byte.
+    """
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password=None if passphrase is None or passphrase == "" else passphrase)
+    _ = buffer.seek(0)
+    private_key = buffer.read()
+
+    # Just checking this doesn't fail.
+    loaded = load_private_key(private_key, passphrase)
+    assert loaded
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS

@@ -22,7 +22,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             insightVizDataLogic(props),
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
-            ['results'],
+            ['hasValidBreakdown', 'results', 'selectedBreakdownValue'],
         ],
     })),
     selectors({
@@ -33,14 +33,15 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
 
                 return results.map((cohortRetention: ProcessedRetentionPayload, datasetIndex) => {
                     return {
+                        ...cohortRetention,
                         id: datasetIndex,
                         days: cohortRetention.values.map((_, index) => `${period} ${index}`),
                         labels: cohortRetention.values.map((_, index) => `${period} ${index}`),
                         count: 0,
                         label: cohortRetention.date
                             ? period === 'Hour'
-                                ? dayjs(cohortRetention.date).format('MMM D, h A')
-                                : dayjs(cohortRetention.date).format('MMM D')
+                                ? dayjs.utc(cohortRetention.date).format('MMM D, h A')
+                                : dayjs.utc(cohortRetention.date).format('MMM D')
                             : cohortRetention.label,
                         data: cohortRetention.values.map((value) => value.percentage),
                         index: datasetIndex,
@@ -63,9 +64,9 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 }
                 const numUnits = trendSeries[0].days.length
                 const interval = dateOptionToTimeIntervalMap?.[period ?? RetentionPeriod.Day]
-                const startDate = dayjs().startOf(interval)
+                const startDate = dayjs.utc().startOf(interval)
                 const startIndex = trendSeries[0].days.findIndex(
-                    (_, i) => dayjs(date_to).add(i - numUnits, interval as QUnitType) >= startDate
+                    (_, i) => dayjs.utc(date_to).add(i - numUnits, interval as QUnitType) >= startDate
                 )
 
                 if (startIndex !== undefined && startIndex !== -1) {
@@ -83,6 +84,23 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         ? null
                         : querySource?.aggregation_group_type_index) ?? 'people'
                 )
+            },
+        ],
+
+        filteredTrendSeries: [
+            (s) => [s.hasValidBreakdown, s.trendSeries, s.selectedBreakdownValue],
+            (hasValidBreakdown, trendSeries, selectedBreakdownValue) => {
+                if (selectedBreakdownValue === null) {
+                    if (hasValidBreakdown) {
+                        // don't show line graph when breakdowns present but not selected
+                        // as it will be very noisy
+                        return []
+                    }
+
+                    return trendSeries
+                }
+                // Return series with matching breakdown value
+                return trendSeries.filter((series) => series.breakdown_value === selectedBreakdownValue)
             },
         ],
     }),

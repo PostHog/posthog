@@ -4,9 +4,11 @@ from zoneinfo import ZoneInfo
 from django.test import override_settings
 from freezegun import freeze_time
 from django.utils import timezone
+from parameterized import parameterized
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from posthog.hogql_queries.experiments.test.utils import create_standard_group_test_events
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureQuery
@@ -524,89 +526,92 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 6)
 
+    @parameterized.expand(
+        [
+            "$pageview",
+            "$feature_flag_called",
+        ]
+    )
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_with_custom_exposure(self):
-        ff_property = f"$feature/{self.feature_flag.key}"
+    def test_exposure_query_with_custom_exposure(self, exposure_event):
+        if exposure_event == "$feature_flag_called":
+            ff_property = f"$feature_flag_response"
+            add_feature_flag_property = True
+        else:
+            ff_property = f"$feature/{self.feature_flag.key}"
+            add_feature_flag_property = False
+
+        def _generate_properties(variant: str):
+            properties = {ff_property: variant}
+            if add_feature_flag_property:
+                properties["$feature_flag"] = self.feature_flag.key
+            return properties
 
         # Create test data using journeys
         journeys_for(
             {
                 "user_control_1": [
                     {
-                        "event": "$pageview",
+                        "event": exposure_event,
                         "timestamp": "2024-01-02",
-                        "properties": {
-                            ff_property: "control",
-                        },
+                        "properties": _generate_properties("control"),
                     },
                 ],
                 "user_control_2": [
                     {
-                        "event": "$pageview",
+                        "event": exposure_event,
                         "timestamp": "2024-01-02",
-                        "properties": {
-                            ff_property: "control",
-                        },
+                        "properties": _generate_properties("control"),
                     },
                 ],
                 "user_control_3": [
                     {
-                        "event": "$pageview",
+                        "event": exposure_event,
                         "timestamp": "2024-01-03",
-                        "properties": {ff_property: "control", "plan": "pro"},
+                        "properties": _generate_properties("control"),
                     },
                 ],
                 "user_control_4": [
                     {
-                        "event": "$pageview",
+                        "event": exposure_event,
                         "timestamp": "2024-01-03",
-                        "properties": {ff_property: "control", "plan": "free"},
+                        "properties": _generate_properties("control"),
                     },
                 ],
                 "user_test_1": [
                     {
-                        "event": "$pageview",
+                        "event": exposure_event,
                         "timestamp": "2024-01-02",
-                        "properties": {
-                            ff_property: "test",
-                        },
+                        "properties": _generate_properties("test"),
                     },
                 ],
                 "user_test_2": [
                     {
-                        "event": "$pageview",
+                        "event": exposure_event,
                         "timestamp": "2024-01-02",
-                        "properties": {
-                            ff_property: "test",
-                        },
+                        "properties": _generate_properties("test"),
                     },
                 ],
                 "user_test_3": [
                     {
-                        "event": "$pageview",
+                        "event": exposure_event,
                         "timestamp": "2024-01-02",
-                        "properties": {
-                            ff_property: "test",
-                        },
+                        "properties": _generate_properties("test"),
                     },
                 ],
                 "user_test_4": [
                     {
-                        "event": "$pageview",
+                        "event": exposure_event,
                         "timestamp": "2024-01-03",
-                        "properties": {
-                            ff_property: "test",
-                        },
+                        "properties": _generate_properties("test"),
                     },
                 ],
                 "user_test_5": [
                     {
-                        "event": "$pageview",
+                        "event": exposure_event,
                         "timestamp": "2024-01-03",
-                        "properties": {
-                            ff_property: "test",
-                        },
+                        "properties": _generate_properties("test"),
                     },
                 ],
             },
@@ -616,7 +621,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         exposure_config = ExperimentEventExposureConfig(
-            event="$pageview",
+            event=exposure_event,
             properties=[
                 {"key": "plan", "operator": "is_not", "value": "free", "type": "event"},
             ],
@@ -638,12 +643,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response.timeseries), 2)
 
-        self.assertEqual(response.total_exposures["control"], 3)
+        self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_invalid_feature_flag_property(self):
+    def test_exposure_query_without_feature_flag_property(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Create test data using journeys
@@ -677,7 +682,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "timestamp": "2024-01-03",
                         "properties": {
                             "$feature_flag_response": "control",
-                            ff_property: "",  # Intentionally empty
+                            ff_property: "",  # Intentionally empty, should still be included as some SDKs don't include this
                             "$feature_flag": self.feature_flag.key,
                         },
                     },
@@ -766,7 +771,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response.timeseries), 2)
 
-        self.assertEqual(response.total_exposures["control"], 3)
+        self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
     @freeze_time("2024-01-07T12:00:00Z")
@@ -851,3 +856,31 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 2)
         self.assertEqual(response.total_exposures["test"], 1)
         self.assertEqual(response.total_exposures[MULTIPLE_VARIANT_KEY], 1)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_using_group_aggregation(self):
+        self.experiment.start_date = datetime(2024, 1, 1).replace(tzinfo=ZoneInfo("UTC"))
+        self.experiment.end_date = datetime(2024, 1, 28).replace(tzinfo=ZoneInfo("UTC"))
+        self.experiment.save()
+
+        group_type_index = 0
+        self.feature_flag.filters["aggregation_group_type_index"] = group_type_index
+        self.feature_flag.save()
+
+        create_standard_group_test_events(self.team, self.feature_flag)
+
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+        )
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+        response = query_runner.calculate()
+
+        self.assertEqual(response.total_exposures["control"], 2)
+        self.assertEqual(response.total_exposures["test"], 3)

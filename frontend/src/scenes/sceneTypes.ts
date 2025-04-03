@@ -18,6 +18,7 @@ export enum Scene {
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     Cohort = 'Cohort',
     Activity = 'Activity',
     DataManagement = 'DataManagement',
@@ -29,6 +30,7 @@ export enum Scene {
     ReplaySingle = 'ReplaySingle',
     ReplayPlaylist = 'ReplayPlaylist',
     ReplayFilePlayback = 'ReplayFilePlayback',
+    ReplaySettings = 'ReplaySettings',
     CustomCss = 'CustomCss',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
@@ -41,16 +43,12 @@ export enum Scene {
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     Experiment = 'Experiment',
-    FeatureManagement = 'FeatureManagement',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
     Surveys = 'Surveys',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
-    DataWarehouse = 'DataWarehouse',
     SQLEditor = 'SQLEditor',
-    DataWarehouseExternal = 'DataWarehouseExternal',
-    DataWarehouseTable = 'DataWarehouseTable',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
@@ -88,8 +86,10 @@ export enum Scene {
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    MessagingAutomations = 'MessagingAutomations',
     MessagingProviders = 'MessagingProviders',
     MessagingBroadcasts = 'MessagingBroadcasts',
+    MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
 }
 
@@ -151,7 +151,9 @@ export interface SceneConfig {
     /** Route requires project access (used e.g. by breadcrumbs). `true` implies also `organizationBased` */
     projectBased?: boolean
     /** Set the scope of the activity (affects activity and discussion panel) */
-    activityScope?: ActivityScope
+    activityScope?: ActivityScope | string
     /** Default docs path - what the docs side panel will open by default if this scene is active  */
     defaultDocsPath?: string
+    /** Component import, used only in manifests */
+    import?: () => Promise<any>
 }

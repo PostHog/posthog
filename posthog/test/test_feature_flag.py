@@ -1,16 +1,15 @@
 import concurrent.futures
 from datetime import datetime
 from typing import cast
-from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 from freezegun import freeze_time
+from parameterized import parameterized
 import pytest
 
-from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.flag_matching import (
@@ -37,6 +36,18 @@ from posthog.test.base import (
 
 class TestFeatureFlagCohortExpansion(BaseTest):
     maxDiff = None
+
+    @parameterized.expand(
+        [
+            ("some_distinct_id", 0.7270002403585725),
+            ("test-identifier", 0.4493881716040236),
+            ("example_id", 0.9402003475831224),
+            ("example_id2", 0.6292740389966519),
+        ]
+    )
+    def test_calculate_hash(self, identifier, expected_hash):
+        result = FeatureFlagMatcher.calculate_hash("holdout-", identifier, "")
+        self.assertAlmostEqual(result, expected_hash)
 
     def test_cohort_expansion(self):
         cohort = Cohort.objects.create(
@@ -2980,7 +2991,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             self.assertNumQueries(10),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
-            matches, reasons, payloads, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
                 self.team.id,
                 self.project.id,
                 [
@@ -2996,7 +3007,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "test_id",
                 {"project": "group_key", "organization": "foo"},
                 FlagsMatcherCache(self.team.id),
-            ).get_matches()
+            ).get_matches_with_details()
 
         self.assertEqual(
             matches,
@@ -3058,7 +3069,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             self.assertNumQueries(9),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
-            matches, reasons, payloads, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
                 self.team.id,
                 self.project.id,
                 [
@@ -3074,7 +3085,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "test_id",
                 {"organization": "foo2"},
                 FlagsMatcherCache(self.team.id),
-            ).get_matches()
+            ).get_matches_with_details()
 
         self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
@@ -4643,166 +4654,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
-    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
-    def test_invalid_filters_dont_set_db_down(self, mock_database_healthcheck):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "value": "nomatchihope",
-                                    "type": "person",
-                                },
-                                {
-                                    "key": "$some_prop2",
-                                    "value": "nomatchihope2",
-                                    "type": "person",
-                                },
-                                {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 1,
-                                    "time_interval": "week",
-                                    "value": "performed_event",
-                                    "type": "behavioral",
-                                },
-                            ],
-                        }
-                    ],
-                }
-            },
-            name="cohort1",
-        )
-        flag: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="active-flag",
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                        "rollout_percentage": 50,
-                    }
-                ]
-            },
-        )
-
-        matcher = FeatureFlagMatcher(self.team.id, self.project.id, [flag], "example_id_1")
-
-        self.assertEqual(matcher.get_matches(), ({}, {}, {}, True))
-        self.assertEqual(matcher.failed_to_fetch_conditions, False)
-        mock_database_healthcheck.set_connection.assert_not_called()
-
-    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
-    def test_invalid_group_filters_dont_set_db_down(self, mock_database_healthcheck):
-        flag: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="active-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        flag2: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="group-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "aggregation_group_type_index": 0,
-            },
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-
-        matcher = FeatureFlagMatcher(self.team.id, self.project.id, [flag, flag2], "example_id_1", ["organization"])  # type: ignore
-
-        self.assertEqual(
-            matcher.get_matches(),
-            (
-                {"active-flag": True},
-                {
-                    "active-flag": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    }
-                },
-                {},
-                True,
-            ),
-        )
-        self.assertEqual(matcher.failed_to_fetch_conditions, False)
-        mock_database_healthcheck.set_connection.assert_not_called()
-
-    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
-    def test_data_errors_dont_set_db_down(self, mock_database_healthcheck):
-        flag: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="active-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        flag2: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="other-flag",
-            filters={
-                "groups": [
-                    {"properties": [{"key": "tear", "value": "tear", "type": "person"}], "rollout_percentage": 100}
-                ],
-            },
-        )
-
-        matcher = FeatureFlagMatcher(self.team.id, self.project.id, [flag, flag2], "bxss.me/t/xss.html?\x00")
-
-        self.assertEqual(
-            matcher.get_matches(),
-            (
-                {"active-flag": True},
-                {
-                    "active-flag": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    }
-                },
-                {},
-                True,
-            ),
-        )
-        self.assertEqual(matcher.failed_to_fetch_conditions, True)
-        mock_database_healthcheck.set_connection.assert_not_called()
-
-        # with operational error, should set db down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            matcher = FeatureFlagMatcher(self.team.id, self.project.id, [flag, flag2], "bxss.me/t/xss.html")
-
-            self.assertEqual(
-                matcher.get_matches(),
-                (
-                    {"active-flag": True},
-                    {
-                        "active-flag": {
-                            "condition_index": 0,
-                            "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                        }
-                    },
-                    {},
-                    True,
-                ),
-            )
-            self.assertEqual(matcher.failed_to_fetch_conditions, True)
-            mock_database_healthcheck.set_connection.assert_called_once_with(False)
-
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
         self.assertEqual(
@@ -5516,7 +5367,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     [feature_flag1, feature_flag2, feature_flag4_person],
                     "307",
                     groups={"organization": "foo", "project": "foo-project"},
-                ).get_matches()[1],
+                ).get_matches_with_details()[1],
                 {
                     "random1": {
                         "condition_index": 0,
@@ -5728,7 +5579,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     self.project.id,
                     [feature_flag1, feature_flag2, feature_flag3],
                     "307",
-                ).get_matches()[1],
+                ).get_matches_with_details()[1],
                 {
                     "random1": {
                         "condition_index": 0,
@@ -5966,41 +5817,41 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # try matching all together, invalids don't interfere with regular flags
+        featureFlags, _, payloads, errors, _ = FeatureFlagMatcher(
+            self.team.id,
+            self.project.id,
+            [feature_flag1, feature_flag2, feature_flag3, feature_flag4_invalid_prop, feature_flag5_invalid_flag],
+            "307",
+        ).get_matches_with_details()
+
         self.assertEqual(
-            FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1, feature_flag2, feature_flag3, feature_flag4_invalid_prop, feature_flag5_invalid_flag],
-                "307",
-            ).get_matches(),
-            (
-                {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False},
-                {
-                    "random1": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    },
-                    "random2": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    },
-                    "random3": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
-                    },
-                    "random4": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    },
-                    "random5": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
-                    },
+            featureFlags,
+            {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False},
+            {
+                "random1": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
                 },
-                {},
-                False,
-            ),
+                "random2": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                },
+                "random3": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                },
+                "random4": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                },
+                "random5": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                },
+            },
         )
+        self.assertEqual(payloads, {})
+        self.assertEqual(errors, False)
 
         # confirm it works with overrides as well, which are computed locally
         self.assertEqual(
@@ -6223,10 +6074,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {})
 
 
-@patch(
-    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-    return_value=True,
-)
 class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()

@@ -193,6 +193,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: false,
     },
+    [NodeKind.GroupsQuery]: {
+        name: 'Groups',
+        description: 'List and explore groups.',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.DataTableNode]: {
         name: 'Data table',
         description: 'Slice and dice your data in a table.',
@@ -200,7 +206,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
     },
     [NodeKind.DataVisualizationNode]: {
-        name: 'Data visualization',
+        name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
         icon: IconTableChart,
         inMenu: false,
@@ -304,7 +310,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.RevenueExampleEventsQuery]: {
         name: 'Revenue Example Events',
         description: 'Revenue Example Events Query.',
-        icon: IconPieChart,
+        icon: IconTableChart,
+        inMenu: true,
+    },
+    [NodeKind.RevenueExampleDataWarehouseTablesQuery]: {
+        name: 'Revenue Example Data Warehouse Tables',
+        description: 'Revenue Example Data Warehouse Tables Query.',
+        icon: IconTableChart,
         inMenu: true,
     },
     [NodeKind.ErrorTrackingQuery]: {
@@ -355,21 +367,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
-    [NodeKind.ExperimentEventMetricConfig]: {
-        name: 'Experiment Event Metric Config',
-        description: 'Configuration for experiment event metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentActionMetricConfig]: {
-        name: 'Experiment Action Metric Config',
-        description: 'Configuration for experiment action metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentDataWarehouseMetricConfig]: {
-        name: 'Experiment Data Warehouse Metric Config',
-        description: 'Configuration for experiment data warehouse metrics.',
+    [NodeKind.ExperimentDataWarehouseNode]: {
+        name: 'Experiment Data Warehouse',
+        description: 'Experiment data warehouse source configuration.',
         icon: IconFlask,
         inMenu: false,
     },
@@ -397,6 +397,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.TracesQuery]: {
         name: 'LLM Observability Traces',
         icon: IconAI,
+        inMenu: false,
+    },
+    [NodeKind.VectorSearchQuery]: {
+        name: 'Vector Search',
+        icon: IconHogQL,
         inMenu: false,
     },
 }

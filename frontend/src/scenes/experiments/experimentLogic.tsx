@@ -12,11 +12,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import {
+    featureFlagLogic as sceneFeatureFlagLogic,
     indexToVariantKeyFeatureFlagPayloads,
     validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
-import { featureFlagLogic as sceneFeatureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -60,12 +60,13 @@ import {
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
+    ProjectTreeRef,
     PropertyMathType,
     TrendExperimentVariant,
     TrendResult,
 } from '~/types'
 
-import { MetricInsightId } from './constants'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
@@ -154,7 +155,7 @@ const loadMetrics = async ({
                         experiment_id: experimentId,
                     }
                 }
-                const response = await performQuery(queryWithExperimentId, undefined, refresh)
+                const response = await performQuery(queryWithExperimentId, undefined, refresh ? 'force_async' : 'async')
 
                 results[index] = {
                     ...response,
@@ -249,10 +250,11 @@ export const experimentLogic = kea<experimentLogicType>([
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         refreshExperimentResults: (forceRefresh?: boolean) => ({ forceRefresh }),
-        updateExperimentGoal: true,
+        updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
+        changeExperimentEndDate: (endDate: string) => ({ endDate }),
         setExperimentStatsVersion: (version: number) => ({ version }),
         launchExperiment: true,
         endExperiment: true,
@@ -688,7 +690,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openPrimaryMetricModal: (_, { index }) => index,
                 closePrimaryMetricModal: () => null,
-                updateExperimentGoal: () => null,
+                updateExperimentMetrics: () => null,
                 setEditingPrimaryMetricIndex: (_, { index }) => index,
             },
         ],
@@ -712,7 +714,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openSecondaryMetricModal: (_, { index }) => index,
                 closeSecondaryMetricModal: () => null,
-                updateExperimentGoal: () => null,
+                updateExperimentMetrics: () => null,
             },
         ],
         editingSharedMetricId: [
@@ -720,7 +722,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openPrimarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
                 openSecondarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
-                updateExperimentGoal: () => null,
+                updateExperimentMetrics: () => null,
             },
         ],
         secondaryMetricsResultErrors: [
@@ -914,6 +916,10 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ start_date: startDate })
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
         },
+        changeExperimentEndDate: async ({ endDate }) => {
+            actions.updateExperiment({ end_date: endDate })
+            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
+        },
         setExperimentStatsVersion: async ({ version }, breakpoint) => {
             actions.updateExperiment({ stats_config: { version } })
             await breakpoint(100)
@@ -942,26 +948,10 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.loadSecondaryMetricResults(forceRefresh)
             actions.loadExposures(forceRefresh)
         },
-        updateExperimentGoal: async () => {
-            // Reset MDE to the recommended setting
-            actions.setExperiment({
-                parameters: {
-                    ...values.experiment.parameters,
-                    minimum_detectable_effect: undefined,
-                },
-            })
-
-            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
-
+        updateExperimentMetrics: async () => {
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
-                parameters: {
-                    ...values.experiment?.parameters,
-                    recommended_running_time: recommendedRunningTime,
-                    recommended_sample_size: recommendedSampleSize,
-                    minimum_detectable_effect: minimumDetectableEffect,
-                },
             })
         },
         updateExperimentCollectionGoal: async () => {
@@ -1421,7 +1411,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: props.experimentId,
                     }
-                    return await performQuery(query, undefined, refresh)
+                    return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
                 },
             },
         ],
@@ -1487,6 +1477,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: ExperimentLogicProps) => props.experimentId],
+            (experimentId): ProjectTreeRef => ({ type: 'experiment', ref: String(experimentId) }),
         ],
         variants: [
             (s) => [s.experiment],
@@ -2170,6 +2164,36 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
                 return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+            },
+        ],
+        hasMinimumExposureForResults: [
+            (s) => [s.exposures, s.shouldUseExperimentMetrics, s.experiment],
+            (exposures, shouldUseExperimentMetrics, experiment): boolean => {
+                // Not relevant for old metrics
+                if (!shouldUseExperimentMetrics) {
+                    return true
+                }
+
+                if (!exposures || !exposures.total_exposures) {
+                    return false
+                }
+
+                const variantKeys = experiment.parameters.feature_flag_variants?.map((variant) => variant.key) || []
+                for (const variant of variantKeys) {
+                    const exposure = exposures.total_exposures[variant]
+                    if (!exposure || exposure < EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS) {
+                        return false
+                    }
+                }
+
+                return true
+            },
+        ],
+        exposureCriteriaLabel: [
+            () => [],
+            (): string => {
+                // TODO: Implement exposure criteria label
+                return 'Default ($feature_flag_called)'
             },
         ],
     }),

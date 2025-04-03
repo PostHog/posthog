@@ -135,7 +135,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
             {(table.type == 'view' || table.type == 'materialized_view') && (
                 <LemonButton
                     onClick={() => {
-                        router.actions.push(urls.dataWarehouseView(table.id))
+                        router.actions.push(urls.sqlEditor(undefined, table.id))
                     }}
                     data-attr="schema-list-item-edit"
                     fullWidth

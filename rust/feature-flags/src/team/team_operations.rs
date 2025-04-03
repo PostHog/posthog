@@ -1,12 +1,11 @@
-use std::sync::Arc;
-use tracing::instrument;
-
 use crate::{
     api::errors::FlagError,
     client::database::Client as DatabaseClient,
-    client::redis::Client as RedisClient,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
+use common_redis::Client as RedisClient;
+use std::sync::Arc;
+use tracing::instrument;
 
 impl Team {
     /// Validates a token, and returns a team if it exists.
@@ -15,6 +14,12 @@ impl Team {
         client: Arc<dyn RedisClient + Send + Sync>,
         token: &str,
     ) -> Result<Team, FlagError> {
+        tracing::info!(
+            "Attempting to read team from Redis at key '{}{}'",
+            TEAM_TOKEN_CACHE_PREFIX,
+            token
+        );
+
         // NB: if this lookup fails, we fall back to the database before returning an error
         let serialized_team = client
             .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{}", token))
@@ -26,9 +31,16 @@ impl Team {
             FlagError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
-            // If `project_id` is 0, this means the payload is from before December 2025, which we correct for here
+            // If `project_id` is 0, this means the payload is from before December 2024, which we correct for here
             team.project_id = team.id as i64;
         }
+
+        tracing::info!(
+            "Successfully read team {} from Redis at key '{}{}'",
+            team.id,
+            TEAM_TOKEN_CACHE_PREFIX,
+            token
+        );
 
         Ok(team)
     }
@@ -42,6 +54,13 @@ impl Team {
             tracing::error!("Failed to serialize team: {}", e);
             FlagError::RedisDataParsingError
         })?;
+
+        tracing::info!(
+            "Writing team to Redis at key '{}{}': team_id={}",
+            TEAM_TOKEN_CACHE_PREFIX,
+            team.api_token,
+            team.id
+        );
 
         client
             .set(
@@ -63,7 +82,40 @@ impl Team {
     ) -> Result<Team, FlagError> {
         let mut conn = client.get_connection().await?;
 
-        let query = "SELECT id, name, api_token, project_id FROM posthog_team WHERE api_token = $1";
+        let query = "SELECT 
+            id, 
+            uuid,
+            name, 
+            api_token, 
+            project_id, 
+            cookieless_server_hash_mode, 
+            timezone,
+            autocapture_opt_out,
+            autocapture_exceptions_opt_in,
+            autocapture_web_vitals_opt_in,
+            capture_performance_opt_in,
+            capture_console_log_opt_in,
+            session_recording_opt_in,
+            inject_web_apps,
+            surveys_opt_in,
+            heatmaps_opt_in,
+            capture_dead_clicks,
+            flags_persistence_default,
+            session_recording_sample_rate,
+            session_recording_minimum_duration_milliseconds,
+            autocapture_web_vitals_allowed_metrics,
+            autocapture_exceptions_errors_to_ignore,
+            session_recording_linked_flag,
+            session_recording_network_payload_capture_config,
+            session_recording_masking_config,
+            session_replay_config,
+            survey_config,
+            session_recording_url_trigger_config,
+            session_recording_url_blocklist_config,
+            session_recording_event_trigger_config,
+            recording_domains
+        FROM posthog_team 
+        WHERE api_token = $1";
         let row = sqlx::query_as::<_, Team>(query)
             .bind(token)
             .fetch_one(&mut *conn)
@@ -77,6 +129,7 @@ impl Team {
 mod tests {
     use rand::Rng;
     use redis::AsyncCommands;
+    use uuid::Uuid;
 
     use super::*;
     use crate::utils::test_utils::{
@@ -131,6 +184,9 @@ mod tests {
             project_id: i64::from(id) - 1,
             name: "team".to_string(),
             api_token: token,
+            cookieless_server_hash_mode: 0,
+            timezone: "UTC".to_string(),
+            ..Default::default()
         };
         let serialized_team = serde_json::to_string(&team).expect("Failed to serialise team");
 
@@ -163,10 +219,20 @@ mod tests {
         let client = setup_redis_client(None);
         let target_token = "phc_123456789012".to_string();
         // A payload form before December 2025, it's missing `project_id`
-        let serialized_team = format!(
-            "{{\"id\":343,\"name\":\"team\",\"api_token\":\"{}\"}}",
-            target_token
-        );
+        let test_team = Team {
+            id: 343,
+            name: "team".to_string(),
+            api_token: target_token.clone(),
+            project_id: 0,
+            uuid: Uuid::nil(),
+            session_recording_opt_in: false,
+            cookieless_server_hash_mode: 0,
+            timezone: "UTC".to_string(),
+            ..Default::default()
+        };
+
+        let serialized_team = serde_json::to_string(&test_team).expect("Failed to serialize team");
+        tracing::info!("Inserting test team payload: {}", serialized_team);
         client
             .set(
                 format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, target_token),
@@ -182,6 +248,7 @@ mod tests {
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, 343);
         assert_eq!(team_from_redis.project_id, 343); // Same as `id`
+        assert_eq!(team_from_redis.cookieless_server_hash_mode, 0);
     }
 
     #[tokio::test]
