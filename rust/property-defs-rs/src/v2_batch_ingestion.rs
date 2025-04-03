@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use quick_cache::sync::Cache;
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
-use tracing::warn;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -302,7 +302,7 @@ pub async fn process_batch_v2(
             Ok(result) => match result {
                 Ok(_) => continue,
                 Err(db_err) => {
-                    warn!("Batch write exhausted retries: {:?}", db_err);
+                    error!("Batch write exhausted retries: {:?}", db_err);
                 }
             },
             Err(join_err) => {
@@ -340,12 +340,20 @@ async fn write_event_properties_batch(
         match result {
             Err(e) => {
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
-                    metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")]);
+                    common_metrics::inc(
+                        V2_EVENT_PROPS_BATCH_ATTEMPT,
+                        &[(String::from("result"), String::from("failed"))],
+                        1,
+                    );
                     total_time.fin();
                     return Err(e);
                 }
 
-                metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "retry")]);
+                common_metrics::inc(
+                    V2_EVENT_PROPS_BATCH_ATTEMPT,
+                    &[(String::from("result"), String::from("retry"))],
+                    1,
+                );
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * V2_BATCH_RETRY_DELAY_MS + jitter;
                 tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -354,12 +362,23 @@ async fn write_event_properties_batch(
 
             Ok(pgq_result) => {
                 let count = pgq_result.rows_affected();
-                metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "success")]);
-                common_metrics::inc(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
 
                 // now it's safe to cache the original updates
+                // timing is measured internally for this step
                 batch.cache_batch(&mut cache);
+
+                // don't report success if the batch cache insetions failed!
+                common_metrics::inc(
+                    V2_EVENT_PROPS_BATCH_ATTEMPT,
+                    &[(String::from("result"), String::from("success"))],
+                    1,
+                );
+                common_metrics::inc(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, &[], count);
+                info!(
+                    "Event properties batch of size {} written successfully",
+                    count
+                );
 
                 return Ok(());
             }
@@ -407,12 +426,20 @@ async fn write_property_definitions_batch(
         match result {
             Err(e) => {
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
-                    metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")]);
+                    common_metrics::inc(
+                        V2_PROP_DEFS_BATCH_ATTEMPT,
+                        &[(String::from("result"), String::from("failed"))],
+                        1,
+                    );
                     total_time.fin();
                     return Err(e);
                 }
 
-                metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "retry")]);
+                common_metrics::inc(
+                    V2_PROP_DEFS_BATCH_ATTEMPT,
+                    &[(String::from("result"), String::from("retry"))],
+                    1,
+                );
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * V2_BATCH_RETRY_DELAY_MS + jitter;
                 tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -421,12 +448,22 @@ async fn write_property_definitions_batch(
 
             Ok(pgq_result) => {
                 let count = pgq_result.rows_affected();
-                metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
-                common_metrics::inc(V2_PROP_DEFS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
 
                 // now it's safe to cache the original updates
                 batch.cache_batch(&mut cache);
+
+                // don't report success if the batch cache insetions failed!
+                common_metrics::inc(
+                    V2_PROP_DEFS_BATCH_ATTEMPT,
+                    &[(String::from("result"), String::from("success"))],
+                    1,
+                );
+                common_metrics::inc(V2_PROP_DEFS_BATCH_ROWS_AFFECTED, &[], count);
+                info!(
+                    "Property definitions batch of size {} written successfully",
+                    count
+                );
 
                 return Ok(());
             }
@@ -469,12 +506,20 @@ async fn write_event_definitions_batch(
         match result {
             Err(e) => {
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
-                    metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")]);
+                    common_metrics::inc(
+                        V2_EVENT_DEFS_BATCH_ATTEMPT,
+                        &[(String::from("result"), String::from("failed"))],
+                        1,
+                    );
                     total_time.fin();
                     return Err(e);
                 }
 
-                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "retry")]);
+                common_metrics::inc(
+                    V2_EVENT_DEFS_BATCH_ATTEMPT,
+                    &[(String::from("result"), String::from("retry"))],
+                    1,
+                );
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * V2_BATCH_RETRY_DELAY_MS + jitter;
                 tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -482,12 +527,22 @@ async fn write_event_definitions_batch(
             }
             Ok(pgq_result) => {
                 let count = pgq_result.rows_affected();
-                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
-                common_metrics::inc(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, &[], count);
                 total_time.fin();
 
                 // now it's safe to cache the original updates
                 batch.cache_batch(&mut cache);
+
+                // don't report success if the batch cache insertions failed!
+                common_metrics::inc(
+                    V2_EVENT_DEFS_BATCH_ATTEMPT,
+                    &[(String::from("result"), String::from("success"))],
+                    1,
+                );
+                common_metrics::inc(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, &[], count);
+                info!(
+                    "Event definitions batch of size {} written successfully",
+                    count
+                );
 
                 return Ok(());
             }
