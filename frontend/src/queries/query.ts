@@ -265,6 +265,7 @@ export async function performQuery<N extends DataNode>(
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
+            is_cached: response?.is_cached,
             ...logParams,
         })
         return response

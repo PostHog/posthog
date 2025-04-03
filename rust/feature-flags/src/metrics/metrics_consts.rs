@@ -24,3 +24,9 @@ pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 pub const DB_PERSON_PROPERTIES_READS_COUNTER: &str = "flags_db_person_properties_reads_total";
 pub const DB_GROUP_PROPERTIES_READS_COUNTER: &str = "flags_db_group_properties_reads_total";
+
+// Timing metrics
+pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
+pub const FLAG_HASH_KEY_PROCESSING_TIME: &str = "flags_hash_key_processing_time";
+pub const FLAG_LOCAL_EVALUATION_TIME: &str = "flags_local_evaluation_time";
+pub const FLAG_DB_PROPERTIES_FETCH_TIME: &str = "flags_db_properties_fetch_time";
