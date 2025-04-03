@@ -9,9 +9,10 @@ pub trait CacheOperations {
 }
 
 #[async_trait::async_trait]
-pub trait SecondaryCacheOperations: Send + Sync + Clone {
+pub trait SecondaryCacheOperations: Send + Sync {
     /// Insert multiple updates into the cache
     async fn insert_batch(&self, updates: &[Update]) -> Result<(), CacheError>;
+
     /// Filter out updates that exist in the cache, returns updates that are not in the cache
     async fn filter_cached_updates(&self, updates: &[Update]) -> Result<Vec<Update>, CacheError>;
 }
@@ -23,7 +24,7 @@ pub enum SecondaryCache {
 }
 
 #[async_trait::async_trait]
-impl CacheOperations for SecondaryCache {
+impl SecondaryCacheOperations for SecondaryCache {
     async fn insert_batch(&self, updates: &[Update]) -> Result<(), CacheError> {
         match self {
             SecondaryCache::Redis(cache) => cache.insert_batch(updates).await,

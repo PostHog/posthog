@@ -4,7 +4,7 @@ use super::CacheOperations;
 use redis::RedisError;
 
 #[derive(Clone)]
-struct RedisCacheClient {
+pub struct RedisCacheClient {
     conn: redis::aio::ConnectionManager,
 }
 

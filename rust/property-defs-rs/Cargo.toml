@@ -32,5 +32,8 @@ regex.workspace = true
 redis = { workspace = true }
 async-trait = "0.1.77"
 
+[dev-dependencies]
+mockall = "0.13.1"
+
 [lints]
 workspace = true
