@@ -83,8 +83,8 @@ export const insight = {
         cy.get(`[data-attr-insight-type="${insightType}"]`).click()
 
         cy.get('[data-attr="top-bar-name"] button').click()
-        cy.get('[data-attr="top-bar-name"] input').clear().type(insightName)
-        cy.wait(1000)
+        cy.get('[data-attr="top-bar-name"] input').clear().type(insightName).type('{enter}')
+        cy.wait(200)
 
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
@@ -171,9 +171,9 @@ export const dashboard = {
         if (insightName) {
             cy.get('[data-attr="top-bar-name"] button').click()
             cy.get('[data-attr="top-bar-name"] input').clear()
-            cy.wait(1000)
-            cy.get('[data-attr="top-bar-name"] input').type(insightName)
-            cy.wait(1000)
+            cy.wait(200)
+            cy.get('[data-attr="top-bar-name"] input').type(insightName).type('{enter}')
+            cy.wait(200)
             cy.get('[data-attr="top-bar-name"]').should('have.text', insightName)
         }
 

@@ -26,8 +26,8 @@ describe('Insights', () => {
         cy.get('[data-attr="top-bar-name"]').should('contain', startingName)
 
         cy.get('[data-attr="top-bar-name"] button').click()
-        cy.get('[data-attr="top-bar-name"] input').clear().type(editedName)
-        cy.wait(1000)
+        cy.get('[data-attr="top-bar-name"] input').clear().type(editedName).type('{enter}')
+        cy.wait(200)
 
         cy.get('[data-attr="top-bar-name"]').should('contain', editedName)
 
