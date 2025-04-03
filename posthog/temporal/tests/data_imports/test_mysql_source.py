@@ -44,9 +44,9 @@ REQUIRED_ENV_VARS = (
 MYSQL_TABLE_NAME = "test_table"
 
 TEST_DATA = [
-    (1, "John Doe", "john@example.com", dt.datetime(2025, 1, 1, tzinfo=dt.UTC)),
-    (2, "Jane Smith", "jane@example.com", dt.datetime(2025, 1, 2, tzinfo=dt.UTC)),
-    (3, "Bob Wilson", "bob@example.com", dt.datetime(2025, 1, 3, tzinfo=dt.UTC)),
+    (1, "John Doe", "john@example.com", dt.datetime(2025, 1, 1, tzinfo=dt.UTC), 100),
+    (2, "Jane Smith", "jane@example.com", dt.datetime(2025, 1, 2, tzinfo=dt.UTC), 2000000),
+    (3, "Bob Wilson", "bob@example.com", dt.datetime(2025, 1, 3, tzinfo=dt.UTC), 3409892966),
 ]
 
 
@@ -100,13 +100,15 @@ def mysql_source_table(mysql_connection):
                 id INT,
                 name VARCHAR(255),
                 email VARCHAR(255),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                unsigned_int INT UNSIGNED
             )
         """)
 
         # Insert test data
         cursor.executemany(
-            f"INSERT INTO {MYSQL_TABLE_NAME} (id, name, email, created_at) VALUES (%s, %s, %s, %s)", TEST_DATA
+            f"INSERT INTO {MYSQL_TABLE_NAME} (id, name, email, created_at, unsigned_int) VALUES (%s, %s, %s, %s, %s)",
+            TEST_DATA,
         )
         conn.commit()
 
