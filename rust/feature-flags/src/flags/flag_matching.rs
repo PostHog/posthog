@@ -886,16 +886,18 @@ impl FeatureFlagMatcher {
             // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
                 // Get the person ID for the current distinct ID – this value should be cached at this point, but as a fallback we fetch from the database
-                let person_id = self.get_person_id().await?;
-                if !self
-                    .evaluate_cohort_filters(
-                        &cohort_filters,
-                        &person_or_group_properties,
-                        person_id,
-                    )
-                    .await?
-                {
-                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                let person_id = self.get_person_id().await;
+                if let Some(person_id) = person_id {
+                    if !self
+                        .evaluate_cohort_filters(
+                            &cohort_filters,
+                            &person_or_group_properties,
+                            person_id,
+                        )
+                        .await?
+                    {
+                        return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                    }
                 }
             }
         }
@@ -947,7 +949,7 @@ impl FeatureFlagMatcher {
     /// Retrieves the `PersonId` from the properties cache.
     /// If the cache does not contain a `PersonId`, it fetches it from the database
     /// and updates the cache accordingly.
-    async fn get_person_id(&mut self) -> Result<PersonId, FlagError> {
+    async fn get_person_id(&mut self) -> Option<PersonId> {
         match self.properties_cache.person_id {
             Some(id) => {
                 inc(
@@ -955,7 +957,7 @@ impl FeatureFlagMatcher {
                     &[("type".to_string(), "person_id".to_string())],
                     1,
                 );
-                Ok(id)
+                Some(id)
             }
             None => {
                 inc(
@@ -963,27 +965,9 @@ impl FeatureFlagMatcher {
                     &[("type".to_string(), "person_id".to_string())],
                     1,
                 );
-                let id = self.get_person_id_from_db().await?;
-                inc(
-                    DB_PERSON_PROPERTIES_READS_COUNTER,
-                    &[("team_id".to_string(), self.team_id.to_string())],
-                    1,
-                );
-                self.properties_cache.person_id = Some(id);
-                Ok(id)
+                None
             }
         }
-    }
-
-    /// Fetches the `PersonId` from the database based on the current `distinct_id` and `team_id`.
-    /// This method is called when the `PersonId` is not present in the properties cache.
-    async fn get_person_id_from_db(&mut self) -> Result<PersonId, FlagError> {
-        let reader = self.reader.clone();
-        let distinct_id = self.distinct_id.clone();
-        let team_id = self.team_id;
-        fetch_person_properties_from_db(reader, distinct_id, team_id)
-            .await
-            .map(|(_, person_id)| person_id)
     }
 
     /// Get person properties from overrides, cache or database.
