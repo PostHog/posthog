@@ -21,6 +21,7 @@ class StartupApplicationSerializer(serializers.Serializer):
         help_text="Program type - 'startups' for regular startup program, 'yc' for Y Combinator startups",
     )
     organization_id = serializers.CharField(required=True)
+    # add customer_id
 
     # Startup program fields
     raised = serializers.CharField(required=False)
