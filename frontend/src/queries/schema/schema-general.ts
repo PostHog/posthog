@@ -103,6 +103,7 @@ export enum NodeKind {
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
+    WebPageURLSearchQuery = 'WebPageURLSearchQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -145,6 +146,7 @@ export type AnyDataNode =
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
+    | WebPageURLSearchQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -190,6 +192,7 @@ export type QuerySchema =
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
+    | WebPageURLSearchQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -2800,3 +2803,23 @@ export interface RevenueTrackingConfig {
      */
     dataWarehouseTables: RevenueTrackingDataWarehouseTable[]
 }
+
+export interface PageURL {
+    url: string
+    count: number
+}
+
+export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLSearchQueryResponse> {
+    kind: NodeKind.WebPageURLSearchQuery
+    search_term?: string
+    strip_query_params?: boolean
+    limit?: integer
+    sampling_factor?: number
+}
+
+export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase<PageURL[]> {
+    hasMore?: boolean
+    limit?: integer
+}
+
+export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>

@@ -365,6 +365,17 @@ def get_query_runner(
             team=team,
         )
 
+    if kind == "WebPageURLSearchQuery":
+        from .web_analytics.page_url_search_query_runner import PageUrlSearchQueryRunner
+
+        return PageUrlSearchQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "SessionAttributionExplorerQuery":
         from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
 

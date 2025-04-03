@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 
 import { InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -121,53 +120,19 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             {
                 loadPagesUrls: async ({ searchTerm }: { searchTerm: string }) => {
                     try {
-                        let query: { kind: NodeKind; query: string }
-                        // Simple query using the same pattern as heatmapsLogic
-                        if (searchTerm) {
-                            query = {
-                                kind: NodeKind.HogQLQuery,
-                                query: values.stripQueryParams
-                                    ? hogql`SELECT DISTINCT cutQueryStringAndFragment(properties.$current_url) AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        AND cutQueryStringAndFragment(properties.$current_url) like '%${hogql.identifier(
-                                            searchTerm
-                                        )}%'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`
-                                    : hogql`SELECT DISTINCT properties.$current_url AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        AND properties.$current_url like '%${hogql.identifier(searchTerm)}%'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`,
-                            }
-                        } else {
-                            query = {
-                                kind: NodeKind.HogQLQuery,
-                                query: values.stripQueryParams
-                                    ? hogql`SELECT DISTINCT cutQueryStringAndFragment(properties.$current_url) AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`
-                                    : hogql`SELECT DISTINCT properties.$current_url AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`,
-                            }
-                        }
+                        // Use the dedicated query runner instead of raw HogQL
+                        const response = await api.query({
+                            kind: 'WebPageURLSearchQuery',
+                            search_term: searchTerm,
+                            strip_query_params: values.stripQueryParams,
+                            dateRange: {
+                                date_from: values.dateFilter.dateFrom,
+                                date_to: values.dateFilter.dateTo,
+                            },
+                            properties: [],
+                        })
 
-                        const response = await api.query(query)
-                        const res = response as { results: [string, number][] }
-                        const results = res.results?.map((x) => ({ url: x[0], count: x[1] })) as PageURL[]
-
-                        return results
+                        return response.results as PageURL[]
                     } catch (error) {
                         console.error('Error loading pages:', error)
                         return []
