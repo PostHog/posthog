@@ -9,31 +9,54 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
-export function convertFileSystemEntryToTreeDataItem(
-    imports: (FileSystemImport | FileSystemEntry)[],
-    folderStates: Record<string, FolderState>,
-    root = 'project',
-    searchTerm = ''
-): TreeDataItem[] {
+export interface ConvertProps {
+    imports: (FileSystemImport | FileSystemEntry)[]
+    folderStates: Record<string, FolderState>
+    checkedItems: Record<string, boolean>
+    root: string
+    searchTerm?: string
+}
+
+export function convertFileSystemEntryToTreeDataItem({
+    imports,
+    folderStates,
+    checkedItems,
+    root,
+    searchTerm,
+}: ConvertProps): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
 
     // All folder nodes. Used later to add mock "empty folder" items.
     const allFolderNodes: TreeDataItem[] = []
 
+    // Retroactively mark these as checked later on
+    const indeterminateFolders: Record<string, boolean> = {}
+    const markIndeterminateFolders = (path: string): void => {
+        const parts = splitPath(path)
+        for (let i = 0; i < parts.length; i++) {
+            indeterminateFolders[`${root}-folder/${joinPath(parts.slice(0, i + 1))}`] = true
+        }
+    }
+
     // Helper to find an existing folder node or create one if it doesn't exist.
     const findOrCreateFolder = (nodes: TreeDataItem[], folderName: string, fullPath: string): TreeDataItem => {
         let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
         if (!folderNode) {
+            const id = `${root}-folder/${fullPath}`
             folderNode = {
-                id: `${root}/${fullPath}`,
+                id,
                 name: folderName,
-                displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm} />,
-                record: { type: 'folder', id: `${root}/${fullPath}`, path: fullPath },
+                displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm ?? ''} />,
+                record: { type: 'folder', id, path: fullPath },
                 children: [],
+                checked: checkedItems[id],
             }
             allFolderNodes.push(folderNode)
             nodes.push(folderNode)
+            if (checkedItems[id]) {
+                markIndeterminateFolders(fullPath)
+            }
         }
         if (!folderNode.children) {
             folderNode.children = []
@@ -67,18 +90,24 @@ export function convertFileSystemEntryToTreeDataItem(
         }
 
         // Create the actual item node.
+        const nodeId = item.type === 'folder' ? `${root}-folder/${item.path}` : `${root}/${item.id || item.path}`
         const node: TreeDataItem = {
-            id: `${root}/${item.type === 'folder' ? item.path : item.id || item.path}`,
+            id: nodeId,
             name: itemName,
-            displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm} />,
+            displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />,
             icon: item._loading ? <Spinner /> : ('icon' in item && item.icon) || iconForType(item.type),
             record: item,
+            checked: checkedItems[nodeId],
             onClick: () => {
                 if (item.href) {
                     router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)
                 }
             },
         }
+        if (checkedItems[nodeId]) {
+            markIndeterminateFolders(joinPath(splitPath(item.path).slice(0, -1)))
+        }
+
         // Place the item in the current (deepest) folder.
         currentLevel.push(node)
 
@@ -91,12 +120,14 @@ export function convertFileSystemEntryToTreeDataItem(
                     id: `${root}-load-more/${item.path}`,
                     name: 'Load more...',
                     icon: <IconPlus />,
+                    disableSelect: true,
                 })
             } else if (folderStates[item.path] === 'loading') {
                 node.children.push({
                     id: `${root}-loading/${item.path}`,
                     name: 'Loading...',
                     icon: <Spinner />,
+                    disableSelect: true,
                 })
             }
             allFolderNodes.push(node)
@@ -125,11 +156,15 @@ export function convertFileSystemEntryToTreeDataItem(
     for (const folderNode of allFolderNodes) {
         if (folderNode.children && folderNode.children.length === 0) {
             folderNode.children.push({
-                id: `empty-${root}/${folderNode.id}`,
+                id: `${root}-folder-empty/${folderNode.id}`,
                 name: 'Empty folder',
                 displayName: <em className="text-muted">Empty folder</em>,
                 icon: <IconPlus />,
+                disableSelect: true,
             })
+        }
+        if (indeterminateFolders[folderNode.id] && !folderNode.checked) {
+            folderNode.checked = 'indeterminate'
         }
     }
 
