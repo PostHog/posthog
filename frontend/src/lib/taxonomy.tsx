@@ -185,7 +185,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'An unexpected error or unhandled exception in your application',
         },
         $web_vitals: {
-            label: 'Web Vitals',
+            label: 'Web vitals',
             description: 'Automatically captured web vitals data',
         },
         $ai_generation: {
