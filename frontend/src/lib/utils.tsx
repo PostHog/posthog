@@ -1426,7 +1426,7 @@ const WORD_PLURALIZATION_RULES = [
     [/(child)(?:ren)?$/i, '$1ren'],
     [/eaux$/i, '$0'],
     [/m[ae]n$/i, 'men'],
-]
+] as [RegExp, string][]
 
 export function wordPluralize(word: string): string {
     let len = WORD_PLURALIZATION_RULES.length
