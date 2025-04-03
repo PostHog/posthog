@@ -216,13 +216,15 @@ export function ProjectTree(): JSX.Element {
                     }
                 }}
                 isItemDraggable={(item) => {
-                    return item.id.startsWith('project/') && item.record?.path
+                    return (
+                        (item.id.startsWith('project/') || item.id.startsWith('project-folder/')) && item.record?.path
+                    )
                 }}
                 isItemDroppable={(item) => {
                     const path = item.record?.path || ''
 
                     // disable dropping for these IDS
-                    if (!item.id.startsWith('project/')) {
+                    if (!item.id.startsWith('project-folder/')) {
                         return false
                     }
 

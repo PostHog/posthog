@@ -368,14 +368,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {} as Record<string, boolean>,
             {
                 setCheckedItems: (_, { checkedItems }) => checkedItems,
-                onItemChecked: (state, { id, checked }) => {
-                    if (checked) {
-                        return { ...state, [id]: !!checked }
-                    }
-                    const newState = { ...state }
-                    delete newState[id]
-                    return newState
-                },
             },
         ],
     }),
@@ -459,6 +451,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 return Object.values(itemsByPath).flatMap((a) => a)
             },
+        ],
+        sortedItems: [
+            (s) => [s.viableItems],
+            (viableItems): FileSystemEntry[] => [...viableItems].sort((a, b) => a.path.localeCompare(b.path)),
         ],
         viableItemsById: [
             (s) => [s.viableItems],
@@ -699,6 +695,28 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 ...values.expandedFolders,
                 ...nonExpandedFolders.map((f) => 'project-folder/' + f),
             ])
+        },
+        onItemChecked: ({ id, checked }) => {
+            const sortedItems: FileSystemEntry[] = values.sortedItems
+            const clickedItem: FileSystemEntry | undefined = values.viableItemsById[id]
+            if (!clickedItem) {
+                return
+            }
+            const checkedItems = { ...values.checkedItems }
+            const itemIndex = sortedItems.findIndex((i) => i.id === clickedItem.id)
+            for (let i = itemIndex; i < sortedItems.length; i++) {
+                const item = sortedItems[i]
+                if (item.path !== clickedItem.path && !item.path.startsWith(clickedItem.path + '/')) {
+                    break
+                }
+                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                if (checked) {
+                    checkedItems[itemId] = true
+                } else {
+                    checkedItems[itemId] = false
+                }
+            }
+            actions.setCheckedItems(checkedItems)
         },
         moveItem: async ({ oldPath, newPath }) => {
             if (newPath.startsWith(oldPath + '/')) {
