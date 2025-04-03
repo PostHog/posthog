@@ -1,6 +1,5 @@
 from abc import abstractmethod
-from typing import Literal
-from dagster import Any
+from typing import Literal, Any
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
