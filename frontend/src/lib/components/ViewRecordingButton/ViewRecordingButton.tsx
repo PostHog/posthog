@@ -19,7 +19,7 @@ export default function ViewRecordingButton({
     checkIfViewed = false,
     matchingEvents,
     ...props
-}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason'> & {
+}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason' | 'loading'> & {
     sessionId: string | undefined
     timestamp?: string | Dayjs
     // whether to open in a modal or navigate to the replay page

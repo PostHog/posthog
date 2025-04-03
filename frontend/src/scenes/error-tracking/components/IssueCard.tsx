@@ -2,29 +2,22 @@ import { IconChevronDown, IconEye, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, LemonDropdown, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FingerprintComponents } from 'lib/components/Errors/ErrorDisplay'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { cn } from 'lib/utils/css-classes'
-import { useState } from 'react'
+import { Children, Fragment, useState } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { cancelEvent } from '../utils'
 import { Collapsible } from './Collapsible'
 import { ContextDisplay } from './ContextDisplay'
+import { IssueDateRange } from './IssueDateRange'
 import { StacktraceDisplay } from './StacktraceDisplay'
-import { TimeBoundary } from './TimeBoundary'
 
 export function IssueCard(): JSX.Element {
-    const {
-        propertiesLoading,
-        firstSeen,
-        issueLoading,
-        summaryLoading,
-        lastSeen,
-        showFingerprint,
-        fingerprintRecords,
-        stacktraceExpanded,
-    } = useValues(errorTrackingIssueSceneLogic)
-    const { setStacktraceExpanded } = useActions(errorTrackingIssueSceneLogic)
+    const { propertiesLoading, properties, sessionId, showFingerprint, fingerprintRecords, showStacktrace } =
+        useValues(errorTrackingIssueSceneLogic)
+    const { setShowStacktrace } = useActions(errorTrackingIssueSceneLogic)
     const [showMenuVisible, setShowMenuVisible] = useState(false)
     return (
         <LemonCard
@@ -32,15 +25,11 @@ export function IssueCard(): JSX.Element {
             className="p-0 group cursor-pointer p-2 px-3 relative"
             onClick={() => {
                 if (!showMenuVisible) {
-                    setStacktraceExpanded(!stacktraceExpanded)
+                    setShowStacktrace(!showStacktrace)
                 }
             }}
         >
-            <Collapsible
-                isExpanded={stacktraceExpanded}
-                className="pb-2 max-h-[700px] overflow-y-auto flex"
-                minHeight="calc(var(--spacing) * 13)"
-            >
+            <Collapsible isExpanded={showStacktrace} className="pb-2 flex" minHeight="calc(var(--spacing) * 13)">
                 <StacktraceDisplay className="flex-grow" />
                 <ContextDisplay />
             </Collapsible>
@@ -49,37 +38,21 @@ export function IssueCard(): JSX.Element {
             </div>
             <div className="flex justify-between items-center">
                 <StacktraceExpander />
-                <div className="flex justify-between items-center gap-1 ">
-                    <TimeBoundary
-                        time={firstSeen}
-                        label="First Seen"
-                        loading={issueLoading}
-                        updateDateRange={(dateRange) => {
-                            return {
-                                ...dateRange,
-                                date_from: firstSeen?.startOf('minute').toISOString(),
-                            }
-                        }}
-                    />
-                    <IconChevronRight />
-                    <TimeBoundary
-                        time={lastSeen}
-                        label="Last Seen"
-                        loading={summaryLoading}
-                        updateDateRange={(dateRange) => {
-                            return {
-                                ...dateRange,
-                                date_to: lastSeen?.endOf('minute').toISOString(),
-                            }
-                        }}
-                    />
+                <IssueCardActions>
                     {!propertiesLoading && showFingerprint && fingerprintRecords && (
-                        <>
-                            <LemonDivider vertical={true} className="h-3 self-center mx-1" />
-                            <FingerprintComponents components={fingerprintRecords} />
-                        </>
+                        <FingerprintComponents components={fingerprintRecords} />
                     )}
-                </div>
+                    <IssueDateRange />
+                    <ViewRecordingButton
+                        sessionId={sessionId}
+                        timestamp={properties.timestamp}
+                        loading={propertiesLoading}
+                        inModal={true}
+                        size="xsmall"
+                        type="secondary"
+                        disabledReason={sessionId ? undefined : 'No recording available'}
+                    />
+                </IssueCardActions>
             </div>
         </LemonCard>
     )
@@ -148,7 +121,7 @@ function ShowPopoverContent(): JSX.Element {
 }
 
 function StacktraceExpander(): JSX.Element {
-    const { stacktraceExpanded, propertiesLoading, hasStacktrace } = useValues(errorTrackingIssueSceneLogic)
+    const { showStacktrace, propertiesLoading, hasStacktrace } = useValues(errorTrackingIssueSceneLogic)
     return (
         <span className="flex items-center gap-1 text-muted group-hover:text-brand-red">
             {match([propertiesLoading, hasStacktrace])
@@ -165,15 +138,32 @@ function StacktraceExpander(): JSX.Element {
                 ))
                 .with([false, true], () => (
                     <>
-                        <span className="text-xs">{stacktraceExpanded ? 'Hide stacktrace' : 'Show stacktrace'}</span>
+                        <span className="text-xs">{showStacktrace ? 'Hide stacktrace' : 'Show stacktrace'}</span>
                         <IconChevronDown
                             className={cn('transition-transform duration-300', {
-                                'rotate-180': stacktraceExpanded,
+                                'rotate-180': showStacktrace,
                             })}
                         />
                     </>
                 ))
                 .exhaustive()}
         </span>
+    )
+}
+
+function IssueCardActions({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex justify-between items-center gap-1" onClick={cancelEvent}>
+            {Children.toArray(children)
+                .filter((child) => !!child)
+                .map((child, index, array) => (
+                    <Fragment key={index}>
+                        {child}
+                        {index !== array.length - 1 && (
+                            <LemonDivider vertical={true} className="h-3 mx-1 self-center" />
+                        )}
+                    </Fragment>
+                ))}
+        </div>
     )
 }
