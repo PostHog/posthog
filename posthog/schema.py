@@ -97,6 +97,7 @@ class AssistantDurationRange(BaseModel):
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
 
@@ -1360,6 +1361,7 @@ class MatchedRecordingEvent(BaseModel):
 class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
