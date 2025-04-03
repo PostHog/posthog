@@ -1,9 +1,9 @@
-import logging
 import re
 import uuid
 import json
 import time
 import asyncio
+from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
@@ -106,17 +106,23 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        if (
-            settings.API_QUERIES_ENABLED
-            and self.team
-            and self.team.organization.is_feature_available(AvailableFeature.API_QUERIES_CONCURRENCY)
-        ):
-            logging.info("using API Queries throttle")
+        if settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency():
             return [APIQueriesThrottle()]
         if query := self.request.data.get("query"):
             if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
                 return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+
+    def check_team_api_queries_concurrency(self):
+        cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        if self.team:
+            new_val = self.team.organization.is_feature_available(AvailableFeature.API_QUERIES_CONCURRENCY)
+            cache.set(cache_key, new_val)
+            return new_val
+        return False
 
     @extend_schema(
         request=QueryRequest,

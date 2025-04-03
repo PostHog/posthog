@@ -329,7 +329,7 @@ class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
 
 class APIQueriesThrottle(PersonalApiKeyRateThrottle):
     scope = "query"
-    rate = "3600/hour"
+    rate = "1200/hour"
 
 
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
