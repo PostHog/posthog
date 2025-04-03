@@ -7,7 +7,7 @@ use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
 use crate::metrics::metrics_consts::{
     DB_GROUP_PROPERTIES_READS_COUNTER, DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
-    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
+    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_COHORT_FILTER_TIME, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_TYPE_INDEX_MATCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
     FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_EVALUATION_TIME,
@@ -957,6 +957,8 @@ impl FeatureFlagMatcher {
             if !cohort_filters.is_empty() {
                 // Get the person ID for the current distinct ID – this value should be cached at this point, and if we can't get it we return false.
                 let person_id = self.get_person_id().await?;
+                let cohort_filter_timer =
+                    common_metrics::timing_guard(FLAG_COHORT_FILTER_TIME, &[]);
                 if !self
                     .evaluate_cohort_filters(
                         &cohort_filters,
@@ -967,6 +969,7 @@ impl FeatureFlagMatcher {
                 {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
+                cohort_filter_timer.fin();
             }
         }
 

@@ -35,3 +35,4 @@ pub const FLAG_DB_PROPERTIES_FETCH_TIME: &str = "flags_db_properties_fetch_time"
 pub const FLAG_GROUP_TYPE_INDEX_MATCH_TIME: &str = "flags_group_type_index_match_time";
 pub const FLAG_GET_MATCH_TIME: &str = "flags_get_match_time";
 pub const FLAG_EVALUATE_ALL_CONDITIONS_TIME: &str = "flags_evaluate_all_conditions_time";
+pub const FLAG_COHORT_FILTER_TIME: &str = "flags_cohort_filter_time";
