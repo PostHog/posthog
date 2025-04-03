@@ -435,7 +435,7 @@ def validate_credentials(api_key: str) -> bool:
         {"name": "Subscription", "method": client.subscriptions.list, "params": {"limit": 1}},
     ]
 
-    missing_permissions: dict[str, str] = {}
+    missing_permissions = {}
 
     for resource in resources_to_check:
         try:
@@ -443,7 +443,7 @@ def validate_credentials(api_key: str) -> bool:
             resource["method"](params=resource["params"])  # type: ignore
         except Exception as e:
             # Store the resource name and error message
-            missing_permissions[resource["name"]] = str(e)
+            missing_permissions[resource["name"]] = str(e)  # type: ignore
 
     if missing_permissions:
         raise StripePermissionError(missing_permissions)
