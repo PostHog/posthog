@@ -121,8 +121,17 @@ class SessionRecordingsListingBaseQuery:
         self._team = team
         self._query = query
         if self._query.filter_test_accounts:
+            # Initialize properties list if needed
             self._query.properties = self._query.properties or []
-            self._query.properties += self._test_account_filters
+
+            # Get existing filter types in properties
+            existing_filters = self._get_filter_types(self._query.properties)
+
+            # Only add test account filters for types that aren't already present
+            for filter in self._test_account_filters:
+                filter_type = self._get_filter_type(filter)
+                if filter_type not in existing_filters:
+                    self._query.properties.append(filter)
 
     @property
     def ttl_days(self):
@@ -165,6 +174,24 @@ class SessionRecordingsListingBaseQuery:
             interval=None,
             now=datetime.now(),
         )
+
+    def _get_filter_type(self, prop: AnyPropertyFilter) -> str:
+        """Get the canonical type of a filter to prevent duplicates"""
+        if is_cohort_property(prop):
+            return f"cohort_{getattr(prop, 'value', '')}"
+        elif is_person_property(prop):
+            return f"person_{getattr(prop, 'key', '')}"
+        elif is_event_property(prop):
+            return f"event_{getattr(prop, 'key', '')}"
+        elif is_group_property(prop):
+            return f"group_{getattr(prop, 'key', '')}"
+        elif getattr(prop, "type", None) == "hogql":
+            return f"hogql_{getattr(prop, 'key', '')}"
+        return "unknown"
+
+    def _get_filter_types(self, properties: list[AnyPropertyFilter]) -> set[str]:
+        """Get all filter types currently in the properties list"""
+        return {self._get_filter_type(prop) for prop in properties}
 
 
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
@@ -273,9 +300,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 "ongoing_selection": ast.Alias(
                     alias="ongoing",
                     expr=ast.CompareOperation(
-                        left=ast.Call(name="max", args=[ast.Field(chain=["s", "_timestamp"])]),
+                        left=ast.Call(
+                            name="max",
+                            args=[ast.Field(chain=["s", "_timestamp"])],
+                        ),
                         right=ast.Constant(
-                            # provided in a placeholder, so we can pass now from python to make tests easier 🙈
                             value=datetime.now(UTC) - timedelta(minutes=5),
                         ),
                         op=ast.CompareOperationOp.GtEq,
@@ -450,7 +479,16 @@ class PersonsPropertiesSubQuery(SessionRecordingsListingBaseQuery):
 
     @property
     def person_properties(self) -> PropertyGroupFilterValue | None:
-        person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
+        person_property_groups = []
+        seen_keys = set()
+
+        for g in self._query.properties or []:
+            if is_person_property(g):
+                key = self._get_filter_type(g)
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    person_property_groups.append(g)
+
         return (
             PropertyGroupFilterValue(
                 type=FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_,
@@ -493,7 +531,16 @@ HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
 
     @property
     def cohort_properties(self) -> PropertyGroupFilterValue | None:
-        cohort_property_groups = [g for g in (self._query.properties or []) if is_cohort_property(g)]
+        cohort_property_groups = []
+        seen_cohorts = set()
+
+        for g in self._query.properties or []:
+            if is_cohort_property(g):
+                key = self._get_filter_type(g)
+                if key not in seen_cohorts:
+                    seen_cohorts.add(key)
+                    cohort_property_groups.append(g)
+
         return (
             PropertyGroupFilterValue(
                 type=FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_,
@@ -802,15 +849,42 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     @property
     def event_properties(self):
-        return [g for g in (self._query.properties or []) if is_event_property(g)]
+        event_props = []
+        seen_keys = set()
+
+        for g in self._query.properties or []:
+            if is_event_property(g):
+                key = self._get_filter_type(g)
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    event_props.append(g)
+        return event_props
 
     @property
     def group_properties(self):
-        return [g for g in (self._query.properties or []) if is_group_property(g)]
+        group_props = []
+        seen_keys = set()
+
+        for g in self._query.properties or []:
+            if is_group_property(g):
+                key = self._get_filter_type(g)
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    group_props.append(g)
+        return group_props
 
     @property
     def person_properties(self) -> PropertyGroupFilterValue | None:
-        person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
+        person_property_groups = []
+        seen_keys = set()
+
+        for g in self._query.properties or []:
+            if is_person_property(g):
+                key = self._get_filter_type(g)
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    person_property_groups.append(g)
+
         return (
             PropertyGroupFilterValue(
                 type=FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_,
