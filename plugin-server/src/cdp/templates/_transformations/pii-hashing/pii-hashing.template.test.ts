@@ -26,12 +26,15 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: '$email',
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -50,12 +53,15 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: '$email,$phone',
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -75,12 +81,15 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: '$email,$phone',
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -98,12 +107,15 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: '',
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -119,12 +131,15 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: 'nonexistent,user.phone,deeply.nested.invalid.path',
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -147,12 +162,15 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: '$set.$ip,$set.$email',
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -179,12 +197,15 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: 'user.contact.$email,user.contact.$phone,$set.profile.ssn',
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -211,12 +232,15 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: 'user.contact.email', // nonexistent nested path
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -237,13 +261,16 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: '$email',
                 hashDistinctId: true,
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -261,13 +288,16 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 propertiesToHash: '$email',
                 hashDistinctId: false,
             },
             mockGlobals
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -283,7 +313,7 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response1 = await tester.invoke(
+        const responses1 = await tester.invoke(
             {
                 propertiesToHash: '$email',
                 salt: 'mysalt123',
@@ -291,13 +321,19 @@ describe('pii-hashing.template', () => {
             mockGlobals
         )
 
-        const response2 = await tester.invoke(
+        const responses2 = await tester.invoke(
             {
                 propertiesToHash: '$email',
                 salt: 'differentSalt',
             },
             mockGlobals
         )
+
+        expect(responses1.length).toBe(1)
+        const response1 = responses1[0]
+
+        expect(responses2.length).toBe(1)
+        const response2 = responses2[0]
 
         expect(response1.finished).toBe(true)
         expect(response2.finished).toBe(true)
@@ -321,7 +357,7 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response1 = await tester.invoke(
+        const responses1 = await tester.invoke(
             {
                 propertiesToHash: '',
                 hashDistinctId: true,
@@ -330,7 +366,7 @@ describe('pii-hashing.template', () => {
             mockGlobals
         )
 
-        const response2 = await tester.invoke(
+        const responses2 = await tester.invoke(
             {
                 propertiesToHash: '',
                 hashDistinctId: true,
@@ -338,6 +374,12 @@ describe('pii-hashing.template', () => {
             },
             mockGlobals
         )
+
+        expect(responses1.length).toBe(1)
+        const response1 = responses1[0]
+
+        expect(responses2.length).toBe(1)
+        const response2 = responses2[0]
 
         expect(response1.finished).toBe(true)
         expect(response2.finished).toBe(true)
@@ -366,7 +408,7 @@ describe('pii-hashing.template', () => {
             },
         })
 
-        const response1 = await tester.invoke(
+        const responses1 = await tester.invoke(
             {
                 propertiesToHash: '$email',
                 hashDistinctId: true,
@@ -375,7 +417,7 @@ describe('pii-hashing.template', () => {
             mockGlobals
         )
 
-        const response2 = await tester.invoke(
+        const responses2 = await tester.invoke(
             {
                 propertiesToHash: '$email',
                 hashDistinctId: true,
@@ -383,6 +425,12 @@ describe('pii-hashing.template', () => {
             },
             mockGlobals
         )
+
+        expect(responses1.length).toBe(1)
+        const response1 = responses1[0]
+
+        expect(responses2.length).toBe(1)
+        const response2 = responses2[0]
 
         expect(response1.finished).toBe(true)
         expect(response2.finished).toBe(true)
