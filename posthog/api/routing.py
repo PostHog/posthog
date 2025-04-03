@@ -65,6 +65,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     scope_object: Optional[APIScopeObjectOrNotSupported] = None
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
+    parent_team_only: bool = False
 
     def __init_subclass__(cls, **kwargs):
         """
@@ -250,13 +251,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         return team_id
 
     @cached_property
-    def team(self) -> Team:
+    def team_for_queries(self) -> Team:
         if team_from_token := self._get_team_from_request():
             team = team_from_token
-        elif self._is_project_view:
-            team = Team.objects.get(
-                id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
-            )
         elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
             assert user.team is not None
@@ -270,6 +267,24 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                 )
 
         tag_queries(team_id=team.pk)
+        return team
+
+    @cached_property
+    def team_id_for_queries(self) -> int:
+        # NOTE: We can arguably change this to use the root team
+        return self.team_for_queries.id
+
+    @cached_property
+    def team(self) -> Team:
+        # NOTE: This will break the projects related stuff so we would need to do away with that first
+        # elif self._is_project_view:
+        #     team = Team.objects.get(
+        #         id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
+        #     )
+        team = self.team_for_queries
+
+        if self.parent_team_only and team.parent_team:
+            team = team.parent_team
         return team
 
     @cached_property
