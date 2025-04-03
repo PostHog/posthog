@@ -33,4 +33,5 @@ pub const FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME: &str =
     "flags_local_property_override_match_time";
 pub const FLAG_DB_PROPERTIES_FETCH_TIME: &str = "flags_db_properties_fetch_time";
 pub const FLAG_GROUP_TYPE_INDEX_MATCH_TIME: &str = "flags_group_type_index_match_time";
-pub const FLAG_EVALUATE_CONDITION_TIME: &str = "flags_evaluate_condition_time";
+pub const FLAG_GET_MATCH_TIME: &str = "flags_get_match_time";
+pub const FLAG_EVALUATE_ALL_CONDITIONS_TIME: &str = "flags_evaluate_all_conditions_time";
