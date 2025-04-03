@@ -620,7 +620,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.NotFound("Recording not found")
 
         source = request.GET.get("source")
-        is_v2_enabled = request.GET.get("allow_blob_v2", "false") == "true"
+        is_v2_enabled = request.GET.get("blob_v2", "false") == "true"
 
         event_properties = {
             "team_id": self.team.pk,
