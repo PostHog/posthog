@@ -2865,6 +2865,27 @@ export enum SurveyPartialResponses {
     No = 'false',
 }
 
+export interface SurveyDisplayConditions {
+    url: string
+    selector?: string
+    seenSurveyWaitPeriodInDays?: number
+    urlMatchType?: SurveyMatchType
+    deviceTypes?: string[]
+    deviceTypesMatchType?: SurveyMatchType
+    actions: {
+        values: {
+            id: number
+            name: string
+        }[]
+    } | null
+    events: {
+        repeatedActivation?: boolean
+        values: {
+            name: string
+        }[]
+    } | null
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -2876,26 +2897,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters?: FeatureFlagFilters
-    conditions: {
-        url: string
-        selector?: string
-        seenSurveyWaitPeriodInDays?: number
-        urlMatchType?: SurveyMatchType
-        deviceTypes?: string[]
-        deviceTypesMatchType?: SurveyMatchType
-        actions: {
-            values: {
-                id: number
-                name: string
-            }[]
-        } | null
-        events: {
-            repeatedActivation?: boolean
-            values: {
-                name: string
-            }[]
-        } | null
-    } | null
+    conditions: SurveyDisplayConditions | null
     appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
