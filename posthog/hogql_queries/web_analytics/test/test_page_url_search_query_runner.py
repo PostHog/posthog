@@ -11,7 +11,6 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
-    snapshot_clickhouse_queries,
 )
 from posthog.clickhouse.client import sync_execute
 
@@ -91,88 +90,57 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 sampling_factor=sampling_factor or 1.0,
             )
             runner = PageUrlSearchQueryRunner(team=self.team, query=query)
-            return runner.calculate()
+            response = runner.calculate()
+
+            return response
 
     def test_no_crash_when_no_data(self):
         results = self._run_page_url_search_query(
             "2025-01-22",
             "2025-01-29",
         ).results
-        assert [] == results
+        assert [] == results, "Expected empty results when no data is present"
 
     def test_search_by_term(self):
         s1 = str(uuid7("2025-01-22"))
         s2 = str(uuid7("2025-01-25"))
         s3 = str(uuid7("2025-01-26"))
-        
+
         # Create test events with proper URLs
         self._create_events(
             [
-                (
-                    "p1", 
-                    [
-                        (
-                            "2025-01-22", 
-                            s1, 
-                            "/products/123", 
-                            {"$current_url": "http://www.example.com/products/123"}
-                        )
-                    ]
-                ),
-                (
-                    "p2", 
-                    [
-                        (
-                            "2025-01-25", 
-                            s2, 
-                            "/products/456", 
-                            {"$current_url": "http://www.example.com/products/456"}
-                        )
-                    ]
-                ),
-                (
-                    "p3", 
-                    [
-                        (
-                            "2025-01-26", 
-                            s3, 
-                            "/about", 
-                            {"$current_url": "http://www.example.com/about"}
-                        )
-                    ]
-                ),
+                ("p1", [("2025-01-22", s1, "/products/123", {"$current_url": "http://www.example.com/products/123"})]),
+                ("p2", [("2025-01-25", s2, "/products/456", {"$current_url": "http://www.example.com/products/456"})]),
+                ("p3", [("2025-01-26", s3, "/about", {"$current_url": "http://www.example.com/about"})]),
             ]
         )
-        
+
         # Directly check if events were created correctly
         all_events = sync_execute(
             """
-            SELECT 
+            SELECT
                 event,
-                toString(replaceRegexpAll(
-                    nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), 
-                    '^"|"$', ''
-                )) AS current_url
-            FROM events 
+                toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS current_url
+            FROM events
             WHERE team_id = %(team_id)s
             ORDER BY current_url
             """,
-            {"team_id": self.team.pk}
+            {"team_id": self.team.pk},
         )
-        
+
         # Verify we have 3 events with the correct URLs
         assert len(all_events) == 3, f"Expected 3 events, got {len(all_events)}"
-        
+
         # Run the search query with "product" term
         search_results = self._run_page_url_search_query(
             "2025-01-22",
             "2025-01-29",
             search_term="product",
         )
-        
+
         # Check if the search query generated appropriate results
         results = search_results.results
-        
+
         # Should find only the product URLs
         assert len(results) == 2, f"Expected 2 results for 'product' search, got {len(results)}"
         urls = [result.url for result in results]
@@ -212,6 +180,19 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
+        # Verify events are created correctly
+        all_events = sync_execute(
+            """
+            SELECT
+                toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS current_url
+            FROM events
+            WHERE team_id = %(team_id)s
+            ORDER BY current_url
+            """,
+            {"team_id": self.team.pk},
+        )
+        assert len(all_events) == 3, f"Expected 3 events, got {len(all_events)}"
+
         # First query without stripping query parameters - should see 3 different URLs
         results_with_params = self._run_page_url_search_query(
             "2025-01-22",
@@ -219,7 +200,11 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
             strip_query_params=False,
         ).results
 
-        assert len(results_with_params) == 3
+        assert len(results_with_params) == 3, f"Expected 3 results with params, got {len(results_with_params)}"
+        urls_with_params = [result.url for result in results_with_params]
+        assert "http://www.example.com/products?ref=homepage&utm_source=google" in urls_with_params
+        assert "http://www.example.com/products?ref=sidebar&utm_source=facebook" in urls_with_params
+        assert "http://www.example.com/about?utm_source=google" in urls_with_params
 
         # Now query with stripping query parameters - should see 2 unique base URLs
         results_without_params = self._run_page_url_search_query(
@@ -228,10 +213,12 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
             strip_query_params=True,
         ).results
 
-        assert len(results_without_params) == 2
-        urls = [result.url for result in results_without_params]
-        assert "http://www.example.com/products" in urls
-        assert "http://www.example.com/about" in urls
+        assert len(results_without_params) == 2, f"Expected 2 results without params, got {len(results_without_params)}"
+        urls_without_params = [result.url for result in results_without_params]
+        assert (
+            "http://www.example.com/products" in urls_without_params
+        ), f"Missing /products URL in {urls_without_params}"
+        assert "http://www.example.com/about" in urls_without_params, f"Missing /about URL in {urls_without_params}"
 
     def test_query_with_limit(self):
         s1 = str(uuid7("2025-01-22"))
@@ -242,15 +229,28 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (
                     "p1",
                     [
-                        ("2025-01-22", s1, "/page1"),
-                        ("2025-01-22", s1, "/page2"),
-                        ("2025-01-22", s1, "/page3"),
-                        ("2025-01-22", s1, "/page4"),
-                        ("2025-01-22", s1, "/page5"),
+                        ("2025-01-22", s1, "/page1", {"$current_url": "http://www.example.com/page1"}),
+                        ("2025-01-22", s1, "/page2", {"$current_url": "http://www.example.com/page2"}),
+                        ("2025-01-22", s1, "/page3", {"$current_url": "http://www.example.com/page3"}),
+                        ("2025-01-22", s1, "/page4", {"$current_url": "http://www.example.com/page4"}),
+                        ("2025-01-22", s1, "/page5", {"$current_url": "http://www.example.com/page5"}),
                     ],
                 ),
             ]
         )
+
+        # Verify events are created correctly
+        all_events = sync_execute(
+            """
+            SELECT
+                toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS current_url
+            FROM events
+            WHERE team_id = %(team_id)s
+            ORDER BY current_url
+            """,
+            {"team_id": self.team.pk},
+        )
+        assert len(all_events) == 5, f"Expected 5 events, got {len(all_events)}: {all_events}"
 
         # Query with limit=2, should return only 2 results
         response = self._run_page_url_search_query(
@@ -259,53 +259,17 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit=2,
         )
 
-        assert len(response.results) == 2
-        assert response.hasMore is True  # Should indicate more results are available
+        assert len(response.results) == 2, f"Expected 2 results with limit=2, got {len(response.results)}"
+        assert (
+            response.hasMore is True
+        ), "Expected hasMore=True but got False"  # Should indicate more results are available
 
-    def _count_events_in_clickhouse(self):
-        result = sync_execute(
-            """
-            SELECT count(*) 
-            FROM events 
-            WHERE team_id = %(team_id)s
-            """,
-            {"team_id": self.team.pk}
+        # Query with larger limit, should return all 5 results
+        full_response = self._run_page_url_search_query(
+            "2025-01-22",
+            "2025-01-29",
+            limit=10,
         )
-        return result[0][0]
 
-    def _inspect_event_data(self):
-        result = sync_execute(
-            """
-            SELECT event, 
-                   distinct_id, 
-                   toString(timestamp), 
-                   toString(properties)
-            FROM events 
-            WHERE team_id = %(team_id)s
-            LIMIT 10
-            """,
-            {"team_id": self.team.pk}
-        )
-        return result
-
-    def _check_current_url_data(self):
-        """Check if current_url properties are correctly stored and can be queried"""
-        result = sync_execute(
-            """
-            SELECT 
-                event,
-                toString(replaceRegexpAll(
-                    nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), 
-                    '^"|"$', ''
-                )) AS current_url,
-                toString(replaceRegexpAll(
-                    nullIf(nullIf(JSONExtractRaw(properties, '$pathname'), ''), 'null'), 
-                    '^"|"$', ''
-                )) AS pathname
-            FROM events 
-            WHERE team_id = %(team_id)s
-            LIMIT 10
-            """,
-            {"team_id": self.team.pk}
-        )
-        return result
+        assert len(full_response.results) == 5, f"Expected 5 results with limit=10, got {len(full_response.results)}"
+        assert full_response.hasMore is False, "Expected hasMore=False but got True"  # Should indicate no more results
