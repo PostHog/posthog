@@ -47,7 +47,7 @@ impl<S: SecondaryCacheOperations> LayeredCache<S> {
         }
 
         if check_secondary.is_empty() {
-            return Vec::new();
+            return check_secondary;
         }
 
         // Second pass: check secondary cache
