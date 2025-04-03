@@ -165,15 +165,16 @@ export function ProjectTree(): JSX.Element {
         <PanelLayoutPanel
             searchPlaceholder="Search your project"
             panelActions={
-                checkedItemsCount !== '0' && checkedItemsCount !== '0+' ? (
-                    <ButtonPrimitive onClick={() => setCheckedItems({})} tooltip="Clear">
-                        <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                    </ButtonPrimitive>
-                ) : (
+                <>
                     <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
                         <IconFolderPlus className="text-tertiary" />
                     </ButtonPrimitive>
-                )
+                    {checkedItemsCount !== '0' && checkedItemsCount !== '0+' ? (
+                        <ButtonPrimitive onClick={() => setCheckedItems({})} tooltip="Clear">
+                            <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+                        </ButtonPrimitive>
+                    ) : null}
+                </>
             }
         >
             <LemonTree
