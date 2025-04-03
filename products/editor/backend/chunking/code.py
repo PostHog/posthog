@@ -1,15 +1,9 @@
-from typing import TypedDict
-
-import tiktoken
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from tree_sitter import Node as SyntaxNode, Parser
 
+from ..llm.token_counter import get_token_count
 from .parser import ProgrammingLanguage, get_parser_language
-
-
-def get_token_count(content: str):
-    encoding = tiktoken.get_encoding("o200k_base")
-    return len(encoding.encode(content))
+from .types import Chunk
 
 
 class TreeWalker:
@@ -123,22 +117,7 @@ class TreeWalker:
         return None
 
 
-class Chunk(TypedDict):
-    line_start: int
-    """Starting from zero."""
-    line_end: int
-    """Starting from zero."""
-    context: str
-    """Headers of the chunk (class declaration, function declaration, etc)."""
-    content: str
-    """Chunk body."""
-
-
-def chunk_code(lang: ProgrammingLanguage, content: str, chunk_size: int = 300, chunk_overlap: float = 0.2):
-    token_count = get_token_count(content)
-    if token_count < chunk_size:
-        return content
-
+def chunk_code(lang: ProgrammingLanguage, content: str, chunk_size: int, chunk_overlap: float) -> list[Chunk]:
     chunker = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=round(chunk_size * chunk_overlap),
