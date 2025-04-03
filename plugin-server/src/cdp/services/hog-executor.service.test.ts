@@ -171,7 +171,7 @@ describe('Hog Executor', () => {
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('fetch')
-            expect(result.invocation.vmState).toBeDefined()
+            expect(result.invocation.vmState).toBeTruthy()
 
             // Simulate what the callback does
             setupFetchResponse(result.invocation)
