@@ -15,9 +15,7 @@ The primary function is to help manage and connect to PostHog toolbox pods in a 
 
 - Python 3.x
 - kubectl installed and configured
-- AWS CLI installed and configured with access to the `Developer` role
-- AWS credentials with permissions to assume `Developer` roles
-- AWS SSO login configured and active session
+- your current settings and k8s context let you access the cluster that you want your toolbox to be claimed in
 
 ## Usage
 

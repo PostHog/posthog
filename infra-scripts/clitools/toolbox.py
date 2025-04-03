@@ -8,8 +8,8 @@ import argparse
 import time
 
 
-def get_current_user() -> str:
-    """Get user identity from kubectl auth."""
+def get_current_user() -> dict:
+    """Get user identity from kubectl auth and parse it into labels."""
     try:
         print("Attempting to get user identity...")  # noqa: T201
         whoami = subprocess.run(["kubectl", "auth", "whoami", "-o", "json"], capture_output=True, text=True, check=True)
@@ -17,12 +17,16 @@ def get_current_user() -> str:
         user_info = json.loads(whoami.stdout)
         user_info = user_info["status"]["userInfo"]  # Navigate to the correct nesting level
 
-        # Try to get the session name from extra info
-        if "extra" in user_info and "sessionName" in user_info["extra"]:
-            return user_info["extra"]["sessionName"][0]
+        # First try to get the ARN from the extra info
+        if "extra" in user_info and "arn" in user_info["extra"]:
+            return parse_arn(user_info["extra"]["arn"][0])  # The ARN is in a list
 
-        # Fallback to username if no session name
-        return f"k8s-user/{user_info['username']}"
+        # Fallback to sessionName if available
+        if "extra" in user_info and "sessionName" in user_info["extra"]:
+            return {"toolbox-claimed": sanitize_label(user_info["extra"]["sessionName"][0])}
+
+        # Final fallback to username
+        return {"toolbox-claimed": sanitize_label(f"k8s-user/{user_info['username']}")}
 
     except subprocess.CalledProcessError as e:
         print(f"Command failed with return code {e.returncode}")  # noqa: T201
@@ -124,23 +128,37 @@ def get_toolbox_pod(user: str, check_claimed: bool = True) -> tuple[str, bool]:
 def parse_arn(arn: str) -> dict:
     """Parse AWS ARN into components."""
     try:
-        parts = arn.split("/")
-        if len(parts) != 3 or "assumed-role" not in parts[0]:
+        # Handle AWS STS assumed-role ARN format
+        # Format: arn:aws:sts::ACCOUNT:assumed-role/AWSReservedSSO_developers_0847e649a00cc5e7/michael.k@posthog.com
+        parts = arn.split(":")
+        if len(parts) != 6 or "assumed-role" not in parts[5]:
             return {"toolbox-claimed": sanitize_label(arn)}  # fallback for unexpected format
 
-        role_full_name = parts[1]
-        user_id = parts[2]
+        # Extract role path and session name
+        role_and_session = parts[5].split("/")
+        if len(role_and_session) < 3:
+            return {"toolbox-claimed": sanitize_label(arn)}
 
-        # Extract role name from the full role string
-        role_parts = role_full_name.split("_")
-        role_name = role_parts[1] if len(role_parts) > 1 else role_full_name
+        role_path = role_and_session[1]  # The full role path (e.g. AWSReservedSSO_developers_0847e649a00cc5e7)
+        session_name = role_and_session[2]  # The session name (email)
+
+        # Extract role name from the role path (e.g. "developers" from "AWSReservedSSO_developers_0847e649a00cc5e7")
+        role_parts = role_path.split("_")
+        role_name = role_parts[1]  # For AWSReservedSSO_* format
 
         # Sanitize values for kubernetes labels
-        user_id = sanitize_label(user_id)
+        session_name = sanitize_label(session_name)
         role_name = sanitize_label(role_name)
 
-        return {"toolbox-claimed": user_id, "role-name": role_name, "assumed-role": "true"}
-    except Exception:
+        print(f"Parsed ARN: session_name={session_name}, role_name={role_name}")  # noqa: T201
+
+        return {
+            "toolbox-claimed": session_name,  # The sanitized email address
+            "role-name": role_name,  # The role name (e.g. "developers")
+            "assumed-role": "true",
+        }
+    except Exception as e:
+        print(f"Warning: Failed to parse ARN ({e}), using fallback format")  # noqa: T201
         return {"toolbox-claimed": sanitize_label(arn)}  # fallback for any parsing errors
 
 
@@ -153,11 +171,11 @@ def sanitize_label(value: str) -> str:
     return sanitized
 
 
-def claim_pod(pod_name: str, user: str, timestamp: int):
+def claim_pod(pod_name: str, user_labels: dict, timestamp: int):
     """Claim the pod by updating its labels."""
 
     human_readable = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S %Z")
-    print(f"Claiming pod {pod_name} for user {user} until {human_readable}")  # noqa: T201
+    print(f"Claiming pod {pod_name} for user {user_labels.get('toolbox-claimed', 'unknown')} until {human_readable}")  # noqa: T201
     try:
         # Get current labels
         result = subprocess.run(
@@ -179,9 +197,6 @@ def claim_pod(pod_name: str, user: str, timestamp: int):
                     stderr=subprocess.DEVNULL,
                 )
 
-        # Parse ARN and get new labels
-        labels = parse_arn(user)
-
         # Add karpenter.sh/do-not-disrupt annotation
         subprocess.run(
             [
@@ -198,7 +213,7 @@ def claim_pod(pod_name: str, user: str, timestamp: int):
         )
 
         # Build label arguments
-        label_args = [f"{key}={value}" for key, value in {**labels, "terminate-after": str(timestamp)}.items()]
+        label_args = [f"{key}={value}" for key, value in {**user_labels, "terminate-after": str(timestamp)}.items()]
 
         # Add new labels
         subprocess.run(["kubectl", "label", "pod", "-n", "posthog", pod_name, *label_args], check=True)
@@ -272,12 +287,12 @@ def main():
 
         print("🛠️  Connecting to toolbox pod...")  # noqa: T201
 
-        # Get current user
-        user = get_current_user()
-        print(f"👤 Current user: {user}")  # noqa: T201
+        # Get current user labels
+        user_labels = get_current_user()
+        print(f"👤 Current user labels: {user_labels}")  # noqa: T201
 
         # Get available pod
-        pod_name, is_already_claimed = get_toolbox_pod(user, check_claimed=True)
+        pod_name, is_already_claimed = get_toolbox_pod(user_labels["toolbox-claimed"], check_claimed=True)
         print(f"🎯 Found pod: {pod_name}")  # noqa: T201
 
         # Calculate duration
@@ -288,7 +303,7 @@ def main():
         # Claim or update pod
         if not is_already_claimed or args.update_claim:
             print(f"⏰ {'Updating' if is_already_claimed else 'Setting'} pod termination time to: {human_readable}")  # noqa: T201
-            claim_pod(pod_name, user, timestamp)
+            claim_pod(pod_name, user_labels, timestamp)
             print(f"✅ Successfully {'updated' if is_already_claimed else 'claimed'} pod: {pod_name}")  # noqa: T201
         else:
             print("✅ Connecting to your existing pod (use --update-claim to extend the duration)")  # noqa: T201
