@@ -25,9 +25,13 @@ def funnel_steps_to_window_funnel_expr(funnel_metric: ExperimentFunnelMetric) ->
 
     funnel_steps_str = ", ".join([f"funnel_step = 'step_{i}'" for i, _ in enumerate(funnel_metric.series)])
 
-    # TODO: get conversion time window from funnel config
     num_steps = len(funnel_metric.series)
-    conversion_time_window = 6048000000000000
+    if funnel_metric.time_window_hours is not None:
+        conversion_time_window = int(funnel_metric.time_window_hours * 60 * 60)
+    else:
+        # Default to 72 hours
+        conversion_time_window = 72 * 60 * 60
+
     return parse_expr(
         f"windowFunnel({conversion_time_window})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
         placeholders={
