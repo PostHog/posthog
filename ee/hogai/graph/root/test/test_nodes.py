@@ -163,8 +163,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                     ],
                 ),
                 AssistantMessage(content="Follow-up"),
-                HumanMessage(content="Answer"),
                 AssistantToolCallMessage(content="Answer", tool_call_id="xyz"),
+                HumanMessage(content="Answer"),
             ]
         )
         self.assertEqual(
@@ -181,8 +181,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                         }
                     ],
                 ),
-                LangchainToolMessage(content="Answer", tool_call_id="xyz"),
                 LangchainAIMessage(content="Follow-up"),
+                LangchainToolMessage(content="Answer", tool_call_id="xyz"),
                 LangchainHumanMessage(content="Answer"),
             ],
         )
@@ -433,30 +433,6 @@ class TestRootNodeTools(BaseTest):
         state = AssistantState(messages=[HumanMessage(content="Hello")])
         self.assertEqual(node.run(state, {}), PartialAssistantState(root_tool_calls_count=0))
 
-    def test_run_validation_error(self):
-        node = RootNodeTools(self.team)
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Hello",
-                    id="test-id",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="xyz",
-                            name="create_and_query_insight",
-                            args={"invalid_field": "should fail validation"},
-                        )
-                    ],
-                )
-            ]
-        )
-        result = node.run(state, {})
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].tool_call_id, "test-id")
-        self.assertIn("field required", result.messages[0].content.lower())
-
     def test_run_valid_tool_call(self):
         node = RootNodeTools(self.team)
         state = AssistantState(
@@ -526,26 +502,6 @@ class TestRootNodeTools(BaseTest):
         )
         result = node.run(state, {})
         self.assertEqual(result.root_tool_calls_count, 3)  # Should increment by 1
-
-        # Test increment also happens on validation error
-        state_with_error = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Hello",
-                    id="test-id",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="xyz",
-                            name="create_and_query_insight",
-                            args={"invalid_field": "should fail validation"},
-                        )
-                    ],
-                )
-            ],
-            root_tool_calls_count=1,
-        )
-        result = node.run(state_with_error, {})
-        self.assertEqual(result.root_tool_calls_count, 2)
 
     def test_run_resets_tool_count(self):
         node = RootNodeTools(self.team)

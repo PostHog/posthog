@@ -351,6 +351,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             expected_output = [
                 ("message", HumanMessage(content="Hello")),
                 ("message", AssistantMessage(content="Okay")),
+                ("message", ReasoningMessage(content="Coming up with an insight")),
                 ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
                 ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
                 ("message", AssistantMessage(content="Agent needs help with this query")),
@@ -538,6 +539,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
+            ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating trends query")),
@@ -608,6 +610,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
+            ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating funnel query")),
@@ -678,6 +681,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
+            ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating retention query")),
@@ -741,6 +745,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
+            ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating SQL query")),
@@ -1046,6 +1051,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         output = self._run_assistant_graph(graph, message="How do I use feature flags?")
 
-        self.assertEqual((output[0][1]["type"], output[0][1]["content"]), ("human", "How do I use feature flags?"))
-        self.assertEqual((output[1][1]["type"], output[1][1]["content"]), ("ai/reasoning", "Checking PostHog docs"))
-        self.assertEqual((output[2][1]["type"], output[2][1]["content"]), ("ai", "Here's what I found in the docs..."))
+        self.assertConversationEqual(
+            output,
+            [
+                ("message", HumanMessage(content="How do I use feature flags?")),
+                ("message", ReasoningMessage(content="Checking PostHog docs")),
+                ("message", AssistantMessage(content="Here's what I found in the docs...")),
+            ],
+        )

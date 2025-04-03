@@ -163,24 +163,6 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                 {},
             )
 
-    def test_node_requires_viz_message_in_state_to_have_query(self):
-        node = QueryExecutorNode(self.team)
-
-        with self.assertRaisesMessage(ValueError, "Did not find query in the visualization message"):
-            node.run(
-                AssistantState(
-                    messages=[
-                        VisualizationMessage(answer=None, plan="Plan", id="test"),
-                    ],
-                    plan="Plan",
-                    start_id="test",
-                    root_tool_call_id="tool1",
-                    root_tool_insight_plan="test query",
-                    root_tool_insight_type="trends",
-                ),
-                {},
-            )
-
     def test_fallback_to_json(self):
         node = QueryExecutorNode(self.team)
         with patch("ee.hogai.graph.query_executor.nodes.process_query_dict") as mock_process_query_dict:

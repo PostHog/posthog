@@ -265,7 +265,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_type=tool_call.args["query_kind"],
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(AssistantContextualTool(tool_call.name)):
+        elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(cast(AssistantContextualTool, tool_call.name)):
             result = ToolClass().invoke(tool_call.model_dump(), config)  # type: ignore
             assert isinstance(result, LangchainToolMessage)
             return PartialAssistantState(

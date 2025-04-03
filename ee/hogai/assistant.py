@@ -297,8 +297,6 @@ class Assistant:
                 return ReasoningMessage(content="Creating retention query")
             case AssistantNodeName.SQL_GENERATOR:
                 return ReasoningMessage(content="Creating SQL query")
-            case AssistantNodeName.INKEEP_DOCS:
-                return ReasoningMessage(content="Checking PostHog docs")
             case AssistantNodeName.ROOT_TOOLS:
                 assert isinstance(input.messages[-1], AssistantMessage)
                 tool_calls = input.messages[-1].tool_calls or []
@@ -306,11 +304,15 @@ class Assistant:
                 if len(tool_calls) == 0:
                     return None
                 tool_call = tool_calls[0]
+                if tool_call.name == "create_and_query_insight":
+                    return ReasoningMessage(content="Coming up with an insight")
+                if tool_call.name == "search_documentation":
+                    return ReasoningMessage(content="Checking PostHog docs")
                 # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
                 return ReasoningMessage(
-                    content=ToolClass().thinking_message if ToolClass else f"Running tool `{tool_call.name}`"  # type: ignore
+                    content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
                 )
             case _:
                 return None
