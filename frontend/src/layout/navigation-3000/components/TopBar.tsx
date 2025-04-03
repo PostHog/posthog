@@ -253,18 +253,15 @@ function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
                     onSave={(newName) => {
                         void breadcrumb.onRename?.(newName)
                     }}
-                    mode={breadcrumb.forceEditMode || (renameState && renameState[0] === joinedKey) ? 'edit' : 'view'}
-                    onModeToggle={
-                        !breadcrumb.forceEditMode
-                            ? (newMode) => {
-                                  if (newMode === 'edit') {
-                                      tentativelyRename(joinedKey, hereName)
-                                  } else {
-                                      finishRenaming()
-                                  }
-                              }
-                            : undefined
-                    }
+                    mode={renameState && renameState[0] === joinedKey ? 'edit' : 'view'}
+                    onModeToggle={(newMode) => {
+                        if (newMode === 'edit') {
+                            tentativelyRename(joinedKey, hereName)
+                        } else {
+                            finishRenaming()
+                        }
+                    }}
+                    saveOnBlur={breadcrumb.forceEditMode}
                     placeholder="Unnamed"
                     compactButtons="xsmall"
                     editingIndication="underlined"

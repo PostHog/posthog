@@ -7,8 +7,10 @@ use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
 use crate::metrics::metrics_consts::{
     DB_GROUP_PROPERTIES_READS_COUNTER, DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
-    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_EVALUATION_ERROR_COUNTER,
-    FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
+    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
+    FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
+    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_EVALUATION_TIME, PROPERTY_CACHE_HITS_COUNTER,
+    PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
@@ -270,12 +272,15 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_override: Option<String>,
     ) -> FlagsResponse {
+        let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
+
         let flags_have_experience_continuity_enabled = feature_flags
             .flags
             .iter()
             .any(|flag| flag.ensure_experience_continuity);
 
         // Process any hash key overrides
+        let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
         let (hash_key_overrides, initial_error) = if flags_have_experience_continuity_enabled {
             match hash_key_override {
                 Some(hash_key) => {
@@ -291,6 +296,9 @@ impl FeatureFlagMatcher {
             // if experience continuity is not enabled, we don't need to worry about hash key overrides
             (None, false)
         };
+        hash_key_timer
+            .label("outcome", if initial_error { "error" } else { "success" })
+            .fin();
 
         // If there was an initial error in processing hash key overrides, increment the error counter
         if initial_error {
@@ -302,6 +310,7 @@ impl FeatureFlagMatcher {
             );
         }
 
+        let local_eval_timer = common_metrics::timing_guard(FLAG_LOCAL_EVALUATION_TIME, &[]);
         let flags_response = self
             .evaluate_flags_with_overrides(
                 feature_flags,
@@ -310,6 +319,28 @@ impl FeatureFlagMatcher {
                 hash_key_overrides,
             )
             .await;
+
+        local_eval_timer
+            .label(
+                "outcome",
+                if flags_response.errors_while_computing_flags {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
+            .fin();
+
+        eval_timer
+            .label(
+                "outcome",
+                if flags_response.errors_while_computing_flags || initial_error {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
+            .fin();
 
         FlagsResponse::new(
             initial_error || flags_response.errors_while_computing_flags,
@@ -517,7 +548,8 @@ impl FeatureFlagMatcher {
             let distinct_id = self.distinct_id.clone();
             let team_id = self.team_id;
 
-            match fetch_and_locally_cache_all_relevant_properties(
+            let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
+            let fetch_result = fetch_and_locally_cache_all_relevant_properties(
                 &mut self.properties_cache,
                 reader,
                 distinct_id,
@@ -525,14 +557,16 @@ impl FeatureFlagMatcher {
                 &group_type_indexes,
                 &group_keys,
             )
-            .await
-            {
+            .await;
+
+            match fetch_result {
                 Ok(_) => {
                     inc(
                         DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
                         &[("team_id".to_string(), team_id.to_string())],
                         1,
                     );
+                    db_fetch_timer.label("outcome", "success").fin();
                 }
                 Err(e) => {
                     errors_while_computing_flags = true;
@@ -544,8 +578,9 @@ impl FeatureFlagMatcher {
                         &[("reason".to_string(), reason.to_string())],
                         1,
                     );
+                    db_fetch_timer.label("outcome", "error").fin();
                 }
-            }
+            };
 
             // Step 3: Evaluate remaining flags with cached properties
             for flag in flags_needing_db_properties {
@@ -885,7 +920,7 @@ impl FeatureFlagMatcher {
 
             // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
-                // Get the person ID for the current distinct ID – this value should be cached at this point, but as a fallback we fetch from the database
+                // Get the person ID for the current distinct ID – this value should be cached at this point, and if we can't get it we return false.
                 let person_id = self.get_person_id().await?;
                 if !self
                     .evaluate_cohort_filters(
@@ -963,27 +998,9 @@ impl FeatureFlagMatcher {
                     &[("type".to_string(), "person_id".to_string())],
                     1,
                 );
-                let id = self.get_person_id_from_db().await?;
-                inc(
-                    DB_PERSON_PROPERTIES_READS_COUNTER,
-                    &[("team_id".to_string(), self.team_id.to_string())],
-                    1,
-                );
-                self.properties_cache.person_id = Some(id);
-                Ok(id)
+                Err(FlagError::PersonNotFound)
             }
         }
-    }
-
-    /// Fetches the `PersonId` from the database based on the current `distinct_id` and `team_id`.
-    /// This method is called when the `PersonId` is not present in the properties cache.
-    async fn get_person_id_from_db(&mut self) -> Result<PersonId, FlagError> {
-        let reader = self.reader.clone();
-        let distinct_id = self.distinct_id.clone();
-        let team_id = self.team_id;
-        fetch_person_properties_from_db(reader, distinct_id, team_id)
-            .await
-            .map(|(_, person_id)| person_id)
     }
 
     /// Get person properties from overrides, cache or database.
