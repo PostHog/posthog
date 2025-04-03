@@ -44,7 +44,7 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
     return ast.Constant(value=1)
 
 
-def funnel_step_to_filter(team: Team, funnel_step: Union[EventsNode, ActionsNode]) -> ast.Expr:
+def event_or_action_to_filter(team: Team, funnel_step: Union[EventsNode, ActionsNode]) -> ast.Expr:
     """
     Returns the filter for a single funnel step.
     """
@@ -74,7 +74,7 @@ def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNo
     """
     Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
     """
-    return ast.Or(exprs=[funnel_step_to_filter(team, funnel_step) for funnel_step in funnel_steps])
+    return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
 
 
 def funnel_steps_to_window_funnel_expr(funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
@@ -94,9 +94,7 @@ def funnel_steps_to_window_funnel_expr(funnel_metric: ExperimentFunnelMetric) ->
             else:
                 raise ValueError(f"Event {node.event} has no name")
 
-    funnel_steps_str = ", ".join(
-        [f"event = {ast.Constant(value=_get_node_name(step)).to_hogql()}" for step in funnel_metric.series]
-    )
+    funnel_steps_str = ", ".join([f"funnel_step = 'step_{i}'" for i, _ in enumerate(funnel_metric.series)])
 
     # TODO: get conversion time window from funnel config
     num_steps = len(funnel_metric.series)
@@ -110,12 +108,23 @@ def funnel_steps_to_window_funnel_expr(funnel_metric: ExperimentFunnelMetric) ->
     )
 
 
-# def get_funnel_step_level_expr(funnel_step: EventsNode | ActionsNode) -> ast.Expr:
-#     if isinstance(funnel_step, EventsNode):
-#
-#     return ast.Call(
-#         name="multiIf",
-#         args=[
-#             *[ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["events", "event"]), right=ast.Constant(value=step.event))
-#                 for step in funnel_steps
-#             ],
+def get_funnel_step_level_expr(team: Team, funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
+    """
+    Returns the expression to get the funnel step level.
+
+    We reuse the filters that are being used to select events/actions in the funnel metric query,
+    and pass them into multiIf to get the funnel step level.
+    """
+
+    # Contains tuples of (filter: ast.Expr, step_name: ast.Constant)
+    filters_and_steps = [
+        (event_or_action_to_filter(team, funnel_step), ast.Constant(value=f"step_{i}"))
+        for i, funnel_step in enumerate(funnel_metric.series)
+    ]
+    # Flatten the list of tuples into a list of expressions to pass to multiIf
+    multi_if_args = [item for filter_value_pair in filters_and_steps for item in filter_value_pair]
+
+    # Last argument to multiIf is the default value
+    multi_if_args.append(ast.Constant(value="step_unknown"))
+
+    return ast.Call(name="multiIf", args=multi_if_args)

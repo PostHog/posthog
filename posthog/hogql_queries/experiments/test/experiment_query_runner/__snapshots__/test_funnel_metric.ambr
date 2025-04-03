@@ -8,7 +8,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -27,7 +27,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -73,7 +74,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -92,7 +93,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -138,7 +140,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, '$pageview'), 0), ifNull(equals(metric_events.event, 'purchase'), 0)), 2), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -157,7 +159,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, '$pageview'), 'step_0', equals(events.event, 'purchase'), 'step_1', 'step_unknown') AS funnel_step
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -203,7 +206,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT events.`$group_0` AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -215,7 +218,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.`$group_0` AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         INNER JOIN
           (SELECT events.`$group_0` AS entity_id,
@@ -256,7 +260,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -275,7 +279,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -330,7 +335,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -349,7 +354,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -404,7 +410,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -423,7 +429,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -478,7 +485,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -507,7 +514,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -582,7 +590,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -611,7 +619,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -686,7 +695,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -715,7 +724,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -790,7 +800,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -802,7 +812,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.person_id AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         INNER JOIN
           (SELECT events.person_id AS entity_id,
@@ -843,7 +854,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -855,7 +866,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.person_id AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         INNER JOIN
           (SELECT events.person_id AS entity_id,
@@ -896,7 +908,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.event, 'purchase'), 0)), 1), 0) AS value
+            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -908,7 +920,8 @@
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.person_id AS entity_id,
                exposure_data.variant AS variant,
-               events.event AS event
+               events.event AS event,
+               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
         FROM events
         INNER JOIN
           (SELECT events.person_id AS entity_id,
