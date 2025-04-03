@@ -65,6 +65,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
+    WebAnalyticsPageURLSearchQuery,
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr
@@ -363,6 +364,17 @@ def get_query_runner(
         return WebVitalsPathBreakdownQueryRunner(
             query=query,
             team=team,
+        )
+
+    if kind == "WebAnalyticsPageURLSearchQuery":
+        from .web_analytics.page_url_search_query_runner import PageUrlSearchQueryRunner
+
+        return PageUrlSearchQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
         )
 
     if kind == "SessionAttributionExplorerQuery":
