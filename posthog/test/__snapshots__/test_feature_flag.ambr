@@ -203,8 +203,8 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.1
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -225,8 +225,8 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.10
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -595,8 +595,8 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.20
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1435,8 +1435,8 @@
 # ---
 # name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.1
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2133,8 +2133,8 @@
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.1
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2411,8 +2411,8 @@
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.3
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
