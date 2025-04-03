@@ -1486,6 +1486,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the output from the LLM API",
             "examples": [23],
         },
+        "$ai_cache_read_input_tokens": {
+            "label": "AI Cache Read Input Tokens (LLM)",
+            "description": "The number of tokens read from the cache for the input prompt",
+            "examples": [23],
+        },
+        "$ai_cache_creation_input_tokens": {
+            "label": "AI Cache Creation Input Tokens (LLM)",
+            "description": "The number of tokens created in the cache for the input prompt (anthropic only)",
+            "examples": [23],
+        },
+        "$ai_reasoning_tokens": {
+            "label": "AI Reasoning Tokens (LLM)",
+            "description": "The number of tokens in the reasoning output from the LLM API",
+            "examples": [23],
+        },
+        "$ai_input_cost_usd": {
+            "label": "AI Input Cost USD (LLM)",
+            "description": "The cost in USD of the input tokens sent to the LLM API",
+            "examples": [0.0017],
+        },
+        "$ai_output_cost_usd": {
+            "label": "AI Output Cost USD (LLM)",
+            "description": "The cost in USD of the output tokens received from the LLM API",
+            "examples": [0.0024],
+        },
+        "$ai_total_cost_usd": {
+            "label": "AI Total Cost USD (LLM)",
+            "description": "The total cost in USD of the request made to the LLM API (input + output costs)",
+            "examples": [0.0041],
+        },
         "$ai_latency": {
             "label": "AI Latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds",
@@ -1501,6 +1531,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The parameters used to configure the model in the LLM API, in JSON",
             "examples": ['{"temperature": 0.5, "max_tokens": 50}'],
         },
+        "$ai_tools": {
+            "label": "AI Tools (LLM)",
+            "description": "The tools available to the LLM",
+            "examples": [
+                '[{"type": "function", "function": {"name": "tool1", "arguments": {"arg1": "value1", "arg2": "value2"}}}]',
+            ],
+        },
+        "$ai_stream": {
+            "label": "AI Stream (LLM)",
+            "description": "Whether the response from the LLM API was streamed",
+            "examples": ["true", "false"],
+        },
+        "$ai_temperature": {
+            "label": "AI Temperature (LLM)",
+            "description": "The temperature parameter used in the request to the LLM API",
+            "examples": [0.7, 1.0],
+        },
+        "$ai_input_state": {
+            "label": "AI Input State (LLM)",
+            "description": "Input state of the LLM agent",
+        },
+        "$ai_output_state": {
+            "label": "AI Output State (LLM)",
+            "description": "Output state of the LLM agent",
+        },
         "$ai_provider": {
             "label": "AI Provider (LLM)",
             "description": "The provider of the AI model used to generate the output from the LLM API",
@@ -1510,6 +1565,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Trace ID (LLM)",
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_request_url": {
+            "label": "AI Request URL (LLM)",
+            "description": "The full URL of the request made to the LLM API",
+            "examples": ["https://api.openai.com/v1/chat/completions"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
@@ -1535,6 +1595,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Span ID (LLM)",
             "description": "The unique identifier for a LLM trace, generation, or span.",
             "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
+        },
+        "$ai_span_name": {
+            "label": "AI Span Name (LLM)",
+            "description": "The name given to this LLM trace, generation, or span.",
+            "examples": ["summarize_text"],
         },
     },
     "numerical_event_properties": {},
