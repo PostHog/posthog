@@ -1,4 +1,4 @@
-import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
+import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 
 import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
@@ -41,14 +41,19 @@ export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean
         const { source: sourceA, ...restA } = a
         const { source: sourceB, ...restB } = b
         return (
-            objectsEqual(objectCleanWithEmpty(restA), objectCleanWithEmpty(restB)) &&
-            compareDataNodeQuery(sourceA, sourceB, opts)
+            objectsEqual(
+                objectCleanWithEmpty(removeUndefinedAndNull(restA)),
+                objectCleanWithEmpty(removeUndefinedAndNull(restB))
+            ) && compareDataNodeQuery(sourceA, sourceB, opts)
         )
     } else if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
-        return compareDataNodeQuery(a, b, opts)
+        return compareDataNodeQuery(removeUndefinedAndNull(a), removeUndefinedAndNull(b), opts)
     }
 
-    return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+    return objectsEqual(
+        objectCleanWithEmpty(removeUndefinedAndNull(a as any)),
+        objectCleanWithEmpty(removeUndefinedAndNull(b as any))
+    )
 }
 
 export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {

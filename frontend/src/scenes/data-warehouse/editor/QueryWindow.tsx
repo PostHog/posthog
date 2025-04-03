@@ -24,7 +24,7 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { allTabs, activeModelUri, queryInput, editingView, sourceQuery, isValidView } =
+    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, isValidView } =
         useValues(multitabEditorLogic)
     const {
         renameTab,
@@ -52,7 +52,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 {sidebarWidth === 0 && (
                     <LemonButton
                         onClick={() => resetDefaultSidebarWidth()}
-                        className="mt-1 mr-1"
+                        className="rounded-none"
                         icon={<IconSidebarClose />}
                         type="tertiary"
                         size="small"
@@ -67,10 +67,15 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     activeModelUri={activeModelUri}
                 />
             </div>
-            {editingView && (
+            {(editingView || editingInsight) && (
                 <div className="h-5 bg-warning-highlight">
-                    <span className="text-xs">
-                        Editing {editingView.last_run_at ? 'materialized view' : 'view'} "{editingView.name}"
+                    <span className="pl-2 text-xs">
+                        {editingView && (
+                            <>
+                                Editing {editingView.last_run_at ? 'materialized view' : 'view'} "{editingView.name}"
+                            </>
+                        )}
+                        {editingInsight && <>Editing insight "{editingInsight.name}"</>}
                     </span>
                 </div>
             )}
@@ -89,7 +94,13 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 types: response?.types ?? [],
                             })
                         }
-                        disabledReason={updatingDataWarehouseSavedQuery ? 'Saving...' : ''}
+                        disabledReason={
+                            !isValidView
+                                ? 'Some fields may need an alias'
+                                : updatingDataWarehouseSavedQuery
+                                ? 'Saving...'
+                                : ''
+                        }
                         icon={<IconDownload />}
                         type="tertiary"
                         size="xsmall"

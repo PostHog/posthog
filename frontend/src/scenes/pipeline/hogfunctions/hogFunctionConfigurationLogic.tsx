@@ -225,16 +225,22 @@ export type SparklineData = {
 
 // Helper function to check if code might return null/undefined
 export function mightDropEvents(code: string): boolean {
-    if (!code) {
+    const sanitizedCode = code
+        .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '') // Remove comments
+        .replace(/\s+/g, ' ') // Collapse whitespace
+        .trim()
+
+    if (!sanitizedCode) {
         return false
     }
+
     // Direct null/undefined returns
     if (
-        code.includes('return null') ||
-        code.includes('return undefined') ||
-        /\breturn\b\s*;/.test(code) ||
-        /\breturn\b\s*$/.test(code) ||
-        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(code)
+        sanitizedCode.includes('return null') ||
+        sanitizedCode.includes('return undefined') ||
+        /\breturn\b\s*;/.test(sanitizedCode) ||
+        /\breturn\b\s*$/.test(sanitizedCode) ||
+        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(sanitizedCode)
     ) {
         return true
     }
@@ -295,6 +301,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSampleGlobalsError: (error) => ({ error }),
         setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
+        sendBroadcast: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -531,6 +538,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
             },
         ],
+        broadcast: [
+            false,
+            {
+                sendBroadcast: async () => {
+                    const id = values.hogFunction?.id
+                    if (!id) {
+                        lemonToast.error('No broadcast to send')
+                        return false
+                    }
+                    await api.hogFunctions.sendBroadcast(id)
+                    lemonToast.success('Broadcast sent!')
+                    return true
+                },
+            },
+        ],
     })),
     forms(({ values, props, asyncActions }) => ({
         configuration: {
@@ -684,24 +706,35 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes],
-            (configuration, currentProject, groupTypes): HogFunctionInvocationGlobals => {
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.logicProps],
+            (configuration, currentProject, groupTypes, logicProps): HogFunctionInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
+                const event = {
+                    uuid: eventId,
+                    distinct_id: uuid(),
+                    timestamp: dayjs().toISOString(),
+                    elements_chain: '',
+                    url: `${window.location.origin}/project/${currentProject?.id}/events/`,
+                    ...(logicProps.logicKey === 'errorTracking'
+                        ? {
+                              event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
+                              properties: {
+                                  name: 'Test issue',
+                                  description: 'This is the issue description',
+                              },
+                          }
+                        : {
+                              event: '$pageview',
+                              properties: {
+                                  $current_url: currentUrl,
+                                  $browser: 'Chrome',
+                              },
+                          }),
+                }
                 const globals: HogFunctionInvocationGlobals = {
-                    event: {
-                        uuid: eventId,
-                        distinct_id: uuid(),
-                        event: '$pageview',
-                        timestamp: dayjs().toISOString(),
-                        elements_chain: '',
-                        properties: {
-                            $current_url: currentUrl,
-                            $browser: 'Chrome',
-                        },
-                        url: `${window.location.origin}/project/${currentProject?.id}/events/`,
-                    },
+                    event,
                     person: {
                         id: personId,
                         properties: {

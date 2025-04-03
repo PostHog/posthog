@@ -159,7 +159,7 @@ export function TaxonomicPropertyFilter({
                 }
             }}
             groupTypeIndex={
-                isGroupPropertyFilter(filter) && filter?.group_type_index
+                isGroupPropertyFilter(filter) && typeof filter?.group_type_index === 'number'
                     ? (filter?.group_type_index as GroupTypeIndex)
                     : undefined
             }

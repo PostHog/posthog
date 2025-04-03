@@ -1,5 +1,6 @@
 import json
 from typing import Optional, cast
+from common.hogvm.python.execute import validate_bytecode
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -32,6 +33,7 @@ from posthog.cdp.validation import (
 )
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
 from posthog.models.hog_functions.hog_function import (
     HogFunction,
@@ -291,6 +293,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
 
+                # Test execution to catch memory/execution exceptions only for transformations
+                if hog_type == "transformation":
+                    is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
+                    if not is_valid:
+                        raise serializers.ValidationError({"hog": error_message})
+
         if is_create:
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
@@ -457,6 +465,51 @@ class HogFunctionViewSet(
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
+
+    @action(detail=True, methods=["POST"])
+    def broadcast(self, request: Request, *args, **kwargs):
+        hog_function = self.get_object()
+
+        if not hog_function.enabled:
+            return Response({"error": "Cannot broadcast: function is disabled"}, status=400)
+
+        actors_query = {
+            "kind": "ActorsQuery",
+            "properties": hog_function.filters.get("properties", None),
+            "select": ["id", "any(pdi.distinct_id)", "properties", "created_at"],
+        }
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        if not hasattr(response, "results"):
+            return Response({"error": "No results from actors query"}, status=400)
+
+        for result in response.results:
+            globals = {
+                "event": {
+                    "event": "$broadcast",
+                    "elements_chain": "",
+                    "distinct_id": str(result[1]),
+                    "timestamp": result[3].isoformat(),
+                },
+                "person": {
+                    "id": str(result[0]),
+                    "distinct_id": str(result[1]),
+                    "properties": json.loads(result[2]),
+                    "created_at": result[3].isoformat(),
+                },
+            }
+            create_hog_invocation_test(
+                team_id=hog_function.team_id,
+                hog_function_id=hog_function.id,
+                payload={
+                    "globals": globals,
+                    "configuration": HogFunctionSerializer(hog_function).data,
+                    "mock_async_functions": False,
+                },
+            )
+
+        return Response({"success": True})
 
     def perform_create(self, serializer):
         serializer.save()

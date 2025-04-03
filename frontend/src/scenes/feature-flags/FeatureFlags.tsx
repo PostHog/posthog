@@ -38,6 +38,7 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagsLogic, FeatureFlagsTab, FLAGS_PER_PAGE } from './featureFlagsLogic'
 
 export const scene: SceneExport = {
@@ -252,9 +253,13 @@ export function OverViewTab({
                                         resourceType={AccessControlResourceType.FeatureFlag}
                                         fullWidth
                                         disabled={!featureFlag.can_edit}
-                                        onClick={() =>
-                                            featureFlag.id && router.actions.push(urls.featureFlag(featureFlag.id))
-                                        }
+                                        onClick={() => {
+                                            if (featureFlag.id) {
+                                                featureFlagLogic({ id: featureFlag.id }).mount()
+                                                featureFlagLogic({ id: featureFlag.id }).actions.editFeatureFlag(true)
+                                                router.actions.push(urls.featureFlag(featureFlag.id))
+                                            }
+                                        }}
                                     >
                                         Edit
                                     </AccessControlledLemonButton>

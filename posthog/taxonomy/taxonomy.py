@@ -5,7 +5,9 @@ class CoreFilterDefinition(TypedDict):
     """Like the CoreFilterDefinition type in the frontend, except no JSX.Element allowed."""
 
     label: str
+    label_llm: NotRequired[str]
     description: NotRequired[str]
+    description_llm: NotRequired[str]
     examples: NotRequired[list[str | int | float]]
     system: NotRequired[bool]
     type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
@@ -167,7 +169,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$identify": {
             "label": "Identify",
-            "description": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
+            "description": "A user has been identified with properties",
+            "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
         },
         "$create_alias": {
             "label": "Alias",

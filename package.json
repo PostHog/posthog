@@ -123,6 +123,7 @@
             "pnpm --dir plugin-server exec eslint --fix",
             "pnpm --dir plugin-server exec prettier --write"
         ],
+        "funnel-udf/**/*.rs": "rustfmt",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "./bin/ruff.sh check --fix",
             "./bin/ruff.sh format"

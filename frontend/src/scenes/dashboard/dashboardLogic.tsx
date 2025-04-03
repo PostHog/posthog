@@ -61,6 +61,7 @@ import {
     InsightColor,
     InsightModel,
     InsightShortId,
+    ProjectTreeRef,
     QueryBasedInsightModel,
     TextModel,
     TileLayout,
@@ -1037,6 +1038,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (
                     !!newestRefreshed &&
                     !(placement === DashboardPlacement.FeatureFlag) &&
+                    !(placement === DashboardPlacement.Group) &&
                     oldestClientRefreshAllowed?.isAfter(now())
                 )
             },
@@ -1129,7 +1131,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             ],
         ],
-
+        projectTreeRef: [
+            () => [(_, props: DashboardLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'dashboard', ref: String(id) }),
+        ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.dashboard],
             (dashboard): SidePanelSceneContext | null => {
