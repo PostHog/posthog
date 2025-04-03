@@ -680,7 +680,7 @@ class InsightSerializer(InsightBasicSerializer):
 
                 return calculate_for_query_based_insight(
                     insight,
-                    team=self.context["get_team"](),
+                    team=self.context["get_team_for_queries"](),
                     dashboard=dashboard,
                     execution_mode=execution_mode,
                     user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
@@ -734,6 +734,7 @@ class InsightViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
+    use_parent_team = True
     scope_object = "insight"
     serializer_class = InsightSerializer
     throttle_classes = [

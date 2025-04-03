@@ -568,6 +568,9 @@ class Team(UUIDClassicModel):
             )
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 
+    def root_team(self) -> "Team":
+        return self.parent_team if self.parent_team else self
+
     def __str__(self):
         if self.name:
             return self.name
