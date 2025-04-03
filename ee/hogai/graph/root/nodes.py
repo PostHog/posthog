@@ -265,6 +265,13 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_type=tool_call.args["query_kind"],
                 root_tool_calls_count=tool_call_count + 1,
             )
+        elif tool_call.name == "search_documentation":
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                root_tool_insight_plan=None,  # No insight plan here
+                root_tool_insight_type=None,  # No insight type here
+                root_tool_calls_count=tool_call_count + 1,
+            )
         elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(cast(AssistantContextualTool, tool_call.name)):
             result = ToolClass().invoke(tool_call.model_dump(), config)  # type: ignore
             assert isinstance(result, LangchainToolMessage)
@@ -283,17 +290,12 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         else:
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
-                root_tool_calls_count=tool_call_count + 1,
-            )
+            raise ValueError(f"Unknown tool called: {tool_call.name}")
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
-        if state.root_tool_insight_type:
-            return "insights"
+        if state.root_tool_call_id:
+            return "insights" if state.root_tool_insight_type else "search_documentation"
         return "end"
