@@ -20,7 +20,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -67,7 +66,6 @@ export function Surveys(): JSX.Element {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
@@ -118,7 +116,7 @@ export function Surveys(): JSX.Element {
                 tabs={[
                     { key: SurveysTabs.Active, label: 'Active' },
                     { key: SurveysTabs.Archived, label: 'Archived' },
-                    showLinkedHogFunctions ? { key: SurveysTabs.Notifications, label: 'Notifications' } : null,
+                    { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
                     globalSurveyAppearanceConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
                 ]}
@@ -238,7 +236,7 @@ export function Surveys(): JSX.Element {
                                                 className="min-w-full text-center"
                                                 disabledReason={dataLoading ? 'Loading surveys' : ''}
                                             >
-                                                <span className="text-center flex-1">
+                                                <span className="flex-1 text-center">
                                                     {dataLoading ? 'Loading...' : 'Load more'}
                                                 </span>
                                             </LemonButton>
