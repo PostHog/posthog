@@ -100,7 +100,7 @@ export function InsightSceneTmp(): JSX.Element {
                 </section>
 
                 <section>
-                    <h3 className="text-xl mb-2">Property Differences</h3>
+                    <h3 className="text-xl mb-2">Property Differences ({compareTaxonomies.differences.length})</h3>
                     <div className="space-y-4">
                         {compareTaxonomies.differences.map((diff) => (
                             <div key={diff.key} className="border p-4 rounded">
