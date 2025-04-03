@@ -355,12 +355,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (breakpointLength) {
                         await breakpoint(breakpointLength)
                     }
-                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId)
+                    const blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
+                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, {
+                        blob_v2,
+                    })
                     if (!response.sources) {
                         return []
                     }
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] && anyBlobV2) {
+                    if (anyBlobV2) {
                         return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
                     }
                     return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
