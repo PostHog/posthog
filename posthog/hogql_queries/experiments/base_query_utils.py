@@ -46,7 +46,7 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
 
 def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, ActionsNode]) -> ast.Expr:
     """
-    Returns the filter for a single funnel step.
+    Returns the filter for a single entity node.
     """
 
     if isinstance(entity_node, ActionsNode):
