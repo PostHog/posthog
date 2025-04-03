@@ -8,9 +8,10 @@ use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
 use crate::metrics::metrics_consts::{
     DB_GROUP_PROPERTIES_READS_COUNTER, DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
     DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
-    FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
-    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_EVALUATION_TIME, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_EVALUATE_CONDITION_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
+    FLAG_GROUP_TYPE_INDEX_MATCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_LOCAL_EVALUATION_TIME, FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME,
+    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
@@ -476,6 +477,9 @@ impl FeatureFlagMatcher {
                 continue;
             }
 
+            let property_override_match_timer =
+                common_metrics::timing_guard(FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, &[]);
+
             match self
                 .match_flag_with_property_overrides(
                     flag,
@@ -506,10 +510,23 @@ impl FeatureFlagMatcher {
                     );
                 }
             }
+            property_override_match_timer
+                .label(
+                    "outcome",
+                    if errors_while_computing_flags {
+                        "error"
+                    } else {
+                        "success"
+                    },
+                )
+                .fin();
         }
 
         // Step 2: Fetch and cache properties for remaining flags (just one DB lookup for all of relevant properties)
         if !flags_needing_db_properties.is_empty() {
+            let group_type_index_match_timer =
+                common_metrics::timing_guard(FLAG_GROUP_TYPE_INDEX_MATCH_TIME, &[]);
+
             let group_type_indexes_required: HashSet<GroupTypeIndex> = flags_needing_db_properties
                 .iter()
                 .filter_map(|flag| flag.get_group_type_index())
@@ -543,6 +560,10 @@ impl FeatureFlagMatcher {
 
             // Extract group_type_indexes for the required flags
             let group_type_indexes: HashSet<GroupTypeIndex> = group_type_indexes_required.clone();
+
+            group_type_index_match_timer
+                .label("outcome", "success")
+                .fin();
 
             let reader = self.reader.clone();
             let distinct_id = self.distinct_id.clone();
@@ -583,6 +604,8 @@ impl FeatureFlagMatcher {
             };
 
             // Step 3: Evaluate remaining flags with cached properties
+            let flag_evaluate_condition_timer =
+                common_metrics::timing_guard(FLAG_EVALUATE_CONDITION_TIME, &[]);
             for flag in flags_needing_db_properties {
                 match self
                     .get_match(&flag, None, hash_key_overrides.clone())
@@ -610,6 +633,16 @@ impl FeatureFlagMatcher {
                     }
                 }
             }
+            flag_evaluate_condition_timer
+                .label(
+                    "outcome",
+                    if errors_while_computing_flags {
+                        "error"
+                    } else {
+                        "success"
+                    },
+                )
+                .fin();
         }
 
         FlagsResponse::new(errors_while_computing_flags, flag_details_map, None)
