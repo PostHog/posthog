@@ -44,7 +44,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadUnfiledItems: true,
         addFolder: (folder: string) => ({ folder }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
-        moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
+        moveItem: (oldPath: string, newPath: string, force = false) => ({ oldPath, newPath, force }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
@@ -773,10 +773,27 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         copyCheckedItems: () => {
             // TODO
         },
-        moveCheckedItems: () => {
-            // TODO
+        moveCheckedItems: ({ path }) => {
+            const { checkedItems } = values
+            let skipInFolder: string | null = null
+            for (const item of values.sortedItems) {
+                if (skipInFolder !== null) {
+                    if (item.path.startsWith(skipInFolder + '/')) {
+                        continue
+                    } else {
+                        skipInFolder = null
+                    }
+                }
+                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                if (checkedItems[itemId]) {
+                    actions.moveItem(item.path, joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]), true)
+                    if (item.type === 'folder') {
+                        skipInFolder = item.path
+                    }
+                }
+            }
         },
-        moveItem: async ({ oldPath, newPath }) => {
+        moveItem: async ({ oldPath, newPath, force }) => {
             if (newPath.startsWith(oldPath + '/')) {
                 lemonToast.error('Cannot move folder into itself')
                 return
@@ -788,7 +805,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return
                 }
                 actions.queueAction({
-                    type: item.type === 'folder' ? 'prepare-move' : 'move',
+                    type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
                     item,
                     path: item.path,
                     newPath: newPath + item.path.slice(oldPath.length),
