@@ -10,9 +10,8 @@ use crate::metrics::metrics_consts::{
     DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_COHORT_FILTER_TIME, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_TYPE_INDEX_MATCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
-    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_EVALUATION_TIME,
-    FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME,
+    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
@@ -312,7 +311,6 @@ impl FeatureFlagMatcher {
             );
         }
 
-        let local_eval_timer = common_metrics::timing_guard(FLAG_LOCAL_EVALUATION_TIME, &[]);
         let flags_response = self
             .evaluate_flags_with_overrides(
                 feature_flags,
@@ -321,17 +319,6 @@ impl FeatureFlagMatcher {
                 hash_key_overrides,
             )
             .await;
-
-        local_eval_timer
-            .label(
-                "outcome",
-                if flags_response.errors_while_computing_flags {
-                    "error"
-                } else {
-                    "success"
-                },
-            )
-            .fin();
 
         eval_timer
             .label(
@@ -604,16 +591,34 @@ impl FeatureFlagMatcher {
                 }
             };
 
-            // Step 3: Evaluate remaining flags with cached properties
+            // Step 3: Evaluate remaining flags with cached properties concurrently
             let flag_get_match_timer = common_metrics::timing_guard(FLAG_GET_MATCH_TIME, &[]);
-            for flag in flags_needing_db_properties {
-                match self
-                    .get_match(&flag, None, hash_key_overrides.clone())
-                    .await
-                {
+
+            use futures::future::join_all;
+
+            // Create a vector to hold futures for each flag evaluation
+            let futures = flags_needing_db_properties
+                .into_iter()
+                .map(|flag| {
+                    let key = flag.key.clone();
+                    let hash_key_overrides = hash_key_overrides.clone();
+                    let mut self_clone = self.clone();
+
+                    // Create a future that will evaluate the flag and return the result
+                    async move {
+                        let result = self_clone.get_match(&flag, None, hash_key_overrides).await;
+                        (key, flag, result)
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            // Execute all futures concurrently and wait for all to complete
+            let results = join_all(futures).await;
+
+            for (key, flag, result) in results {
+                match result {
                     Ok(flag_match) => {
-                        flag_details_map
-                            .insert(flag.key.clone(), FlagDetails::create(&flag, &flag_match));
+                        flag_details_map.insert(key, FlagDetails::create(&flag, &flag_match));
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
@@ -628,11 +633,11 @@ impl FeatureFlagMatcher {
                             &[("reason".to_string(), reason.to_string())],
                             1,
                         );
-                        flag_details_map
-                            .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
+                        flag_details_map.insert(key, FlagDetails::create_error(&flag, reason));
                     }
                 }
             }
+
             flag_get_match_timer
                 .label(
                     "outcome",
