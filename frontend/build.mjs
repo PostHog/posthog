@@ -49,6 +49,21 @@ await buildInParallel(
             entryPoints: ['src/toolbar/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
+            external: ['@posthog/apps-common/world-map-vectors'],
+            plugins: [
+                {
+                    // Monaco is a big dependency and we don't use it in the toolbar, so we can remove it
+                    name: 'empty-monaco',
+                    setup(build) {
+                        build.onResolve({ filter: /^monaco-editor/ }, () => {
+                            return { path: 'monaco-editor', namespace: 'empty-module' }
+                        })
+                        build.onLoad({ filter: /.*/, namespace: 'empty-module' }, () => {
+                            return { contents: 'module.exports = {}' }
+                        })
+                    },
+                },
+            ],
             // make sure we don't link to a global window.define
             banner: { js: 'var posthogToolbar = (function () { var define = undefined;' },
             footer: { js: 'return posthogToolbar })();' },
