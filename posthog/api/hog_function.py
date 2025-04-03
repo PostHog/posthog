@@ -332,15 +332,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if validated_data.get("type") == "transformation":
             requested_order = validated_data.get("execution_order")
 
-            with transaction.atomic():
-                # For transformations, we need to determine the execution_order
-                if requested_order is None:
-                    # If no order specified, add at the end
-                    highest_order = self._get_highest_execution_order(validated_data["team"].id)
-                    validated_data["execution_order"] = highest_order + 1
+            # For transformations, we need to determine the execution_order
+            if requested_order is None:
+                # If no order specified, add at the end
+                highest_order = self._get_highest_execution_order(validated_data["team"].id)
+                validated_data["execution_order"] = highest_order + 1
 
-                # Create the function with the execution_order
-                return super().create(validated_data=validated_data)
+            # Create the function with the execution_order
+            return super().create(validated_data=validated_data)
         else:
             # For non-transformation types, just create normally
             return super().create(validated_data=validated_data)
