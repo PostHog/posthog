@@ -37,7 +37,7 @@ class MessageTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewset
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["type", "deleted"]
 
-    def get_queryset(self) -> QuerySet:
+    def safely_get_queryset(self) -> QuerySet:
         if not self.action == "partial_update" or self.request.data.get("deleted") is not False:
             # Only include deleted templates if we're un-deleting them
             return super().get_queryset().filter(deleted=False)
