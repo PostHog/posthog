@@ -384,6 +384,7 @@ class BreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
