@@ -118,9 +118,9 @@ export function ProjectTree(): JSX.Element {
                     <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
                 </MenuItem>
             ) : null}
-            {item.record?.type === 'folder' || item.id?.startsWith('empty-') ? (
+            {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
                 <>
-                    {!item.id?.startsWith('empty-') ? <ContextMenuSeparator /> : null}
+                    {!item.id?.startsWith('project-folder-empty/') ? <ContextMenuSeparator /> : null}
                     {treeItemsNew.map((treeItem: any) => (
                         <MenuItem
                             key={treeItem.id}
@@ -147,7 +147,7 @@ export function ProjectTree(): JSX.Element {
         <PanelLayoutPanel
             searchPlaceholder="Search your project"
             panelActions={
-                checkedItemsCount ? (
+                checkedItemsCount !== '0' ? (
                     <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                 ) : (
                     <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
@@ -180,7 +180,7 @@ export function ProjectTree(): JSX.Element {
                     if (node?.record?.path) {
                         setLastViewedId(node?.id || '')
                     }
-                    if (node?.id.startsWith('project-load-more/')) {
+                    if (node?.id.startsWith('folder-load-more/')) {
                         const path = node.id.split('/').slice(1).join('/')
                         if (path) {
                             loadFolder(path)
@@ -245,13 +245,13 @@ export function ProjectTree(): JSX.Element {
                     return false
                 }}
                 itemContextMenu={(item) => {
-                    if (!item.id.startsWith('project/') && !item.id.startsWith('empty-')) {
+                    if (!item.id.startsWith('project-folder/') && !item.id.startsWith('project-folder-empty/')) {
                         return undefined
                     }
                     return <ContextMenuGroup>{renderMenuItems(item, ContextMenuItem)}</ContextMenuGroup>
                 }}
                 itemSideAction={(item) => {
-                    if (!item.id.startsWith('project/') && !item.id.startsWith('empty-')) {
+                    if (!item.id.startsWith('project-folder/') && !item.id.startsWith('project-folder-empty/')) {
                         return undefined
                     }
                     return <DropdownMenuGroup>{renderMenuItems(item, DropdownMenuItem)}</DropdownMenuGroup>

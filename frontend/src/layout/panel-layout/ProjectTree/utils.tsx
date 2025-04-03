@@ -26,10 +26,10 @@ export function convertFileSystemEntryToTreeDataItem(
         let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
         if (!folderNode) {
             folderNode = {
-                id: `${root}/${fullPath}`,
+                id: `${root}-folder/${fullPath}`,
                 name: folderName,
                 displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm} />,
-                record: { type: 'folder', id: `${root}/${fullPath}`, path: fullPath },
+                record: { type: 'folder', id: `${root}-folder/${fullPath}`, path: fullPath },
                 children: [],
             }
             allFolderNodes.push(folderNode)
@@ -68,7 +68,7 @@ export function convertFileSystemEntryToTreeDataItem(
 
         // Create the actual item node.
         const node: TreeDataItem = {
-            id: `${root}/${item.type === 'folder' ? item.path : item.id || item.path}`,
+            id: item.type === 'folder' ? `${root}-folder/${item.path}` : `${root}-${item.id || item.path}`,
             name: itemName,
             displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm} />,
             icon: item._loading ? <Spinner /> : ('icon' in item && item.icon) || iconForType(item.type),
@@ -127,7 +127,7 @@ export function convertFileSystemEntryToTreeDataItem(
     for (const folderNode of allFolderNodes) {
         if (folderNode.children && folderNode.children.length === 0) {
             folderNode.children.push({
-                id: `empty-${root}/${folderNode.id}`,
+                id: `${root}-folder-empty/${folderNode.id}`,
                 name: 'Empty folder',
                 displayName: <em className="text-muted">Empty folder</em>,
                 icon: <IconPlus />,
