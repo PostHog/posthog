@@ -73,6 +73,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         onItemChecked: (id: string, checked: boolean) => ({ id, checked }),
         setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
         expandProjectFolder: (path: string) => ({ path }),
+        moveCheckedItems: (path: string) => ({ path }),
+        copyCheckedItems: (path: string) => ({ path }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -717,6 +719,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             }
             actions.setCheckedItems(checkedItems)
+        },
+        copyCheckedItems: () => {
+            // TODO
+        },
+        moveCheckedItems: () => {
+            // TODO
         },
         moveItem: async ({ oldPath, newPath }) => {
             if (newPath.startsWith(oldPath + '/')) {

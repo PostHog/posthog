@@ -39,6 +39,8 @@ export function ProjectTree(): JSX.Element {
         loadFolder,
         setLastNewOperation,
         onItemChecked,
+        moveCheckedItems,
+        copyCheckedItems,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -67,6 +69,28 @@ export function ProjectTree(): JSX.Element {
                     }}
                 >
                     <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
+                </MenuItem>
+            ) : null}
+            {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
+                <MenuItem
+                    asChild
+                    onClick={(e: any) => {
+                        e.stopPropagation()
+                        moveCheckedItems(item.record.path)
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Move {checkedItemsCount} selected items here</ButtonPrimitive>
+                </MenuItem>
+            ) : null}
+            {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
+                <MenuItem
+                    asChild
+                    onClick={(e: any) => {
+                        e.stopPropagation()
+                        copyCheckedItems(item.record.path)
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Clone/link {checkedItemsCount} selected items here</ButtonPrimitive>
                 </MenuItem>
             ) : null}
             {item.record?.path ? (
