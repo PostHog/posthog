@@ -14,6 +14,7 @@ export const MeanMetricDataPanel = (): JSX.Element => {
     const { uniqueUsers, averageEventsPerUser, averagePropertyValuePerUser, standardDeviation } = useValues(
         runningTimeCalculatorLogic({ experimentId })
     )
+
     return (
         <div className="grid grid-cols-3 gap-4">
             <UniqueUsersPanel uniqueUsers={uniqueUsers} />

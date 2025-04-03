@@ -17,6 +17,7 @@ export const FunnelMetricDataPanel = (): JSX.Element => {
     const { setConversionRateInputType, setManualConversionRate } = useActions(
         runningTimeCalculatorLogic({ experimentId })
     )
+
     return (
         <div>
             <div className="grid grid-cols-3 gap-4">
