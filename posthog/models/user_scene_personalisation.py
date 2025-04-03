@@ -1,9 +1,9 @@
 from django.db import models
 
-from .utils import UUIDModel
+from .utils import RootTeamMixin, UUIDModel
 
 
-class UserScenePersonalisation(UUIDModel):
+class UserScenePersonalisation(UUIDModel, RootTeamMixin):
     scene = models.CharField(max_length=200)
     dashboard = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)

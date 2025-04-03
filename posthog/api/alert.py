@@ -245,7 +245,7 @@ class AlertSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
+        if attrs.get("insight") and attrs["insight"].team != self.context["get_team"]().root_team:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         # only validate alert count when creating a new alert

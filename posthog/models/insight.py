@@ -14,7 +14,7 @@ from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.utils import get_filter
-from posthog.models.utils import sane_repr
+from posthog.models.utils import RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
@@ -30,7 +30,7 @@ class InsightManager(models.Manager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Insight(FileSystemSyncMixin, models.Model):
+class Insight(FileSystemSyncMixin, RootTeamMixin, models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
     reports or part of a dashboard.

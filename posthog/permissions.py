@@ -262,6 +262,7 @@ class SharingTokenPermission(BasePermission):
 
         if isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
             try:
+                # TODO: Ensure this works with nested teams
                 view.team  # noqa: B018
                 if request.successful_authenticator.sharing_configuration.team != view.team:
                     return False

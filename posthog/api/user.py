@@ -349,7 +349,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
     def validate_dashboard(self, value: Dashboard) -> Dashboard:
         instance = cast(User, self.instance)
 
-        if value.team != instance.current_team:
+        if not instance.current_team or value.team != instance.current_team.root_team:
             raise serializers.ValidationError("Dashboard must belong to the user's current team.")
 
         return value

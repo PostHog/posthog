@@ -680,7 +680,7 @@ class InsightSerializer(InsightBasicSerializer):
 
                 return calculate_for_query_based_insight(
                     insight,
-                    team=self.context["get_team_for_queries"](),
+                    team=self.context["get_team"](),
                     dashboard=dashboard,
                     execution_mode=execution_mode,
                     user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
@@ -734,7 +734,6 @@ class InsightViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
-    use_parent_team = True
     scope_object = "insight"
     serializer_class = InsightSerializer
     throttle_classes = [
@@ -766,7 +765,12 @@ class InsightViewSet(
         # Insights are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
         assert self.team.project_id is not None
-        queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
+        if self.team.parent_team:
+            # KLUDGE: This will be the default behavior if we stick with it and remove projects
+            queryset = self.queryset.filter(team=self.team.root_team)
+        else:
+            queryset = self.queryset.filter(team__project_id=self.team.project_id)
 
         include_deleted = False
 
@@ -1137,7 +1141,7 @@ When set, the specified dashboard's filters and date range override will be appl
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not Insight.objects.filter(id=item_id, team__project_id=self.team.project_id).exists():
+        if not Insight.objects.filter(id=item_id, team=self.team.root_team).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(

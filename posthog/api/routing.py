@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.db.models.query import QuerySet
+from django.db.models import Model
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -22,6 +23,7 @@ from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import RootTeamMixin
 from posthog.permissions import (
     APIScopePermission,
     AccessControlPermission,
@@ -65,7 +67,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     scope_object: Optional[APIScopeObjectOrNotSupported] = None
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
-    use_parent_team: bool = False
 
     def __init_subclass__(cls, **kwargs):
         """
@@ -235,8 +236,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parent_query_kwargs
 
     @cached_property
-    def team_id_for_queries(self) -> int:
-        if team_from_token := self._get_team_from_request():
+    def team_id(self) -> int:
+        if self._is_project_view:
+            team_id = self.project_id  # KLUDGE: This is just for the period of transition to project environments
+        elif team_from_token := self._get_team_from_request():
             team_id = team_from_token.id
         elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
@@ -249,39 +252,26 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         return team_id
 
     @cached_property
-    def team_id(self) -> int:
-        return self.team.id
-
-    @cached_property
-    def team_for_queries(self) -> Team:
+    def team(self) -> Team:
         if team_from_token := self._get_team_from_request():
             team = team_from_token
+        elif self._is_project_view:
+            team = Team.objects.get(
+                id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
+            )
         elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
             assert user.team is not None
             team = user.team
         else:
             try:
-                team = Team.objects.get(id=self.team_id_for_queries)
+                team = Team.objects.get(id=self.team_id)
             except Team.DoesNotExist:
                 raise NotFound(
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
 
         tag_queries(team_id=team.pk)
-        return team
-
-    @cached_property
-    def team(self) -> Team:
-        # NOTE: This will break the projects related stuff so we would need to do away with that first
-        # elif self._is_project_view:
-        #     team = Team.objects.get(
-        #         id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
-        #     )
-        team = self.team_for_queries
-
-        if self.use_parent_team and team.parent_team:
-            team = team.parent_team
         return team
 
     @cached_property
@@ -341,6 +331,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.parents_query_dict.copy()
+
+        # TODO: We need to know if it is a root team model and
+        # then filter to ensure that it checks the team__parent_team id if set otherwise its own id
+        # model = cast(Model, queryset.model)
+
+        # if RootTeamMixin in model.__bases__:
+        #     model.USE_PARENT_TEAM = self.use_parent_team
 
         for source, destination in self.filter_rewrite_rules.items():
             parents_query_dict[destination] = parents_query_dict[source]
@@ -432,10 +429,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         serializer_context.update(self.parents_query_dict)
         # The below are lambdas for lazy evaluation (i.e. we only query Postgres for team/org if actually needed)
         serializer_context["get_team"] = lambda: self.team
-        serializer_context["get_team_for_queries"] = lambda: self.team_for_queries
         serializer_context["get_project"] = lambda: self.project
         serializer_context["get_organization"] = lambda: self.organization
-        serializer_context["team_id"] = self.team_id
         # if "project_id" in serializer_context:
         #     # KLUDGE: This alias can be removed once the relevant models get that field directly
         #     serializer_context["team_id"] = serializer_context["project_id"]

@@ -379,3 +379,18 @@ class TeamProjectMixin(models.Model):
             else:
                 raise ValueError("Team or project not found")
         super().save(*args, **kwargs)
+
+
+class RootTeamMixin(models.Model):
+    """
+    This ensures that when the related team has a parent team, the model will use the parent team instead.
+    This should apply to all models that should be "Project" scoped instead of "Environment" scoped.
+    """
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if self.team and self.team.parent_team:
+            self.team = self.team.parent_team
+        super().save(*args, **kwargs)
