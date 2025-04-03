@@ -523,7 +523,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$time": {
             "label": "$time (deprecated)",
-            "description": "Use the HogQL field `timestamp` instead. This field was previously set on some client side events.",
+            "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
             "system": True,
             "examples": ["1681211521.345"],
         },
@@ -871,7 +871,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$timestamp": {
             "label": "Timestamp (deprecated)",
-            "description": "Use the HogQL field `timestamp` instead. This field was previously set on some client side events.",
+            "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
             "examples": ["2023-05-20T15:30:00Z"],
             "system": True,
         },
