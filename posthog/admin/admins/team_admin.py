@@ -1,6 +1,5 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from posthog.admin.inlines.action_inline import ActionInline
 from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
 from django.urls import reverse
 
@@ -41,7 +40,7 @@ class TeamAdmin(admin.ModelAdmin):
         "updated_at",
     ]
 
-    inlines = [GroupTypeMappingInline, ActionInline]
+    inlines = [GroupTypeMappingInline]
     fieldsets = [
         (
             None,
