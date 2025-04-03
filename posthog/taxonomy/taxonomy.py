@@ -403,7 +403,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$sentry_exception": {
             "label": "Sentry exception",
-            "description": "Raw Sentry exception data",
+            "description": "Raw Sentry exception data.",
             "system": True,
         },
         "$sentry_exception_message": {
@@ -411,79 +411,79 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$sentry_exception_type": {
             "label": "Sentry exception type",
-            "description": "Class name of the exception object",
+            "description": "Class name of the exception object.",
         },
         "$sentry_tags": {
             "label": "Sentry tags",
-            "description": "Tags sent to Sentry along with the exception",
+            "description": "Tags sent to Sentry along with the exception.",
         },
         "$exception_list": {
             "label": "Exception list",
-            "description": "List of one or more associated exceptions",
+            "description": "List of one or more associated exceptions.",
             "system": True,
         },
         "$exception_level": {
             "label": "Exception level",
-            "description": "Exception categorized by severity",
+            "description": "Exception categorized by severity.",
             "examples": ["error"],
         },
         "$exception_type": {
             "label": "Exception type",
-            "description": "Exception categorized into types",
+            "description": "Exception categorized into types.",
             "examples": ["Error"],
         },
         "$exception_message": {
             "label": "Exception message",
-            "description": "The message detected on the error",
+            "description": "The message detected on the error.",
         },
         "$exception_fingerprint": {
             "label": "Exception fingerprint",
-            "description": "A fingerprint used to group issues, can be set clientside",
+            "description": "A fingerprint used to group issues, can be set clientside.",
         },
         "$exception_proposed_fingerprint": {
             "label": "Exception proposed fingerprint",
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside",
+            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
         },
         "$exception_issue_id": {
             "label": "Exception issue ID",
-            "description": "The id of the issue the fingerprint was associated with at ingest time",
+            "description": "The id of the issue the fingerprint was associated with at ingest time.",
         },
         "$exception_source": {
             "label": "Exception source",
-            "description": "The source of the exception",
+            "description": "The source of the exception.",
             "examples": ["JS file"],
         },
         "$exception_lineno": {
             "label": "Exception source line number",
-            "description": "Which line in the exception source that caused the exception",
+            "description": "Which line in the exception source that caused the exception.",
         },
         "$exception_colno": {
             "label": "Exception source column number",
-            "description": "Which column of the line in the exception source that caused the exception",
+            "description": "Which column of the line in the exception source that caused the exception.",
         },
         "$exception_DOMException_code": {
             "label": "DOMException code",
-            "description": "If a DOMException was thrown, it also has a DOMException code",
+            "description": "If a DOMException was thrown, it also has a DOMException code.",
         },
         "$exception_is_synthetic": {
             "label": "Exception is synthetic",
-            "description": "Whether this was detected as a synthetic exception",
+            "description": "Whether this was detected as a synthetic exception.",
         },
         "$exception_stack_trace_raw": {
             "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string",
+            "description": "The exceptions stack trace, as a string.",
         },
         "$exception_handled": {
             "label": "Exception was handled",
-            "description": "Whether this was a handled or unhandled exception",
+            "description": "Whether this was a handled or unhandled exception.",
         },
         "$exception_personURL": {
             "label": "Exception person URL",
-            "description": "The PostHog person that experienced the exception",
+            "description": "The PostHog person that experienced the exception.",
         },
         "$cymbal_errors": {
             "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions",
+            "description": "Errors encountered while trying to process exceptions.",
             "system": True,
         },
         "$exception_capture_endpoint": {
