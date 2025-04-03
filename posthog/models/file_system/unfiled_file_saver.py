@@ -57,6 +57,7 @@ class UnfiledFileSaver:
             new_files.append(
                 FileSystem(
                     team=self.team,
+                    project_id=rep.project_id,
                     path=path,
                     depth=len(split_path(path)),
                     type=rep.type,

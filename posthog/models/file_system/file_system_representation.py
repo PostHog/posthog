@@ -17,4 +17,6 @@ class FileSystemRepresentation:
     href: str
     meta: dict[str, Any]
     should_delete: bool = False  # if True, we remove the entry instead of creating/updating
-    project_id: Optional[int] = None  # if not set we will link to the environment via team_id
+    # Either project_id or team_id must be set
+    project_id: Optional[int] = None
+    team_id: Optional[int] = None

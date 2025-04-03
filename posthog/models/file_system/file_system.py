@@ -1,10 +1,12 @@
 from django.db import models
 from typing import Optional
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7, TeamProjectMixin
 from django.db.models.expressions import F
 from django.db.models.functions import Coalesce
+from django.db.models import QuerySet
 
 
 class FileSystem(TeamProjectMixin, models.Model):
@@ -12,7 +14,7 @@ class FileSystem(TeamProjectMixin, models.Model):
     A model representing a "file" (or folder) in our hierarchical system.
     """
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, null=True)
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     id = models.UUIDField(primary_key=True, default=uuid7)
     path = models.TextField()
@@ -40,68 +42,83 @@ class FileSystem(TeamProjectMixin, models.Model):
         return self.path
 
 
-def generate_unique_path(team: Team, base_folder: str, name: str) -> str:
+def generate_unique_path(
+    base_folder: str,
+    name: str,
+    team_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+) -> str:
     desired = f"{base_folder}/{escape_path(name)}"
     path = desired
     index = 1
 
     # TODO: speed this up by making just one query, and zero on first insert
-    while FileSystem.objects.filter(team=team, path=path).exists():
+    # TODO: Check for team or project id existing
+    while FileSystem.objects.filter(team_id=team_id, project_id=project_id, path=path).exists():
         path = f"{desired} ({index})"
         index += 1
     return path
 
 
+def queryset_for_fs_data(fs_data: FileSystemRepresentation) -> QuerySet[FileSystem]:
+    file_system_filters = {}
+    if fs_data.team_id is not None:
+        file_system_filters["team_id"] = fs_data.team_id
+    if fs_data.project_id is not None:
+        file_system_filters["project_id"] = fs_data.project_id
+    return FileSystem.objects.filter(**file_system_filters, type=fs_data.type, ref=fs_data.ref)
+
+
 def create_or_update_file(
-    *,
-    team: Team,
-    project_id: Optional[int] = None,
-    base_folder: str,
-    name: str,
-    file_type: str,
-    ref: str,
-    href: str,
-    meta: dict,
+    fs_data: FileSystemRepresentation,
     created_by: Optional[User] = None,
 ) -> FileSystem:
-    existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).first()
+    existing = queryset_for_fs_data(fs_data).first()
     if existing:
         # Optionally rename the path to match the new name
         segments = split_path(existing.path)
         if len(segments) <= 2:
-            new_path = generate_unique_path(team, base_folder, name)
+            new_path = generate_unique_path(
+                fs_data.base_folder, fs_data.name, team_id=fs_data.team_id, project_id=fs_data.project_id
+            )
         else:
             # Replace last segment
-            segments[-1] = escape_path(name)
+            segments[-1] = escape_path(fs_data.name)
             new_path = join_path(segments)
 
         # Ensure uniqueness
-        if FileSystem.objects.filter(team=team, path=new_path).exclude(id=existing.id).exists():
-            new_path = generate_unique_path(team, base_folder, name)
+        # TODO: This previously only checked the path for that team - is that correct?
+        if queryset_for_fs_data(fs_data).filter(path=new_path).exclude(id=existing.id).exists():
+            new_path = generate_unique_path(
+                fs_data.base_folder, fs_data.name, team_id=fs_data.team_id, project_id=fs_data.project_id
+            )
 
         existing.path = new_path
         existing.depth = len(split_path(new_path))
-        existing.href = href
-        existing.meta = meta
+        existing.href = fs_data.href
+        existing.meta = fs_data.meta
         existing.save()
         return existing
     else:
-        full_path = generate_unique_path(team, base_folder, name)
+        full_path = generate_unique_path(
+            fs_data.base_folder, fs_data.name, team_id=fs_data.team_id, project_id=fs_data.project_id
+        )
         new_fs = FileSystem.objects.create(
-            team=team,
+            team_id=fs_data.team_id,
+            project_id=fs_data.project_id,
             path=full_path,
             depth=len(split_path(full_path)),
-            type=file_type,
-            ref=ref,
-            href=href,
-            meta=meta,
+            type=fs_data.type,
+            ref=fs_data.ref,
+            href=fs_data.href,
+            meta=fs_data.meta,
             created_by=created_by,
         )
         return new_fs
 
 
-def delete_file(*, team: Team, file_type: str, ref: str):
-    FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
+def delete_file(fs_data: FileSystemRepresentation):
+    queryset_for_fs_data(fs_data).delete()
 
 
 def split_path(path: str) -> list[str]:
