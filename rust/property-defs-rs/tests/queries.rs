@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{postgres::PgArguments, Arguments, Executor, PgPool, Row};
 use uuid::Uuid;
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_event_property_definitions_queries(test_pool: PgPool) {
     // seed the test DB
     bootstrap_seed_data(test_pool.clone()).await.unwrap();
@@ -29,7 +29,7 @@ async fn test_event_property_definitions_queries(test_pool: PgPool) {
     query_non_event_type_with_event_names_param().await;
 }
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_person_property_definitions_queries(test_pool: PgPool) {
     // seed the test DB
     bootstrap_seed_data(test_pool.clone()).await.unwrap();
@@ -43,7 +43,7 @@ async fn test_person_property_definitions_queries(test_pool: PgPool) {
     query_type_person_simple_search_filter(&qmgr, project_id).await;
 }
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_group_property_definitions_queries(test_pool: PgPool) {
     // seed the test DB
     bootstrap_seed_data(test_pool.clone()).await.unwrap();
