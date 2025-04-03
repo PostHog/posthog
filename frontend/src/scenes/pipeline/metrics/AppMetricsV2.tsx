@@ -17,7 +17,8 @@ import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
+import { hogFunctionConfigurationLogic } from '../hogfunctions/hogFunctionConfigurationLogic'
+import { ALL_METRIC_TYPES, appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
@@ -29,22 +30,11 @@ const METRICS_INFO = {
         'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
 }
 
-const ALL_METRIC_TYPES = [
-    'succeeded',
-    'failed',
-    'filtered',
-    'disabled_temporarily',
-    'disabled_permanently',
-    'masked',
-    'filtering_failed',
-    'inputs_failed',
-    'fetch',
-]
-
 export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
     const logic = appMetricsV2Logic({ id })
 
     const { filters } = useValues(logic)
+    const { type } = useValues(hogFunctionConfigurationLogic({ id }))
     const { setFilters, loadMetrics, loadMetricsTotals } = useActions(logic)
 
     useEffect(() => {
@@ -66,27 +56,31 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
                         placement="right-end"
                         overlay={
                             <div className="deprecated-space-y-2 overflow-hidden max-w-100">
-                                {ALL_METRIC_TYPES.map((type) => {
+                                {ALL_METRIC_TYPES.filter(
+                                    ({ value }) => value !== 'fetch' || type !== 'transformation'
+                                ).map(({ label, value }) => {
                                     return (
                                         <LemonButton
-                                            key={type}
+                                            key={value}
                                             fullWidth
-                                            sideIcon={
-                                                <LemonCheckbox checked={filters?.name?.split(',').includes(type)} />
+                                            icon={
+                                                <LemonCheckbox
+                                                    checked={filters?.name?.split(',').includes(value)}
+                                                    className="pointer-events-none"
+                                                />
                                             }
                                             onClick={() => {
                                                 setFilters({
-                                                    name: filters?.name?.split(',').includes(type)
+                                                    name: filters?.name?.split(',').includes(value)
                                                         ? filters.name
                                                               .split(',')
-                                                              .filter((t) => t != type)
+                                                              .filter((t) => t != value)
                                                               .join(',')
-                                                        : filters.name + ',' + type,
+                                                        : filters.name + ',' + value,
                                                 })
                                             }}
                                         >
-                                            {type.replace(/_/g, ' ').charAt(0).toUpperCase() +
-                                                type.replace(/_/g, ' ').slice(1)}
+                                            {label}
                                         </LemonButton>
                                     )
                                 })}

@@ -12,11 +12,25 @@ export type AppMetricsV2LogicProps = {
 
 export type MetricsFilters = Pick<AppMetricsV2RequestParams, 'before' | 'after' | 'interval' | 'name'>
 
+export const ALL_METRIC_TYPES = [
+    { label: 'Succeeded', value: 'succeeded' },
+    { label: 'Failed', value: 'failed' },
+    { label: 'Filtered', value: 'filtered' },
+    { label: 'Disabled temporarily', value: 'disabled_temporarily' },
+    { label: 'Disabled permanently', value: 'disabled_permanently' },
+    { label: 'Masked', value: 'masked' },
+    { label: 'Filtering failed', value: 'filtering_failed' },
+    { label: 'Inputs failed', value: 'inputs_failed' },
+    { label: 'Fetch', value: 'fetch' },
+]
+
 const DEFAULT_FILTERS: MetricsFilters = {
     before: undefined,
     after: '-7d',
     interval: 'day',
-    name: 'succeeded,failed,disabled_temporarily,disabled_permanently,masked,filtering_failed,inputs_failed,fetch',
+    name: ALL_METRIC_TYPES.filter(({ value }) => value !== 'filtered')
+        .map(({ value }) => value)
+        .join(','),
 }
 
 export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
