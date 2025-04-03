@@ -6999,7 +6999,9 @@ class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    answer: Optional[
+        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    ] = None
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None

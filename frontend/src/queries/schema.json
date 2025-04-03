@@ -16951,7 +16951,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query", "answer"],
+            "required": ["type", "query"],
             "type": "object"
         },
         "VizSpecificOptions": {
