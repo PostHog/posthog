@@ -1,9 +1,40 @@
 use crate::types::Update;
+use crate::errors::CacheError;
+use super::{RedisCache, NoOpCache};
 
 #[async_trait::async_trait]
-pub trait SecondaryCache: Send + Sync + Clone {
+pub trait CacheOperations {
+    async fn insert_batch(&self, updates: &[Update]) -> Result<(), CacheError>;
+    async fn filter_cached_updates(&self, updates: &[Update]) -> Result<Vec<Update>, CacheError>;
+}
+
+#[async_trait::async_trait]
+pub trait SecondaryCacheOperations: Send + Sync + Clone {
     /// Insert multiple updates into the cache
-    async fn insert_batch(&self, updates: &[Update]) -> Result<(), redis::RedisError>;
+    async fn insert_batch(&self, updates: &[Update]) -> Result<(), CacheError>;
     /// Filter out updates that exist in the cache, returns updates that are not in the cache
-    async fn filter_cached_updates(&self, updates: &[Update]) -> Result<Vec<Update>, redis::RedisError>;
+    async fn filter_cached_updates(&self, updates: &[Update]) -> Result<Vec<Update>, CacheError>;
+}
+
+#[derive(Clone)]
+pub enum SecondaryCache {
+    Redis(RedisCache),
+    NoOp(NoOpCache),
+}
+
+#[async_trait::async_trait]
+impl CacheOperations for SecondaryCache {
+    async fn insert_batch(&self, updates: &[Update]) -> Result<(), CacheError> {
+        match self {
+            SecondaryCache::Redis(cache) => cache.insert_batch(updates).await,
+            SecondaryCache::NoOp(cache) => cache.insert_batch(updates).await,
+        }
+    }
+
+    async fn filter_cached_updates(&self, updates: &[Update]) -> Result<Vec<Update>, CacheError> {
+        match self {
+            SecondaryCache::Redis(cache) => cache.filter_cached_updates(updates).await,
+            SecondaryCache::NoOp(cache) => cache.filter_cached_updates(updates).await,
+        }
+    }
 }
