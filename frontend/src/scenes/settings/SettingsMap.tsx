@@ -666,7 +666,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Customization IRL',
                 component: (
                     <div>
-                        Grab some <a href="https://merch.posthog.com" target="_blank" rel="noopener noreferrer">PostHog merch</a> to customize yourself outside of the app
+                        Grab some <a href="https://posthog.com/merch" target="_blank" rel="noopener noreferrer">PostHog merch</a> to customize yourself outside of the app
                     </div>
                 ),
             },
