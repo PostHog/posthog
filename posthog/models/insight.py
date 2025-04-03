@@ -121,7 +121,7 @@ class Insight(FileSystemSyncMixin, models.Model):
         should_delete = self.deleted or not self.saved
         return FileSystemRepresentation(
             project_id=self.team.project_id,
-            team_id=self.team_id,
+            team_id=self.team.id,
             base_folder="Unfiled/Insights",
             type="insight",
             ref=self.short_id,

@@ -233,7 +233,7 @@ class Survey(FileSystemSyncMixin, UUIDModel):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             project_id=self.team.project_id,
-            team_id=self.team_id,
+            team_id=self.team.id,
             base_folder="Unfiled/Surveys",
             type="survey",
             ref=str(self.pk),

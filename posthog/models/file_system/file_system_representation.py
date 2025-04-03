@@ -10,6 +10,7 @@ class FileSystemRepresentation:
     Defines the minimal data needed to create/update a FileSystem entry:
     """
 
+    project_id: int
     base_folder: str
     type: str
     ref: str
@@ -17,6 +18,5 @@ class FileSystemRepresentation:
     href: str
     meta: dict[str, Any]
     should_delete: bool = False  # if True, we remove the entry instead of creating/updating
-    # Either project_id or team_id must be set
-    project_id: Optional[int] = None
+    # Team ID is optional and indicates this is an environment specific resource
     team_id: Optional[int] = None

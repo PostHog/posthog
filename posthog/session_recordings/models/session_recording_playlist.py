@@ -59,7 +59,7 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             project_id=self.team.project_id,
-            team_id=self.team_id,
+            team_id=self.team.id,
             base_folder="Unfiled/Replay playlists",
             type="replay_playlist",
             ref=str(self.short_id),

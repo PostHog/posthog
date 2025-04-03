@@ -109,7 +109,7 @@ class Dashboard(FileSystemSyncMixin, models.Model):
         should_delete = self.deleted or (self.creation_mode == "template")
         return FileSystemRepresentation(
             project_id=self.team.project_id,
-            team_id=self.team_id,
+            team_id=self.team.id,
             base_folder="Unfiled/Dashboards",
             type="dashboard",
             ref=str(self.id),

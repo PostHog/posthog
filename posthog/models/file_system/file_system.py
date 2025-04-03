@@ -14,8 +14,8 @@ class FileSystem(TeamProjectMixin, models.Model):
     A model representing a "file" (or folder) in our hierarchical system.
     """
 
+    project = models.ForeignKey("Project", on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE, null=True)
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     id = models.UUIDField(primary_key=True, default=uuid7)
     path = models.TextField()
     depth = models.IntegerField(null=True, blank=True)

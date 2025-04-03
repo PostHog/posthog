@@ -44,7 +44,7 @@ class Notebook(FileSystemSyncMixin, UUIDModel):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             project_id=self.team.project_id,
-            team_id=self.team_id,
+            team_id=self.team.id,
             base_folder="Unfiled/Notebooks",
             type="notebook",
             ref=str(self.short_id),

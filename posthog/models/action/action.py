@@ -86,7 +86,7 @@ class Action(FileSystemSyncMixin, TeamProjectMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             project_id=self.team.project_id,
-            team_id=self.team_id,
+            team_id=self.team.id,
             base_folder="Unfiled/Actions",
             type="action",
             ref=str(self.id),

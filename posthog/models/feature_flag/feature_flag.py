@@ -87,7 +87,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             project_id=self.team.project_id,
-            team_id=self.team_id,
+            team_id=self.team.id,
             base_folder="Unfiled/Feature Flags",
             type="feature_flag",
             ref=str(self.id),
