@@ -322,7 +322,7 @@ test.concurrent(`plugin method tests: can drop events via processEvent`, async (
 
     await waitForExpect(async () => {
         const [event] = await fetchEvents(teamId, customEventUuid)
-        expect(event).toBeDefined()
+        expect(event).toBeTruthy()
     })
 
     const [event] = await fetchEvents(teamId, dropMeUuid)
