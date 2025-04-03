@@ -75,6 +75,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         expandProjectFolder: (path: string) => ({ path }),
         moveCheckedItems: (path: string) => ({ path }),
         copyCheckedItems: (path: string) => ({ path }),
+        checkSelectedFolders: true,
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -223,7 +224,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return { ...state, [folder]: [...(state[folder] || []), savedItem] }
                 },
                 loadSearchResultsSuccess: (state, { searchResults }) => {
-                    // Append search results into the loaded state, mostly to help with multi-selection between panels
+                    // Append search results into the loaded state to persist data and help with multi-selection between panels
                     const { results, lastCount } = searchResults
                     const newState: Record<string, FileSystemEntry[]> = { ...state }
                     for (const result of results.slice(-1 * lastCount)) {
@@ -681,6 +682,55 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (rootItems.length < 5) {
                     actions.toggleFolderOpen('project-folder/Unfiled', true)
                 }
+            }
+            actions.checkSelectedFolders()
+        },
+        createSavedItem: () => {
+            actions.checkSelectedFolders()
+        },
+        loadSearchResultsSuccess: () => {
+            actions.checkSelectedFolders()
+        },
+        updateSavedItem: () => {
+            actions.checkSelectedFolders()
+        },
+        deleteSavedItem: () => {
+            actions.checkSelectedFolders()
+        },
+        movedItem: () => {
+            actions.checkSelectedFolders()
+        },
+        checkSelectedFolders: () => {
+            // Select items added into folders that are selected
+            const checkedItems = values.checkedItems
+            const toCheck = []
+            let checkingFolder: string | null = null
+            for (const item of values.sortedItems) {
+                if (checkingFolder === null) {
+                    if (item.type === 'folder' && checkedItems[`project-folder/${item.path}`]) {
+                        checkingFolder = item.path
+                    }
+                } else {
+                    if (item.path.startsWith(checkingFolder + '/')) {
+                        if (item.type === 'folder') {
+                            if (!checkedItems[`project-folder/${item.path}`]) {
+                                toCheck.push(`project-folder/${item.path}`)
+                            }
+                        } else {
+                            if (!checkedItems[`project/${item.id}`]) {
+                                toCheck.push(`project/${item.id}`)
+                            }
+                        }
+                    } else {
+                        checkingFolder = null
+                    }
+                }
+            }
+            if (toCheck.length > 0) {
+                actions.setCheckedItems({
+                    ...checkedItems,
+                    ...Object.fromEntries(toCheck.map((item) => [item, true])),
+                })
             }
         },
         expandProjectFolder: ({ path }) => {
