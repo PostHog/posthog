@@ -8,7 +8,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
@@ -16,16 +16,20 @@ import { slackIntegrationLogic } from './slackIntegrationLogic'
 
 const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
-        ? slackChannels.map((x) => ({
-              key: `${x.id}|#${x.name}`,
-              labelComponent: (
-                  <span className="flex items-center">
-                      <span>{x.is_private ? `🔒${x.name}` : `#${x.name}`}</span>
-                      <span>{x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}</span>
-                  </span>
-              ),
-              label: `${x.id} #${x.name}`,
-          }))
+        ? slackChannels.map((x) => {
+              const name = x.name === 'PRIVATE_CHANNEL_WITHOUT_ACCESS' ? 'Private Channel' : x.name
+              const displayLabel = `${x.is_private ? '🔒' : '#'}${name} (${x.id})`
+              return {
+                  key: `${x.id}|#${x.name}`,
+                  labelComponent: (
+                      <span className="flex items-center">
+                          <span>{displayLabel}</span>
+                          <span>{x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}</span>
+                      </span>
+                  ),
+                  label: displayLabel,
+              }
+          })
         : null
 }
 
@@ -45,7 +49,6 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         isPrivateChannelWithoutAccess,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
-    const [currentInputValue, setCurrentInputValue] = useState<string | null>(null)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
@@ -54,7 +57,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         return rawSlackChannelOptions
             ? rawSlackChannelOptions.filter((x) => {
                   const [id, name] = x.key.split('|#')
-                  return name !== 'PRIVATE_CHANNEL_WITHOUT_ACCESS' || id === currentInputValue
+                  return name !== 'PRIVATE_CHANNEL_WITHOUT_ACCESS' || id === value
               })
             : []
     }
@@ -86,7 +89,6 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 onInputChange={(val) => {
                     if (val) {
                         loadSlackChannelById(val)
-                        setCurrentInputValue(val)
                     }
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
