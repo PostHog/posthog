@@ -1,5 +1,6 @@
 import { IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
@@ -56,6 +57,21 @@ export function ProjectTree(): JSX.Element {
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: any, MenuItem: typeof ContextMenuItem | typeof DropdownMenuItem): JSX.Element => (
         <>
+            {item.record?.path ? (
+                <MenuItem
+                    asChild
+                    onClick={(e: any) => {
+                        e.stopPropagation()
+                        if (checkedItems.includes(item.id)) {
+                            setCheckedItems(checkedItems.filter((i: any) => i !== item.id))
+                        } else {
+                            setCheckedItems([...checkedItems, item.id])
+                        }
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Select</ButtonPrimitive>
+                </MenuItem>
+            ) : null}
             {item.record?.type === 'folder' ? (
                 <MenuItem
                     asChild
@@ -87,21 +103,6 @@ export function ProjectTree(): JSX.Element {
                     }}
                 >
                     <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
-                </MenuItem>
-            ) : null}
-            {item.record?.path ? (
-                <MenuItem
-                    asChild
-                    onClick={(e: any) => {
-                        e.stopPropagation()
-                        if (checkedItems.includes(item.id)) {
-                            setCheckedItems(checkedItems.filter((i: any) => i !== item.id))
-                        } else {
-                            setCheckedItems([...checkedItems, item.id])
-                        }
-                    }}
-                >
-                    <ButtonPrimitive menuItem>Select</ButtonPrimitive>
                 </MenuItem>
             ) : null}
             {item.record?.created_at ? (
@@ -144,9 +145,13 @@ export function ProjectTree(): JSX.Element {
         <PanelLayoutPanel
             searchPlaceholder="Search your project"
             panelActions={
-                <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
-                    <IconFolderPlus className="text-tertiary" />
-                </ButtonPrimitive>
+                checkedItems.length > 0 ? (
+                    <LemonTag type="highlight">{checkedItems.length} selected</LemonTag>
+                ) : (
+                    <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
+                        <IconFolderPlus className="text-tertiary" />
+                    </ButtonPrimitive>
+                )
             }
         >
             <LemonTree

@@ -38,6 +38,8 @@ export type TreeDataItem = {
     children?: TreeDataItem[]
     /** Disabled: The reason the item is disabled. */
     disabledReason?: string
+    /** Prevent this item from being selected */
+    disableSelect?: boolean
 
     /** The icon to use for the side action. */
     sideIcon?: React.ReactNode
@@ -249,6 +251,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         handleCheckedChange: (checked) => {
                                                             // Collect all child IDs recursively
                                                             const getAllChildIds = (item: TreeDataItem): string[] => {
+                                                                if (item.disableSelect) {
+                                                                    return []
+                                                                }
                                                                 let ids = [item.id]
                                                                 if (item.children) {
                                                                     item.children.forEach((child) => {

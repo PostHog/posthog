@@ -43,7 +43,7 @@ export function renderTreeNodeDisplayItem({
 
     return (
         <div className="relative group/lemon-tree-icon-group [&_svg]:size-4">
-            {(enableMultiSelection || isChecked) && (
+            {((enableMultiSelection && !item.disableSelect) || isChecked) && (
                 <div
                     className={cn(
                         ICON_CLASSES,

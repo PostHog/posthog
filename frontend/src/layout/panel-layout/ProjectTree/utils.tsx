@@ -91,12 +91,14 @@ export function convertFileSystemEntryToTreeDataItem(
                     id: `${root}-load-more/${item.path}`,
                     name: 'Load more...',
                     icon: <IconPlus />,
+                    disableSelect: true,
                 })
             } else if (folderStates[item.path] === 'loading') {
                 node.children.push({
                     id: `${root}-loading/${item.path}`,
                     name: 'Loading...',
                     icon: <Spinner />,
+                    disableSelect: true,
                 })
             }
             allFolderNodes.push(node)
@@ -129,6 +131,7 @@ export function convertFileSystemEntryToTreeDataItem(
                 name: 'Empty folder',
                 displayName: <em className="text-muted">Empty folder</em>,
                 icon: <IconPlus />,
+                disableSelect: true,
             })
         }
     }
