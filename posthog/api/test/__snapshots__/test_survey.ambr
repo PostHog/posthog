@@ -23,6 +23,23 @@
   GROUP BY survey_id
   '''
 # ---
+# name: TestSurveyStats.test_global_survey_stats
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT event as event_name,
+         count() as total_count,
+         count(DISTINCT person_id) as unique_persons,
+         if(count() > 0, min(timestamp), null) as first_seen,
+         if(count() > 0, max(timestamp), null) as last_seen
+  FROM events
+  WHERE team_id = '149'
+    AND event IN ('survey shown',
+                  'survey dismissed',
+                  'survey sent')
+    AND JSONExtractString(properties, '$survey_id') IN ['018f3499-3d28-0003-b968-ec6b294bc560', '018f3499-3d28-0004-16f7-d63ee3a759af']
+  GROUP BY event
+  '''
+# ---
 # name: TestSurveyStats.test_individual_survey_stats
   '''
   /* user_id:0 request:_snapshot_ */
@@ -32,11 +49,30 @@
          if(count() > 0, min(timestamp), null) as first_seen,
          if(count() > 0, max(timestamp), null) as last_seen
   FROM events
-  WHERE team_id = '152'
+  WHERE team_id = '150'
     AND event IN ('survey shown',
                   'survey dismissed',
                   'survey sent')
-    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0005-6509-9d3daae75bef'
+    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0005-6201-2af50f99ff4d'
+  GROUP BY event
+  '''
+# ---
+# name: TestSurveyStats.test_survey_stats_with_date_filtering
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT event as event_name,
+         count() as total_count,
+         count(DISTINCT person_id) as unique_persons,
+         if(count() > 0, min(timestamp), null) as first_seen,
+         if(count() > 0, max(timestamp), null) as last_seen
+  FROM events
+  WHERE team_id = '151'
+    AND event IN ('survey shown',
+                  'survey dismissed',
+                  'survey sent')
+    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0006-3ca8-9246f9d87e10'
+    AND timestamp >= '2024-05-02 00:00:00'
+    AND timestamp <= '2024-05-02 23:59:59'
   GROUP BY event
   '''
 # ---
