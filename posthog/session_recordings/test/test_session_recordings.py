@@ -1330,7 +1330,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-        assert mock_capture.call_args_list[0] == call(
+        assert mock_capture.call_args_list[1] == call(
             self.user.distinct_id,
             "snapshots_api_called_with_personal_api_key",
             {
@@ -1340,5 +1340,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "session_requested": session_id,
                 # none because it's all mock data
                 "recording_start_time": None,
+                "source": None,
             },
         )
