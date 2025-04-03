@@ -241,21 +241,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         defaultNodeIcon,
                                                         enableMultiSelection,
                                                         handleCheckedChange: (checked) => {
-                                                            // // Collect all child IDs recursively
-                                                            // const getAllChildIds = (item: TreeDataItem): string[] => {
-                                                            //     if (item.disableSelect) {
-                                                            //         return []
-                                                            //     }
-                                                            //     let ids = [item.id]
-                                                            //     if (item.children) {
-                                                            //         item.children.forEach((child) => {
-                                                            //             ids = [...ids, ...getAllChildIds(child)]
-                                                            //         })
-                                                            //     }
-                                                            //     return ids
-                                                            // }
-                                                            //
-                                                            // const idsToUpdate = getAllChildIds(item)
                                                             onItemChecked?.(item.id, checked)
                                                         },
                                                     })}

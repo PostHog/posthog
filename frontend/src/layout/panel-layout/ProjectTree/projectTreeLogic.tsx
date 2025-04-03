@@ -74,7 +74,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
         expandProjectFolder: (path: string) => ({ path }),
         moveCheckedItems: (path: string) => ({ path }),
-        copyCheckedItems: (path: string) => ({ path }),
         checkSelectedFolders: true,
     }),
     loaders(({ actions, values }) => ({
@@ -769,9 +768,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             }
             actions.setCheckedItems(checkedItems)
-        },
-        copyCheckedItems: () => {
-            // TODO
         },
         moveCheckedItems: ({ path }) => {
             const { checkedItems } = values
