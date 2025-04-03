@@ -688,6 +688,26 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "GeoIP Disabled",
             "description": "Whether to skip GeoIP processing for the event.",
         },
+        "$geoip_city_confidence": {
+            "label": "GeoIP detection city confidence",
+            "description": "Confidence level of the city matched to this event's IP address.",
+            "examples": ["0.5"],
+        },
+        "$geoip_country_confidence": {
+            "label": "GeoIP detection country confidence",
+            "description": "Confidence level of the country matched to this event's IP address.",
+            "examples": ["0.5"],
+        },
+        "$geoip_accuracy_radius": {
+            "label": "GeoIP detection accuracy radius",
+            "description": "Accuracy radius of the location matched to this event's IP address (in kilometers).",
+            "examples": ["50"],
+        },
+        "$geoip_subdivision_1_confidence": {
+            "label": "GeoIP detection subdivision 1 confidence",
+            "description": "Confidence level of the first subdivision matched to this event's IP address.",
+            "examples": ["0.5"],
+        },
         "$el_text": {
             "label": "Element Text",
             "description": "The text of the element that was clicked. Only sent with Autocapture events.",
