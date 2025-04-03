@@ -6,13 +6,8 @@ import posthog from 'posthog-js'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
-    chunkMutationSnapshot,
-    deduplicateSnapshots,
-    MUTATION_CHUNK_SIZE,
     parseEncodedSnapshots,
-    patchMetaEventIntoWebData,
     sessionRecordingDataLogic,
-    ViewportResolution,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -26,6 +21,11 @@ import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } f
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
+import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
+import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
+import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
+import { patchMetaEventIntoWebData, ViewportResolution } from './snapshot-processing/patch-meta-event'
+import { clearThrottle } from './snapshot-processing/throttle-capturing'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
@@ -563,7 +563,7 @@ describe('patchMetaEventIntoWebData', () => {
     it('adds meta event before full snapshot when none exists', () => {
         const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
 
         expect(result).toEqual([createMeta(1024, 768), createFullSnapshot()])
     })
@@ -571,7 +571,7 @@ describe('patchMetaEventIntoWebData', () => {
     it('does not add meta event if one already exists before full snapshot', () => {
         const snapshots: RecordingSnapshot[] = [createMeta(800, 600, 'http://test'), createFullSnapshot()]
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
 
         expect(result).toHaveLength(2)
         expect(result[0]).toBe(snapshots[0])
@@ -590,7 +590,7 @@ describe('patchMetaEventIntoWebData', () => {
             createFullSnapshot(),
         ]
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
 
         expect(result).toHaveLength(5)
         expect(result[0].type).toBe(EventType.Meta)
@@ -606,7 +606,7 @@ describe('patchMetaEventIntoWebData', () => {
 
         jest.spyOn(posthog, 'captureException')
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData)
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
 
         expect(posthog.captureException).toHaveBeenCalledWith(
             new Error('No event viewport or meta snapshot found for full snapshot'),
@@ -614,5 +614,22 @@ describe('patchMetaEventIntoWebData', () => {
         )
         expect(result).toHaveLength(1)
         expect(result[0]).toBe(snapshots[0])
+    })
+
+    it('does not logs error twice for the same session', () => {
+        clearThrottle()
+
+        const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
+        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
+
+        jest.spyOn(posthog, 'captureException')
+
+        expect(posthog.captureException).toHaveBeenCalledTimes(0)
+        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '54321')
+        expect(posthog.captureException).toHaveBeenCalledTimes(2)
     })
 })

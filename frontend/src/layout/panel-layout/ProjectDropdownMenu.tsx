@@ -2,8 +2,9 @@ import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@post
 import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { Button } from 'lib/ui/Button/Button'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -25,8 +26,8 @@ import { AvailableFeature, TeamBasicType } from '~/types'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
-        <div className="flex items-center">
-            <span>{team.name}</span>
+        <div className="flex items-center max-w-full">
+            <span className="truncate">{team.name}</span>
             {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
         </div>
     )
@@ -41,25 +42,28 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
     }, [location.pathname, team.id, team.project_id, currentTeam?.project_id])
 
     return (
-        <DropdownMenuItem asChild>
-            <Button.Root menuItem to={relativeOtherProjectPath}>
-                <Button.Label>
-                    <ProjectName team={team} />
-                </Button.Label>
-                <Button.Icon
-                    isTrigger
-                    isTriggerRight
-                    onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        e.nativeEvent.stopImmediatePropagation()
-                        router.actions.push(urls.project(team.id, urls.settings()))
-                    }}
+        <ButtonGroupPrimitive menuItem fullWidth groupVariant="side-action-group">
+            <DropdownMenuItem asChild>
+                <ButtonPrimitive
+                    menuItem
+                    href={relativeOtherProjectPath}
+                    sideActionLeft
+                    tooltip={`Switch to project: ${team.name}`}
+                    tooltipPlacement="right"
                 >
-                    <IconGear />
-                </Button.Icon>
-            </Button.Root>
-        </DropdownMenuItem>
+                    <ProjectName team={team} />
+                </ButtonPrimitive>
+            </DropdownMenuItem>
+            <ButtonPrimitive
+                href={urls.project(team.id, urls.settings('project'))}
+                iconOnly
+                sideActionRight
+                tooltip={`View settings for project: ${team.name}`}
+                tooltipPlacement="right"
+            >
+                <IconGear />
+            </ButtonPrimitive>
+        </ButtonGroupPrimitive>
     )
 }
 
@@ -69,35 +73,63 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { push } = useActions(router)
     const { currentOrganization } = useValues(organizationLogic)
 
     return isAuthenticatedTeam(currentTeam) ? (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button.Root>
-                    <Button.Icon>
-                        <IconFolderOpen className="text-tertiary" />
-                    </Button.Icon>
-                    <Button.Label>Project</Button.Label>
-                    <Button.Icon size="sm">
-                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
-                    </Button.Icon>
-                </Button.Root>
+                <ButtonPrimitive>
+                    <IconFolderOpen className="text-tertiary" />
+                    Project
+                    <IconChevronRight
+                        className={`
+                        size-3 
+                        text-secondary 
+                        rotate-90 
+                        group-data-[state=open]/button-primitive:rotate-270 
+                        transition-transform 
+                        duration-200 
+                        prefers-reduced-motion:transition-none
+                    `}
+                    />
+                </ButtonPrimitive>
             </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="start">
+
+            <DropdownMenuContent
+                loop
+                align="start"
+                className={`
+                min-w-[200px] 
+                max-w-[var(--project-panel-inner-width)] 
+                max-h-[calc(var(--radix-dropdown-menu-content-available-height)-100px)]
+            `}
+            >
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <div className="flex flex-col gap-px">
+                <ScrollableShadows direction="vertical" className="flex flex-col gap-px w-auto" styledScrollbars>
                     <DropdownMenuItem asChild>
-                        <Button.Root menuItem active>
-                            <Button.Label menuItem>
+                        <ButtonGroupPrimitive fullWidth groupVariant="side-action-group">
+                            <ButtonPrimitive
+                                menuItem
+                                active
+                                disabled
+                                sideActionLeft
+                                tooltip={`Current project: ${currentTeam.name}`}
+                                tooltipPlacement="right"
+                            >
                                 <ProjectName team={currentTeam} />
-                            </Button.Label>
-                            <Button.Icon onClick={() => push(urls.settings('project'))} isTrigger isTriggerRight>
+                            </ButtonPrimitive>
+                            <ButtonPrimitive
+                                active
+                                href={urls.project(currentTeam.id, urls.settings('project'))}
+                                iconOnly
+                                sideActionRight
+                                tooltip={`View settings for project: ${currentTeam.name}`}
+                                tooltipPlacement="right"
+                            >
                                 <IconGear className="text-tertiary" />
-                            </Button.Icon>
-                        </Button.Root>
+                            </ButtonPrimitive>
+                        </ButtonGroupPrimitive>
                     </DropdownMenuItem>
 
                     {currentOrganization?.teams &&
@@ -116,15 +148,18 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 })
                             }
                         >
-                            <Button.Root menuItem data-attr="new-project-button">
-                                <Button.Icon>
-                                    <IconPlusSmall className="text-tertiary" />
-                                </Button.Icon>
-                                <Button.Label menuItem>New project</Button.Label>
-                            </Button.Root>
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="new-project-button"
+                                tooltip="Create a new project"
+                                tooltipPlacement="right"
+                            >
+                                <IconPlusSmall className="text-tertiary" />
+                                New project
+                            </ButtonPrimitive>
                         </DropdownMenuItem>
                     )}
-                </div>
+                </ScrollableShadows>
             </DropdownMenuContent>
         </DropdownMenu>
     ) : null

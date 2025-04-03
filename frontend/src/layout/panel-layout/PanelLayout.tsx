@@ -1,7 +1,7 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
@@ -17,12 +17,12 @@ const panelLayoutStyles = cva({
             false: '',
         },
         isLayoutNavbarVisibleForDesktop: {
-            true: 'w-[var(--project-navbar-width)]',
+            true: '',
             false: '',
         },
         isLayoutPanelVisible: {
             true: '',
-            false: 'w-[var(--project-navbar-width)]',
+            false: '',
         },
         isLayoutPanelPinned: {
             true: '',
@@ -31,6 +31,10 @@ const panelLayoutStyles = cva({
         isMobileLayout: {
             true: 'flex absolute top-0 bottom-0 left-0',
             false: 'grid',
+        },
+        isLayoutNavCollapsed: {
+            true: '',
+            false: '',
         },
     },
     compoundVariants: [
@@ -48,13 +52,31 @@ const panelLayoutStyles = cva({
             isMobileLayout: false,
             isLayoutPanelVisible: true,
             isLayoutPanelPinned: true,
+            isLayoutNavCollapsed: false,
             className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
         },
+        {
+            isMobileLayout: false,
+            isLayoutPanelVisible: true,
+            isLayoutPanelPinned: true,
+            isLayoutNavCollapsed: true,
+            className: 'w-[calc(var(--project-navbar-width-collapsed)+var(--project-panel-width))]',
+        },
+        {
+            isMobileLayout: false,
+            isLayoutPanelVisible: true,
+            isLayoutPanelPinned: false,
+            isLayoutNavCollapsed: true,
+            className: 'w-[var(--project-navbar-width-collapsed)]',
+        },
+        {
+            isMobileLayout: false,
+            isLayoutPanelVisible: true,
+            isLayoutPanelPinned: false,
+            isLayoutNavCollapsed: false,
+            className: 'w-[var(--project-navbar-width)]',
+        },
     ],
-    defaultVariants: {
-        isLayoutPanelPinned: false,
-        isLayoutPanelVisible: false,
-    },
 })
 
 export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement> }): JSX.Element {
@@ -64,6 +86,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutNavbarVisibleForMobile,
         isLayoutNavbarVisibleForDesktop,
         activePanelIdentifier,
+        isLayoutNavCollapsed,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef } =
@@ -72,6 +95,8 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
     const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
     useMountedLogic(projectTreeLogic)
 
+    const containerRef = useRef<HTMLDivElement | null>(null)
+
     useEffect(() => {
         if (mainRef.current) {
             setMainContentRef(mainRef)
@@ -79,7 +104,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
     }, [mainRef, setMainContentRef])
 
     return (
-        <div className="relative">
+        <div className="relative" ref={containerRef}>
             <div
                 id="project-panel-layout"
                 className={cn(
@@ -89,6 +114,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         isLayoutPanelPinned,
                         isLayoutPanelVisible,
                         isMobileLayout,
+                        isLayoutNavCollapsed,
                     })
                 )}
             >

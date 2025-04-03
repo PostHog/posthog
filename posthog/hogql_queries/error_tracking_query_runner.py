@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 import re
 import structlog
 from typing import Any
@@ -9,24 +11,21 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLFilters,
     ErrorTrackingQuery,
-    ErrorTrackingSparklineConfig,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
-    Interval,
+    DateRange,
 )
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
 
-INTERVAL_FUNCTIONS = {
-    "minute": "toStartOfMinute",
-    "hour": "toStartOfHour",
-    "day": "toStartOfDay",
-    "week": "toStartOfWeek",
-    "month": "toStartOfMonth",
-}
+
+@dataclass
+class VolumeOptions:
+    date_range: DateRange
+    resolution: int
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -34,23 +33,25 @@ class ErrorTrackingQueryRunner(QueryRunner):
     response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
-    sparklineConfigs: dict[str, ErrorTrackingSparklineConfig]
+    sparklineConfigs: dict[str, VolumeOptions]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )
-
+        dayRange = DateRange(
+            date_from=(datetime.utcnow() - timedelta(hours=24)).isoformat(),
+            date_to=datetime.utcnow().isoformat(),
+            explicitDate=True,
+        )
         self.sparklineConfigs = {
-            "volumeDay": ErrorTrackingSparklineConfig(interval=Interval.HOUR, value=24),
-            "volumeMonth": ErrorTrackingSparklineConfig(interval=Interval.DAY, value=31),
+            "volumeDay": VolumeOptions(date_range=dayRange, resolution=self.query.volumeResolution),
+            "volumeRange": VolumeOptions(date_range=self.query.dateRange, resolution=self.query.volumeResolution),
         }
-
-        if self.query.customVolume:
-            self.sparklineConfigs["customVolume"] = self.query.customVolume
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -109,15 +110,132 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return exprs
 
-    def select_sparkline_array(self, alias: str, config: ErrorTrackingSparklineConfig):
-        toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
-        intervalStr = config.interval.value
-        isHotIndex = f"dateDiff('{intervalStr}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now())) = x"
-        isLiveIndexFn = f"if({isHotIndex}, 1, 0)"
+    def select_sparkline_array(self, alias: str, opts: VolumeOptions):
+        """
+        This function partitions a given time range into segments (or "buckets") based on the specified resolution and then computes the number of events occurring in each segment.
+        The resolution determines the total number of segments in the time range.
+        Accordingly, the duration of each segment is dictated by the total time range and the resolution.
 
-        constructed = f"arrayMap(x -> {isLiveIndexFn}, range({config.value}))"
-        summed = f"reverse(sumForEach({constructed}))"
-        return parse_expr(summed)
+        The equivalent SQL would look like:
+            WITH
+                toDateTime('2025-03-01 00:00:00') AS date_from,
+                toDateTime('2025-03-20 00:00:00') AS date_to,
+                10 AS resolution,
+            SELECT
+                sumForEach(
+                    arrayMap(
+                        bin ->
+                            IF(
+                                timestamp > bin AND dateDiff('seconds', bin, timestamp) < dateDiff('seconds', date_from, date_to) / resolution,
+                                1,
+                                0
+                            ), ## If we are inside the right bucket, return 1, otherwise 0
+                        arrayMap(
+                            i -> dateAdd(
+                                start_time,
+                                toIntervalSecond(i * dateDiff('seconds', date_from, date_to) / resolution)
+                            ),
+                            range(0, resolution)
+                        ) ## Generate an array of len resolution containing the start times of each segment
+                    )
+                ) AS counts
+        """
+        start_time = ast.Call(
+            name="toDateTime",
+            args=[
+                ast.Constant(value=opts.date_range.date_from),
+            ],
+        )
+        end_time = ast.Call(
+            name="toDateTime",
+            args=[
+                ast.Constant(value=opts.date_range.date_to),
+            ],
+        )
+        total_size = ast.Call(
+            name="dateDiff",
+            args=[
+                ast.Constant(value="seconds"),
+                start_time,
+                end_time,
+            ],
+        )
+        bin_size = ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Div,
+            left=total_size,
+            right=ast.Constant(value=opts.resolution),
+        )
+        bin_timestamps = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["i"],
+                    expr=ast.Call(
+                        name="dateAdd",
+                        args=[
+                            start_time,
+                            ast.Call(
+                                name="toIntervalSecond",
+                                args=[
+                                    ast.ArithmeticOperation(
+                                        op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["i"]), right=bin_size
+                                    )
+                                ],
+                            ),
+                        ],
+                    ),
+                ),
+                ast.Call(
+                    name="range",
+                    args=[
+                        ast.Constant(value=0),
+                        ast.Constant(value=opts.resolution),
+                    ],
+                ),
+            ],
+        )
+        hot_indices = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["bin"],
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.And(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Gt,
+                                        left=ast.Field(chain=["timestamp"]),
+                                        right=ast.Field(chain=["bin"]),
+                                    ),
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.LtEq,
+                                        left=ast.Call(
+                                            name="dateDiff",
+                                            args=[
+                                                ast.Constant(value="seconds"),
+                                                ast.Field(chain=["bin"]),
+                                                ast.Field(chain=["timestamp"]),
+                                            ],
+                                        ),
+                                        right=bin_size,
+                                    ),
+                                ]
+                            ),
+                            ast.Constant(value=1),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                bin_timestamps,
+            ],
+        )
+        summed = ast.Call(
+            name="sumForEach",
+            args=[hot_indices],
+        )
+        return summed
 
     def where(self):
         exprs: list[ast.Expr] = [
@@ -132,6 +250,30 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
+
+        if self.query.dateRange.date_from:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(
+                        name="toDateTime",
+                        args=[ast.Constant(value=self.query.dateRange.date_from)],
+                    ),
+                )
+            )
+
+        if self.query.dateRange.date_to:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(
+                        name="toDateTime",
+                        args=[ast.Constant(value=self.query.dateRange.date_to)],
+                    ),
+                )
+            )
 
         if self.query.issueId:
             exprs.append(
@@ -201,7 +343,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
                 filters=HogQLFilters(
-                    dateRange=self.query.dateRange,
                     filterTestAccounts=self.query.filterTestAccounts,
                     properties=self.properties,
                 ),
@@ -222,7 +363,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
     def results(self, columns: list[str], query_results: list):
         results = []
         mapped_results = [dict(zip(columns, value)) for value in query_results]
-
         issue_ids = [result["id"] for result in mapped_results]
 
         with self.timings.measure("issue_fetching_execute"):
@@ -236,10 +376,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     results.append(
                         issue
                         | {
-                            ## First seen timestamp is bounded by date range when querying for the list (comes from clickhouse) but it is global when querying for a single issue
-                            "first_seen": (
-                                issue.get("first_seen") if self.query.issueId else result_dict.get("first_seen")
-                            ),
                             "last_seen": result_dict.get("last_seen"),
                             "earliest": result_dict.get("earliest") if self.query.issueId else None,
                             "aggregations": self.extract_aggregations(result_dict),
@@ -249,8 +385,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return results
 
     def extract_aggregations(self, result):
-        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay", "volumeMonth")}
-        aggregations["customVolume"] = result.get("customVolume") if "customVolume" in result else None
+        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay", "volumeRange")}
         return aggregations
 
     @property
