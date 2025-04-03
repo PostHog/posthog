@@ -1,8 +1,4 @@
-import openai
-
-from prometheus_client import Histogram
-
-from ee.session_recordings.ai.output_data import load_session_summary_from_llm_content
+from ee.session_recordings.ai.llm import get_llm_summary
 from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData, shorten_url
 from ee.session_recordings.session_summary.utils import (
     load_session_metadata_from_json,
@@ -12,37 +8,6 @@ from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from django.template.loader import get_template
-
-from posthog.utils import get_instance_region
-
-
-TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
-    "posthog_session_summary_tokens_in_prompt_histogram",
-    "histogram of the number of tokens in the prompt used to generate a session summary",
-    buckets=[
-        0,
-        10,
-        50,
-        100,
-        500,
-        1000,
-        2000,
-        3000,
-        4000,
-        5000,
-        6000,
-        7000,
-        8000,
-        10000,
-        20000,
-        30000,
-        40000,
-        50000,
-        100000,
-        128000,
-        float("inf"),
-    ],
-)
 
 
 def _get_session_metadata(session_id: str, team: Team) -> dict:
@@ -118,72 +83,8 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         with open("wakawaka.txt", "w") as f:
             f.write(rendered_summary_template)
 
-    instance_region = get_instance_region() or "HOBBY"
-
     with timer("openai_completion"):
-        # assistant_start_text = "```yaml\nsummary: "
-        result = openai.chat.completions.create(
-            model="gpt-4o-mini",  # allows 128k tokens
-            temperature=0.5,
-            messages=[
-                {
-                    "role": "user",
-                    "content": rendered_summary_template,
-                },
-                # TODO Check why the pre-defining the response with assistant text doesn't work properly
-                # (LLM still starts with ```yaml, while it should continue the assistant text)
-                # {
-                #     "role": "assistant",
-                #     "content": assistant_start_text,
-                # },
-                # TODO Integrate good parts from the parts below into the new prompt
-                #     {
-                #         "role": "system",
-                #         "content": """
-                # Session Replay is PostHog's tool to record visits to web sites and apps.
-                # We also gather events that occur like mouse clicks and key presses.
-                # You write two or three sentence concise and simple summaries of those sessions based on a prompt.
-                # You are more likely to mention errors or things that look like business success such as checkout events.
-                # You always try to make the summary actionable. E.g. mentioning what someone clicked on, or summarizing errors they experienced.
-                # You don't help with other knowledge.""",
-                #     },
-                #     {
-                #         "role": "user",
-                #         "content": f"""the session metadata I have is {session_metadata_dict}.
-                # it gives an overview of activity and duration""",
-                #     },
-                #     {
-                #         "role": "user",
-                #         "content": f"""
-                # URLs associated with the events can be found in this mapping {prompt_data.url_mapping}. You never refer to URLs by their placeholder. Always refer to the URL with the simplest version e.g. posthog.com or posthog.com/replay
-                # """,
-                #     },
-                #     {
-                #         "role": "user",
-                #         "content": f"""the session events I have are {prompt_data.results}.
-                # with columns {prompt_data.columns}.
-                # they give an idea of what happened and when,
-                # if present the elements_chain_texts, elements_chain_elements, and elements_chain_href extracted from the html can aid in understanding what a user interacted with
-                # but should not be directly used in your response""",
-                #     },
-                #     {
-                #         "role": "user",
-                #         "content": """
-                # generate a two or three sentence summary of the session.
-                # only summarize, don't offer advice.
-                # use as concise and simple language as is possible.
-                # Dont' refer to the session length unless it is notable for some reason.
-                # assume a reading age of around 12 years old.
-                # generate no text other than the summary.""",
-                #     },
-            ],
-            user=f"{instance_region}/{user.pk}",  # allows 8k tokens
-        )
-
-        usage = result.usage.prompt_tokens if result.usage else None
-        if usage:
-            TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
-    session_summary = load_session_summary_from_llm_content(result, recording.session_id)
+        session_summary = get_llm_summary(rendered_summary_template, user, recording.session_id)
     # TODO Make the output streamable (the main reason behing using YAML
     # to keep it partially parsable to avoid waiting for the LLM to finish)
     return {"content": session_summary.data, "timings": timer.get_all_timings()}
