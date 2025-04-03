@@ -36,7 +36,7 @@
     AND event IN ('survey shown',
                   'survey dismissed',
                   'survey sent')
-    AND JSONExtractString(properties, '$survey_id') IN ['018f3499-3d28-0003-b79e-ab5d76f6fbab', '018f3499-3d28-0004-002f-cce123be91c0']
+    AND JSONExtractString(properties, '$survey_id') IN ['018f3499-3d28-0003-90a3-2eadb8cb2b0a', '018f3499-3d28-0004-8f7b-1e40fb300a5e']
   GROUP BY event
   '''
 # ---
@@ -53,7 +53,7 @@
     AND event IN ('survey shown',
                   'survey dismissed',
                   'survey sent')
-    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0005-2028-0501009fdb1e'
+    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0005-86aa-96ba53fdb10b'
   GROUP BY event
   '''
 # ---
@@ -70,7 +70,7 @@
     AND event IN ('survey shown',
                   'survey dismissed',
                   'survey sent')
-    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0006-b394-fa0d4119dbf3'
+    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0006-479c-e6111d254ef4'
     AND timestamp >= '2024-05-02 00:00:00'
     AND timestamp <= '2024-05-02 23:59:59'
   GROUP BY event
