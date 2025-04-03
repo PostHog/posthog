@@ -8,7 +8,7 @@ module.exports = {
             recommended: true,
         },
         messages: {
-            noToBeDefined: 'Do not use .toBeDefined() in tests, use .toBeTruthy() instead.',
+            noToBeDefined: 'Do not use .toBeDefined() in tests, use .toBeTruthy() or .not.toBeUndefined() instead.',
         },
         schema: [],
     },
