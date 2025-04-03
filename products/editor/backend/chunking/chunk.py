@@ -39,16 +39,27 @@ class TreeWalker:
                 return
             self.visited.add(node)
 
+            start_line_number = node.start_point.row
+            end_line_number = node.end_point.row
+
             pop_path = False
             if node.type in self.CAPTURE_NODES:
-                self.path.append((node.start_point.row, node))
+                self.path.append((start_line_number, node))
                 pop_path = True
-
-            if node.start_point.row in self.lookup_lines:
-                self.output[node.start_point.row] = self._format_path(self.path, node.start_point.row)
 
             for child in node.children:
                 dfs(child)
+
+            if self.path:
+                for lookup_line in self.lookup_lines:
+                    if (
+                        # The deepest win
+                        lookup_line not in self.output
+                        # Shouldn't capture the left boundary as the chunk starts there
+                        and start_line_number < lookup_line
+                        and lookup_line <= end_line_number
+                    ):
+                        self.output[lookup_line] = self._format_path(self.path, lookup_line)
 
             if pop_path:
                 self.path.pop()
@@ -137,20 +148,24 @@ def chunk_code(lang: ProgrammingLanguage, content: str, chunk_size: int = 300, c
 
     for chunk in chunks:
         pos = content.find(chunk)
-        line_number = content[:pos].count("\n") + 1
+        offset = content[:pos]
+        line_number = offset.count("\n")
+        line_end = line_number + chunk.count("\n")
+
         chunks_with_positions.append(
             {
                 "line_start": line_number,
-                "line_end": line_number + chunk.count("\n"),
+                "line_end": line_end,
                 "context": "",
                 "content": chunk,
             }
         )
         capture_context_for.add(line_number)
 
-    context = TreeWalker(lang, content, capture_context_for).traverse()
+    chunk_context = TreeWalker(lang, content, capture_context_for).traverse()
 
     for chunk in chunks_with_positions:
-        chunk["context"] = context[chunk["line_start"]]
+        if chunk["line_start"] in chunk_context:
+            chunk["context"] = chunk_context[chunk["line_start"]]
 
     return chunks_with_positions
