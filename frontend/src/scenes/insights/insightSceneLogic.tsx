@@ -12,12 +12,9 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import {
@@ -33,7 +30,6 @@ import {
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
-import { summarizeInsight } from './summarizeInsight'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
@@ -169,24 +165,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
-            (s) => [
-                s.insightLogicRef,
-                s.insight,
-                s.dashboardId,
-                s.dashboardName,
-                groupsModel.selectors.aggregationLabel,
-                cohortsModel.selectors.cohortsById,
-                mathsLogic.selectors.mathDefinitions,
-            ],
-            (
-                insightLogicRef,
-                insight,
-                dashboardId,
-                dashboardName,
-                aggregationLabel,
-                cohortsById,
-                mathDefinitions
-            ): Breadcrumb[] => {
+            (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName],
+            (insightLogicRef, insight, dashboardId, dashboardName): Breadcrumb[] => {
                 return [
                     ...(dashboardId !== null && dashboardName
                         ? [
@@ -210,18 +190,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
-                        name:
-                            insight?.name ||
-                            summarizeInsight(insight?.query, {
-                                aggregationLabel,
-                                cohortsById,
-                                mathDefinitions,
-                            }),
+                        name: insightLogicRef?.logic.values.insightName,
                         onRename: insightLogicRef?.logic.values.canEditInsight
                             ? async (name: string) => {
                                   await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
                               }
                             : undefined,
+                        forceEditMode: insightLogicRef?.logic.values.canEditInsight,
                     },
                 ]
             },
