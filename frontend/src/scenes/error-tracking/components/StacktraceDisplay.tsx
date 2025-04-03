@@ -9,7 +9,7 @@ import { match, P } from 'ts-pattern'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { LibIcon } from './LibIcon'
 
-export function StacktraceDisplay(): JSX.Element {
+export function StacktraceDisplay({ className }: { className?: string }): JSX.Element {
     const {
         exceptionList,
         issue,
@@ -42,7 +42,7 @@ export function StacktraceDisplay(): JSX.Element {
         [properties]
     )
     return (
-        <div>
+        <div className={className}>
             {match([propertiesLoading, hasStacktrace])
                 .with([true, P.any], () => (
                     <div className="space-y-2">

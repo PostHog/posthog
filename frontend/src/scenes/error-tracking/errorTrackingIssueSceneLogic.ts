@@ -65,6 +65,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setStacktraceExpanded: (stacktraceExpanded: boolean) => ({ stacktraceExpanded }),
+        setShowContext: (showContext: boolean) => ({ showContext }),
     }),
 
     defaults({
@@ -91,6 +92,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             {
                 setStacktraceExpanded: (_, { stacktraceExpanded }: { stacktraceExpanded: boolean }) =>
                     stacktraceExpanded,
+            },
+        ],
+        showContext: [
+            true,
+            { persist: true },
+            {
+                setShowContext: (_, { showContext }: { showContext: boolean }) => showContext,
             },
         ],
     }),
@@ -146,7 +154,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
         exceptionAttributes: [
             (s) => [s.properties],
-            (properties: Record<string, string>) => (properties ? getExceptionAttributes(properties) : {}),
+            (properties: Record<string, string>) => (properties ? getExceptionAttributes(properties) : null),
         ],
         exceptionList: [
             (s) => [s.exceptionAttributes, s.frameOrderReversed],

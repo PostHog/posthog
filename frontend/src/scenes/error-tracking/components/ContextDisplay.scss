@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.ContextDisplay--table {
+    width: 100%;
+    border-spacing: 0;
+    border-collapse: separate;
+    border: 1px solid black;
+    border-radius: var(--radius);
+}

@@ -221,7 +221,7 @@ export function datetimeStringToDayJs(date: string | null): Dayjs | null {
     return componentsToDayJs(dateComponents)
 }
 
-export function cancelEvent(event: React.MouseEvent<HTMLDivElement>): void {
+export function cancelEvent(event: React.MouseEvent<HTMLDivElement> | Event): void {
     event.preventDefault()
     event.stopPropagation()
 }

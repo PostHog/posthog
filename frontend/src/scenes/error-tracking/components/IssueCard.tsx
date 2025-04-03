@@ -4,10 +4,12 @@ import { useActions, useValues } from 'kea'
 import { FingerprintComponents } from 'lib/components/Errors/ErrorDisplay'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
+import { useState } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { Collapsible } from './Collapsible'
+import { ContextDisplay } from './ContextDisplay'
 import { StacktraceDisplay } from './StacktraceDisplay'
 import { TimeBoundary } from './TimeBoundary'
 
@@ -23,17 +25,27 @@ export function IssueCard(): JSX.Element {
         stacktraceExpanded,
     } = useValues(errorTrackingIssueSceneLogic)
     const { setStacktraceExpanded } = useActions(errorTrackingIssueSceneLogic)
+    const [showMenuVisible, setShowMenuVisible] = useState(false)
     return (
         <LemonCard
             hoverEffect={false}
             className="p-0 group cursor-pointer p-2 px-3 relative"
-            onClick={() => setStacktraceExpanded(!stacktraceExpanded)}
+            onClick={() => {
+                if (!showMenuVisible) {
+                    setStacktraceExpanded(!stacktraceExpanded)
+                }
+            }}
         >
-            <Collapsible isExpanded={stacktraceExpanded} className="pb-2" minHeight="calc(var(--spacing) * 13)">
-                <StacktraceDisplay />
+            <Collapsible
+                isExpanded={stacktraceExpanded}
+                className="pb-2 max-h-[700px] overflow-y-auto flex"
+                minHeight="calc(var(--spacing) * 13)"
+            >
+                <StacktraceDisplay className="flex-grow" />
+                <ContextDisplay />
             </Collapsible>
             <div className="absolute top-2 right-3">
-                <ShowDropdownMenu />
+                <ShowDropdownMenu visible={showMenuVisible} setVisible={setShowMenuVisible} />
             </div>
             <div className="flex justify-between items-center">
                 <StacktraceExpander />
@@ -73,14 +85,27 @@ export function IssueCard(): JSX.Element {
     )
 }
 
-function ShowDropdownMenu(): JSX.Element {
+function ShowDropdownMenu({
+    visible,
+    setVisible,
+}: {
+    visible: boolean
+    setVisible: (value: boolean) => void
+}): JSX.Element {
     return (
-        <LemonDropdown overlay={<ShowPopoverContent />} placement="bottom-end" closeOnClickInside={false}>
+        <LemonDropdown
+            overlay={<ShowPopoverContent />}
+            placement="bottom-end"
+            closeOnClickInside={false}
+            visible={visible}
+            onClickOutside={() => setVisible(false)}
+        >
             <LemonButton
                 size="xsmall"
                 onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
+                    setVisible(!visible)
                 }}
                 sideIcon={null}
             >
@@ -91,9 +116,10 @@ function ShowDropdownMenu(): JSX.Element {
 }
 
 function ShowPopoverContent(): JSX.Element {
-    const { showAllFrames, hasNonInAppFrames, frameOrderReversed, fingerprintRecords, showFingerprint } =
+    const { showAllFrames, showContext, hasNonInAppFrames, frameOrderReversed, fingerprintRecords, showFingerprint } =
         useValues(errorTrackingIssueSceneLogic)
-    const { setShowAllFrames, setFrameOrderReversed, setShowFingerprint } = useActions(errorTrackingIssueSceneLogic)
+    const { setShowAllFrames, setShowContext, setFrameOrderReversed, setShowFingerprint } =
+        useActions(errorTrackingIssueSceneLogic)
     function renderSwitch(
         label: string,
         value: boolean,
@@ -114,6 +140,7 @@ function ShowPopoverContent(): JSX.Element {
     return (
         <div className="p-1 flex flex-col gap-2">
             {renderSwitch('All frames', showAllFrames, setShowAllFrames, !hasNonInAppFrames)}
+            {renderSwitch('Context', showContext, setShowContext, false)}
             {renderSwitch('Fingerprint', showFingerprint, setShowFingerprint, fingerprintRecords == null)}
             {renderSwitch('Reverse order', frameOrderReversed, setFrameOrderReversed)}
         </div>
@@ -136,20 +163,16 @@ function StacktraceExpander(): JSX.Element {
                         No stacktrace available
                     </>
                 ))
-                .with([false, true], () => {
-                    return (
-                        <>
-                            <span className="text-xs">
-                                {stacktraceExpanded ? 'Hide stacktrace' : 'Show stacktrace'}
-                            </span>
-                            <IconChevronDown
-                                className={cn('transition-transform duration-300', {
-                                    'rotate-180': stacktraceExpanded,
-                                })}
-                            />
-                        </>
-                    )
-                })
+                .with([false, true], () => (
+                    <>
+                        <span className="text-xs">{stacktraceExpanded ? 'Hide stacktrace' : 'Show stacktrace'}</span>
+                        <IconChevronDown
+                            className={cn('transition-transform duration-300', {
+                                'rotate-180': stacktraceExpanded,
+                            })}
+                        />
+                    </>
+                ))
                 .exhaustive()}
         </span>
     )
