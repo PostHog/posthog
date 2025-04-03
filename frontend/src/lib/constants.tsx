@@ -182,7 +182,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
-    HOG_FUNCTIONS_LINKED: 'hog-functions-linked', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
     ERROR_TRACKING: 'error-tracking', // owner: #team-error-tracking
@@ -203,13 +202,12 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
-    MESSAGING: 'messaging', // owner @haven #team-messaging
+    MESSAGING: 'messaging-product', // owner @haven #team-messaging
     MESSAGING_AUTOMATION: 'messaging-automation', // owner @haven #team-messaging
     MESSAGING_LIBRARY: 'messaging-library', // owner @haven #team-messaging
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
-    FEATURE_MANAGEMENT_UI: 'feature-management-ui', // owner: @haven #team-feature-flags
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
     METALYTICS: 'metalytics', // owner: @surbhi
     REMOTE_CONFIG: 'remote-config', // owner: @benjackwhite
@@ -219,8 +217,6 @@ export const FEATURE_FLAGS = {
     HOG_TRANSFORMATIONS_WITH_FILTERS: 'hog-transformations-with-filters', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
-    SUPPORT_SIDEBAR_MAX: 'support-sidebar-max', // owner: @steven #team-max
-    INKEEP_MAX_SUPPORT_SIDEBAR: 'inkeep-max-support-sidebar', // owner: @steven #team-max
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_STATS_V2: 'experiment-stats-v2', // owner: @danielbachhuber #team-experiments
     BILLING_USAGE_DASHBOARD: 'billing-usage-dashboard', // owner: @pato
@@ -257,6 +253,8 @@ export const FEATURE_FLAGS = {
     RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-cdp
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS: 'web-analytics-data-warehouse-revenue-settings', // owner: @rafaeelaudibert #team-web-analytics
+    SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
+    B2B_ANALYTICS: 'b2b-analytics', // owner: @danielbachhuber #team-crm
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -338,6 +336,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
 
 export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '0194a763-9a13-0000-8088-32b52acf7156'
+export const SESSION_RECORDING_OPT_OUT_SURVEY_ID_2 = '0195ec93-5f91-0000-15fa-55aaf5e0c562'
 
 export const TAILWIND_BREAKPOINTS = {
     sm: 526,

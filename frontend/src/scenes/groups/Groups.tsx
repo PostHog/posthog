@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { Query } from '~/queries/Query/Query'
+import { GroupTypeIndex } from '~/types'
 
 import { groupsListLogic } from './groupsListLogic'
-
-export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
+import { groupsSceneLogic } from './groupsSceneLogic'
+export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
+    const { groupTypeName } = useValues(groupsSceneLogic)
     const { query } = useValues(groupsListLogic({ groupTypeIndex }))
     const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
@@ -34,8 +37,23 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
             context={{
                 refresh: 'blocking',
                 emptyStateHeading: 'No groups found',
+                columns: {
+                    group_name: {
+                        title: groupTypeName,
+                    },
+                },
             }}
             dataAttr="groups-table"
         />
     )
+}
+
+export function GroupsScene(): JSX.Element {
+    const { groupTypeIndex } = useValues(groupsSceneLogic)
+    return <Groups groupTypeIndex={groupTypeIndex as GroupTypeIndex} />
+}
+
+export const scene: SceneExport = {
+    component: GroupsScene,
+    logic: groupsSceneLogic,
 }

@@ -537,7 +537,8 @@ test('capture bad team', async () => {
             } as any as PluginEvent,
             1337,
             now,
-            new UUIDT().toString()
+            new UUIDT().toString(),
+            false
         )
     ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
 })
@@ -644,7 +645,7 @@ test('anonymized ip capture', async () => {
     )
 
     const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$ip']).not.toBeDefined()
+    expect(event.properties['$ip']).not.toBeTruthy()
 })
 
 test('merge_dangerously', async () => {
@@ -1661,7 +1662,7 @@ describe('validates eventUuid', () => {
         const runner = new EventPipelineRunner(hub, pluginEvent)
         const result = await runner.runEventPipeline(pluginEvent)
 
-        expect(result.error).toBeDefined()
+        expect(result.error).toBeTruthy()
         expect(result.error).toEqual('Not a valid UUID: "i_am_not_a_uuid"')
     })
     test('null value in eventUUID returns an error', async () => {
@@ -1680,7 +1681,7 @@ describe('validates eventUuid', () => {
         const runner = new EventPipelineRunner(hub, pluginEvent)
         const result = await runner.runEventPipeline(pluginEvent)
 
-        expect(result.error).toBeDefined()
+        expect(result.error).toBeTruthy()
         expect(result.error).toEqual('Not a valid UUID: "null"')
     })
 })

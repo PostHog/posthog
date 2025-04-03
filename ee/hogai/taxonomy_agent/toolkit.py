@@ -12,9 +12,9 @@ from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Action, Team
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.models.team.team import Team
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     CachedActorsPropertyTaxonomyQueryResponse,
@@ -292,7 +292,7 @@ class TaxonomyAgentToolkit(ABC):
             if entity_definition := mapping.get(entity, {}).get(prop_name):
                 if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
                     continue
-                description = entity_definition.get("description")
+                description = entity_definition.get("description_llm") or entity_definition.get("description")
             enriched_props.append((prop_name, prop_type, description))
         return enriched_props
 
@@ -350,7 +350,14 @@ class TaxonomyAgentToolkit(ABC):
         """
         Retrieve properties for an event.
         """
-        response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
+        try:
+            response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
+        except Action.DoesNotExist:
+            project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
+            if not project_actions:
+                return "No actions exist in the project."
+            return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
+
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return "Properties have not been found."
         if not response.results:

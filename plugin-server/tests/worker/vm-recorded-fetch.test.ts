@@ -191,7 +191,7 @@ describe('VM with recorded fetch', () => {
         expect(recordedCalls[0].request.url).toBe('https://example.com/api/error')
         expect(recordedCalls[0].response.status).toBe(0)
         expect(recordedCalls[0].response.statusText).toBe('Network error')
-        expect(recordedCalls[0].error).toBeDefined()
+        expect(recordedCalls[0].error).toBeTruthy()
         expect(recordedCalls[0].error!.message).toBe('Network error')
     })
 
@@ -206,7 +206,7 @@ describe('VM with recorded fetch', () => {
                 // First, fetch user data
                 const userResponse = await fetch('https://example.com/api/users/' + event.distinct_id)
                 const userData = await userResponse.json()
-                
+
                 // Then use the user data to make a second request
                 const analyticsResponse = await fetch('https://example.com/api/analytics', {
                     method: 'POST',
@@ -220,12 +220,12 @@ describe('VM with recorded fetch', () => {
                         timestamp: new Date().toISOString()
                     })
                 })
-                
+
                 // Add the user data to the event properties
                 event.properties.user_id = userData.id
                 event.properties.user_name = userData.name
                 event.properties.user_email = userData.email
-                
+
                 return event
             }
         `
@@ -285,7 +285,7 @@ describe('VM with recorded fetch', () => {
                 await fetch('https://example.com/api/direct-json', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: { 
+                    body: {
                         eventName: event.event,
                         properties: event.properties,
                         timestamp: new Date().toISOString()

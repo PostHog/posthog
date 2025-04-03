@@ -3435,6 +3435,7 @@ export interface GroupType {
     name_singular?: string | null
     name_plural?: string | null
     detail_dashboard?: number | null
+    default_columns?: string[]
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -3879,6 +3880,7 @@ export type IntegrationKind =
     | 'linkedin-ads'
     | 'snapchat'
     | 'intercom'
+    | 'email'
 
 export interface IntegrationType {
     id: number
@@ -5137,5 +5139,20 @@ export interface ProductManifest {
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
-    treeItems?: FileSystemImport[]
+    treeItemsNew?: FileSystemImport[]
+    treeItemsExplore?: FileSystemImport[]
+}
+
+export interface ProjectTreeRef {
+    /**
+     * Type of file system object.
+     * Use "/" as a separator to add an internal type, e.g. "hog/site_destination".
+     * Search with "hog/" to match all internal types.
+     */
+    type: string
+    /**
+     * The ref of the file system object.
+     * Usually the "id" or "short_id" of the database object.
+     */
+    ref: string
 }

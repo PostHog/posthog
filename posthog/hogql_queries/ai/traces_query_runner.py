@@ -204,7 +204,7 @@ class TracesQueryRunner(QueryRunner):
                 if({return_full_trace}, generations.events, arrayFilter(x -> x.2 IN ('$ai_metric', '$ai_feedback'), generations.events)) as events,
                 traces.input_state AS input_state,
                 traces.output_state AS output_state,
-                traces.trace_name AS trace_name,
+                ifNull(traces.trace_name, generations.span_name) AS trace_name,
                 generations.filter_match OR traces.filter_match AS filter_match
             FROM (
                 SELECT
@@ -220,6 +220,7 @@ class TracesQueryRunner(QueryRunner):
                         properties.$ai_latency,
                         0
                     ))), 2) as total_latency,
+                    argMin(properties.$ai_span_name, timestamp) as span_name,
                     sum(toFloat(properties.$ai_input_tokens)) as input_tokens,
                     sum(toFloat(properties.$ai_output_tokens)) as output_tokens,
                     round(sum(toFloat(properties.$ai_input_cost_usd)), 4) as input_cost,

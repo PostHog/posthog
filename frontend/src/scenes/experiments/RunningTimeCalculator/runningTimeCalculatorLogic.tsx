@@ -35,19 +35,39 @@ export enum ConversionRateInputType {
 }
 
 const getKindField = (metric: ExperimentMetric): NodeKind => {
-    return metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig
-        ? NodeKind.EventsNode
-        : metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig
-        ? NodeKind.ActionsNode
-        : NodeKind.DataWarehouseNode
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        return NodeKind.FunnelsQuery
+    }
+
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        const { kind } = metric.source
+        // For most sources, we can return the kind directly
+        if ([NodeKind.EventsNode, NodeKind.ActionsNode, NodeKind.ExperimentDataWarehouseNode].includes(kind)) {
+            return kind
+        }
+    }
+
+    return NodeKind.EventsNode
 }
 
-const getEventField = (metric: ExperimentMetric): string | number => {
-    return metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig
-        ? metric.metric_config.event
-        : metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig
-        ? metric.metric_config.action
-        : metric.metric_config.table_name
+const getEventField = (metric: ExperimentMetric): string | number | null | undefined => {
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        const { source } = metric
+        return source.kind === NodeKind.ExperimentDataWarehouseNode
+            ? source.table_name
+            : source.kind === NodeKind.EventsNode
+            ? source.event
+            : source.kind === NodeKind.ActionsNode
+            ? source.id
+            : null
+    }
+
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        const step = metric.series[0]
+        return step.kind === NodeKind.EventsNode ? step.event : step.kind === NodeKind.ActionsNode ? step.id : null
+    }
+
+    return null
 }
 
 const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
@@ -88,8 +108,10 @@ const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQu
                 kind: getKindField(metric),
                 event: getEventField(metric),
                 math: PropertyMathType.Sum,
-                math_property: metric.metric_config.math_property,
                 math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+                ...(metric.metric_type === ExperimentMetricType.MEAN && {
+                    math_property: metric.source.math_property,
+                }),
             },
         ],
         trendsFilter: {},
@@ -184,10 +206,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 const query =
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                         ? getTotalCountQuery(metric, values.experiment)
                         : metric.metric_type === ExperimentMetricType.MEAN &&
-                          metric.metric_config.math === ExperimentMetricMathType.Sum
+                          metric.source.math === ExperimentMetricMathType.Sum
                         ? getSumQuery(metric, values.experiment)
                         : getFunnelQuery(metric, values.experiment)
 
@@ -196,11 +218,11 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 return {
                     uniqueUsers: result?.results?.[0]?.count ?? null,
                     ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                         ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
                         : {}),
                     ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                         ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
                         : {}),
                     ...(metric.metric_type === ExperimentMetricType.FUNNEL
@@ -252,12 +274,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                 ) {
                     return VARIANCE_SCALING_FACTOR_TOTAL_COUNT * averageEventsPerUser
                 } else if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                 ) {
                     return VARIANCE_SCALING_FACTOR_SUM * averagePropertyValuePerUser ** 2
                 }
@@ -303,7 +325,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                 ) {
                     /*
                         Count Per User Metric:
@@ -330,7 +352,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     sampleSizeFormula = (16 * variance) / d ** 2
                 } else if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                 ) {
                     /*
                         Continuous property metric:

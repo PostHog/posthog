@@ -68,7 +68,7 @@ export function PropertyGroupFilters({
                             data-attr={`${pageKey}-add-filter-group-inline`}
                             type="secondary"
                             onClick={addFilterGroup}
-                            icon={<IconPlusSmall color="var(--accent-primary)" />}
+                            icon={<IconPlusSmall />}
                             sideIcon={null}
                             disabledReason={disabledReason}
                             className="PropertyGroupFilters__add-filter-group-inline"
@@ -155,7 +155,7 @@ export function PropertyGroupFilters({
                         data-attr={`${pageKey}-add-filter-group`}
                         type="secondary"
                         onClick={addFilterGroup}
-                        icon={<IconPlusSmall color="var(--accent-primary)" />}
+                        icon={<IconPlusSmall />}
                         sideIcon={null}
                         disabledReason={disabledReason}
                         // This class hides this button in some situations to improve layout

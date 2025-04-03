@@ -28,7 +28,7 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
                     onRename={onRename}
                 />
             ))}
-            <LemonButton onClick={() => onAdd()} icon={<IconPlus fontSize={14} />} />
+            <LemonButton className="rounded-none" onClick={() => onAdd()} icon={<IconPlus fontSize={14} />} />
         </div>
     )
 }

@@ -9,7 +9,6 @@ from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from django.utils import timezone
 from datetime import timedelta
-from posthog.tasks.tasks import run_quota_limiting
 
 from posthog.models.organization import Organization
 from django.urls import path
@@ -76,7 +75,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def first_member(self, organization: Organization):
         user = organization.members.order_by("id").first()
         return (
-            format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
+            format_html('<a href="{}">{}</a>', reverse("admin:posthog_user_change", args=[user.pk]), user.email)
             if user is not None
             else "None"
         )
@@ -96,11 +95,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         custom_urls = [
             path(
                 "send-usage-report/", self.admin_site.admin_view(self.send_usage_report_view), name="send-usage-report"
-            ),
-            path(
-                "run-quota-limiting/",
-                self.admin_site.admin_view(self.run_quota_limiting_view),
-                name="run-quota-limiting",
             ),
             path(
                 "<str:organization_id>/run-rbac-team-migration/",
@@ -132,22 +126,9 @@ class OrganizationAdmin(admin.ModelAdmin):
 
         return render(request, "admin/posthog/organization/send_usage_report.html", {"form": form})
 
-    def run_quota_limiting_view(self, request):
-        if not request.user.groups.filter(name="Billing Team").exists():
-            messages.error(request, "You are not authorized to run quota limiting.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        if request.method == "POST":
-            run_quota_limiting.delay()
-            messages.success(request, "Quota limiting process has been initiated.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        return render(request, "admin/posthog/organization/run_quota_limiting.html", {})
-
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
         extra_context["show_usage_report_button"] = True
-        extra_context["show_run_quota_limiting_button"] = True
         return super().changelist_view(request, extra_context=extra_context)
 
     def run_rbac_team_migration(self, request, organization_id):

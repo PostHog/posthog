@@ -259,7 +259,7 @@ tableExpr
     | placeholder                        # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
-tableIdentifier: (databaseIdentifier DOT)? identifier;
+tableIdentifier: (databaseIdentifier DOT)? nestedIdentifier;
 tableArgList: columnExpr (COMMA columnExpr)* COMMA?;
 
 // Databases

@@ -56,7 +56,6 @@ export const urls = {
         }`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
-    featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
     errorTracking: (): string => '/error_tracking',
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     /** @param id A UUID or 'new'. ':id' for routing. */
@@ -68,13 +67,21 @@ export const urls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     customCss: (): string => '/themes/custom-css',
-    dataWarehouse: (query?: string | Record<string, any>): string =>
-        combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
-            .url,
-    sqlEditor: (): string => `/sql`,
-    dataWarehouseView: (id: string): string => combineUrl(`/data-warehouse/view/${id}`).url,
-    dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
+    sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
+        if (query) {
+            return `/sql?open_query=${encodeURIComponent(query)}`
+        }
+
+        if (view_id) {
+            return `/sql?open_view=${view_id}`
+        }
+
+        if (insightShortId) {
+            return `/sql?open_insight=${insightShortId}`
+        }
+
+        return '/sql'
+    },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     organizationCreateFirst: (): string => '/create-organization',

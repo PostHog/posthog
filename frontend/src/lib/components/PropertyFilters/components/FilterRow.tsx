@@ -1,6 +1,6 @@
 import './FilterRow.scss'
 
-import { IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -104,7 +104,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"
                                 size="small"
-                                icon={<IconPlus />}
+                                icon={<IconPlusSmall />}
                                 sideIcon={null}
                             >
                                 {label}

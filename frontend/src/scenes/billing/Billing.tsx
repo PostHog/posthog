@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { PoliceHog } from 'lib/components/hedgehogs'
+import { JudgeHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -149,7 +149,7 @@ export function Billing(): JSX.Element {
             {billing?.trial ? (
                 <LemonBanner type="info" hideIcon className="mb-2">
                     <div className="flex items-center gap-4">
-                        <PoliceHog className="w-20 h-20 flex-shrink-0" />
+                        <JudgeHog className="w-20 h-20 flex-shrink-0" />
                         <div>
                             <p className="text-lg">You're on (a) trial</p>
                             <p>
@@ -165,10 +165,16 @@ export function Billing(): JSX.Element {
 
             {(showBillingSummary || showCreditCTAHero || showBillingHero) && (
                 <div
-                    className={clsx('flex gap-6 max-w-300', {
-                        'flex-col': size === 'small',
-                        'flex-row': size !== 'small',
-                    })}
+                    className={clsx(
+                        'flex gap-6 max-w-300',
+                        // If there's no active subscription, BillingSummary is small so we stack it and invert order with CreditCTAHero or BillingHero
+                        billing?.has_active_subscription
+                            ? {
+                                  'flex-col': size === 'small',
+                                  'flex-row': size !== 'small',
+                              }
+                            : 'flex-col-reverse'
+                    )}
                 >
                     {showBillingSummary && (
                         <div className={clsx('flex-1', { 'flex-grow-0': showCreditCTAHero })}>

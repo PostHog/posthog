@@ -111,7 +111,10 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             </p>
             <p>
                 Autocapture is also available for our{' '}
-                <Link to="https://posthog.com/docs/libraries/react-native#autocapture" target="_blank">
+                <Link
+                    to="https://posthog.com/docs/error-tracking/installation?tab=Python#setting-up-python-exception-autocapture"
+                    target="_blank"
+                >
                     Python SDK
                 </Link>
                 , where it can be configured directly in code.
