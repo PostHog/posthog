@@ -1052,6 +1052,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {"id": "user signed up", "type": "events", "order": 1},
                 ],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
                 "funnel_window_interval": 2,
                 "funnel_window_interval_unit": "week",
             }
@@ -4880,6 +4881,85 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[0]["count"], 0)
             self.assertEqual(results[1]["name"], "added to cart")
             self.assertEqual(results[1]["count"], 0)
+
+        def test_funnel_with_optional_steps(self):
+            # Define all the different user journeys
+            journeys_for(
+                {
+                    "no_events": [],  # person who does nothing
+                    "step1_only": [{"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)}],
+                    "step123": [
+                        {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                        {"event": "step two", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                        {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                    ],
+                    "step13": [
+                        {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                        {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                    ],
+                    "step12345": [
+                        {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                        {"event": "step two", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                        {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                        {"event": "step four", "timestamp": datetime(2012, 1, 15, 0, 3, 0)},
+                        {"event": "step five", "timestamp": datetime(2012, 1, 15, 0, 4, 0)},
+                    ],
+                    "step1235": [
+                        {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                        {"event": "step two", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                        {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                        {"event": "step five", "timestamp": datetime(2012, 1, 15, 0, 4, 0)},
+                    ],
+                    "step134": [
+                        {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                        {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                        {"event": "step four", "timestamp": datetime(2012, 1, 15, 0, 3, 0)},
+                    ],
+                    "step1345": [
+                        {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                        {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                        {"event": "step four", "timestamp": datetime(2012, 1, 15, 0, 3, 0)},
+                        {"event": "step five", "timestamp": datetime(2012, 1, 15, 0, 4, 0)},
+                    ],
+                    "step135": [
+                        {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                        {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                        {"event": "step five", "timestamp": datetime(2012, 1, 15, 0, 4, 0)},
+                    ],
+                },
+                self.team,
+            )
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="step one"),
+                    EventsNode(event="step two", optional=True),
+                    EventsNode(event="step three"),
+                    EventsNode(event="step four", optional=True),
+                    EventsNode(event="step five"),
+                ],
+                dateRange=DateRange(
+                    date_from="2012-01-01 00:00:00",
+                    date_to="2012-02-01 23:59:59",
+                ),
+            )
+
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(result[0]["name"], "step one")
+            self.assertEqual(result[0]["count"], 8)  # all users who did at least step 1
+
+            self.assertEqual(result[1]["name"], "step two")
+            self.assertEqual(result[1]["count"], 3)  # users who did step 2 (optional)
+
+            self.assertEqual(result[2]["name"], "step three")
+            self.assertEqual(result[2]["count"], 7)  # users who did step 3 (required)
+
+            self.assertEqual(result[3]["name"], "step four")
+            self.assertEqual(result[3]["count"], 3)  # users who did step 4 (optional)
+
+            self.assertEqual(result[4]["name"], "step five")
+            self.assertEqual(result[4]["count"], 5)  # users who completed the funnel
 
     return TestGetFunnel
 
