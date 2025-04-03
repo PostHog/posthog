@@ -4,8 +4,45 @@ use super::CacheOperations;
 use redis::RedisError;
 
 #[derive(Clone)]
-pub struct RedisCache {
+struct RedisCacheClient {
     conn: redis::aio::ConnectionManager,
+}
+
+impl RedisCacheClient {
+    async fn new(client: redis::Client) -> Result<Self, RedisError> {
+        let conn = redis::aio::ConnectionManager::new(client).await?;
+        Ok(Self {
+            conn,
+        })
+    }
+
+    async fn get_keys(&self, keys: &[String]) -> Result<Vec<Option<String>>, RedisError> {
+        let mut conn = self.conn.clone();
+        redis::cmd("MGET")
+            .arg(keys)
+            .query_async(&mut conn)
+            .await
+    }
+
+    async fn set_keys(&self, updates: &[(String, String)], ttl: u64) -> Result<(), RedisError> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+
+        let mut pipe = redis::pipe();
+        for (key, value) in updates {
+            pipe.set_ex(key, value, ttl);
+        }
+
+        let mut conn = self.conn.clone();
+        let _: () = pipe.query_async(&mut conn).await?;
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct RedisCache {
+    client: RedisCacheClient,
     ttl: u64,
     batch_fetch_limit: usize,
     batch_update_limit: usize,
@@ -13,9 +50,9 @@ pub struct RedisCache {
 
 impl RedisCache {
     pub async fn new(client: redis::Client, ttl: u64, batch_fetch_limit: usize, batch_update_limit: usize) -> Result<Self, RedisError> {
-        let conn = redis::aio::ConnectionManager::new(client).await?;
+        let redis_client = RedisCacheClient::new(client).await?;
         Ok(Self {
-            conn,
+            client: redis_client,
             ttl,
             batch_fetch_limit,
             batch_update_limit,
@@ -36,18 +73,12 @@ impl CacheOperations for RedisCache {
             updates
         };
 
-        let mut pipe = redis::pipe();
-        for update in updates_to_process {
-            let key = update.key();
-            pipe.set_ex(
-                key,
-                serde_json::to_string(&update).unwrap_or_default(),
-                self.ttl,
-            );
-        }
+        let key_value_pairs: Vec<(String, String)> = updates_to_process
+            .iter()
+            .map(|update| (update.key(), String::new()))
+            .collect();
 
-        let mut conn = self.conn.clone();
-        let _: () = pipe.query_async(&mut conn).await.map_err(CacheError::from)?;
+        self.client.set_keys(&key_value_pairs, self.ttl).await.map_err(CacheError::from)?;
         Ok(())
     }
 
@@ -63,13 +94,8 @@ impl CacheOperations for RedisCache {
         };
         let (updates_to_check, remaining_updates) = updates.split_at(limit);
 
-        let mut conn = self.conn.clone();
         let redis_keys: Vec<String> = updates_to_check.iter().map(|u| u.key()).collect();
-        let values: Vec<Option<String>> = redis::cmd("MGET")
-            .arg(&redis_keys)
-            .query_async(&mut conn)
-            .await
-            .map_err(CacheError::from)?;
+        let values: Vec<Option<String>> = self.client.get_keys(&redis_keys).await.map_err(CacheError::from)?;
 
         let mut not_in_cache = Vec::new();
         for (update, value) in updates_to_check.iter().zip(values.iter()) {
