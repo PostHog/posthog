@@ -81,29 +81,29 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
         const newUrl = new URL(window.location.href)
         newUrl.hostname = newUrl.hostname.replace(currentSubdomain, loggedInSubdomain)
 
-        let cancelClicked = false
-
-        const closeToastAction = (): void => {
-            if (cancelClicked) {
-                return
-            }
-            window.location.assign(newUrl.href)
-        }
-
-        lemonToast.info(
-            `Redirecting to your logged-in account in the Cloud ${regionFromSubdomain(loggedInSubdomain)} region`,
-            {
-                button: {
-                    label: 'Cancel',
-                    action: () => {
-                        cancelClicked = true
+        import('lib/lemon-ui/LemonModal').then(({ LemonModal }) => {
+            LemonModal.create({
+                title: 'Redirecting to your logged-in account',
+                description: `You are currently logged in to PostHog's Cloud ${regionFromSubdomain(loggedInSubdomain)} region. We'll redirect you there now.`,
+                primaryButton: {
+                    children: 'Continue',
+                    onClick: () => {
+                        window.location.assign(newUrl.href)
                     },
                 },
-                onClose: closeToastAction,
-                // we want to force the user to click the cancel button as otherwise the default close will still redirect
-                closeButton: false,
-                autoClose: REDIRECT_TIMEOUT,
-            }
-        )
+                secondaryButton: {
+                    children: 'Cancel',
+                    onClick: () => {
+                        LemonModal.destroy()
+                    },
+                },
+                onClose: () => {
+                    window.location.assign(newUrl.href)
+                },
+                closeOnEscapeKey: false,
+                closeWithoutAction: false,
+                autoOpen: true,
+            })
+        })
     }
 }
