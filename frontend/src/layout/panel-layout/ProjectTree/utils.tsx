@@ -9,12 +9,21 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
-export function convertFileSystemEntryToTreeDataItem(
-    imports: (FileSystemImport | FileSystemEntry)[],
-    folderStates: Record<string, FolderState>,
-    root = 'project',
-    searchTerm = ''
-): TreeDataItem[] {
+export interface ConvertProps {
+    imports: (FileSystemImport | FileSystemEntry)[]
+    folderStates: Record<string, FolderState>
+    checkedItems: Record<string, boolean>
+    root: string
+    searchTerm?: string
+}
+
+export function convertFileSystemEntryToTreeDataItem({
+    imports,
+    folderStates,
+    checkedItems,
+    root,
+    searchTerm,
+}: ConvertProps): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
 
@@ -25,12 +34,14 @@ export function convertFileSystemEntryToTreeDataItem(
     const findOrCreateFolder = (nodes: TreeDataItem[], folderName: string, fullPath: string): TreeDataItem => {
         let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
         if (!folderNode) {
+            const id = `${root}-folder/${fullPath}`
             folderNode = {
-                id: `${root}-folder/${fullPath}`,
+                id,
                 name: folderName,
-                displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm} />,
-                record: { type: 'folder', id: `${root}-folder/${fullPath}`, path: fullPath },
+                displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm ?? ''} />,
+                record: { type: 'folder', id, path: fullPath },
                 children: [],
+                checked: checkedItems[id],
             }
             allFolderNodes.push(folderNode)
             nodes.push(folderNode)
@@ -67,12 +78,14 @@ export function convertFileSystemEntryToTreeDataItem(
         }
 
         // Create the actual item node.
+        const nodeId = item.type === 'folder' ? `${root}-folder/${item.path}` : `${root}-${item.id || item.path}`
         const node: TreeDataItem = {
-            id: item.type === 'folder' ? `${root}-folder/${item.path}` : `${root}-${item.id || item.path}`,
+            id: nodeId,
             name: itemName,
-            displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm} />,
+            displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />,
             icon: item._loading ? <Spinner /> : ('icon' in item && item.icon) || iconForType(item.type),
             record: item,
+            checked: checkedItems[nodeId],
             onClick: () => {
                 if (item.href) {
                     router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)

@@ -70,7 +70,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
         setLastNewOperation: (objectType: string | null, folder: string | null) => ({ objectType, folder }),
+        onItemChecked: (id: string, checked: boolean) => ({ id, checked }),
         setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
+        expandProjectFolder: (path: string) => ({ path }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -173,6 +175,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                     },
                                 },
                             })
+                            actions.expandProjectFolder(action.item.path)
                         } catch (error) {
                             console.error('Error creating folder:', error)
                             lemonToast.error(`Error creating folder: ${error}`)
@@ -216,6 +219,20 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 createSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
                     return { ...state, [folder]: [...(state[folder] || []), savedItem] }
+                },
+                loadSearchResultsSuccess: (state, { searchResults }) => {
+                    // Append search results into the loaded state, mostly to help with multi-selection between panels
+                    const { results, lastCount } = searchResults
+                    const newState: Record<string, FileSystemEntry[]> = { ...state }
+                    for (const result of results.slice(-1 * lastCount)) {
+                        const folder = joinPath(splitPath(result.path).slice(0, -1))
+                        if (newState[folder]) {
+                            newState[folder] = [...newState[folder], result]
+                        } else {
+                            newState[folder] = [result]
+                        }
+                    }
+                    return newState
                 },
                 updateSavedItem: (state, { savedItem, oldPath }) => {
                     const oldFolder = joinPath(splitPath(oldPath).slice(0, -1))
@@ -351,6 +368,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {} as Record<string, boolean>,
             {
                 setCheckedItems: (_, { checkedItems }) => checkedItems,
+                onItemChecked: (state, { id, checked }) => {
+                    if (checked) {
+                        return { ...state, [id]: !!checked }
+                    }
+                    const newState = { ...state }
+                    delete newState[id]
+                    return newState
+                },
             },
         ],
     }),
@@ -485,9 +510,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         projectTree: [
-            (s) => [s.viableItems, s.folderStates],
-            (viableItems, folderStates): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem(viableItems, folderStates, 'project'),
+            (s) => [s.viableItems, s.folderStates, s.checkedItems],
+            (viableItems, folderStates, checkedItems): TreeDataItem[] =>
+                convertFileSystemEntryToTreeDataItem({
+                    imports: viableItems,
+                    folderStates,
+                    checkedItems,
+                    root: 'project',
+                }),
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
@@ -519,23 +549,34 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.featureFlags, s.folderStates],
             (_featureFlags, folderStates): TreeDataItem[] =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
-                convertFileSystemEntryToTreeDataItem(getDefaultTreeNew(), folderStates, 'root'),
+                convertFileSystemEntryToTreeDataItem({
+                    imports: getDefaultTreeNew(),
+                    checkedItems: {},
+                    folderStates,
+                    root: 'new',
+                }),
         ],
         treeItemsExplore: [
             (s) => [s.featureFlags, s.groupNodes, s.folderStates],
             (_featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
-                convertFileSystemEntryToTreeDataItem(getDefaultTreeExplore(groupNodes), folderStates, 'root'),
+                convertFileSystemEntryToTreeDataItem({
+                    imports: getDefaultTreeExplore(groupNodes),
+                    checkedItems: {},
+                    folderStates,
+                    root: 'explore',
+                }),
         ],
         searchedTreeItems: [
-            (s) => [s.searchResults, s.searchResultsLoading],
-            (searchResults, searchResultsLoading): TreeDataItem[] => {
-                const results = convertFileSystemEntryToTreeDataItem(
-                    searchResults.results,
-                    {},
-                    'project',
-                    searchResults.searchTerm
-                )
+            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems],
+            (searchResults, searchResultsLoading, folderStates, checkedItems): TreeDataItem[] => {
+                const results = convertFileSystemEntryToTreeDataItem({
+                    imports: searchResults.results,
+                    folderStates,
+                    checkedItems,
+                    root: 'project',
+                    searchTerm: searchResults.searchTerm,
+                })
                 if (searchResults.hasMore) {
                     if (searchResultsLoading) {
                         results.push({
@@ -643,6 +684,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     actions.toggleFolderOpen('project-folder/Unfiled', true)
                 }
             }
+        },
+        expandProjectFolder: ({ path }) => {
+            const expandedSet = new Set(values.expandedFolders)
+            const allFolders = splitPath(path).slice(0, -1)
+            const allFullFolders = allFolders.map((_, index) => joinPath(allFolders.slice(0, index + 1)))
+            const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project-folder/' + f))
+            for (const folder of nonExpandedFolders) {
+                if (values.folderStates[folder] !== 'loaded' && values.folderStates[folder] !== 'loading') {
+                    actions.loadFolder(folder)
+                }
+            }
+            actions.setExpandedFolders([
+                ...values.expandedFolders,
+                ...nonExpandedFolders.map((f) => 'project-folder/' + f),
+            ])
         },
         moveItem: async ({ oldPath, newPath }) => {
             if (newPath.startsWith(oldPath + '/')) {
@@ -772,20 +828,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
 
                 if (path) {
-                    const expandedSet = new Set(values.expandedFolders)
-                    const allFolders = splitPath(path).slice(0, -1)
-                    const allFullFolders = allFolders.map((_, index) => joinPath(allFolders.slice(0, index + 1)))
-                    const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project-folder/' + f))
-
-                    for (const folder of nonExpandedFolders) {
-                        if (values.folderStates[folder] !== 'loaded' && values.folderStates[folder] !== 'loading') {
-                            actions.loadFolder(folder)
-                        }
-                    }
-                    actions.setExpandedFolders([
-                        ...values.expandedFolders,
-                        ...nonExpandedFolders.map((f) => 'project-folder/' + f),
-                    ])
+                    actions.expandProjectFolder(path)
                 }
             }
         },

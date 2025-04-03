@@ -9,7 +9,6 @@ import { TreeDataItem } from './LemonTree'
 type IconProps = {
     item: TreeDataItem
     expandedItemIds: string[]
-    checkedItems: Record<string, boolean>
     defaultNodeIcon?: React.ReactNode
     enableMultiSelection?: boolean
     handleCheckedChange?: (checked: boolean) => void
@@ -23,14 +22,13 @@ export function renderTreeNodeDisplayItem({
     expandedItemIds,
     defaultNodeIcon,
     enableMultiSelection = false,
-    checkedItems,
     handleCheckedChange,
 }: IconProps): JSX.Element {
     const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
     const isFile = item.record?.type === 'file'
-    const isChecked = !!checkedItems[item.id]
+    const isChecked = !!item.checked
     let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
 
     if (isFolder) {
@@ -56,7 +54,7 @@ export function renderTreeNodeDisplayItem({
                 >
                     <LemonCheckbox
                         className="size-5 ml-[2px]"
-                        checked={isChecked}
+                        checked={item.checked}
                         onChange={(checked) => {
                             handleCheckedChange?.(checked)
                         }}

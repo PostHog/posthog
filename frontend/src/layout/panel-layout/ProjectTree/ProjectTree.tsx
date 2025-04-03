@@ -38,7 +38,7 @@ export function ProjectTree(): JSX.Element {
         setExpandedSearchFolders,
         loadFolder,
         setLastNewOperation,
-        setCheckedItems,
+        onItemChecked,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -63,26 +63,10 @@ export function ProjectTree(): JSX.Element {
                     asChild
                     onClick={(e: any) => {
                         e.stopPropagation()
-                        if (checkedItems[item.id]) {
-                            const { [item.id]: _, ...rest } = checkedItems
-                            setCheckedItems(rest)
-                        } else {
-                            setCheckedItems({ ...checkedItems, [item.id]: true })
-                        }
+                        onItemChecked(item.id, !checkedItems[item.id])
                     }}
                 >
-                    <ButtonPrimitive menuItem>Select</ButtonPrimitive>
-                </MenuItem>
-            ) : null}
-            {item.record?.type === 'folder' ? (
-                <MenuItem
-                    asChild
-                    onClick={(e: any) => {
-                        e.stopPropagation()
-                        createFolder(item.record?.path)
-                    }}
-                >
-                    <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                    <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
                 </MenuItem>
             ) : null}
             {item.record?.path ? (
@@ -121,6 +105,15 @@ export function ProjectTree(): JSX.Element {
             {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
                 <>
                     {!item.id?.startsWith('project-folder-empty/') ? <ContextMenuSeparator /> : null}
+                    <MenuItem
+                        asChild
+                        onClick={(e: any) => {
+                            e.stopPropagation()
+                            createFolder(item.record?.path)
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                    </MenuItem>
                     {treeItemsNew.map((treeItem: any) => (
                         <MenuItem
                             key={treeItem.id}
@@ -169,8 +162,7 @@ export function ProjectTree(): JSX.Element {
                     return window.location.href.endsWith(item.record?.href)
                 }}
                 enableMultiSelection={true}
-                checkedItems={checkedItems}
-                onSetCheckedItems={setCheckedItems}
+                onItemChecked={onItemChecked}
                 onNodeClick={(node) => {
                     if (!isLayoutPanelPinned) {
                         clearActivePanelIdentifier()
@@ -245,13 +237,13 @@ export function ProjectTree(): JSX.Element {
                     return false
                 }}
                 itemContextMenu={(item) => {
-                    if (!item.id.startsWith('project-folder/') && !item.id.startsWith('project-folder-empty/')) {
+                    if (item.id.startsWith('project-folder-empty/')) {
                         return undefined
                     }
                     return <ContextMenuGroup>{renderMenuItems(item, ContextMenuItem)}</ContextMenuGroup>
                 }}
                 itemSideAction={(item) => {
-                    if (!item.id.startsWith('project-folder/') && !item.id.startsWith('project-folder-empty/')) {
+                    if (item.id.startsWith('project-folder-empty/')) {
                         return undefined
                     }
                     return <DropdownMenuGroup>{renderMenuItems(item, DropdownMenuItem)}</DropdownMenuGroup>
