@@ -122,25 +122,16 @@ const UniversalSearch = (): JSX.Element => {
     )
 
     return (
-        <form
-            onSubmit={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                commitSearch()
-            }}
+        <LemonInput
+            type="search"
+            placeholder="Search..."
+            value={innerSearchQuery}
+            onChange={updateSearchQuery}
+            onBlur={commitSearch}
+            onPressEnter={commitSearch}
             className="flex-grow max-w-none"
-        >
-            <LemonInput
-                type="search"
-                placeholder="Search..."
-                value={innerSearchQuery}
-                onChange={updateSearchQuery}
-                onBlur={commitSearch}
-                className="flex-grow max-w-none"
-                size="small"
-            />
-            <button type="submit" hidden />
-        </form>
+            size="small"
+        />
     )
 }
 
