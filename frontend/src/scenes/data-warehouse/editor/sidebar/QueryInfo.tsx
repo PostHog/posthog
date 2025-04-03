@@ -1,4 +1,4 @@
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonTable, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -61,15 +61,24 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { editingView } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery } = useActions(multitabEditorLogic)
 
-    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
+    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
+        useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
+    if (initialDataWarehouseSavedQueryLoading) {
+        return (
+            <div className="w-full h-full flex items-center justify-center">
+                <Spinner className="text-lg" />
+            </div>
+        )
+    }
+
     return (
         <div className="overflow-auto">
-            <div className="flex flex-col flex-1 p-4 gap-4 ">
+            <div className="flex flex-col flex-1 p-4 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">Materialization</h3>

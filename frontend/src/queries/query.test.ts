@@ -14,7 +14,10 @@ describe('query', () => {
                 '/api/environments/:team_id/query': (req) => {
                     const data = req.body as any
                     if (data.query?.kind === 'HogQLQuery') {
-                        return [200, { results: [], clickhouse: 'clickhouse string', hogql: 'hogql string' }]
+                        return [
+                            200,
+                            { results: [], clickhouse: 'clickhouse string', hogql: 'hogql string', is_cached: false },
+                        ]
                     }
                     if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'error') {
                         return [500, { detail: 'error' }]
@@ -94,6 +97,7 @@ describe('query', () => {
             query: q,
             duration: expect.any(Number),
             clickhouse_sql: expect.any(String),
+            is_cached: false,
         })
     })
 
