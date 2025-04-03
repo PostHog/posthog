@@ -2,6 +2,8 @@ import { actions, connect, defaults, kea, key, listeners, path, props, reducers,
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
+import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { posthog } from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
@@ -20,7 +22,13 @@ import { ActivityScope, Breadcrumb } from '~/types'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
-import { resolveDateRange } from './utils'
+import {
+    ExceptionAttributes,
+    getExceptionAttributes,
+    hasNonInAppFrames,
+    hasStacktrace,
+    resolveDateRange,
+} from './utils'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -35,8 +43,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect({
-        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
-        actions: [errorTrackingLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup']],
+        values: [
+            errorTrackingLogic,
+            ['dateRange', 'filterTestAccounts', 'filterGroup'],
+            stackFrameLogic,
+            ['frameOrderReversed', 'showAllFrames', 'showFingerprint'],
+        ],
+        actions: [
+            errorTrackingLogic,
+            ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup'],
+            stackFrameLogic,
+            ['setFrameOrderReversed', 'setShowAllFrames', 'setShowFingerprint'],
+        ],
     }),
 
     actions({
@@ -46,6 +64,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
+        setStacktraceExpanded: (stacktraceExpanded: boolean) => ({ stacktraceExpanded }),
     }),
 
     defaults({
@@ -65,6 +84,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
         summary: {},
+        properties: {},
+        stacktraceExpanded: [
+            false,
+            { persist: true },
+            {
+                setStacktraceExpanded: (_, { stacktraceExpanded }: { stacktraceExpanded: boolean }) =>
+                    stacktraceExpanded,
+            },
+        ],
     }),
 
     selectors({
@@ -116,6 +144,28 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
         lastSeen: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.lastSeen],
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
+        exceptionAttributes: [
+            (s) => [s.properties],
+            (properties: Record<string, string>) => (properties ? getExceptionAttributes(properties) : {}),
+        ],
+        exceptionList: [
+            (s) => [s.exceptionAttributes, s.frameOrderReversed],
+            (attributes: ExceptionAttributes | null, orderReversed: boolean) => {
+                if (!attributes || !attributes.exceptionList) {
+                    return []
+                }
+                return applyFrameOrder(attributes.exceptionList, orderReversed)
+            },
+        ],
+        fingerprintRecords: [
+            (s) => [s.exceptionAttributes],
+            (attributes: ExceptionAttributes | null) => attributes?.fingerprintRecords,
+        ],
+        hasNonInAppFrames: [
+            (s) => [s.exceptionList],
+            (excList: ErrorTrackingException[]) => hasNonInAppFrames(excList),
+        ],
+        hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
     }),
 
     loaders(({ props }) => ({
@@ -162,6 +212,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     listeners(({ props, actions }) => {
         return {
+            setDateRange: [({ dateRange }) => actions.loadSummary(dateRange)],
             loadIssueSuccess: [
                 ({ issue }) => actions.loadProperties(getPropertiesDateRange(issue)),
                 ({ issue }) => actions.loadSummary(getIssueDateRange(issue)),
@@ -196,6 +247,27 @@ function getPropertiesDateRange(issue: ErrorTrackingRelationalIssue): DateRange 
         date_from: firstSeen.startOf('hour').toISOString(),
         date_to: firstSeen.endOf('hour').toISOString(),
     }
+}
+
+function applyFrameOrder(
+    exceptionList: ErrorTrackingException[],
+    frameOrderReversed: boolean
+): ErrorTrackingException[] {
+    if (frameOrderReversed) {
+        return exceptionList
+            .map((exception) => {
+                const copiedException = { ...exception }
+                if (copiedException.stacktrace) {
+                    copiedException.stacktrace = {
+                        ...copiedException.stacktrace,
+                        frames: copiedException.stacktrace.frames.slice().reverse(),
+                    }
+                }
+                return copiedException
+            })
+            .reverse()
+    }
+    return [...exceptionList]
 }
 
 export type ErrorTrackingIssueSummary = {

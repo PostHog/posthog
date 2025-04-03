@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonCard, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
@@ -9,6 +9,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
+import { IssueCard } from './components/IssueCard'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
@@ -16,8 +17,6 @@ import { GenericSelect } from './issue/GenericSelect'
 import { IssueStatus, StatusIndicator } from './issue/Indicator'
 import { Metadata } from './issue/Metadata'
 import { EventsTab } from './issue/tabs/EventsTab'
-import { DetailsWidget } from './issue/widgets/DetailsWidget'
-import { StacktraceWidget } from './issue/widgets/StacktraceWidget'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -78,19 +77,21 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         </div>
                     }
                 />
-                <div className="ErrorTrackingIssue">
+                <div className="ErrorTrackingIssue space-y-2">
+                    <IssueCard />
                     <Metadata />
+                    <ErrorTrackingFilters />
                     <LemonTabs
                         activeKey={activeTab}
                         onChange={(key) => setActiveTab(key)}
                         tabs={[
                             {
-                                key: 'stacktrace',
-                                label: 'Overview',
+                                key: 'insights',
+                                label: 'Insights',
                                 content: (
                                     <div className="space-y-2">
-                                        <DetailsWidget />
-                                        <StacktraceWidget />
+                                        {/* <DetailsWidget /> */}
+                                        {/* <StacktraceWidget /> */}
                                     </div>
                                 ),
                             },
@@ -98,12 +99,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 key: 'events',
                                 label: 'Events',
                                 content: (
-                                    <div className="space-y-2">
-                                        <ErrorTrackingFilters />
-                                        <div className="border-1 overflow-hidden border-accent border-primary rounded bg-surface-primary relative">
-                                            <EventsTab />
-                                        </div>
-                                    </div>
+                                    <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
+                                        <EventsTab />
+                                    </LemonCard>
                                 ),
                             },
                         ]}

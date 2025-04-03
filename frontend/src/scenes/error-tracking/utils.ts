@@ -1,3 +1,4 @@
+import { FingerprintRecordPart } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
@@ -51,12 +52,12 @@ export const mergeIssues = (
     }
 }
 
-export function getExceptionAttributes(
-    properties: Record<string, any>
-): { ingestionErrors?: string[]; exceptionList: ErrorTrackingException[] } & Record<
-    'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level' | 'unhandled',
-    any
-> {
+export type ExceptionAttributes = {
+    ingestionErrors?: string[]
+    exceptionList: ErrorTrackingException[]
+    fingerprintRecords?: FingerprintRecordPart[]
+} & Record<'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level' | 'unhandled', any>
+export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
     const {
         $lib,
         $lib_version,
@@ -74,6 +75,7 @@ export function getExceptionAttributes(
     let value = properties.$exception_message
     let synthetic: boolean | undefined = properties.$exception_synthetic
     let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
+    const fingerprintRecords: FingerprintRecordPart[] | undefined = properties.$exception_fingerprint_record
 
     // exception autocapture sets $exception_list for all exceptions.
     // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
@@ -104,6 +106,7 @@ export function getExceptionAttributes(
         os: os ? `${os} ${osVersion}` : undefined,
         sentryUrl,
         exceptionList: exceptionList || [],
+        fingerprintRecords: fingerprintRecords,
         unhandled: !handled,
         level,
         ingestionErrors,
@@ -116,6 +119,14 @@ export function getSessionId(properties: Record<string, any>): string | undefine
 
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
+}
+
+export function hasInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
+    return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
+}
+
+export function hasNonInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
+    return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => !in_app))
 }
 
 export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
@@ -208,4 +219,9 @@ export function datetimeStringToDayJs(date: string | null): Dayjs | null {
         return dayjs()
     }
     return componentsToDayJs(dateComponents)
+}
+
+export function cancelEvent(event: React.MouseEvent<HTMLDivElement>): void {
+    event.preventDefault()
+    event.stopPropagation()
 }

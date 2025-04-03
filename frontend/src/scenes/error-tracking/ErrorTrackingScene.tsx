@@ -221,7 +221,7 @@ const Header = (): JSX.Element => {
                     {user?.is_staff ? (
                         <LemonButton
                             onClick={() => {
-                                posthog.captureException(new Error('Oh my!'))
+                                posthog.captureException(new Error('Kaboom !'))
                             }}
                         >
                             Send an exception
