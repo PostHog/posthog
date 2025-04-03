@@ -633,7 +633,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $geoip_continent_code: {
             label: 'Continent Code',
             description: `Code of the continent matched to this event's IP address.`,
-            examples: ['OC', 'AS', ' NA'],
+            examples: ['OC', 'AS', 'NA'],
         },
         $geoip_postal_code: {
             label: 'Postal Code',
