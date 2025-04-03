@@ -17,7 +17,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -60,12 +60,19 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
     const { updateSchema, reloadSchema, resyncSchema, setIsProjectTime } = useActions(dataWarehouseSourceSettingsLogic)
     const { isProjectTime } = useValues(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
+    const [initialLoad, setInitialLoad] = useState(true)
+
+    useEffect(() => {
+        if (initialLoad && !isLoading) {
+            setInitialLoad(false)
+        }
+    }, [isLoading])
 
     return (
         <>
             <LemonTable
                 dataSource={schemas}
-                loading={isLoading}
+                loading={initialLoad}
                 disableTableWhileLoading={false}
                 columns={[
                     {
