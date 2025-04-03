@@ -32,6 +32,8 @@ pub const SINGLE_UPDATE_ISSUE_TIME: &str = "prop_defs_single_update_issue_time_m
 // property-defs-rs "v2" (mirror deploy) metric keys below
 //
 
+pub const V2_ISOLATED_DB_SELECTED: &str = "propdefs_v2_isolated_db_selected";
+
 pub const V2_EVENT_DEFS_BATCH_WRITE_TIME: &str = "propdefs_v2_eventdefs_batch_ms";
 pub const V2_EVENT_DEFS_BATCH_ATTEMPT: &str = "propdefs_v2_eventdefs_batch_attempt";
 pub const V2_EVENT_DEFS_BATCH_ROWS_AFFECTED: &str = "propdefs_v2_eventdefs_batch_rows";

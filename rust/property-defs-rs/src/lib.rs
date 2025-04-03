@@ -8,7 +8,7 @@ use metrics_consts::{
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
     RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED,
     UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
-    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    UPDATE_PRODUCER_OFFSET, V2_ISOLATED_DB_SELECTED, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 use v2_batch_ingestion::process_batch_v2;
@@ -17,7 +17,7 @@ use ahash::AHashSet;
 use quick_cache::sync::Cache;
 
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 pub mod api;
 pub mod app_context;
@@ -81,7 +81,7 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // conditionall enable new write path
+        // conditionally enable new write path
         if config.enable_v2 {
             // enrich batch group events with resolved group_type_indices
             // before passing along to process_batch_v2. We can refactor this
@@ -95,7 +95,15 @@ pub async fn update_consumer_loop(
                         e
                     )
                 });
-            process_batch_v2(&config, cache.clone(), &context.pool, batch).await;
+
+            // if enable_v2 is TRUE, we are in the mirror deploy and should use propdefs write DB
+            let mut resolved_pool = &context.pool;
+            if let Some(resolved) = &context.propdefs_pool {
+                metrics::counter!(V2_ISOLATED_DB_SELECTED).increment(1);
+                info!("using isolated write DB connection pool in process_batch_v2");
+                resolved_pool = resolved;
+            }
+            process_batch_v2(&config, cache.clone(), resolved_pool, batch).await;
         } else {
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
         }
