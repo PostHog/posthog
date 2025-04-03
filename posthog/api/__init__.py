@@ -57,6 +57,7 @@ from . import (
     scheduled_change,
     search,
     sharing,
+    startups,
     survey,
     tagged_item,
     team,
@@ -634,3 +635,5 @@ environments_router.register(
 )
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
+
+router.register(r"startups", startups.StartupsViewSet, "startups")
