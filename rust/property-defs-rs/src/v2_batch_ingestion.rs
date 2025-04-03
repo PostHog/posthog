@@ -376,7 +376,7 @@ async fn write_event_properties_batch(
                 );
                 common_metrics::inc(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, &[], count);
                 info!(
-                    "Event definitions batch of size {} written successfully",
+                    "Event properties batch of size {} written successfully",
                     count
                 );
 
