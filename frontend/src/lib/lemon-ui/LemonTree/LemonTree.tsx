@@ -19,7 +19,7 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
-import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
+import { renderTreeNodeDisplayItem, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -234,13 +234,13 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className="group/lemon-tree-button-group relative"
                                                 groupVariant="side-action-group"
                                             >
-                                                {/* eslint-disable-next-line react/forbid-dom-props */}
                                                 <div
                                                     className="absolute size-5"
+                                                    // eslint-disable-next-line react/forbid-dom-props
                                                     style={{ left: `${DEPTH_OFFSET + 5}px` }}
                                                 >
                                                     {/* Icon left */}
-                                                    {getIcon({
+                                                    {renderTreeNodeDisplayItem({
                                                         item,
                                                         expandedItemIds: expandedItemIds ?? [],
                                                         defaultNodeIcon,
