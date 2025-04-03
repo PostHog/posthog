@@ -11,8 +11,7 @@ use metrics_consts::{
     UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
-use quick_cache::sync::Cache;
-use crate::cache::{LayeredCache, NoOpCache};
+use crate::cache::LayeredCache;
 use v2_batch_ingestion::process_batch_v2;
 
 use ahash::AHashSet;
@@ -33,8 +32,7 @@ const UPDATE_RETRY_DELAY_MS: u64 = 50;
 
 pub async fn update_consumer_loop(
     config: Config,
-    cache: Arc<Cache<Update, ()>>,
-    layered_cache: Arc<LayeredCache<NoOpCache>>,
+    layered_cache: Arc<LayeredCache>,
     context: Arc<AppContext>,
     mut channel: mpsc::Receiver<Update>,
 ) {
@@ -84,19 +82,19 @@ pub async fn update_consumer_loop(
         if config.enable_v2 {
             process_batch_v2(&config, layered_cache.clone(), &context.pool, batch).await;
         } else {
-            process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
+            process_batch_v1(&config, layered_cache.clone(), context.clone(), batch).await;
         }
     }
 }
 
 async fn process_batch_v1(
     config: &Config,
-    cache: Arc<Cache<Update, ()>>,
+    layered_cache: Arc<LayeredCache>,
     context: Arc<AppContext>,
     mut batch: Vec<Update>,
 ) {
     // unused in v2 as a throttling mechanism, but still useful to measure
-    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
+    let cache_utilization = layered_cache.len() as f64 / config.cache_capacity as f64;
     metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
     // We split our update batch into chunks, one per transaction. We know each update touches
@@ -114,7 +112,7 @@ async fn process_batch_v1(
     let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
     for mut chunk in chunks {
         let m_context = context.clone();
-        let m_cache = cache.clone();
+        let m_cache = layered_cache.clone();
         let handle = tokio::spawn(async move {
             let mut tries: u64 = 0;
             // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
@@ -161,24 +159,7 @@ async fn process_batch_v1(
     issue_time.fin();
 }
 
-async fn filter_v1(updates: Vec<Update>, cache: &Cache<Update, ()>) -> Vec<Update> {
-    updates
-        .into_iter()
-        .filter(|update| {
-            let is_cached = cache.get(update).is_some();
-            if is_cached {
-                metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(1);
-                metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
-            } else {
-                metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
-                cache.insert(update.clone(), ());
-            }
-            !is_cached
-        })
-        .collect()
-}
-
-async fn filter_v2(updates: Vec<Update>, cache: &LayeredCache<NoOpCache>) -> Vec<Update> {
+async fn filter_updates(updates: Vec<Update>, cache: &LayeredCache) -> Vec<Update> {
     let input_count = updates.len();
     let not_cached = cache.filter_cached_updates(updates).await;
     let filtered_count = input_count - not_cached.len();
@@ -191,8 +172,7 @@ pub async fn update_producer_loop(
     config: Config,
     consumer: SingleTopicConsumer,
     channel: mpsc::Sender<Update>,
-    shared_cache: Arc<Cache<Update, ()>>,
-    layered_cache: Arc<LayeredCache<NoOpCache>>,
+    layered_cache: Arc<LayeredCache>,
 ) {
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
@@ -263,14 +243,8 @@ pub async fn update_producer_loop(
         {
             last_send = tokio::time::Instant::now();
             let updates: Vec<Update> = batch.drain().collect();
+            let filtered_updates = filter_updates(updates, &layered_cache).await;
 
-            let filtered_updates = if config.enable_v2 {
-                filter_v2(updates, &layered_cache).await
-            } else {
-                filter_v1(updates, &shared_cache).await
-            };
-
-            // Send filtered updates to channel
             for update in filtered_updates {
                 match channel.try_send(update) {
                     Ok(_) => {}

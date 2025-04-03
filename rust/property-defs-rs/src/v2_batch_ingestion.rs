@@ -8,7 +8,7 @@ use uuid::Uuid;
 use std::sync::Arc;
 
 use crate::{
-    cache::{LayeredCache, NoOpCache},
+    cache::LayeredCache,
     config::Config,
     metrics_consts::{
         CACHE_CONSUMED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_ROWS_AFFECTED,
@@ -182,7 +182,7 @@ impl PropertyDefinitionsBatch {
 // HACK: making this public so the test suite file can live under "../tests/" dir
 pub async fn process_batch_v2(
     config: &Config,
-    layered_cache: Arc<LayeredCache<NoOpCache>>,
+    layered_cache: Arc<LayeredCache>,
     pool: &PgPool,
     batch: Vec<Update>,
 ) {
@@ -278,7 +278,7 @@ pub async fn process_batch_v2(
     }
 }
 
-async fn cache_updates(cache: &LayeredCache<NoOpCache>, updates: Vec<Update>) {
+async fn cache_updates(cache: &LayeredCache, updates: Vec<Update>) {
     let timer = common_metrics::timing_guard(V2_BATCH_CACHE_TIME, &[]);
     cache.insert_batch(updates).await;
     timer.fin();
@@ -287,7 +287,7 @@ async fn cache_updates(cache: &LayeredCache<NoOpCache>, updates: Vec<Update>) {
 async fn write_event_properties_batch(
     mut batch: EventPropertiesBatch,
     pool: &PgPool,
-    cache: Arc<LayeredCache<NoOpCache>>,
+    cache: Arc<LayeredCache>,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_WRITE_TIME, &[]);
     let mut tries = 1;
@@ -339,14 +339,13 @@ async fn write_event_properties_batch(
 async fn write_property_definitions_batch(
     mut batch: PropertyDefinitionsBatch,
     pool: &PgPool,
-    cache: Arc<LayeredCache<NoOpCache>>,
+    cache: Arc<LayeredCache>,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
     let updates = batch.drain();
 
     loop {
-        // what if we just ditch properties without a property_type set? why update on conflict at all?
         let result = sqlx::query(r#"
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
                 (SELECT * FROM UNNEST(
@@ -403,14 +402,13 @@ async fn write_property_definitions_batch(
 async fn write_event_definitions_batch(
     mut batch: EventDefinitionsBatch,
     pool: &PgPool,
-    cache: Arc<LayeredCache<NoOpCache>>,
+    cache: Arc<LayeredCache>,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
     let updates = batch.drain();
 
     loop {
-        // TODO: is last_seen_at critical to the product UX? "ON CONFLICT DO NOTHING" may be much cheaper...
         let result = sqlx::query(
             r#"
             INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)

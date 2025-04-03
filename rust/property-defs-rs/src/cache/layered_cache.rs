@@ -1,17 +1,17 @@
 use std::sync::Arc;
 use quick_cache::sync::Cache as InMemoryCache;
 use crate::types::Update;
-use super::secondary_cache::SecondaryCache;
+use super::{SecondaryCache, CacheOperations};
 use tracing::warn;
 
 #[derive(Clone)]
-pub struct LayeredCache<T: SecondaryCache> {
+pub struct LayeredCache {
     memory: Arc<InMemoryCache<Update, ()>>,
-    secondary: T,
+    secondary: SecondaryCache,
 }
 
-impl<T: SecondaryCache> LayeredCache<T> {
-    pub fn new(memory: Arc<InMemoryCache<Update, ()>>, secondary: T) -> Self {
+impl LayeredCache {
+    pub fn new(memory: Arc<InMemoryCache<Update, ()>>, secondary: SecondaryCache) -> Self {
         Self { memory, secondary }
     }
 
@@ -59,6 +59,10 @@ impl<T: SecondaryCache> LayeredCache<T> {
     pub fn len(&self) -> usize {
         self.memory.len()
     }
+
+    pub fn remove(&self, key: &Update) -> Option<()> {
+        self.memory.remove(key).map(|_| ())
+    }
 }
 
 #[cfg(test)]
@@ -71,7 +75,7 @@ mod tests {
     #[tokio::test]
     async fn test_layered_cache_basic() {
         let memory = Arc::new(InMemoryCache::new(1000));
-        let secondary = NoOpCache::new();
+        let secondary = SecondaryCache::NoOp(NoOpCache::new());
         let cache = LayeredCache::new(memory, secondary);
 
         let events: Vec<Update> = (0..3)
@@ -96,7 +100,7 @@ mod tests {
     #[tokio::test]
     async fn test_layered_cache_large() {
         let memory = Arc::new(InMemoryCache::new(10000));
-        let secondary = NoOpCache::new();
+        let secondary = SecondaryCache::NoOp(NoOpCache::new());
         let cache = LayeredCache::new(memory, secondary);
 
         let events: Vec<Update> = (0..3)

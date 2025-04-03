@@ -1,7 +1,23 @@
 use std::{num::ParseIntError, str::FromStr};
+use redis::IntoConnectionInfo;
 
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
+
+#[derive(Envconfig, Clone)]
+pub struct RedisConfig {
+    #[envconfig(default = "")]
+    pub url: String,
+}
+
+impl RedisConfig {
+    pub fn get_connection_info(&self) -> Option<redis::ConnectionInfo> {
+        if self.url.is_empty() {
+            return None;
+        }
+        self.url.clone().into_connection_info().ok()
+    }
+}
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -16,6 +32,9 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
+
+    #[envconfig(nested = true)]
+    pub redis: RedisConfig,
 
     // TODO(eli): after observing retry change, consider reducing potential tx contention by 20% (to "8")
     #[envconfig(default = "10")]

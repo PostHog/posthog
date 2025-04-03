@@ -1,5 +1,5 @@
 use crate::types::Update;
-use super::secondary_cache::SecondaryCache;
+use super::CacheOperations;
 use redis::RedisError;
 
 /// A no-op cache implementation that can be used in place of RedisCache when Redis caching is not desired
@@ -13,7 +13,7 @@ impl NoOpCache {
 }
 
 #[async_trait::async_trait]
-impl SecondaryCache for NoOpCache {
+impl CacheOperations for NoOpCache {
     async fn insert_batch(&self, _updates: &[Update]) -> Result<(), RedisError> {
         Ok(())
     }

@@ -1,5 +1,5 @@
 use crate::types::Update;
-use super::secondary_cache::SecondaryCache;
+use super::CacheOperations;
 use redis::RedisError;
 
 #[derive(Clone)]
@@ -11,13 +11,12 @@ pub struct RedisCache {
 impl RedisCache {
     pub async fn new(client: redis::Client, ttl: u64) -> Result<Self, RedisError> {
         let conn = redis::aio::ConnectionManager::new(client).await?;
-
         Ok(Self { conn, ttl })
     }
 }
 
 #[async_trait::async_trait]
-impl SecondaryCache for RedisCache {
+impl CacheOperations for RedisCache {
     async fn insert_batch(&self, updates: &[Update]) -> Result<(), RedisError> {
         if updates.is_empty() {
             return Ok(());
