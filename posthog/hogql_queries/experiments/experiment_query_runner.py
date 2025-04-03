@@ -30,6 +30,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.experiment import Experiment
 from posthog.hogql_queries.experiments.query_logic import (
+    funnel_steps_to_filter,
+    funnel_steps_to_window_funnel_expr,
     get_data_warehouse_metric_source,
     get_metric_value,
 )
@@ -50,7 +52,7 @@ from posthog.schema import (
     DateRange,
     IntervalType,
 )
-from typing import Optional, Union, cast
+from typing import Optional, cast
 from datetime import datetime, timedelta, UTC
 
 
@@ -270,39 +272,6 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
-    def _funnel_step_to_filter(self, funnel_step: Union[EventsNode, ActionsNode]) -> ast.Expr:
-        """
-        Returns the filter for a single funnel step.
-        """
-
-        if isinstance(funnel_step, ActionsNode):
-            try:
-                action = Action.objects.get(pk=int(funnel_step.id), team__project_id=self.team.project_id)
-                event_filter = action_to_expr(action)
-            except Action.DoesNotExist:
-                # If an action doesn't exist, we want to return no events
-                event_filter = ast.Constant(value=False)
-        else:
-            event_filter = ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=funnel_step.event),
-            )
-
-        if funnel_step.properties:
-            event_properties = ast.And(
-                exprs=[property_to_expr(property, self.team) for property in funnel_step.properties]
-            )
-            event_filter = ast.And(exprs=[event_filter, event_properties])
-
-        return event_filter
-
-    def _funnel_steps_to_filter(self, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
-        """
-        Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
-        """
-        return ast.Or(exprs=[self._funnel_step_to_filter(funnel_step) for funnel_step in funnel_steps])
-
     def _get_metric_events_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
         Returns the query to get the relevant metric events. One row per event, so multiple rows per entity.
@@ -441,7 +410,7 @@ class ExperimentQueryRunner(QueryRunner):
                         exprs=[
                             *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                             *self._get_test_accounts_filter(),
-                            self._funnel_steps_to_filter(metric.series),
+                            funnel_steps_to_filter(self.team, metric.series),
                         ],
                     ),
                 )
@@ -449,44 +418,12 @@ class ExperimentQueryRunner(QueryRunner):
             case _:
                 raise ValueError(f"Unsupported metric: {self.metric}")
 
-    def _funnel_steps_to_window_funnel_expr(self, funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
-        """
-        Returns the expression for the window funnel. The expression returns 1 if the user completed the whole funnel, 0 if they didn't.
-        """
-
-        def _get_node_name(node: EventsNode | ActionsNode) -> str:
-            if isinstance(node, ActionsNode):
-                if node.name:
-                    return node.name
-                else:
-                    raise ValueError(f"Action {node.id} has no name")
-            else:
-                if node.event:
-                    return node.event
-                else:
-                    raise ValueError(f"Event {node.event} has no name")
-
-        funnel_steps_str = ", ".join(
-            [f"event = {ast.Constant(value=_get_node_name(step)).to_hogql()}" for step in funnel_metric.series]
-        )
-
-        # TODO: get conversion time window from funnel config
-        num_steps = len(funnel_metric.series)
-        conversion_time_window = 6048000000000000
-        return parse_expr(
-            f"windowFunnel({conversion_time_window})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
-            placeholders={
-                "conversion_time_window": ast.Constant(value=conversion_time_window),
-                "num_steps": ast.Constant(value=num_steps),
-            },
-        )
-
     def _get_metric_aggregation_expr(self) -> ast.Expr:
         match self.metric:
             case ExperimentMeanMetric():
                 return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
             case ExperimentFunnelMetric():
-                return self._funnel_steps_to_window_funnel_expr(self.metric)
+                return funnel_steps_to_window_funnel_expr(self.metric)
 
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
