@@ -14,6 +14,15 @@ class Migration(migrations.Migration):
             name="kind",
             field=models.CharField(
                 blank=True,
+                max_length=24,
+                null=True,
+            ),
+        ),
+        migrations.AlterField(
+            model_name="hogfunction",
+            name="kind",
+            field=models.CharField(
+                blank=True,
                 choices=[
                     ("messaging_campaign", "Messaging Campaign"),
                 ],
