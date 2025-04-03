@@ -1999,10 +1999,11 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         from posthog.tasks.usage_report import capture_report
 
         # Create additional test users in the organization
-        user2 = User.objects.create(email="test2@posthog.com")
-        user3 = User.objects.create(email="test3@posthog.com")
-        OrganizationMembership.objects.create(user=user2, organization=self.organization)
-        OrganizationMembership.objects.create(user=user3, organization=self.organization)
+        users = [self.user]  # Include existing test user
+        for i in range(2001):  # Create 2001 users to test truncation
+            user = User.objects.create(email=f"test{i}@posthog.com")
+            OrganizationMembership.objects.create(user=user, organization=self.organization)
+            users.append(user)
 
         mock_pha_client = MagicMock()
         mock_client.return_value = mock_pha_client
@@ -2015,11 +2016,17 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
 
         # Verify update_group_properties was called with correct member emails
-        mock_pha_client.group_identify.assert_called_once_with(
-            "organization",
-            str(self.organization.id),
-            {"member_emails": [self.user.email, "test2@posthog.com", "test3@posthog.com"]},
-        )
+        mock_pha_client.group_identify.assert_called_once()
+        call_args = mock_pha_client.group_identify.call_args[0]
+        self.assertEqual(call_args[0], "organization")
+        self.assertEqual(call_args[1], str(self.organization.id))
+
+        # Verify the email string format
+        emails_string = call_args[2]["member_emails"]
+        self.assertTrue(emails_string.endswith("..."))  # Should be truncated
+        email_list = emails_string.replace("...", "").split(",")
+        self.assertEqual(len(email_list), 2000)  # Should have exactly 2000 emails
+        self.assertEqual(email_list[0], self.user.email)  # First user should be the test user
 
         # Verify capture was also called as expected
         mock_pha_client.capture.assert_called_once()
