@@ -3226,6 +3226,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(rates["response_rate"], 50.0)  # 1 sent / 2 shown
         self.assertEqual(rates["dismissal_rate"], 50.0)  # 1 dismissed / 2 shown
 
+    @snapshot_clickhouse_queries
     @freeze_time("2024-05-01 14:40:09")
     def test_global_survey_stats(self):
         # Create two surveys
@@ -3283,6 +3284,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(rates["response_rate"], 75.0)  # 3 sent / 4 shown
         self.assertEqual(rates["dismissal_rate"], 25.0)  # 1 dismissed / 4 shown
 
+    @snapshot_clickhouse_queries
     @freeze_time("2024-05-01 14:40:09")
     def test_survey_stats_with_date_filtering(self):
         survey = Survey.objects.create(
