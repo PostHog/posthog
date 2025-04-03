@@ -30,11 +30,13 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.hogql_queries.experiments.base_query_utils import (
     event_or_action_to_filter,
+    get_data_warehouse_metric_source,
+    get_metric_value,
+)
+from posthog.hogql_queries.experiments.funnel_query_utils import (
     funnel_steps_to_filter,
     funnel_steps_to_window_funnel_expr,
-    get_data_warehouse_metric_source,
     get_funnel_step_level_expr,
-    get_metric_value,
 )
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
