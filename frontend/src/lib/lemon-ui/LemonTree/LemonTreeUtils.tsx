@@ -54,7 +54,7 @@ export function renderTreeNodeDisplayItem({
                 >
                     <LemonCheckbox
                         className="size-5 ml-[2px]"
-                        checked={item.checked}
+                        checked={item.checked ?? false}
                         onChange={(checked) => {
                             handleCheckedChange?.(checked)
                         }}

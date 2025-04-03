@@ -41,6 +41,7 @@ export function ProjectTree(): JSX.Element {
         onItemChecked,
         moveCheckedItems,
         copyCheckedItems,
+        setCheckedItems,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -164,8 +165,10 @@ export function ProjectTree(): JSX.Element {
         <PanelLayoutPanel
             searchPlaceholder="Search your project"
             panelActions={
-                checkedItemsCount !== '0' ? (
-                    <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+                checkedItemsCount !== '0' && checkedItemsCount !== '0+' ? (
+                    <ButtonPrimitive onClick={() => setCheckedItems({})} tooltip="Clear">
+                        <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+                    </ButtonPrimitive>
                 ) : (
                     <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
                         <IconFolderPlus className="text-tertiary" />
