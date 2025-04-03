@@ -953,7 +953,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 missing_resources = ", ".join(e.missing_permissions.keys())
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Invalid credentials: Stripe API key lacks permissions for: {missing_resources}"},
+                    data={"message": f"Invalid credentials: Stripe API key lacks permissions for {missing_resources}"},
                 )
             except Exception:
                 return Response(
