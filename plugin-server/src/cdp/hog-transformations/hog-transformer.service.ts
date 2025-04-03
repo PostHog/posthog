@@ -53,7 +53,6 @@ export const hogWatcherLatency = new Histogram({
 export interface TransformationResultPure {
     event: PluginEvent | null
     invocationResults: HogFunctionInvocationResult[]
-    watcherPromises: Promise<void>[]
 }
 
 export interface TransformationResult extends TransformationResultPure {
@@ -133,10 +132,29 @@ export class HogTransformerService {
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
+                const messagePromises: Promise<void>[] = [this.hogFunctionMonitoringService.produceQueuedMessages()]
+
+                const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+
+                if (shouldRunHogWatcher) {
+                    const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
+                    messagePromises.push(
+                        this.hogWatcher
+                            .observeResults(transformationResult.invocationResults)
+                            .then(() => {
+                                timer() // Stop the timer when the promise resolves
+                            })
+                            .catch((error) => {
+                                timer() // Make sure to stop the timer even if there's an error
+                                logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
+                            })
+                    )
+                }
+
                 hogTransformationCompleted.inc({ type: 'with_messages' })
                 return {
                     ...transformationResult,
-                    messagePromises: [this.hogFunctionMonitoringService.produceQueuedMessages()],
+                    messagePromises,
                 }
             },
         })
@@ -232,7 +250,6 @@ export class HogTransformerService {
                         return {
                             event: null,
                             invocationResults: results,
-                            watcherPromises: [],
                         }
                     }
 
@@ -285,22 +302,6 @@ export class HogTransformerService {
                     transformationsSucceeded.push(transformationIdentifier)
                 }
 
-                // Observe the results to update degraded state of HogFunctions
-                const watcherPromises: Promise<void>[] = []
-                if (shouldRunHogWatcher) {
-                    const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
-                    const watcherPromise = this.hogWatcher
-                        .observeResults(results)
-                        .then(() => {
-                            timer() // Stop the timer when the promise resolves
-                        })
-                        .catch((error) => {
-                            timer() // Make sure to stop the timer even if there's an error
-                            logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
-                        })
-                    watcherPromises.push(watcherPromise)
-                }
-
                 if (transformationsFailed.length > 0) {
                     event.properties = {
                         ...event.properties,
@@ -325,7 +326,6 @@ export class HogTransformerService {
                 return {
                     event,
                     invocationResults: results,
-                    watcherPromises,
                 }
             },
         })

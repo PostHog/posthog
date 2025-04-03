@@ -1323,7 +1323,7 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(observeResultsSpy).not.toHaveBeenCalled()
-            expect(result.watcherPromises?.length).toBe(0)
+            expect(result.messagePromises.length).toBe(1) // Only the produceQueuedMessages promise
 
             observeResultsSpy.mockRestore()
         })
@@ -1367,7 +1367,7 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(observeResultsSpy).toHaveBeenCalled()
-            expect(result.watcherPromises?.length).toBe(1)
+            expect(result.messagePromises.length).toBe(2) // Both produceQueuedMessages and observeResults promises
 
             observeResultsSpy.mockRestore()
         })
