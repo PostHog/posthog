@@ -63,7 +63,7 @@ export function Campaigns(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <FunctionsTable type="campaign" />
+            <FunctionsTable type="destination" kind="messaging_campaign" />
         </>
     )
 }

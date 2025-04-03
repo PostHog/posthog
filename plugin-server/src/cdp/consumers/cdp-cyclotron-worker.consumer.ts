@@ -26,7 +26,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private cyclotronWorker?: CyclotronWorker
     private runningWorker: Promise<void> | undefined
     protected queue: 'hog' | 'fetch' | 'plugin' = 'hog'
-    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination', 'campaign']
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
         return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))

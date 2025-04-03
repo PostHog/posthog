@@ -48,7 +48,10 @@ class HogFunctionType(models.TextChoices):
     TRANSFORMATION = "transformation"
     EMAIL = "email"
     BROADCAST = "broadcast"
-    CAMPAIGN = "campaign"
+
+
+class HogFunctionKind(models.TextChoices):
+    MESSAGING_CAMPAIGN = "messaging_campaign"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
@@ -56,14 +59,12 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.BROADCAST,
-    HogFunctionType.CAMPAIGN,
 )
 TYPES_WITH_COMPILED_FILTERS = (
     HogFunctionType.DESTINATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.BROADCAST,
-    HogFunctionType.CAMPAIGN,
 )
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
@@ -84,6 +85,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
     type = models.CharField(max_length=24, null=True, blank=True)
+    kind = models.CharField(max_length=24, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
 

@@ -3,12 +3,13 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template_new_campaign: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     free=True,
-    type="campaign",
+    type="destination",
     id="template-new-campaign",
     name="Campaign",
     description="Automated email campaign triggered by your event",
     icon_url="/static/hedgehog/explorer-hog.png",
     category=["Email Marketing"],
+    kind="messaging_campaign",
     hog="""sendEmail(inputs)""".strip(),
     inputs_schema=[
         {

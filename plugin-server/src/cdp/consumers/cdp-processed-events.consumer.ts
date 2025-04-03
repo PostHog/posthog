@@ -28,7 +28,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
     protected topic = KAFKA_EVENTS_JSON
     protected groupId = 'cdp-processed-events-consumer'
-    protected hogTypes: HogFunctionTypeType[] = ['destination', 'campaign']
+    protected hogTypes: HogFunctionTypeType[] = ['destination']
 
     private cyclotronManager?: CyclotronManager
 
@@ -178,7 +178,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                                 const [teamHogFunctions, team] = await Promise.all([
                                     this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, [
                                         'destination',
-                                        'campaign',
                                     ]),
                                     this.hub.teamManager.fetchTeam(clickHouseEvent.team_id),
                                 ])
