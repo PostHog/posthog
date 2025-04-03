@@ -639,10 +639,12 @@ class TestResolver(BaseTest):
             assert selected.type == ast.DateTimeType(nullable=False)
 
     def test_recording_button_tag(self):
-        node: ast.SelectQuery = self._select("select <RecordingButton sessionId={'12345'} />")
+        node: ast.SelectQuery = self._select(
+            "select <RecordingButton sessionId={'12345'} recordingStatus={'active'} />"
+        )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
-        node2 = self._select("select recording_button('12345')")
+        node2 = self._select("select recording_button('12345', 'active')")
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2
 

@@ -17,6 +17,7 @@ from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -37,7 +38,32 @@ async def create_sync_vectors_schedule(client: Client):
         await a_create_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule, trigger_immediately=True)
 
 
-schedules = [create_sync_vectors_schedule]
+async def create_run_quota_limiting_schedule(client: Client):
+    """Create or update the schedule for the RunQuotaLimitingWorkflow.
+
+    This schedule runs every 30 minutes at the 15th and 45th minute of every hour.
+    """
+    run_quota_limiting_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "run-quota-limiting",
+            asdict(RunQuotaLimitingInputs()),
+            id="run-quota-limiting-schedule",
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            cron_expressions=["15,45 * * * *"]  # Run at minutes 15 and 45 of every hour
+        ),
+    )
+
+    if await a_schedule_exists(client, "run-quota-limiting-schedule"):
+        await a_update_schedule(client, "run-quota-limiting-schedule", run_quota_limiting_schedule)
+    else:
+        await a_create_schedule(
+            client, "run-quota-limiting-schedule", run_quota_limiting_schedule, trigger_immediately=False
+        )
+
+
+schedules = [create_sync_vectors_schedule, create_run_quota_limiting_schedule]
 
 
 async def a_init_general_queue_schedules():

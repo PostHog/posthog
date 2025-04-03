@@ -35,6 +35,10 @@ pub struct FlagRequest {
     pub ip_address: Option<String>,
     #[serde(default)]
     pub flag_keys: Option<Vec<String>>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
+    pub cookieless_hash_extra: Option<String>,
 }
 
 impl FlagRequest {

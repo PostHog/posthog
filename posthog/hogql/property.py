@@ -250,6 +250,11 @@ def _expr_to_compare_op(
             left=apply_path_cleaning(expr, team),
             right=apply_path_cleaning(ast.Constant(value=value), team),
         )
+    elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
+        if not isinstance(value, list):
+            raise Exception("IN and NOT IN operators require a list of values")
+        op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
+        return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
@@ -448,7 +453,20 @@ def property_to_expr(
             elif len(value) == 1:
                 value = value[0]
             else:
-                # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
+                if operator in (
+                    PropertyOperator.EXACT,
+                    PropertyOperator.IS_NOT,
+                    PropertyOperator.IN_,
+                    PropertyOperator.NOT_IN,
+                ):
+                    op = (
+                        ast.CompareOperationOp.In
+                        if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
+                        else ast.CompareOperationOp.NotIn
+                    )
+                    return ast.CompareOperation(
+                        op=op, left=field, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+                    )
                 exprs = [
                     property_to_expr(
                         Property(

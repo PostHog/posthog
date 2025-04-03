@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import QuerySet
 import posthoganalytics
 from rest_framework import filters, serializers, viewsets, pagination, status
@@ -19,7 +20,7 @@ from posthog.models.team import Team
 def has_permissions_to_access_tree_view(user, team):
     tree_view_enabled = posthoganalytics.feature_enabled(
         "tree-view",
-        str(team.organization_id),
+        str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
     )
@@ -103,7 +104,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = FileSystemSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
-    search_fields = ["path"]
+    search_fields = ["path", "ref", "type"]
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -114,6 +115,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
+        type_param = self.request.query_params.get("type")
+        type__startswith_param = self.request.query_params.get("type__startswith")
+        ref_param = self.request.query_params.get("ref")
 
         if depth_param is not None:
             try:
@@ -124,6 +128,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
+        if type_param:
+            queryset = queryset.filter(type=type_param)
+        if type__startswith_param:
+            queryset = queryset.filter(type__startswith=type__startswith_param)
+        if ref_param:
+            queryset = queryset.filter(ref=ref_param)
 
         if self.action == "list":
             queryset = queryset.order_by("path")
@@ -146,6 +156,54 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(methods=["POST"], detail=True)
+    def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        new_path = request.data.get("new_path")
+        if not new_path:
+            return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+        if targets and any(target.type != "folder" for target in targets):
+            return Response({"detail": "Cannot move into a file"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if instance.type == "folder":
+            if new_path.startswith(instance.path):
+                return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+
+            with transaction.atomic():
+                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                    file.path = new_path + file.path[len(instance.path) :]
+                    file.depth = len(split_path(file.path))
+                    file.save()
+
+                if any(target.type == "folder" for target in targets):
+                    # TODO: merge access controls once those are in place
+                    instance.delete()
+                else:
+                    instance.path = new_path
+                    instance.depth = len(split_path(instance.path))
+                    instance.save()
+
+        else:
+            instance.path = new_path
+            instance.depth = len(split_path(instance.path))
+            instance.save()
+
+        return Response(
+            "OK",
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["POST"], detail=True)
+    def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get count of all files in a folder."""
+        instance = self.get_object()
+        if instance.type != "folder":
+            return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
+        count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
+        return Response({"count": count}, status=status.HTTP_200_OK)
 
 
 def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:

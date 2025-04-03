@@ -13,6 +13,7 @@ from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOW
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
+from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
 
 
 class Command(BaseCommand):
@@ -113,6 +114,7 @@ class Command(BaseCommand):
             + PROXY_SERVICE_WORKFLOWS
             + DELETE_PERSONS_WORKFLOWS
             + USAGE_REPORTS_WORKFLOWS
+            + QUOTA_LIMITING_WORKFLOWS
             + TEST_WORKFLOWS
         )
         try:

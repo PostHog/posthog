@@ -130,7 +130,10 @@ impl AppContext {
         }
     }
 
-    async fn resolve_group_types_indexes(&self, updates: &mut [Update]) -> Result<(), sqlx::Error> {
+    pub async fn resolve_group_types_indexes(
+        &self,
+        updates: &mut [Update],
+    ) -> Result<(), sqlx::Error> {
         if self.skip_reads {
             return Ok(());
         }

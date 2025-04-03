@@ -22,7 +22,6 @@ SHARDED_TABLES = [
     "sharded_heatmaps",
     "sharded_ingestion_warnings",
     "sharded_performance_events",
-    "sharded_person_distinct_id",
     "sharded_raw_sessions",
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
@@ -41,7 +40,6 @@ NON_SHARDED_TABLES = [
     "exchange_rate",
     "groups",
     "infi_clickhouse_orm_migrations",
-    "infi_clickhouse_orm_migrations_tmp",
     "log_entries",
     "metrics_query_log",
     "metrics_time_to_see_data",
@@ -50,7 +48,6 @@ NON_SHARDED_TABLES = [
     "person_collapsing",
     "person_distinct_id",
     "person_distinct_id2",
-    "person_distinct_id_backup",
     "person_distinct_id_overrides",
     "person_overrides",
     "person_static_cohort",
@@ -266,8 +263,10 @@ def check_latest_backup_status(
 
     def map_hosts(func: Callable[[Client], Any]):
         if latest_backup.shard:
-            return cluster.map_all_hosts_in_shard(fn=func, shard_num=latest_backup.shard)
-        return cluster.map_all_hosts(fn=func)
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=latest_backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
 
     is_done = map_hosts(latest_backup.is_done).result().values()
     if not all(is_done):
@@ -343,8 +342,10 @@ def wait_for_backup(
 
     def map_hosts(func: Callable[[Client], Any]):
         if backup.shard:
-            return cluster.map_all_hosts_in_shard(fn=func, shard_num=backup.shard)
-        return cluster.map_all_hosts(fn=func)
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
 
     if backup:
         map_hosts(backup.wait).result().values()
