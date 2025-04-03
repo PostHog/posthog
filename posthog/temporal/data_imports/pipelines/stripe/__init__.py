@@ -440,7 +440,7 @@ def validate_credentials(api_key: str) -> bool:
     for resource in resources_to_check:
         try:
             # This will raise an exception if we don't have access
-            resource["method"](params=resource["params"])
+            resource["method"](**resource["params"])
         except Exception as e:
             # Store the resource name and error message
             missing_permissions[resource["name"]] = str(e)
