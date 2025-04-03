@@ -510,50 +510,50 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         // exception tracking
         $exception_list: {
-            label: 'Exception List',
+            label: 'Exception list',
             description: 'List of one or more associated exceptions.',
         },
         $exception_level: {
-            label: 'Exception Level',
+            label: 'Exception level',
             description: 'Exception categorized by severity.',
             examples: ['error'],
         },
         $exception_type: {
-            label: 'Exception Type',
+            label: 'Exception type',
             description: 'Exception categorized into types.',
             examples: ['Error'],
         },
         $exception_message: {
-            label: 'Exception Message',
+            label: 'Exception message',
             description: 'The message detected on the error.',
         },
         $exception_fingerprint: {
-            label: 'Exception Fingerprint',
+            label: 'Exception fingerprint',
             description: 'A fingerprint used to group issues, can be set clientside.',
         },
         $exception_proposed_fingerprint: {
-            label: 'Exception Proposed Fingerprint',
+            label: 'Exception proposed fingerprint',
             description: 'The fingerprint used to group issues. Auto generated unless provided clientside.',
         },
         $exception_issue_id: {
-            label: 'Exception Issue ID',
+            label: 'Exception issue ID',
             description: 'The id of the issue the fingerprint was associated with at ingest time.',
         },
         $exception_source: {
-            label: 'Exception Source',
+            label: 'Exception source',
             description: 'The source of the exception.',
             examples: ['JS file'],
         },
         $exception_lineno: {
-            label: 'Exception Source Line Number',
+            label: 'Exception source line number',
             description: 'Which line in the exception source that caused the exception.',
         },
         $exception_colno: {
-            label: 'Exception Source Column Number',
+            label: 'Exception source column number',
             description: 'Which column of the line in the exception source that caused the exception.',
         },
         $exception_DOMException_code: {
-            label: 'DOMException Code',
+            label: 'DOMException code',
             description: 'If a DOMException was thrown, it also has a DOMException code.',
         },
         $exception_is_synthetic: {
@@ -561,51 +561,51 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'Whether this was detected as a synthetic exception.',
         },
         $exception_stack_trace_raw: {
-            label: 'Exception Raw Stack Trace',
+            label: 'Exception raw stack trace',
             description: 'The exceptions stack trace, as a string.',
         },
         $exception_handled: {
-            label: 'Exception Was Handled',
+            label: 'Exception was handled',
             description: 'Whether this was a handled or unhandled exception.',
         },
         $exception_personURL: {
-            label: 'Exception Person URL',
+            label: 'Exception person URL',
             description: 'The PostHog person that experienced the exception.',
         },
         $cymbal_errors: {
-            label: 'Exception Processing Errors',
+            label: 'Exception processing errors',
             description: 'Errors encountered while trying to process exceptions.',
             system: true,
         },
         $exception_capture_endpoint: {
-            label: 'Exception Capture Endpoint',
+            label: 'Exception capture endpoint',
             description: 'Endpoint used by posthog-js exception autocapture.',
             examples: ['/e/'],
         },
         $exception_capture_endpoint_suffix: {
-            label: 'Exception Capture Endpoint Suffix',
+            label: 'Exception capture endpoint suffix',
             description: 'Endpoint used by posthog-js exception autocapture.',
             examples: ['/e/'],
         },
         $exception_capture_enabled_server_side: {
-            label: 'Exception Capture Enabled Server Side',
+            label: 'Exception capture enabled server side',
             description: 'Whether exception autocapture was enabled in remote config.',
         },
         // TODO - most of the rest of these are legacy, I think?
         $sentry_exception: {
-            label: 'Sentry Exception',
+            label: 'Sentry exception',
             description: 'Raw Sentry exception data.',
             system: true,
         },
         $sentry_exception_message: {
-            label: 'Sentry Exception Message',
+            label: 'Sentry exception message',
         },
         $sentry_exception_type: {
-            label: 'Sentry Exception Type',
+            label: 'Sentry exception type',
             description: 'Class name of the exception object.',
         },
         $sentry_tags: {
-            label: 'Sentry Tags',
+            label: 'Sentry tags',
             description: 'Tags sent to Sentry along with the exception',
         },
 
