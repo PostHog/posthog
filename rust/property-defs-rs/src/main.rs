@@ -85,7 +85,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secondary_cache = if let Some(conn_info) = config.redis.get_connection_info() {
         let redis_client = redis::Client::open(conn_info)
             .map_err(|e| format!("Failed to create Redis client: {}", e))?;
-        SecondaryCache::Redis(RedisCache::new(redis_client, 3600).await
+        SecondaryCache::Redis(RedisCache::new(
+            redis_client,
+            3600,
+            config.redis.batch_fetch_limit,
+            config.redis.batch_update_limit
+        ).await
             .map_err(|e| format!("Failed to create Redis cache: {}", e))?)
     } else {
         SecondaryCache::NoOp(NoOpCache::new())

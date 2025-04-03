@@ -8,6 +8,12 @@ use envconfig::Envconfig;
 pub struct RedisConfig {
     #[envconfig(default = "")]
     pub url: String,
+
+    #[envconfig(default = "100")]
+    pub batch_fetch_limit: usize,
+
+    #[envconfig(default = "100")]
+    pub batch_update_limit: usize,
 }
 
 impl RedisConfig {
