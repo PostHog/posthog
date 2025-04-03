@@ -1415,7 +1415,6 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
-    DASHBOARD = 'dashboard',
 }
 
 export enum LayoutView {
