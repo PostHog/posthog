@@ -36,7 +36,10 @@ describe('remove-null-properties.template', () => {
             },
         })
 
-        const response = await tester.invoke({}, mockGlobals)
+        const responses = await tester.invoke({}, mockGlobals)
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -66,7 +69,10 @@ describe('remove-null-properties.template', () => {
             },
         })
 
-        const response = await tester.invoke({}, mockGlobals)
+        const responses = await tester.invoke({}, mockGlobals)
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -88,7 +94,10 @@ describe('remove-null-properties.template', () => {
             },
         })
 
-        const response = await tester.invoke({}, mockGlobals)
+        const responses = await tester.invoke({}, mockGlobals)
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -118,7 +127,10 @@ describe('remove-null-properties.template', () => {
             },
         })
 
-        const response = await tester.invoke({}, mockGlobals)
+        const responses = await tester.invoke({}, mockGlobals)
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -154,7 +166,10 @@ describe('remove-null-properties.template', () => {
             },
         })
 
-        const response = await tester.invoke({}, mockGlobals)
+        const responses = await tester.invoke({}, mockGlobals)
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
