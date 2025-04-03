@@ -23,7 +23,15 @@ pushd "$SCRIPT_DIR/../.."
 DEBUG=true TEST=true python manage.py setup_test_environment --only-postgres
 popd
 
+# Ensure schema export and migration tools are installed
 check_install_pinned_sqlx_cli
+check_pg_dump_installed
+
+# Export test_posthog schemas into local Rust workspace for sqlx::test
+RUST_MIGRATIONS="$SCRIPT_DIR/../migrations"
+MIGRATION_FILE="$RUST_MIGRATIONS/20250402111111-posthog_schemas.sql"
+mkdir -p "$RUST_MIGRATIONS"
+pg_dump --user posthog --host localhost --port 5432 --schema-only --dbname test_posthog --file="$MIGRATION_FILE" --schema=public
 
 # Allow for overriding DATABASE_URL set by `posthog/rust/.env` in this script
 DB_HOST="${DB_HOST:-postgres://posthog:posthog@localhost:5432}"
