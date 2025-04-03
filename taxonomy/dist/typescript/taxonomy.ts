@@ -11,23 +11,19 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $pageleave: {
             label: 'Pageleave',
             description: 'When a user leaves a page.',
-            ignored_in_assistant: true,
         },
         $autocapture: {
             label: 'Autocapture',
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
-            ignored_in_assistant: true,
         },
         $$heatmap: {
             label: 'Heatmap',
             description: 'Heatmap events carry heatmap data to the backend, they do not contribute to event counts.',
-            ignored_in_assistant: true,
         },
         $copy_autocapture: {
             label: 'Clipboard autocapture',
             description: 'Selected text automatically captured when a user copies or cuts.',
-            ignored_in_assistant: true,
         },
         $screen: {
             label: 'Screen',
@@ -36,28 +32,23 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $set: {
             label: 'Set person properties',
             description: 'Setting person properties. Sent as `$set`',
-            ignored_in_assistant: true,
         },
         $opt_in: {
             label: 'Opt In',
             description: 'When a user opts into analytics.',
-            ignored_in_assistant: true,
         },
         $feature_flag_called: {
             label: 'Feature Flag Called',
             description: 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try "Active Feature Flags".',
             examples: ['beta-feature'],
-            ignored_in_assistant: true,
         },
         $feature_view: {
             label: 'Feature View',
             description: 'When a user views a feature.',
-            ignored_in_assistant: true,
         },
         $feature_interaction: {
             label: 'Feature Interaction',
             description: 'When a user interacts with a feature.',
-            ignored_in_assistant: true,
         },
         $feature_enrollment_update: {
             label: 'Feature Enrollment',
@@ -66,7 +57,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $capture_metrics: {
             label: 'Capture Metrics',
             description: 'Metrics captured with values pertaining to your systems at a specific point in time',
-            ignored_in_assistant: true,
         },
         $identify: {
             label: 'Identify',
@@ -75,17 +65,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $create_alias: {
             label: 'Alias',
             description: 'An alias ID has been added to a user',
-            ignored_in_assistant: true,
         },
         $merge_dangerously: {
             label: 'Merge',
             description: 'An alias ID has been added to a user',
-            ignored_in_assistant: true,
         },
         $groupidentify: {
             label: 'Group Identify',
             description: 'A group has been identified with properties',
-            ignored_in_assistant: true,
         },
         $rageclick: {
             label: 'Rageclick',
@@ -183,15 +170,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Timestamp',
             description: 'Time the event happened.',
             examples: ['2023-05-20T15:30:00Z'],
-            system: true,
-            ignored_in_assistant: true,
         },
         event: {
             label: 'Event',
             description: 'The name of the event.',
             examples: ['$pageview'],
-            system: true,
-            ignored_in_assistant: true,
         },
     },
     event_properties: {
@@ -199,122 +182,91 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Python Runtime',
             description: 'The Python runtime that was used to capture the event.',
             examples: ['CPython'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $python_version: {
             label: 'Python Version',
             description: 'The Python version that was used to capture the event.',
             examples: ['3.11.5'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $sdk_debug_replay_internal_buffer_length: {
             label: 'Replay internal buffer length',
             description: 'Useful for debugging. The internal buffer length for replay.',
             examples: ['100'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $sdk_debug_replay_internal_buffer_size: {
             label: 'Replay internal buffer size',
             description: 'Useful for debugging. The internal buffer size for replay.',
             examples: ['100'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $sdk_debug_retry_queue_size: {
             label: 'Retry queue size',
             description: 'Useful for debugging. The size of the retry queue.',
             examples: ['100'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $last_posthog_reset: {
             label: 'Timestamp of last call to `Reset` in the web sdk',
             description: 'The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.',
-            ignored_in_assistant: true,
-            system: true,
         },
         $copy_type: {
             label: 'Copy Type',
             description: 'Type of copy event.',
             examples: ['copy', 'cut'],
-            ignored_in_assistant: true,
         },
         $selected_content: {
             label: 'Copied content',
             description: 'The content that was selected when the user copied or cut.',
-            ignored_in_assistant: true,
         },
         $set: {
             label: 'Set person properties',
             description: 'Person properties to be set. Sent as `$set`',
-            ignored_in_assistant: true,
         },
         $set_once: {
             label: 'Set person properties once',
             description: 'Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`',
-            ignored_in_assistant: true,
         },
         $pageview_id: {
             label: 'Pageview ID',
             description: 'PostHog\'s internal ID for matching events to a pageview.',
-            system: true,
-            ignored_in_assistant: true,
         },
         $autocapture_disabled_server_side: {
             label: 'Autocapture Disabled Server-Side',
             description: 'If autocapture has been disabled server-side.',
-            system: true,
-            ignored_in_assistant: true,
         },
         $console_log_recording_enabled_server_side: {
             label: 'Console Log Recording Enabled Server-Side',
             description: 'If console log recording has been enabled server-side.',
-            system: true,
-            ignored_in_assistant: true,
         },
         $session_recording_recorder_version_server_side: {
             label: 'Session Recording Recorder Version Server-Side',
             description: 'The version of the session recording recorder that is enabled server-side.',
             examples: ['v2'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $session_is_sampled: {
             label: 'Whether the session is sampled',
             description: 'Whether the session is sampled for session recording.',
             examples: ['true', 'false'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $feature_flag_payloads: {
             label: 'Feature Flag Payloads',
             description: 'Feature flag payloads active in the environment.',
-            ignored_in_assistant: true,
         },
         $capture_failed_request: {
             label: 'Capture Failed Request',
             description: '',
-            ignored_in_assistant: true,
         },
         $lib_rate_limit_remaining_tokens: {
             label: 'Clientside rate limit remaining tokens',
             description: 'Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.',
             examples: ['100'],
-            ignored_in_assistant: true,
         },
         token: {
             label: 'Token',
             description: 'Token used for authentication.',
             examples: ['ph_abcdefg'],
-            ignored_in_assistant: true,
         },
         $sentry_exception: {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
-            system: true,
         },
         $sentry_exception_message: {
             label: 'Sentry exception message',
@@ -330,7 +282,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $exception_list: {
             label: 'Exception list',
             description: 'List of one or more associated exceptions',
-            system: true,
         },
         $exception_level: {
             label: 'Exception level',
@@ -394,7 +345,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $cymbal_errors: {
             label: 'Exception processing errors',
             description: 'Errors encountered while trying to process exceptions',
-            system: true,
         },
         $exception_capture_endpoint: {
             label: 'Exception capture endpoint',
@@ -413,13 +363,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $ce_version: {
             label: '$ce_version',
             description: '',
-            system: true,
         },
         $anon_distinct_id: {
             label: 'Anon Distinct ID',
             description: 'If the user was previously anonymous, their anonymous ID will be set here.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-            system: true,
         },
         $event_type: {
             label: 'Event Type',
@@ -429,12 +377,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $insert_id: {
             label: 'Insert ID',
             description: 'Unique insert ID for the event.',
-            system: true,
         },
         $time: {
             label: '$time (deprecated)',
             description: 'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
-            system: true,
             examples: ['1681211521.345'],
         },
         $browser_type: {
@@ -446,64 +392,53 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Device ID',
             description: 'Unique ID for that device, consistent even if users are logging in/out.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-            system: true,
         },
         $replay_minimum_duration: {
             label: 'Replay config - minimum duration',
             description: 'Config for minimum duration before emitting a session recording.',
             examples: ['1000'],
-            system: true,
         },
         $replay_sample_rate: {
             label: 'Replay config - sample rate',
             description: 'Config for sampling rate of session recordings.',
             examples: ['0.1'],
-            system: true,
         },
         $session_recording_start_reason: {
             label: 'Session recording start reason',
             description: 'Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.',
             examples: ['sampling_override', 'recording_initialized', 'linked_flag_match'],
-            system: true,
         },
         $session_recording_canvas_recording: {
             label: 'Session recording canvas recording',
             description: 'Session recording canvas capture config.',
             examples: ['{"enabled": false}'],
-            system: true,
         },
         $session_recording_network_payload_capture: {
             label: 'Session recording network payload capture',
             description: 'Session recording network payload capture config.',
             examples: ['{"recordHeaders": false}'],
-            system: true,
         },
         $configured_session_timeout_ms: {
             label: 'Configured session timeout',
             description: 'Configured session timeout in milliseconds.',
             examples: ['1800000'],
-            system: true,
         },
         $replay_script_config: {
             label: 'Replay script config',
             description: 'Sets an alternative recorder script for the web sdk.',
             examples: ['{"script": "recorder-next""}'],
-            system: true,
         },
         $session_recording_url_trigger_activated_session: {
             label: 'Session recording URL trigger activated session',
             description: 'Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.',
-            system: true,
         },
         $session_recording_url_trigger_status: {
             label: 'Session recording URL trigger status',
             description: 'Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.',
-            system: true,
         },
         $recording_status: {
             label: 'Session recording status',
             description: 'The status of session recording at the time the event was captured',
-            system: true,
         },
         $geoip_city_name: {
             label: 'City Name',
@@ -539,8 +474,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Postal Code identification confidence score',
             description: 'If provided by the licensed geoip database',
             examples: ['null', '0.1'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $geoip_latitude: {
             label: 'Latitude',
@@ -579,7 +512,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Subdivision 2 identification confidence score',
             description: 'If provided by the licensed geoip database',
             examples: ['null', '0.1'],
-            ignored_in_assistant: true,
         },
         $geoip_subdivision_3_name: {
             label: 'Subdivision 3 Name',
@@ -662,23 +594,18 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $group_0: {
             label: 'Group 1',
-            system: true,
         },
         $group_1: {
             label: 'Group 2',
-            system: true,
         },
         $group_2: {
             label: 'Group 3',
-            system: true,
         },
         $group_3: {
             label: 'Group 4',
-            system: true,
         },
         $group_4: {
             label: 'Group 5',
-            system: true,
         },
         $group_set: {
             label: 'Group Set',
@@ -695,12 +622,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $window_id: {
             label: 'Window ID',
             description: 'Unique window ID for session recording disambiguation',
-            system: true,
         },
         $session_id: {
             label: 'Session ID',
             description: 'Unique session ID for session recording disambiguation',
-            system: true,
         },
         $plugins_failed: {
             label: 'Plugins Failed',
@@ -761,24 +686,20 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $performance_raw: {
             label: 'Browser Performance',
             description: 'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
-            system: true,
         },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
-            system: true,
         },
         $sentry_event_id: {
             label: 'Sentry Event ID',
             description: 'This is the Sentry key for an event.',
             examples: ['byroc2ar9ee4ijqp'],
-            system: true,
         },
         $timestamp: {
             label: 'Timestamp (deprecated)',
             description: 'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
             examples: ['2023-05-20T15:30:00Z'],
-            system: true,
         },
         $sent_at: {
             label: 'Sent At',
@@ -1165,7 +1086,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $initial_person_info: {
             label: 'Initial Person Info',
             description: 'posthog-js initial person information. used in the $set_once flow',
-            system: true,
         },
         $web_vitals_enabled_server_side: {
             label: 'Web vitals enabled server side',
@@ -1199,7 +1119,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Web vitals allowed metrics',
             description: 'Allowed web vitals metrics config.',
             examples: ['["LCP", "CLS"]'],
-            system: true,
         },
         $prev_pageview_last_scroll: {
             label: 'Previous pageview last scroll',
@@ -1210,7 +1129,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Previous pageview ID',
             description: 'posthog-js adds these to the page leave event, they are used in web analytics calculations',
             examples: ['1'],
-            system: true,
         },
         $prev_pageview_last_scroll_percentage: {
             label: 'Previous pageview last scroll percentage',
@@ -1264,42 +1182,34 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $process_person_profile: {
             label: 'Person Profile processing flag',
             description: 'The setting from an SDK to control whether an event has person processing enabled',
-            system: true,
         },
         $dead_clicks_enabled_server_side: {
             label: 'Dead clicks enabled server side',
             description: 'Whether dead clicks were enabled in remote config',
-            system: true,
         },
         $dead_click_scroll_delay_ms: {
             label: 'Dead click scroll delay in milliseconds',
             description: 'The delay between a click and the next scroll event',
-            system: true,
         },
         $dead_click_mutation_delay_ms: {
             label: 'Dead click mutation delay in milliseconds',
             description: 'The delay between a click and the next mutation event',
-            system: true,
         },
         $dead_click_absolute_delay_ms: {
             label: 'Dead click absolute delay in milliseconds',
             description: 'The delay between a click and having seen no activity at all',
-            system: true,
         },
         $dead_click_selection_changed_delay_ms: {
             label: 'Dead click selection changed delay in milliseconds',
             description: 'The delay between a click and the next text selection change event',
-            system: true,
         },
         $dead_click_last_mutation_timestamp: {
             label: 'Dead click last mutation timestamp',
             description: 'debug signal time of the last mutation seen by dead click autocapture',
-            system: true,
         },
         $dead_click_event_timestamp: {
             label: 'Dead click event timestamp',
             description: 'debug signal time of the event that triggered dead click autocapture',
-            system: true,
         },
         $dead_click_scroll_timeout: {
             label: 'Dead click scroll timeout',
@@ -1308,17 +1218,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $dead_click_mutation_timeout: {
             label: 'Dead click mutation timeout',
             description: 'whether the dead click autocapture passed the threshold for waiting for a mutation event',
-            system: true,
         },
         $dead_click_absolute_timeout: {
             label: 'Dead click absolute timeout',
             description: 'whether the dead click autocapture passed the threshold for waiting for any activity',
-            system: true,
         },
         $dead_click_selection_changed_timeout: {
             label: 'Dead click selection changed timeout',
             description: 'whether the dead click autocapture passed the threshold for waiting for a text selection change event',
-            system: true,
         },
         $ai_base_url: {
             label: 'AI Base URL (LLM)',
@@ -1400,68 +1307,36 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The unique identifier for a LLM trace, generation, or span.',
             examples: ['bdf42359-9364-4db7-8958-c001f28c9255'],
         },
-        $session_entry_url: {
-            label: 'Session entry Current URL',
-            description: 'The URL visited at the time of the event.. Captured at the start of the session and remains constant for the duration of the session.',
-            examples: ['https://example.com/interesting-article?parameter=true'],
-        },
-        $session_entry_fbclid: {
-            label: 'Session entry fbclid',
-            description: 'Facebook Click ID. Captured at the start of the session and remains constant for the duration of the session.',
-        },
-        $session_entry_gclid: {
-            label: 'Session entry gclid',
-            description: 'Google Click ID. Captured at the start of the session and remains constant for the duration of the session.',
-        },
-        $session_entry_utm_campaign: {
-            label: 'Session entry UTM Campaign',
-            description: 'UTM campaign tag.. Captured at the start of the session and remains constant for the duration of the session.',
-            examples: ['feature launch', 'discount'],
-        },
-        $session_entry_utm_source: {
-            label: 'Session entry UTM Source',
-            description: 'UTM source tag.. Captured at the start of the session and remains constant for the duration of the session.',
-            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
-        },
-        $session_entry_rdt_cid: {
-            label: 'Session entry rdt_cid',
-            description: 'Reddit Click ID. Captured at the start of the session and remains constant for the duration of the session.',
-        },
-        $session_entry_referring_domain: {
-            label: 'Session entry Referring Domain',
-            description: 'Domain of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.',
-            examples: ['google.com', 'facebook.com'],
-        },
-        $session_entry_pathname: {
-            label: 'Session entry Path Name',
-            description: 'The path of the Current URL, which means everything in the url after the domain.. Captured at the start of the session and remains constant for the duration of the session.',
-            examples: ['/pricing', '/about-us/team'],
-        },
-        $session_entry_wbraid: {
-            label: 'Session entry wbraid',
-            description: 'Google Ads, app to web. Captured at the start of the session and remains constant for the duration of the session.',
-        },
-        $session_entry__kx: {
-            label: 'Session entry _kx',
-            description: 'Klaviyo Tracking ID. Captured at the start of the session and remains constant for the duration of the session.',
-        },
-        $session_entry_referrer: {
-            label: 'Session entry Referrer URL',
-            description: 'URL of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.',
-            examples: ['https://google.com/search?q=posthog&rlz=1C...'],
-        },
-        $session_entry_twclid: {
-            label: 'Session entry twclid',
-            description: 'Twitter Click ID. Captured at the start of the session and remains constant for the duration of the session.',
-        },
         $session_entry_host: {
             label: 'Session entry Host',
             description: 'The hostname of the Current URL.. Captured at the start of the session and remains constant for the duration of the session.',
             examples: ['example.com', 'localhost:8000'],
         },
-        $session_entry_gad_source: {
-            label: 'Session entry gad_source',
-            description: 'Google Ads Source. Captured at the start of the session and remains constant for the duration of the session.',
+        $session_entry_twclid: {
+            label: 'Session entry twclid',
+            description: 'Twitter Click ID. Captured at the start of the session and remains constant for the duration of the session.',
+        },
+        $session_entry_url: {
+            label: 'Session entry Current URL',
+            description: 'The URL visited at the time of the event.. Captured at the start of the session and remains constant for the duration of the session.',
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $session_entry_gclid: {
+            label: 'Session entry gclid',
+            description: 'Google Click ID. Captured at the start of the session and remains constant for the duration of the session.',
+        },
+        $session_entry_fbclid: {
+            label: 'Session entry fbclid',
+            description: 'Facebook Click ID. Captured at the start of the session and remains constant for the duration of the session.',
+        },
+        $session_entry_ttclid: {
+            label: 'Session entry ttclid',
+            description: 'TikTok Click ID. Captured at the start of the session and remains constant for the duration of the session.',
+        },
+        $session_entry_utm_campaign: {
+            label: 'Session entry UTM Campaign',
+            description: 'UTM campaign tag.. Captured at the start of the session and remains constant for the duration of the session.',
+            examples: ['feature launch', 'discount'],
         },
         $session_entry_irclid: {
             label: 'Session entry irclid',
@@ -1472,17 +1347,29 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'UTM medium tag.. Captured at the start of the session and remains constant for the duration of the session.',
             examples: ['Social', 'Organic', 'Paid', 'Email'],
         },
-        $session_entry_gclsrc: {
-            label: 'Session entry gclsrc',
-            description: 'Google Click Source. Captured at the start of the session and remains constant for the duration of the session.',
+        $session_entry_utm_content: {
+            label: 'Session entry UTM Content',
+            description: 'UTM content tag.. Captured at the start of the session and remains constant for the duration of the session.',
+            examples: ['bottom link', 'second button'],
         },
-        $session_entry_msclkid: {
-            label: 'Session entry msclkid',
-            description: 'Microsoft Click ID. Captured at the start of the session and remains constant for the duration of the session.',
+        $session_entry_referring_domain: {
+            label: 'Session entry Referring Domain',
+            description: 'Domain of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.',
+            examples: ['google.com', 'facebook.com'],
         },
-        $session_entry_li_fat_id: {
-            label: 'Session entry li_fat_id',
-            description: 'LinkedIn First-Party Ad Tracking ID. Captured at the start of the session and remains constant for the duration of the session.',
+        $session_entry__kx: {
+            label: 'Session entry _kx',
+            description: 'Klaviyo Tracking ID. Captured at the start of the session and remains constant for the duration of the session.',
+        },
+        $session_entry_pathname: {
+            label: 'Session entry Path Name',
+            description: 'The path of the Current URL, which means everything in the url after the domain.. Captured at the start of the session and remains constant for the duration of the session.',
+            examples: ['/pricing', '/about-us/team'],
+        },
+        $session_entry_referrer: {
+            label: 'Session entry Referrer URL',
+            description: 'URL of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.',
+            examples: ['https://google.com/search?q=posthog&rlz=1C...'],
         },
         $session_entry_igshid: {
             label: 'Session entry igshid',
@@ -1492,27 +1379,47 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Session entry dclid',
             description: 'DoubleClick ID. Captured at the start of the session and remains constant for the duration of the session.',
         },
+        $session_entry_gad_source: {
+            label: 'Session entry gad_source',
+            description: 'Google Ads Source. Captured at the start of the session and remains constant for the duration of the session.',
+        },
+        $session_entry_gclsrc: {
+            label: 'Session entry gclsrc',
+            description: 'Google Click Source. Captured at the start of the session and remains constant for the duration of the session.',
+        },
+        $session_entry_utm_source: {
+            label: 'Session entry UTM Source',
+            description: 'UTM source tag.. Captured at the start of the session and remains constant for the duration of the session.',
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
         $session_entry_gbraid: {
             label: 'Session entry gbraid',
             description: 'Google Ads, web to app. Captured at the start of the session and remains constant for the duration of the session.',
         },
-        $session_entry_utm_term: {
-            label: 'Session entry UTM Term',
-            description: 'UTM term tag.. Captured at the start of the session and remains constant for the duration of the session.',
-            examples: ['free goodies'],
+        $session_entry_wbraid: {
+            label: 'Session entry wbraid',
+            description: 'Google Ads, app to web. Captured at the start of the session and remains constant for the duration of the session.',
         },
-        $session_entry_ttclid: {
-            label: 'Session entry ttclid',
-            description: 'TikTok Click ID. Captured at the start of the session and remains constant for the duration of the session.',
+        $session_entry_li_fat_id: {
+            label: 'Session entry li_fat_id',
+            description: 'LinkedIn First-Party Ad Tracking ID. Captured at the start of the session and remains constant for the duration of the session.',
+        },
+        $session_entry_msclkid: {
+            label: 'Session entry msclkid',
+            description: 'Microsoft Click ID. Captured at the start of the session and remains constant for the duration of the session.',
         },
         $session_entry_mc_cid: {
             label: 'Session entry mc_cid',
             description: 'Mailchimp Campaign ID. Captured at the start of the session and remains constant for the duration of the session.',
         },
-        $session_entry_utm_content: {
-            label: 'Session entry UTM Content',
-            description: 'UTM content tag.. Captured at the start of the session and remains constant for the duration of the session.',
-            examples: ['bottom link', 'second button'],
+        $session_entry_rdt_cid: {
+            label: 'Session entry rdt_cid',
+            description: 'Reddit Click ID. Captured at the start of the session and remains constant for the duration of the session.',
+        },
+        $session_entry_utm_term: {
+            label: 'Session entry UTM Term',
+            description: 'UTM term tag.. Captured at the start of the session and remains constant for the duration of the session.',
+            examples: ['free goodies'],
         },
     },
     numerical_event_properties: {
@@ -1522,122 +1429,91 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Python Runtime',
             description: 'The Python runtime that was used to capture the event.',
             examples: ['CPython'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $python_version: {
             label: 'Python Version',
             description: 'The Python version that was used to capture the event.',
             examples: ['3.11.5'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $sdk_debug_replay_internal_buffer_length: {
             label: 'Replay internal buffer length',
             description: 'Useful for debugging. The internal buffer length for replay.',
             examples: ['100'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $sdk_debug_replay_internal_buffer_size: {
             label: 'Replay internal buffer size',
             description: 'Useful for debugging. The internal buffer size for replay.',
             examples: ['100'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $sdk_debug_retry_queue_size: {
             label: 'Retry queue size',
             description: 'Useful for debugging. The size of the retry queue.',
             examples: ['100'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $last_posthog_reset: {
             label: 'Timestamp of last call to `Reset` in the web sdk',
             description: 'The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.',
-            ignored_in_assistant: true,
-            system: true,
         },
         $copy_type: {
             label: 'Copy Type',
             description: 'Type of copy event.',
             examples: ['copy', 'cut'],
-            ignored_in_assistant: true,
         },
         $selected_content: {
             label: 'Copied content',
             description: 'The content that was selected when the user copied or cut.',
-            ignored_in_assistant: true,
         },
         $set: {
             label: 'Set person properties',
             description: 'Person properties to be set. Sent as `$set`',
-            ignored_in_assistant: true,
         },
         $set_once: {
             label: 'Set person properties once',
             description: 'Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`',
-            ignored_in_assistant: true,
         },
         $pageview_id: {
             label: 'Pageview ID',
             description: 'PostHog\'s internal ID for matching events to a pageview.',
-            system: true,
-            ignored_in_assistant: true,
         },
         $autocapture_disabled_server_side: {
             label: 'Autocapture Disabled Server-Side',
             description: 'If autocapture has been disabled server-side.',
-            system: true,
-            ignored_in_assistant: true,
         },
         $console_log_recording_enabled_server_side: {
             label: 'Console Log Recording Enabled Server-Side',
             description: 'If console log recording has been enabled server-side.',
-            system: true,
-            ignored_in_assistant: true,
         },
         $session_recording_recorder_version_server_side: {
             label: 'Session Recording Recorder Version Server-Side',
             description: 'The version of the session recording recorder that is enabled server-side.',
             examples: ['v2'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $session_is_sampled: {
             label: 'Whether the session is sampled',
             description: 'Whether the session is sampled for session recording.',
             examples: ['true', 'false'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $feature_flag_payloads: {
             label: 'Feature Flag Payloads',
             description: 'Feature flag payloads active in the environment.',
-            ignored_in_assistant: true,
         },
         $capture_failed_request: {
             label: 'Capture Failed Request',
             description: '',
-            ignored_in_assistant: true,
         },
         $lib_rate_limit_remaining_tokens: {
             label: 'Clientside rate limit remaining tokens',
             description: 'Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.',
             examples: ['100'],
-            ignored_in_assistant: true,
         },
         token: {
             label: 'Token',
             description: 'Token used for authentication.',
             examples: ['ph_abcdefg'],
-            ignored_in_assistant: true,
         },
         $sentry_exception: {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
-            system: true,
         },
         $sentry_exception_message: {
             label: 'Sentry exception message',
@@ -1653,7 +1529,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $exception_list: {
             label: 'Exception list',
             description: 'List of one or more associated exceptions',
-            system: true,
         },
         $exception_level: {
             label: 'Exception level',
@@ -1717,7 +1592,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $cymbal_errors: {
             label: 'Exception processing errors',
             description: 'Errors encountered while trying to process exceptions',
-            system: true,
         },
         $exception_capture_endpoint: {
             label: 'Exception capture endpoint',
@@ -1736,13 +1610,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $ce_version: {
             label: '$ce_version',
             description: '',
-            system: true,
         },
         $anon_distinct_id: {
             label: 'Anon Distinct ID',
             description: 'If the user was previously anonymous, their anonymous ID will be set here.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-            system: true,
         },
         $event_type: {
             label: 'Event Type',
@@ -1752,12 +1624,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $insert_id: {
             label: 'Insert ID',
             description: 'Unique insert ID for the event.',
-            system: true,
         },
         $time: {
             label: '$time (deprecated)',
             description: 'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
-            system: true,
             examples: ['1681211521.345'],
         },
         $browser_type: {
@@ -1769,64 +1639,53 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Device ID',
             description: 'Unique ID for that device, consistent even if users are logging in/out.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-            system: true,
         },
         $replay_minimum_duration: {
             label: 'Replay config - minimum duration',
             description: 'Config for minimum duration before emitting a session recording.',
             examples: ['1000'],
-            system: true,
         },
         $replay_sample_rate: {
             label: 'Replay config - sample rate',
             description: 'Config for sampling rate of session recordings.',
             examples: ['0.1'],
-            system: true,
         },
         $session_recording_start_reason: {
             label: 'Session recording start reason',
             description: 'Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.',
             examples: ['sampling_override', 'recording_initialized', 'linked_flag_match'],
-            system: true,
         },
         $session_recording_canvas_recording: {
             label: 'Session recording canvas recording',
             description: 'Session recording canvas capture config.',
             examples: ['{"enabled": false}'],
-            system: true,
         },
         $session_recording_network_payload_capture: {
             label: 'Session recording network payload capture',
             description: 'Session recording network payload capture config.',
             examples: ['{"recordHeaders": false}'],
-            system: true,
         },
         $configured_session_timeout_ms: {
             label: 'Configured session timeout',
             description: 'Configured session timeout in milliseconds.',
             examples: ['1800000'],
-            system: true,
         },
         $replay_script_config: {
             label: 'Replay script config',
             description: 'Sets an alternative recorder script for the web sdk.',
             examples: ['{"script": "recorder-next""}'],
-            system: true,
         },
         $session_recording_url_trigger_activated_session: {
             label: 'Session recording URL trigger activated session',
             description: 'Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.',
-            system: true,
         },
         $session_recording_url_trigger_status: {
             label: 'Session recording URL trigger status',
             description: 'Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.',
-            system: true,
         },
         $recording_status: {
             label: 'Session recording status',
             description: 'The status of session recording at the time the event was captured',
-            system: true,
         },
         $geoip_city_name: {
             label: 'Latest City Name',
@@ -1892,15 +1751,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Latest Postal Code identification confidence score',
             description: 'If provided by the licensed geoip database Data from the last time this user was seen.',
             examples: ['null', '0.1'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $initial_geoip_postal_code_confidence: {
             label: 'Initial Postal Code identification confidence score',
             description: 'If provided by the licensed geoip database Data from the first time this user was seen.',
             examples: ['null', '0.1'],
-            system: true,
-            ignored_in_assistant: true,
         },
         $geoip_latitude: {
             label: 'Latest Latitude',
@@ -1972,13 +1827,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Latest Subdivision 2 identification confidence score',
             description: 'If provided by the licensed geoip database Data from the last time this user was seen.',
             examples: ['null', '0.1'],
-            ignored_in_assistant: true,
         },
         $initial_geoip_subdivision_2_confidence: {
             label: 'Initial Subdivision 2 identification confidence score',
             description: 'If provided by the licensed geoip database Data from the first time this user was seen.',
             examples: ['null', '0.1'],
-            ignored_in_assistant: true,
         },
         $geoip_subdivision_3_name: {
             label: 'Latest Subdivision 3 Name',
@@ -2095,23 +1948,18 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $group_0: {
             label: 'Group 1',
-            system: true,
         },
         $group_1: {
             label: 'Group 2',
-            system: true,
         },
         $group_2: {
             label: 'Group 3',
-            system: true,
         },
         $group_3: {
             label: 'Group 4',
-            system: true,
         },
         $group_4: {
             label: 'Group 5',
-            system: true,
         },
         $group_set: {
             label: 'Group Set',
@@ -2128,12 +1976,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $window_id: {
             label: 'Window ID',
             description: 'Unique window ID for session recording disambiguation',
-            system: true,
         },
         $session_id: {
             label: 'Session ID',
             description: 'Unique session ID for session recording disambiguation',
-            system: true,
         },
         $plugins_failed: {
             label: 'Plugins Failed',
@@ -2214,24 +2060,20 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $performance_raw: {
             label: 'Browser Performance',
             description: 'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
-            system: true,
         },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
-            system: true,
         },
         $sentry_event_id: {
             label: 'Sentry Event ID',
             description: 'This is the Sentry key for an event.',
             examples: ['byroc2ar9ee4ijqp'],
-            system: true,
         },
         $timestamp: {
             label: 'Timestamp (deprecated)',
             description: 'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
             examples: ['2023-05-20T15:30:00Z'],
-            system: true,
         },
         $sent_at: {
             label: 'Sent At',
@@ -2747,7 +2589,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $initial_person_info: {
             label: 'Initial Person Info',
             description: 'posthog-js initial person information. used in the $set_once flow',
-            system: true,
         },
         $web_vitals_enabled_server_side: {
             label: 'Web vitals enabled server side',
@@ -2781,7 +2622,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Web vitals allowed metrics',
             description: 'Allowed web vitals metrics config.',
             examples: ['["LCP", "CLS"]'],
-            system: true,
         },
         $prev_pageview_last_scroll: {
             label: 'Previous pageview last scroll',
@@ -2792,7 +2632,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Previous pageview ID',
             description: 'posthog-js adds these to the page leave event, they are used in web analytics calculations',
             examples: ['1'],
-            system: true,
         },
         $prev_pageview_last_scroll_percentage: {
             label: 'Previous pageview last scroll percentage',
@@ -2846,42 +2685,34 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $process_person_profile: {
             label: 'Person Profile processing flag',
             description: 'The setting from an SDK to control whether an event has person processing enabled',
-            system: true,
         },
         $dead_clicks_enabled_server_side: {
             label: 'Dead clicks enabled server side',
             description: 'Whether dead clicks were enabled in remote config',
-            system: true,
         },
         $dead_click_scroll_delay_ms: {
             label: 'Dead click scroll delay in milliseconds',
             description: 'The delay between a click and the next scroll event',
-            system: true,
         },
         $dead_click_mutation_delay_ms: {
             label: 'Dead click mutation delay in milliseconds',
             description: 'The delay between a click and the next mutation event',
-            system: true,
         },
         $dead_click_absolute_delay_ms: {
             label: 'Dead click absolute delay in milliseconds',
             description: 'The delay between a click and having seen no activity at all',
-            system: true,
         },
         $dead_click_selection_changed_delay_ms: {
             label: 'Dead click selection changed delay in milliseconds',
             description: 'The delay between a click and the next text selection change event',
-            system: true,
         },
         $dead_click_last_mutation_timestamp: {
             label: 'Dead click last mutation timestamp',
             description: 'debug signal time of the last mutation seen by dead click autocapture',
-            system: true,
         },
         $dead_click_event_timestamp: {
             label: 'Dead click event timestamp',
             description: 'debug signal time of the event that triggered dead click autocapture',
-            system: true,
         },
         $dead_click_scroll_timeout: {
             label: 'Dead click scroll timeout',
@@ -2890,17 +2721,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $dead_click_mutation_timeout: {
             label: 'Dead click mutation timeout',
             description: 'whether the dead click autocapture passed the threshold for waiting for a mutation event',
-            system: true,
         },
         $dead_click_absolute_timeout: {
             label: 'Dead click absolute timeout',
             description: 'whether the dead click autocapture passed the threshold for waiting for any activity',
-            system: true,
         },
         $dead_click_selection_changed_timeout: {
             label: 'Dead click selection changed timeout',
             description: 'whether the dead click autocapture passed the threshold for waiting for a text selection change event',
-            system: true,
         },
         $ai_base_url: {
             label: 'AI Base URL (LLM)',

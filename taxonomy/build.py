@@ -53,6 +53,8 @@ def generate_typescript_constants():
 
             ts_output += f"        {key_str}: {{\n"
             for key, value in definition.items():
+                if key == "ignored_in_assistant" or key == "system":
+                    continue
                 if isinstance(value, str):
                     # Handle multiline strings and escape apostrophes
                     value_escaped = value.replace("'", "\\'").replace("\n", "\\n")
