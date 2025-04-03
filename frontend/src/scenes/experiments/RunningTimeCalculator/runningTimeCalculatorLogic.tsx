@@ -10,6 +10,8 @@ import {
     ExperimentMetric,
     ExperimentMetricType,
     FunnelsQuery,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
     NodeKind,
     TrendsQuery,
     TrendsQueryResponse,
@@ -36,11 +38,11 @@ export enum ConversionRateInputType {
 }
 
 const getKindField = (metric: ExperimentMetric): NodeKind => {
-    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+    if (isExperimentFunnelMetric(metric)) {
         return NodeKind.FunnelsQuery
     }
 
-    if (metric.metric_type === ExperimentMetricType.MEAN) {
+    if (isExperimentMeanMetric(metric)) {
         const { kind } = metric.source
         // For most sources, we can return the kind directly
         if ([NodeKind.EventsNode, NodeKind.ActionsNode, NodeKind.ExperimentDataWarehouseNode].includes(kind)) {
@@ -52,7 +54,7 @@ const getKindField = (metric: ExperimentMetric): NodeKind => {
 }
 
 const getEventField = (metric: ExperimentMetric): string | number | null | undefined => {
-    if (metric.metric_type === ExperimentMetricType.MEAN) {
+    if (isExperimentMeanMetric(metric)) {
         const { source } = metric
         return source.kind === NodeKind.ExperimentDataWarehouseNode
             ? source.table_name
@@ -63,8 +65,13 @@ const getEventField = (metric: ExperimentMetric): string | number | null | undef
             : null
     }
 
-    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
-        const step = metric.series[0]
+    if (isExperimentFunnelMetric(metric)) {
+        /**
+         * For multivariate funnels, we select the last step
+         * Although we know that the last step is always an EventsNode, TS infers that the last step might be undefined
+         * so we use the non-null assertion operator (!) to tell TS that we know the last step is always an EventsNode
+         */
+        const step = metric.series.at(-1)!
         return step.kind === NodeKind.EventsNode ? step.event : step.kind === NodeKind.ActionsNode ? step.id : null
     }
 
