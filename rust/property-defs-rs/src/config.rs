@@ -14,6 +14,9 @@ pub struct RedisConfig {
 
     #[envconfig(default = "100")]
     pub batch_update_limit: usize,
+
+    #[envconfig(default = "900")]
+    pub ttl: u64,
 }
 
 impl RedisConfig {

@@ -87,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| format!("Failed to create Redis client: {}", e))?;
         SecondaryCache::Redis(RedisCache::new(
             redis_client,
-            3600,
+            config.redis.ttl,
             config.redis.batch_fetch_limit,
             config.redis.batch_update_limit
         ).await
