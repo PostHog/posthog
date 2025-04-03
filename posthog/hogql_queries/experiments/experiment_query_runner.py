@@ -28,7 +28,7 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
-from posthog.hogql_queries.experiments.query_logic import (
+from posthog.hogql_queries.experiments.base_query_utils import (
     event_or_action_to_filter,
     funnel_steps_to_filter,
     funnel_steps_to_window_funnel_expr,
