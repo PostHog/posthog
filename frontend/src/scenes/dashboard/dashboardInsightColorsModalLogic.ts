@@ -35,7 +35,7 @@ export function extractBreakdownValues(
                             breakdownType,
                         },
                     ]
-                    tile.insight?.result.forEach((result: any) => {
+                    tile.insight?.result?.forEach((result: any) => {
                         const key = getFunnelDatasetKey(result)
                         const keyParts = JSON.parse(key)
                         const breakdownValue = keyParts['breakdown_value']
@@ -47,7 +47,7 @@ export function extractBreakdownValues(
                     return breakdownValues
                 } else if (isTrendsQuery(querySource)) {
                     const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
-                    return tile.insight?.result.map((result: any) => {
+                    return tile.insight?.result?.map((result: any) => {
                         const key = getTrendDatasetKey(result)
                         const keyParts = JSON.parse(key)
                         const breakdownValue = keyParts['breakdown_value']
