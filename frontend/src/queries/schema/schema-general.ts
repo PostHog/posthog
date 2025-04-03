@@ -556,6 +556,7 @@ export interface EntityNode extends Node {
     math_property_revenue_currency?: RevenueCurrencyPropertyConfig
     math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
+    optional?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
@@ -1101,9 +1102,6 @@ export type FunnelsFilter = {
     useUdf?: boolean
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
-    /** A list of indices of optional steps */
-    /** @default [] */
-    optional?: integer[]
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {

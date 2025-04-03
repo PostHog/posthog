@@ -53,6 +53,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optional": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -1642,6 +1645,9 @@
                     "description": "Action name from the plan.",
                     "type": "string"
                 },
+                "optional": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
@@ -1748,6 +1754,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optional": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -6525,6 +6534,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optional": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -7071,6 +7083,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optional": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -7611,6 +7626,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optional": {
+                    "type": "boolean"
+                },
                 "orderBy": {
                     "description": "Columns to order by",
                     "items": {
@@ -7849,6 +7867,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optional": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -8818,6 +8839,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optional": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -8883,6 +8907,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optional": {
+                    "type": "boolean"
                 },
                 "orderBy": {
                     "description": "Columns to order by",
@@ -9131,13 +9158,6 @@
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
-                },
-                "optional": {
-                    "default": [],
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
                 },
                 "resultCustomizations": {
                     "additionalProperties": {
