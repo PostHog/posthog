@@ -6,7 +6,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dateMapping } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -103,17 +103,44 @@ const DateRange = (): JSX.Element => {
 
 const UniversalSearch = (): JSX.Element => {
     const { searchQuery } = useValues(errorTrackingLogic)
+    const [innerSearchQuery, setInnerSearchQuery] = useState(searchQuery)
     const { setSearchQuery } = useActions(errorTrackingLogic)
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+    const commitSearch = useCallback(() => {
+        setSearchQuery(innerSearchQuery)
+        timeoutRef.current && clearTimeout(timeoutRef.current)
+    }, [setSearchQuery, innerSearchQuery])
+
+    const updateSearchQuery = useCallback(
+        (newValue: string) => {
+            setInnerSearchQuery(newValue)
+            timeoutRef.current && clearTimeout(timeoutRef.current)
+            timeoutRef.current = setTimeout(commitSearch, 1000) // Auto commit after 1 second
+        },
+        [commitSearch]
+    )
 
     return (
-        <LemonInput
-            type="search"
-            placeholder="Search..."
-            value={searchQuery}
-            onChange={setSearchQuery}
+        <form
+            onSubmit={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                commitSearch()
+            }}
             className="flex-grow max-w-none"
-            size="small"
-        />
+        >
+            <LemonInput
+                type="search"
+                placeholder="Search..."
+                value={innerSearchQuery}
+                onChange={updateSearchQuery}
+                onBlur={commitSearch}
+                className="flex-grow max-w-none"
+                size="small"
+            />
+            <button type="submit" hidden />
+        </form>
     )
 }
 
