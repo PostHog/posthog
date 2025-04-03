@@ -419,6 +419,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         <ButtonPrimitive
                                                                             sideActionRight
                                                                             tooltip={item.sideAction.tooltip}
+                                                                            href={urls.insightNew()}
                                                                         >
                                                                             {item.sideAction.icon}
                                                                         </ButtonPrimitive>
