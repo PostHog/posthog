@@ -103,3 +103,6 @@ playwright/test-results/
 
 # Dist release target dir
 target/*
+
+# Ephemeral migration files are generated when Rust workspace tests are run
+rust/migrations/*
