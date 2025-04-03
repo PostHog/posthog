@@ -616,26 +616,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         recording: SessionRecording = self.get_object()
 
-        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            used_key = request.successful_authenticator.personal_api_key
-            # we want to track personal api key usage of this endpoint
-            posthoganalytics.capture(
-                self._distinct_id_from_request(request),
-                "snapshots_api_called_with_personal_api_key",
-                {
-                    "key_label": used_key.label,
-                    "key_scopes": used_key.scopes,
-                    "key_scoped_teams": used_key.scoped_teams,
-                    "session_requested": recording.session_id,
-                    "recording_start_time": recording.start_time,
-                },
-            )
-
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
         source = request.GET.get("source")
-        allow_blob_v2 = request.GET.get("allow_blob_v2", "false") == "true"
+        is_v2_enabled = request.GET.get("allow_blob_v2", "false") == "true"
 
         event_properties = {
             "team_id": self.team.pk,
@@ -658,14 +643,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
         if personal_api_key:
             SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=personal_api_key, source=source).inc()
-
-        # we let people opt in to the API via query param or enforce it via feature flag
-        is_v2_enabled = allow_blob_v2 or posthoganalytics.feature_enabled(
-            "recordings-blobby-v2-replay",
-            str(self.team.pk),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-        )
+            # we want to track personal api key usage of this endpoint
+            posthoganalytics.capture(
+                self._distinct_id_from_request(request),
+                "snapshots_api_called_with_personal_api_key",
+                {
+                    "key_label": personal_api_key.label,
+                    "key_scopes": personal_api_key.scopes,
+                    "key_scoped_teams": personal_api_key.scoped_teams,
+                    "session_requested": recording.session_id,
+                    "recording_start_time": recording.start_time,
+                    "source": source,
+                },
+            )
 
         if not source:
             return self._gather_session_recording_sources(recording, is_v2_enabled)
