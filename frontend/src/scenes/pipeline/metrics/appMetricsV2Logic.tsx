@@ -59,8 +59,10 @@ export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
             {
                 loadMetricsTotals: async () => {
                     const params: AppMetricsV2RequestParams = {
+                        ...values.filters,
                         breakdown_by: 'name',
                     }
+                    delete params.name
                     return await api.hogFunctions.metricsTotals(props.id, params)
                 },
             },
@@ -78,6 +80,7 @@ export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
         setFilters: async (_, breakpoint) => {
             await breakpoint(100)
             actions.loadMetrics()
+            actions.loadMetricsTotals()
         },
     })),
 ])
