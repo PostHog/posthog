@@ -61,7 +61,7 @@ export function SurveyWidgetCustomization(): JSX.Element {
                 )}
             </LemonField>
             <LemonCheckbox
-                label="Always display the feedback button, no matter how many times it has been shown"
+                label="Allow survey to be displayed every time the button is clicked"
                 checked={survey.schedule === SurveySchedule.Always}
                 onChange={(checked) => {
                     setSurveyValue('schedule', checked ? SurveySchedule.Always : SurveySchedule.Once)

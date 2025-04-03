@@ -1,19 +1,29 @@
 import './EditSurvey.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { SurveySchedule, SurveyType } from '~/types'
+import { Survey, SurveySchedule, SurveyType } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
+function doesSurveyHaveOtherDisplayConditions(survey: Pick<Survey, 'conditions'>): boolean {
+    return !!(
+        (survey.conditions?.events?.values?.length ?? 0) > 0 ||
+        survey.conditions?.url ||
+        survey.conditions?.selector ||
+        (survey?.conditions?.deviceTypes?.length ?? 0) > 0 ||
+        (survey?.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0
+    )
+}
+
 function SurveyIterationOptions(): JSX.Element {
     const { showSurveyRepeatSchedule, survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { setSurveyValue, setSelectedSection } = useActions(surveyLogic)
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
 
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
@@ -52,15 +62,39 @@ function SurveyIterationOptions(): JSX.Element {
                         },
                         {
                             value: SurveySchedule.Always,
-                            label: 'Always visible (for feedback surveys)',
+                            label: 'Every time the display conditions are met',
                             'data-attr': 'survey-iteration-frequency-days',
-                            disabledReason:
-                                survey.type !== SurveyType.Widget
-                                    ? 'Only available for feedback surveys. Please change the type in the Presentation tab'
-                                    : undefined,
                         },
                     ]}
                 />
+                {survey.type === SurveyType.Popover && survey.schedule === SurveySchedule.Always && (
+                    <LemonBanner type="warning">
+                        {doesSurveyHaveOtherDisplayConditions(survey) ? (
+                            <>
+                                <p>
+                                    This survey will be shown every time the display conditions are met – which
+                                    potentially makes it possible to show the same survey multiple times. Double check
+                                    your display conditions below.
+                                </p>
+                                <p className="font-normal">
+                                    If this is not what you want, change to a scheduled or one-time survey, or{' '}
+                                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
+                                        add other display conditions here
+                                    </Link>
+                                    .
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <p>
+                                    If you select "Every time the display conditions are met" for a Popover survey, it
+                                    will behave like a permanent popup in your application. Make sure this is what you
+                                    want.
+                                </p>
+                            </>
+                        )}
+                    </LemonBanner>
+                )}
             </LemonField.Pure>
             {showSurveyRepeatSchedule && (
                 <div className="flex flex-row gap-2 items-center mt-2 ml-5">
