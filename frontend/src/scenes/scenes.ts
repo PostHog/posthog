@@ -577,7 +577,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: [Scene.PipelineNode, 'pipelineNode'],
     [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
-    [urls.groups(':groupTypeIndex')]: [Scene.Groups, 'groups'],
+    [urls.groups(':groupTypeIndex')]: [Scene.PersonsManagement, 'groups'],
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
