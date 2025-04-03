@@ -440,10 +440,10 @@ def validate_credentials(api_key: str) -> bool:
     for resource in resources_to_check:
         try:
             # This will raise an exception if we don't have access
-            resource["method"](**resource["params"])  # type: ignore
+            resource["method"](params=resource["params"])  # type: ignore
         except Exception as e:
             # Store the resource name and error message
-            missing_permissions[str(resource["name"])] = str(e)
+            missing_permissions[resource["name"]] = str(e)
 
     if missing_permissions:
         raise StripePermissionError(missing_permissions)
