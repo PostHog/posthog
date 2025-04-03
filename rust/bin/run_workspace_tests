@@ -13,17 +13,8 @@ SUBPKG_NAME="${1:-workspace}"
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 source "$SCRIPT_DIR/util"
 
-# pull DATABASE_URL for the shared test DB into the local env
-# SQLX query cache requires a single shared test DB with all
-# schemas defined, but this also works fine in test-scope for
-# non-SQLX subprojects
-source "$SCRIPT_DIR/../.env"
-
 # run the migrations (test schemas + django postgres models only!)
-$SCRIPT_DIR/migrate_tests
-
-# run the workspace test suite using limited # of threads, to
-# avoid overwhelming the posthog Docker Compose rig
+$SCRIPT_DIR/migrate
 
 # if a workspace subpackage name was provided, only
 # execute the test suite for that package (used in CI)
@@ -32,5 +23,7 @@ if [[ "$SUBPKG_NAME" != "workspace" ]]; then
   OPTIONAL_SUBPKG_TARGET="-p $SUBPKG_NAME"
 fi
 
+# run the workspace test suite using limited # of threads
+# to avoid overwhelming the posthog Docker Compose rig
 log "Executing cargo test with target: $SUBPKG_NAME"
 cargo test $OPTIONAL_SUBPKG_TARGET -- --test-threads=4

@@ -13,7 +13,7 @@ use property_defs_rs::{
     v2_batch_ingestion::process_batch_v2,
 };
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_simple_batch_write(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
     let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));
@@ -45,7 +45,7 @@ async fn test_simple_batch_write(db: PgPool) {
     assert_eq!(Some(100), event_props_count);
 }
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_group_batch_write(db: PgPool) {
     let _unused = sqlx::query!(
         r#"
@@ -102,7 +102,7 @@ async fn test_group_batch_write(db: PgPool) {
     assert_eq!(Some(100), event_props_count);
 }
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_person_batch_write(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
     let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));

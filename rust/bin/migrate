@@ -10,34 +10,54 @@ set -euxo pipefail
 #
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+source "$SCRIPT_DIR/util"
 
-# since `posthog/rust/.env` defines our default test-scoped DATABSE_URL, we
-# apply overrides manually here to define separate DB namespaces in dev
-# for services that have their own isolated Postgres instance in production.
-# this on the fly for databases that are isolated in production
-#
-# for "live" local dev, remember to set your $DATABASE_URL to one of the below.
-# In practice, you should almost never need to do this vs. using `bin/migrate_tests`.
-# See the `posthog/rust/README.md` for details.
+check_docker_compose_up
+
+# hop up to posthog repo root and bootstrap the test_posthog DB.
+# this ensures all the Django-owned DB schemas we rely on in Rust
+# code stay in parity and exist for SQLX to verify query syntax
+# against. This also sets up the DB env for projects like
+# feature-flags that do not use SQLX to manage migrations.
+pushd "$SCRIPT_DIR/../.."
+DEBUG=true TEST=true python manage.py setup_test_environment --only-postgres
+popd
+
+# Ensure schema export and migration tools are installed
+check_install_pinned_sqlx_cli
+check_pg_dump_installed
+
+# Export test_posthog schemas into local Rust workspace for sqlx::test
+RUST_MIGRATIONS="$SCRIPT_DIR/../migrations"
+TMP_FILE="$RUST_MIGRATIONS/test_posthog_dump.sql"
+MIGRATION_FILE="$RUST_MIGRATIONS/20250402111111_posthog_schemas.sql"
+
+mkdir -p "$RUST_MIGRATIONS"
+PGPASSWORD=posthog pg_dump \
+  --user posthog \
+  --host localhost \
+  --port 5432 \
+  --dbname test_posthog \
+  --file="$MIGRATION_FILE" \
+  --schema-only \
+  --table 'posthog_*'
+#awk '{gsub(/public\./, ""); print}' "$TMP_FILE" > "$MIGRATION_FILE"
+#rm "$TMP_FILE"
+
+# Allow for overriding DATABASE_URL set by `posthog/rust/.env` in this script
 DB_HOST="${DB_HOST:-postgres://posthog:posthog@localhost:5432}"
+log "Executing Rust workspace migrations with DB_HOST: ${DB_HOST}..."
 
 # `posthog/plugin-server/package.json` overrides CYCLOTRON_DATABASE_NAME
 # in a test target so we need to accomodate that too
-CYCLOTRON_DB_NAME="${CYCLOTRON_DATABASE_NAME:-posthog}"
+CYCLOTRON_DB_NAME="${CYCLOTRON_DATABASE_NAME:-test_posthog}"
 CYCLOTRON_DB="$DB_HOST/${CYCLOTRON_DB_NAME}"
 
 # cyclotron points to it's own DB instance in production, and therefore has its own
 # DB namespace in local dev too.
-if [ "$CYCLOTRON_DB_NAME" != "posthog" ]; then
+if [ "$CYCLOTRON_DB_NAME" != "test_posthog" ]; then
     sqlx database create -D "$CYCLOTRON_DB"
 fi
 sqlx migrate run -D "$CYCLOTRON_DB" --source "$SCRIPT_DIR/../cyclotron-core/migrations"
 
-# `property-defs-rs` will soon point to it's own isolated DB instance in production.
-# while we're in a transitional state, we also rely on test-scoped tables that mirror
-# the old Django-owned schemas. Stay tuned for more updates here...
-PROPDEFS_DB_NAME="${PROPDEFS_DATABASE_NAME:-posthog}"
-PROPDEFS_DB="$DB_HOST/${PROPDEFS_DB_NAME}"
-if [ "$PROPDEFS_DB_NAME" != "posthog" ]; then
-    sqlx database create -D "$PROPDEFS_DB"
-fi
+# TODO: ^^^ in the near future, propdefs isolated DB will need to bootstrap as cyclotron does
