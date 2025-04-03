@@ -154,7 +154,6 @@ export const FEATURE_FLAGS = {
     SESSIONS_BATCH_EXPORTS: 'sessions-batch-exports', // owner: @tomasfarias
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
-    CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
@@ -193,7 +192,6 @@ export const FEATURE_FLAGS = {
     INSIGHT_FUNNELS_USE_UDF_TRENDS: 'insight-funnels-use-udf-trends', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TIME_TO_CONVERT: 'insight-funnels-use-udf-time-to-convert', // owner: @aspicer #team-product-analytics
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
-    DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     INSIGHT_VARIABLES: 'insight_variables', // owner: @Gilbert09 #team-data-warehouse
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
