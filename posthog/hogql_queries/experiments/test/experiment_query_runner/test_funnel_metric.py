@@ -676,12 +676,12 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.stats_config = {"version": 2}
         experiment.save()
 
-        action = Action.objects.create(name="purchase", team=self.team, steps_json=[{"event": "purchase"}])
+        action = Action.objects.create(name="purchase action", team=self.team, steps_json=[{"event": "purchase"}])
         action.save()
 
         metric = ExperimentFunnelMetric(
             series=[
-                ActionsNode(id=action.id, name="purchase"),
+                ActionsNode(id=action.id),
             ],
         )
 
