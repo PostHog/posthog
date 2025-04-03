@@ -4,9 +4,8 @@ import { dayjs } from 'lib/dayjs'
 import { useCallback, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { DateRange } from '~/queries/schema/schema-general'
 
-import { SparklineSelectedPeriod } from './errorTrackingSceneLogic'
 import { generateSparklineLabels } from './utils'
 
 export function OccurrenceSparkline({
@@ -14,7 +13,6 @@ export function OccurrenceSparkline({
     labels,
     className,
     displayXAxis = false,
-    loading = false,
 }: {
     values: number[]
     labels: string[]
@@ -62,7 +60,6 @@ export function OccurrenceSparkline({
             labels={labels}
             renderLabel={labelRenderer}
             withXScale={displayXAxis ? withXScale : undefined}
-            loading={loading}
         />
     )
 }
@@ -79,32 +76,17 @@ function useSparklineColors(): { color: string; hoverColor: string } {
 }
 
 export function useSparklineData(
-    selectedPeriod: SparklineSelectedPeriod = 'day',
+    resolution: number,
     dateRange: DateRange,
-    aggregations?: ErrorTrackingIssueAggregations
+    values?: number[]
 ): { values: number[]; labels: string[] } {
     const result = useMemo(() => {
-        if (!aggregations) {
-            return { values: [], labels: [] }
+        const labels = generateSparklineLabels(dateRange, resolution)
+        if (!values) {
+            return { values: new Array(resolution).fill(0), labels }
         }
-
-        const { values, aggregationDateRange } = {
-            day: {
-                values: aggregations.volumeDay,
-                aggregationDateRange: { date_from: '-24h' },
-            },
-            custom: {
-                values: aggregations.volumeRange,
-                aggregationDateRange: dateRange,
-            },
-        }[selectedPeriod]
-
-        const resolution = values.length
-        const labels = generateSparklineLabels(aggregationDateRange, resolution)
-
         return { values, labels }
-    }, [aggregations, selectedPeriod, dateRange])
-
+    }, [values, dateRange, resolution])
     return result
 }
 

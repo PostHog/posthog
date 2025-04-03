@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Dayjs } from 'lib/dayjs'
 import { MouseEvent, useCallback } from 'react'
+import { match, P } from 'ts-pattern'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
@@ -28,13 +29,19 @@ export function TimeBoundary({ time, loading, label, updateDateRange }: TimeBoun
     )
     return (
         <div>
-            {loading && <LemonSkeleton />}
-            {!loading && time && (
-                <span onClick={onClick} className="hover:bg-fill-button-tertiary-hover px-1 rounded">
-                    <TZLabel time={time} className="border-dotted border-b text-xs text-muted" title={label} />
-                </span>
-            )}
-            {!loading && !time && <>-</>}
+            {match([loading, time])
+                .with([true, P.any], () => <LemonSkeleton />)
+                .with([false, P.nullish], () => <span className="text-xs text-muted">-</span>)
+                .with([false, P.any], () => (
+                    <span onClick={onClick} className="hover:bg-fill-button-tertiary-hover px-1 rounded">
+                        <TZLabel
+                            time={time as Dayjs}
+                            className="border-dotted border-b text-xs text-muted"
+                            title={label}
+                        />
+                    </span>
+                ))
+                .exhaustive()}
         </div>
     )
 }

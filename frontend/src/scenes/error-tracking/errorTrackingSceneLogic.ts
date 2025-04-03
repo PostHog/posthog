@@ -72,9 +72,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 setSparklineSelectedPeriod: (_, { period }) => period,
             },
         ],
+        volumeResolution: [20],
     }),
 
-    selectors(() => ({
+    selectors(({ values }) => ({
         query: [
             (s) => [
                 s.orderBy,
@@ -103,7 +104,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     assignee,
                     filterTestAccounts,
                     filterGroup,
-                    volumeResolution: 20,
+                    volumeResolution: values.volumeResolution,
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
                     orderDirection,

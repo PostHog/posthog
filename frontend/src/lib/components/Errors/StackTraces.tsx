@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { useEffect, useMemo } from 'react'
+import { match } from 'ts-pattern'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
 import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
@@ -23,7 +24,7 @@ function renderTraceHeaderDefault(
     checkers?: FingerprintCheckers
 ): JSX.Element {
     return (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 mb-2">
             <h3 className="StackTrace__type mb-0" title={type}>
                 {type}
                 {id && checkers && checkers.includesExceptionType(id) && (
@@ -83,22 +84,23 @@ export function ChainedStackTraces({
             {exceptionList.map(({ stacktrace, value, type, id }, index) => {
                 if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
-                    if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
-                        // if we're not showing all frames and there are no in_app frames, skip this exception
-                        return null
-                    }
+                    const hasOnlyNonInAppFrames = frames?.every((frame) => !frame.in_app)
                     return (
                         <div
                             key={id ?? index}
                             className={clsx('StackTrace flex flex-col', embedded && 'StackTrace--embedded')}
                         >
                             {renderTraceHeader(id, type, value, checkers)}
-                            <Trace
-                                frames={frames || []}
-                                showAllFrames={showAllFrames}
-                                embedded={embedded}
-                                fingerprintRecords={fingerprintRecords}
-                            />
+                            {match([showAllFrames, hasOnlyNonInAppFrames])
+                                .with([false, true], () => null)
+                                .otherwise(() => (
+                                    <Trace
+                                        frames={frames || []}
+                                        showAllFrames={showAllFrames}
+                                        embedded={embedded}
+                                        fingerprintRecords={fingerprintRecords}
+                                    />
+                                ))}
                         </div>
                     )
                 }

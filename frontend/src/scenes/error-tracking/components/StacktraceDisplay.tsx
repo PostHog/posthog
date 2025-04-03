@@ -7,14 +7,14 @@ import { useCallback } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { LibIcon } from './LibIcon'
+import { RuntimeIcon } from './RuntimeIcon'
 
 export function StacktraceDisplay({ className }: { className?: string }): JSX.Element {
     const {
         exceptionList,
         issue,
         hasStacktrace,
-        properties,
+        exceptionAttributes,
         showFingerprint,
         showAllFrames,
         fingerprintRecords,
@@ -26,7 +26,7 @@ export function StacktraceDisplay({ className }: { className?: string }): JSX.El
             return (
                 <div>
                     <div className="flex gap-2 items-center h-7">
-                        <LibIcon lib={properties?.$lib} />
+                        <RuntimeIcon runtime={exceptionAttributes?.runtime} />
                         <div className="font-bold text-lg">{type}</div>
                         {id && checkers && checkers.includesExceptionType(id) && (
                             <IconFingerprint
@@ -39,8 +39,9 @@ export function StacktraceDisplay({ className }: { className?: string }): JSX.El
                 </div>
             )
         },
-        [properties]
+        [exceptionAttributes]
     )
+
     return (
         <div className={className}>
             {match([propertiesLoading, hasStacktrace])
