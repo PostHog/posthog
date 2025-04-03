@@ -15281,13 +15281,6 @@
                     "$ref": "#/definitions/CurrencyCode",
                     "default": "USD"
                 },
-                "dataWarehouseTables": {
-                    "default": [],
-                    "items": {
-                        "$ref": "#/definitions/RevenueTrackingDataWarehouseTable"
-                    },
-                    "type": "array"
-                },
                 "events": {
                     "default": [],
                     "items": {
@@ -15296,32 +15289,7 @@
                     "type": "array"
                 }
             },
-            "required": ["baseCurrency", "events", "dataWarehouseTables"],
-            "type": "object"
-        },
-        "RevenueTrackingDataWarehouseTable": {
-            "additionalProperties": false,
-            "properties": {
-                "distinctIdColumn": {
-                    "type": "string"
-                },
-                "revenueColumn": {
-                    "type": "string"
-                },
-                "revenueCurrencyColumn": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
-                    "default": {
-                        "static": "USD"
-                    }
-                },
-                "tableName": {
-                    "type": "string"
-                },
-                "timestampColumn": {
-                    "type": "string"
-                }
-            },
-            "required": ["tableName", "distinctIdColumn", "timestampColumn", "revenueColumn", "revenueCurrencyColumn"],
+            "required": ["baseCurrency", "events"],
             "type": "object"
         },
         "RevenueTrackingEventItem": {

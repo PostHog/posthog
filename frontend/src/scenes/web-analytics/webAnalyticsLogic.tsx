@@ -6,7 +6,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
@@ -29,7 +28,6 @@ import {
     BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
-    DataWarehouseNode,
     EventsNode,
     InsightVizNode,
     NodeKind,
@@ -967,34 +965,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING] &&
                     !(conversionGoal && 'actionId' in conversionGoal)
 
-                const revenueEventsSeries: (EventsNode | DataWarehouseNode)[] =
+                const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_tracking_config
-                        ? ([
-                              ...currentTeam.revenue_tracking_config.events.map((e) => ({
-                                  name: e.eventName,
-                                  event: e.eventName,
-                                  custom_name: e.eventName,
-                                  math: PropertyMathType.Sum,
-                                  kind: NodeKind.EventsNode,
-                                  math_property: e.revenueProperty,
-                                  math_property_revenue_currency: e.revenueCurrencyProperty,
-                              })),
-                              ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS]
-                                  ? currentTeam.revenue_tracking_config.dataWarehouseTables.map((t) => ({
-                                        id: t.tableName,
-                                        name: t.tableName,
-                                        table_name: t.tableName,
-                                        kind: NodeKind.DataWarehouseNode,
-                                        math: PropertyMathType.Sum,
-                                        id_field: t.distinctIdColumn,
-                                        distinct_id_field: t.distinctIdColumn,
-                                        math_property: t.revenueColumn,
-                                        math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
-                                        math_property_revenue_currency: t.revenueCurrencyColumn,
-                                        timestamp_field: t.timestampColumn,
-                                    }))
-                                  : []),
-                          ] as (EventsNode | DataWarehouseNode)[])
+                        ? currentTeam.revenue_tracking_config.events.map((e) => ({
+                              name: e.eventName,
+                              event: e.eventName,
+                              custom_name: e.eventName,
+                              math: PropertyMathType.Sum,
+                              kind: NodeKind.EventsNode,
+                              math_property: e.revenueProperty,
+                              math_property_revenue_currency: e.revenueCurrencyProperty,
+                          }))
                         : []
 
                 const conversionRevenueSeries =

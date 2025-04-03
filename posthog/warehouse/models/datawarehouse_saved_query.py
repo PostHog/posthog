@@ -160,6 +160,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
         from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
+        if (
+            self.table is not None
+            and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
+            and modifiers is not None
+            and modifiers.useMaterializedViews
+        ):
+            return self.table.hogql_definition(modifiers)
+
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -195,20 +203,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
             fields[column] = hogql_type(name=column)
 
-        if (
-            self.table is not None
-            and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
-            and modifiers is not None
-            and modifiers.useMaterializedViews
-        ):
-            return self.table.hogql_definition(modifiers)
-        else:
-            return SavedQuery(
-                id=str(self.id),
-                name=self.name,
-                query=self.query["query"],
-                fields=fields,
-            )
+        return SavedQuery(
+            id=str(self.id),
+            name=self.name,
+            query=self.query["query"],
+            fields=fields,
+        )
 
 
 @database_sync_to_async

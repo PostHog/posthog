@@ -177,7 +177,6 @@ class HedgeboxMatrix(Matrix):
                     "revenueCurrencyProperty": {"static": "USD"},
                 }
             ],
-            "dataWarehouseTables": [],
         }
 
         # Dashboard: Key metrics (project home)

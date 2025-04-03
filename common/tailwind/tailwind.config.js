@@ -701,6 +701,7 @@ const config = {
             },
             fontFamily: {
                 sans: [
+                    'Emoji Flags Polyfill',
                     '-apple-system',
                     'BlinkMacSystemFont',
                     'Inter',
@@ -715,6 +716,7 @@ const config = {
                     'Segoe UI Symbol',
                 ],
                 title: [
+                    'Emoji Flags Polyfill',
                     'MatterSQ',
                     '-apple-system',
                     'BlinkMacSystemFont',
@@ -729,7 +731,7 @@ const config = {
                     'Segoe UI Emoji',
                     'Segoe UI Symbol',
                 ],
-                mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
+                mono: ['Emoji Flags Polyfill', 'ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
             },
             screens: {
                 // Sync with vars.scss
@@ -795,7 +797,6 @@ const config = {
         plugin(({ addUtilities, theme }) => {
             const spacing = theme("spacing");
             const newUtilities = {};
-            
 
             // Standard spacing utilities for backwards compatibility
             for (const [key, value] of Object.entries(spacing)) {

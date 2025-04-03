@@ -8,7 +8,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useRef, useState } from 'react'
 
 import { BaseCurrency } from './BaseCurrency'
-import { DataWarehouseTablesConfiguration } from './DataWarehouseTablesConfiguration'
 import { EventConfiguration } from './EventConfiguration'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
@@ -26,9 +25,10 @@ export function RevenueEventsSettings(): JSX.Element {
     const eventsButtonRef = useRef<HTMLButtonElement>(null)
     const dataWarehouseTablesButtonRef = useRef<HTMLButtonElement>(null)
 
-    let introductionDescription =
-        'Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event.'
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS]) {
+    const product = featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] ? 'Revenue analytics' : 'Web analytics'
+
+    let introductionDescription = `Revenue events are used to track revenue in ${product}. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event.`
+    if (featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
         introductionDescription += ' You can also import revenue data from your PostHog data warehouse tables.'
     }
 
@@ -54,7 +54,7 @@ export function RevenueEventsSettings(): JSX.Element {
                                 Create revenue event
                             </LemonButton>
 
-                            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] && (
+                            {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
                                 <LemonButton
                                     type="primary"
                                     icon={<IconPlus />}
@@ -76,11 +76,7 @@ export function RevenueEventsSettings(): JSX.Element {
 
             <EventConfiguration buttonRef={eventsButtonRef} />
 
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] && (
-                <DataWarehouseTablesConfiguration buttonRef={dataWarehouseTablesButtonRef} />
-            )}
-
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] ? (
+            {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] ? (
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(key) => setActiveTab(key as Tab)}

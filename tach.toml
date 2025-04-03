@@ -39,11 +39,20 @@ depends_on = [
     "ee",
     "common.hogql_parser",
     "common.hogvm.python",
+
+    # NOTE: Add new product dependencies here and in settings/web.py PRODUCTS_APPS
     "products.early_access_features",
+    "products.revenue_analytics",
 ]
 
 [[modules]]
 path = "products.early_access_features"
+depends_on = [
+    "posthog",
+]
+
+[[modules]]
+path = "products.revenue_analytics"
 depends_on = [
     "posthog",
 ]

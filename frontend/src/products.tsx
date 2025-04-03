@@ -42,6 +42,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingAutomations: () => import('../../products/messaging/frontend/Automations'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/Library'),
+    RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsDashboard'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -63,6 +64,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
     '/messaging/library/new': ['MessagingLibrary', 'messagingLibraryNew'],
     '/messaging/library/:id': ['MessagingLibrary', 'messagingLibraryTemplate'],
+    '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -109,6 +111,12 @@ export const productConfiguration: Record<string, any> = {
     MessagingAutomations: { name: 'Messaging', projectBased: true },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingLibrary: { name: 'Messaging', projectBased: true },
+    RevenueAnalytics: {
+        name: 'Revenue Analytics',
+        projectBased: true,
+        defaultDocsPath: '/docs/revenue-analytics',
+        activityScope: 'RevenueAnalytics',
+    },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -245,6 +253,7 @@ export const productUrls = {
     replaySingle: (id: string): string => `/replay/${id}`,
     replayFilePlayback: (): string => '/replay/file-playback',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
+    revenueAnalytics: (): string => '/revenue_analytics',
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,

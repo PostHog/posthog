@@ -102,6 +102,7 @@ def print_ast(
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     if prepared_ast is None:
         return ""
+
     return print_prepared_ast(
         node=prepared_ast,
         context=context,

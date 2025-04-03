@@ -10,11 +10,11 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { RevenueEventsSettings } from 'products/revenue_analytics/frontend/settings/RevenueEventsSettings'
 import React from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
-import { RevenueEventsSettings } from 'scenes/data-management/revenue/RevenueEventsSettings'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -98,7 +98,7 @@ const tabs: Record<
         ),
     },
     [DataManagementTab.Revenue]: {
-        url: urls.revenue(),
+        url: urls.revenueSettings(),
         label: (
             <>
                 Revenue{' '}
