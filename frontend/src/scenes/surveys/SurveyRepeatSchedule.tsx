@@ -11,7 +11,7 @@ import { Survey, SurveySchedule, SurveyType } from '~/types'
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
-function doesSurveyHaveOtherDisplayConditions(survey: Pick<Survey, 'conditions'>): boolean {
+function doesSurveyHaveDisplayConditions(survey: Pick<Survey, 'conditions'>): boolean {
     return !!(
         (survey.conditions?.events?.values?.length ?? 0) > 0 ||
         survey.conditions?.url ||
@@ -69,17 +69,16 @@ function SurveyIterationOptions(): JSX.Element {
                 />
                 {survey.type === SurveyType.Popover && survey.schedule === SurveySchedule.Always && (
                     <LemonBanner type="warning">
-                        {doesSurveyHaveOtherDisplayConditions(survey) ? (
+                        {doesSurveyHaveDisplayConditions(survey) ? (
                             <>
                                 <p>
-                                    This survey will be shown every time the display conditions are met – which
-                                    potentially makes it possible to show the same survey multiple times. Double check
-                                    your display conditions below.
+                                    This popover will reappear every time its display conditions are met. This might
+                                    lead to users seeing the survey very frequently.
                                 </p>
                                 <p className="font-normal">
-                                    If this is not what you want, change to a scheduled or one-time survey, or{' '}
+                                    If this isn't intended, consider changing the schedule or{' '}
                                     <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
-                                        add other display conditions here
+                                        adjusting the display conditions
                                     </Link>
                                     .
                                 </p>
@@ -87,9 +86,15 @@ function SurveyIterationOptions(): JSX.Element {
                         ) : (
                             <>
                                 <p>
-                                    If you select "Every time the display conditions are met" for a Popover survey, it
-                                    will behave like a permanent popup in your application. Make sure this is what you
-                                    want.
+                                    Setting a popover survey to show 'Always' without any display conditions will make
+                                    it appear persistently on matching pages. Ensure this is the desired behavior.
+                                </p>
+                                <p className="font-normal">
+                                    If not,{' '}
+                                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
+                                        add display conditions
+                                    </Link>{' '}
+                                    or change its frequency.
                                 </p>
                             </>
                         )}
