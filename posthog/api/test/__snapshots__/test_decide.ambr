@@ -1356,8 +1356,8 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.11
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2162,8 +2162,8 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.9
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2366,8 +2366,8 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.11
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -3160,8 +3160,8 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.9
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -6003,8 +6003,8 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.11
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -7289,8 +7289,8 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.9
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -7493,8 +7493,8 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.11
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -8763,8 +8763,8 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.9
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
+  SELECT "posthog_filesystem"."project_id",
+         "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
