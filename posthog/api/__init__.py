@@ -44,6 +44,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    message_template,
     notebook,
     organization,
     organization_domain,
@@ -641,4 +642,11 @@ register_grandfathered_environment_nested_viewset(
     data_modeling_job.DataModelingJobViewSet,
     "environment_data_modeling_jobs",
     ["team_id"],
+)
+
+projects_router.register(
+    r"message_templates",
+    message_template.MessageTemplateViewSet,
+    "project_message_templates",
+    ["project_id"],
 )
