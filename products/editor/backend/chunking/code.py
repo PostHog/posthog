@@ -106,29 +106,32 @@ class TreeWalker:
             "impl_item": ["block", "declaration_list"],  # Rust impl blocks
         }
 
-        if node.type not in body_type_map:
-            return None
-
-        # Find the body node
-        body_node = None
-        for child in node.children:
-            if child.type in body_type_map[node.type]:
-                body_node = child
-                break
-
-        if body_node:
-            # Extract text from declaration start to body start
-            header = self.source_code[node.start_byte : body_node.start_byte].decode()
+        def indent(header: str):
             return node.start_point.column * " " + header
+
+        if node.type in body_type_map:
+            body_node = None
+            for child in node.children:
+                if child.type in body_type_map[node.type]:
+                    body_node = child
+                    break
+
+            if body_node:
+                header = self.source_code[node.start_byte : body_node.start_byte].decode()
+                return indent(header)
 
         return None
 
 
 class Chunk(TypedDict):
     line_start: int
+    """Starting from zero."""
     line_end: int
+    """Starting from zero."""
     context: str
+    """Headers of the chunk (class declaration, function declaration, etc)."""
     content: str
+    """Chunk body."""
 
 
 def chunk_code(lang: ProgrammingLanguage, content: str, chunk_size: int = 300, chunk_overlap: float = 0.2):
