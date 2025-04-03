@@ -381,7 +381,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     minAccessLevel="editor"
                                     resourceType={AccessControlResourceType.Insight}
                                     type="primary"
-                                    onClick={() => setInsightMode(ItemMode.Edit, null)}
+                                    onClick={() => {
+                                        if (isDataVisualizationNode(query) && insight.short_id) {
+                                            router.actions.push(urls.sqlEditor(undefined, undefined, insight.short_id))
+                                        } else {
+                                            setInsightMode(ItemMode.Edit, null)
+                                        }
+                                    }}
                                     data-attr="insight-edit-button"
                                 >
                                     Edit

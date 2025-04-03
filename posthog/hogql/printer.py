@@ -795,6 +795,11 @@ class _Printer(Visitor):
             "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
         ):
             not_nullable = True
+        hack_sessions_timestamp = (
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+        )
+        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
+            not_nullable = True
 
         constant_lambda = None
         value_if_one_side_is_null = False

@@ -182,7 +182,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     continue  # Skip irrelevant events
                 if description := event_core_definition.get("description"):
                     desc_tag = ET.SubElement(event_tag, "description")
-                    if label := event_core_definition.get("label"):
+                    if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
                         desc_tag.text = f"{label}. {description}"
                     else:
                         desc_tag.text = description
