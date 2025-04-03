@@ -144,7 +144,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "status",
         ]
         extra_kwargs = {
-            "hog": {"required": False},
+            "hog": {"required": False, "allow_null": True},
             "inputs_schema": {"required": False},
             "template_id": {"write_only": True},
             "deleted": {"write_only": True},
@@ -242,6 +242,34 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             self.context.get("view") and self.context["view"].action == "create"
         )
 
+        template = None
+        template_id = attrs.get("template_id") or (self.instance.template_id if self.instance else None)
+        if template_id:
+            template = HogFunctionTemplates.template(template_id)
+
+        # Check if the submitted hog code matches the template code
+        submitted_hog = attrs.get("hog")
+        if template and "hog" in attrs:
+            if submitted_hog == template.hog:
+                # If submitted code is the same as template, store null
+                attrs["hog"] = None
+            # Otherwise, keep the submitted custom code in attrs["hog"]
+
+        elif template and "hog" not in attrs and not self.instance:
+            # If no hog code submitted on create with a template, store null (helpful for creating functions from templates via API)
+            attrs["hog"] = None
+        elif template and "hog" not in attrs and self.instance and self.instance.hog is None:
+            # If no hog code submitted on update and instance uses template, keep using template (helpful for updating functions from templates via API)
+            attrs["hog"] = None
+
+        # Determine the effective HOG code for validation/compilation (template or custom)
+        effective_hog = attrs.get("hog")
+        if effective_hog is None and template:
+            effective_hog = template.hog
+
+        # Use effective_hog for checks and compilation/transpilation below
+        # `attrs["hog"]` remains None if using template code
+
         # Check for transformation limit per team when the function will be enabled
         # We allow unlimited creation of disabled transformations as they don't run during ingestion
         if hog_type == "transformation" and attrs.get("enabled", False):
@@ -265,52 +293,82 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if hog_type not in ["site_destination", "destination"]:
                 raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
 
-        if "hog" in attrs:
+        if "hog" in attrs or template:  # Also check if template is involved even if hog is not explicitly in attrs yet
             # First check the raw code size before trying to compile/transpile it
-            hog_code_size = len(attrs["hog"].encode("utf-8"))
-            if hog_code_size > MAX_HOG_CODE_SIZE_BYTES:
-                raise serializers.ValidationError(
-                    {
-                        "hog": f"HOG code exceeds maximum size of {MAX_HOG_CODE_SIZE_BYTES // 1024}KB. Please simplify your code or contact support if you need this limit increased."
-                    }
-                )
+            # Use effective_hog which contains either custom code or template code
+            if effective_hog is None and is_create:
+                # This case should ideally be caught by required=True, but double check
+                # Unless it's an update where hog is being set to None to revert to template
+                if not (self.instance and template):
+                    raise serializers.ValidationError({"hog": "Hog code is required."})
 
-            if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
-                try:
-                    # Validate transpilation using the model instance
-                    attrs["transpiled"] = get_transpiled_function(
-                        HogFunction(
-                            team=team,
-                            hog=attrs["hog"],
-                            filters=attrs["filters"],
-                            inputs=attrs["inputs"],
-                        )
+            # Proceed only if we have effective code to work with
+            if effective_hog is not None:
+                hog_code_size = len(effective_hog.encode("utf-8"))
+                if hog_code_size > MAX_HOG_CODE_SIZE_BYTES:
+                    raise serializers.ValidationError(
+                        {
+                            "hog": f"HOG code exceeds maximum size of {MAX_HOG_CODE_SIZE_BYTES // 1024}KB. Please simplify your code or contact support if you need this limit increased."
+                        }
                     )
-                except TranspilerError:
-                    raise serializers.ValidationError({"hog": "Error in TypeScript code"})
-                attrs["bytecode"] = None
-            else:
-                attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
-                attrs["transpiled"] = None
 
-                # Test execution to catch memory/execution exceptions only for transformations
-                if hog_type == "transformation":
-                    is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
-                    if not is_valid:
+                if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
+                    try:
+                        # Validate transpilation using the effective code
+                        attrs["transpiled"] = get_transpiled_function(
+                            HogFunction(
+                                team=team,
+                                hog=effective_hog,  # Use effective code
+                                filters=attrs.get("filters", self.instance.filters if self.instance else {}),
+                                inputs=attrs.get("inputs", self.instance.inputs if self.instance else {}),
+                            )
+                        )
+                    except TranspilerError as e:
+                        # Include the error message from the transpiler if available
+                        error_message = f"Error in TypeScript code: {e}" if str(e) else "Error in TypeScript code"
                         raise serializers.ValidationError({"hog": error_message})
+                    attrs["bytecode"] = None
+                else:
+                    attrs["bytecode"] = compile_hog(effective_hog, hog_type)  # Use effective code
+                    attrs["transpiled"] = None
+
+                    # Test execution to catch memory/execution exceptions only for transformations
+                    if hog_type == "transformation":
+                        is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
+                        if not is_valid:
+                            raise serializers.ValidationError({"hog": error_message})
+            elif attrs.get("hog") is None and template:
+                # If hog is explicitly set to None to use template, ensure bytecode/transpiled is cleared if needed
+                # This case might be redundant if the above logic correctly sets bytecode/transpiled
+                pass  # Handled by compilation logic using effective_hog
+            elif is_create:
+                # If we reach here on create without effective_hog, it means no template and no hog code provided
+                raise serializers.ValidationError({"hog": "Hog code is required when not using a template."})
 
         if is_create:
-            if not attrs.get("hog"):
-                raise serializers.ValidationError({"hog": "Required."})
+            # Ensure hog or template is present
+            if attrs.get("hog") is None and not template:
+                raise serializers.ValidationError({"hog": "Hog code or a template is required."})
 
         return attrs
 
     def to_representation(self, data):
-        encrypted_inputs = data.encrypted_inputs or {} if isinstance(data, HogFunction) else {}
-        data = super().to_representation(data)
+        # Use super() first to get the base representation
+        repr_data = super().to_representation(data)
 
-        inputs_schema = data.get("inputs_schema", [])
-        inputs = data.get("inputs") or {}
+        # Dynamically add template hog code if instance uses template
+        if isinstance(data, HogFunction) and data.hog is None and data.template_id:
+            template = HogFunctionTemplates.template(data.template_id)
+            if template:
+                repr_data["hog"] = template.hog
+            else:
+                # Handle case where template might not be found (e.g., deleted)
+                repr_data["hog"] = None  # Or some indicator of missing template?
+
+        # Process inputs schema for secrets (keep existing logic)
+        encrypted_inputs = data.encrypted_inputs or {} if isinstance(data, HogFunction) else {}
+        inputs_schema = repr_data.get("inputs_schema", [])
+        inputs = repr_data.get("inputs") or {}
 
         for schema in inputs_schema:
             if schema.get("secret"):
@@ -320,9 +378,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     # Marker to indicate to the user that a secret is set
                     inputs[schema["key"]] = {"secret": True}
 
-        data["inputs"] = inputs
+        repr_data["inputs"] = inputs
 
-        return data
+        return repr_data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]

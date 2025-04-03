@@ -19,6 +19,7 @@ from posthog.cdp.templates.webhook.template_webhook import template as template_
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.team import Team
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+from posthog.cdp.validation import compile_hog
 
 
 EXAMPLE_FULL = {
@@ -1984,3 +1985,182 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_hog_code_saved_as_null_when_using_template_without_override(self):
+        """Check hog field is NULL in DB when creating with template_id and no custom hog code."""
+        payload = {
+            "name": "Template Function No Override",
+            "template_id": template_webhook.id,
+            "type": "destination",
+            "inputs": {"url": {"value": "https://example.com/webhook"}},
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        function_id = response.json()["id"]
+
+        # Check DB value
+        function = HogFunction.objects.get(id=function_id)
+        assert function.hog is None
+
+        # Check API response includes template code
+        assert response.json()["hog"] == template_webhook.hog
+
+        # Check that the bytecode matches the TEMPLATE code
+        expected_bytecode = compile_hog(template_webhook.hog, "destination")
+        assert function.bytecode == expected_bytecode
+        assert response.json()["bytecode"] == expected_bytecode
+
+        # Verify fetching also returns template code and correct bytecode
+        get_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function_id}/")
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["hog"] == template_webhook.hog
+        assert get_response.json()["bytecode"] == expected_bytecode
+
+    def test_hog_code_saved_as_null_when_using_template_with_matching_code(self):
+        """Check hog field is NULL in DB when creating with template_id and matching hog code."""
+        payload = {
+            "name": "Template Function Matching Code",
+            "template_id": template_webhook.id,
+            "type": "destination",
+            "hog": template_webhook.hog,  # Explicitly provide matching code
+            "inputs": {"url": {"value": "https://example.com/webhook"}},
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        function_id = response.json()["id"]
+
+        # Check DB value
+        function = HogFunction.objects.get(id=function_id)
+        assert function.hog is None
+
+        # Check API response includes template code
+        assert response.json()["hog"] == template_webhook.hog
+
+        # Check that the bytecode matches the TEMPLATE code
+        expected_bytecode = compile_hog(template_webhook.hog, "destination")
+        assert function.bytecode == expected_bytecode
+        assert response.json()["bytecode"] == expected_bytecode
+
+        # Verify fetching also returns template code and correct bytecode
+        get_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function_id}/")
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["hog"] == template_webhook.hog
+        assert get_response.json()["bytecode"] == expected_bytecode
+
+    def test_hog_code_saved_when_using_template_with_custom_code(self):
+        """Check hog field has custom code in DB when creating with template_id and different hog code."""
+        custom_hog_code = "print('Custom code!'); fetch(inputs.url);"
+        payload = {
+            "name": "Template Function Custom Code",
+            "template_id": template_webhook.id,
+            "type": "destination",
+            "hog": custom_hog_code,  # Provide different code
+            "inputs": {"url": {"value": "https://example.com/webhook"}},
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        function_id = response.json()["id"]
+
+        # Check DB value
+        function = HogFunction.objects.get(id=function_id)
+        assert function.hog == custom_hog_code
+
+        # Check API response includes custom code
+        assert response.json()["hog"] == custom_hog_code
+
+        # Check that the bytecode matches the CUSTOM code
+        # expected_bytecode = compile_hog(template_webhook.hog, "destination") # Incorrect: should use custom code
+        expected_bytecode = compile_hog(custom_hog_code, "destination")
+        assert function.bytecode == expected_bytecode
+        assert response.json()["bytecode"] == expected_bytecode
+
+        # Verify fetching also returns custom code and correct bytecode
+        get_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function_id}/")
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["hog"] == custom_hog_code
+        assert get_response.json()["bytecode"] == expected_bytecode
+
+    def test_update_custom_function_to_use_template_code(self):
+        """Test updating a function with custom code back to using the template's code."""
+        custom_hog_code = "print('Custom code!'); fetch(inputs.url);"
+        # 1. Create function with custom code
+        create_payload = {
+            "name": "Start Custom, End Template",
+            "template_id": template_webhook.id,
+            "type": "destination",
+            "hog": custom_hog_code,
+            "inputs": {"url": {"value": "https://example.com/webhook"}},
+        }
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=create_payload)
+        assert create_response.status_code == status.HTTP_201_CREATED
+        function_id = create_response.json()["id"]
+        # assert get_db_field_value("hog", function_id) == custom_hog_code
+        function = HogFunction.objects.get(id=function_id)
+        assert function.hog == custom_hog_code
+
+        # 2. Update with matching template code
+        update_payload = {"hog": template_webhook.hog}
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/", data=update_payload
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+        # Check DB value is now NULL
+        # assert get_db_field_value("hog", function_id) is None
+        function.refresh_from_db()
+        assert function.hog is None
+
+        # Check API response includes template code
+        assert update_response.json()["hog"] == template_webhook.hog
+
+        # Check that the bytecode matches the TEMPLATE code
+        expected_bytecode = compile_hog(template_webhook.hog, "destination")
+        assert function.bytecode == expected_bytecode
+        assert update_response.json()["bytecode"] == expected_bytecode
+
+        # Verify fetching also returns template code and correct bytecode
+        get_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function_id}/")
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["hog"] == template_webhook.hog
+        assert get_response.json()["bytecode"] == expected_bytecode
+
+    def test_update_template_function_to_use_custom_code(self):
+        """Test updating a function using template code to use custom code."""
+        custom_hog_code = "print('Now it is custom!'); fetch(inputs.url);"
+        # 1. Create function using template code (implicit)
+        create_payload = {
+            "name": "Start Template, End Custom",
+            "template_id": template_webhook.id,
+            "type": "destination",
+            "inputs": {"url": {"value": "https://example.com/webhook"}},
+        }
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=create_payload)
+        assert create_response.status_code == status.HTTP_201_CREATED
+        function_id = create_response.json()["id"]
+        function = HogFunction.objects.get(id=function_id)
+        assert function.hog is None
+
+        # 2. Update with custom code
+        update_payload = {"hog": custom_hog_code}
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/", data=update_payload
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+        # Check DB value is now the custom code
+        function.refresh_from_db()
+        assert function.hog == custom_hog_code
+
+        # Check API response includes custom code
+        assert update_response.json()["hog"] == custom_hog_code
+
+        # Check that the bytecode matches the CUSTOM code
+        expected_bytecode = compile_hog(custom_hog_code, "destination")
+        assert function.bytecode == expected_bytecode
+        assert update_response.json()["bytecode"] == expected_bytecode
+
+        # Verify fetching also returns custom code and correct bytecode
+        get_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function_id}/")
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["hog"] == custom_hog_code
+        assert get_response.json()["bytecode"] == expected_bytecode
