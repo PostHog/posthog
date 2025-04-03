@@ -443,9 +443,9 @@ def validate_credentials(api_key: str) -> bool:
             resource["method"](params=resource["params"])  # type: ignore
         except Exception as e:
             # Store the resource name and error message
-            missing_permissions[resource["name"]] = str(e)  # type: ignore
+            missing_permissions[resource["name"]] = str(e)
 
     if missing_permissions:
-        raise StripePermissionError(missing_permissions)
+        raise StripePermissionError(missing_permissions)  # type: ignore
 
     return True
