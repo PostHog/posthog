@@ -496,7 +496,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
                             ? {
-                                  identifier: Scene.Group,
+                                  identifier: Scene.Groups,
                                   label: 'B2B analytics',
                                   icon: <IconCoffee />,
                                   to: urls.groups(0),
