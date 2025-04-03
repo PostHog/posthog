@@ -780,7 +780,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         with get_api_personal_rate_limiter().run(
             is_api=self.is_query_service,
             team_id=self.team.pk,
-            org_id=self.team.organization.id,
+            org_id=self.team.organization_id,
             task_id=self.query_id,
             limit=concurrency_limit,
         ):
@@ -819,22 +819,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
         """
 
-        if not settings.EE_AVAILABLE:
+        if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
             return None
 
         from ee.billing.quota_limiting import list_limited_team_attributes, QuotaLimitingCaches, QuotaResource
+        from posthog.constants import AvailableFeature
 
         if self.team.api_token in list_limited_team_attributes(
             QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         ):
             return 0
 
-        feature = next(
-            filter(
-                lambda f: f.get("key") == "api_queries_concurrency", self.team.organization.available_product_features
-            ),
-            None,
-        )
+        feature = self.team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
         return feature.get("limit") if feature else None
 
     @abstractmethod

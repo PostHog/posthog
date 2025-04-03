@@ -8,7 +8,6 @@ from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
 
-from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -325,7 +324,12 @@ class AISustainedRateThrottle(UserRateThrottle):
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     # Lower rate limit for HogQL queries
     scope = "query"
-    rate = "3600/hour" if settings.API_QUERIES_ENABLED else "120/hour"
+    rate = "120/hour"
+
+
+class APIQueriesThrottle(PersonalApiKeyRateThrottle):
+    scope = "query"
+    rate = "3600/hour"
 
 
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):

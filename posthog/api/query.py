@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 import json
@@ -14,7 +15,9 @@ from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
+from posthog import settings
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -46,6 +49,7 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
+    APIQueriesThrottle,
 )
 from posthog.schema import (
     QueryRequest,
@@ -102,6 +106,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        if (
+            settings.API_QUERIES_ENABLED
+            and self.team
+            and self.team.organization.is_feature_available(AvailableFeature.API_QUERIES_CONCURRENCY)
+        ):
+            logging.info("using API Queries throttle")
+            return [APIQueriesThrottle()]
         if query := self.request.data.get("query"):
             if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
                 return [HogQLQueryThrottle()]

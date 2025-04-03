@@ -222,9 +222,14 @@ class Organization(UUIDModel):
 
         return self.available_product_features
 
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> dict:
+        return next(
+            filter(lambda f: f.get("key") == feature, self.available_product_features or []),
+            None,
+        )
+
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
-        available_product_feature_keys = [feature["key"] for feature in self.available_product_features or []]
-        return feature in available_product_feature_keys
+        return bool(self.get_available_feature(feature))
 
     @property
     def active_invites(self) -> QuerySet:
