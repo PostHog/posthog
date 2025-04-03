@@ -9,7 +9,9 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import
 )
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from rest_framework.exceptions import ValidationError
+from posthog.models.action.action import Action
 from posthog.schema import (
+    ActionsNode,
     EventsNode,
     ExperimentQuery,
     ExperimentVariantFunnelsBaseStats,
@@ -664,4 +666,51 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.success_count, 1)
         self.assertEqual(control_variant.failure_count, 2)
         self.assertEqual(test_variant.success_count, 1)
+        self.assertEqual(test_variant.failure_count, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_action(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        action = Action.objects.create(name="purchase", team=self.team, steps_json=[{"event": "purchase"}])
+        action.save()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                ActionsNode(id=action.id, name="purchase"),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        self.create_standard_test_events(feature_flag)
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.success_count, 6)
+        self.assertEqual(control_variant.failure_count, 4)
+        self.assertEqual(test_variant.success_count, 8)
         self.assertEqual(test_variant.failure_count, 2)

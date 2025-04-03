@@ -275,14 +275,19 @@ class ExperimentQueryRunner(QueryRunner):
         Returns the filter for a single funnel step.
         """
 
-        if funnel_step.kind == "ActionsNode":
-            raise NotImplementedError("Funnel steps for actions are not supported yet")
-
-        event_filter: ast.Expr = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=funnel_step.event),
-        )
+        if isinstance(funnel_step, ActionsNode):
+            try:
+                action = Action.objects.get(pk=int(funnel_step.id), team__project_id=self.team.project_id)
+                event_filter = action_to_expr(action)
+            except Action.DoesNotExist:
+                # If an action doesn't exist, we want to return no events
+                event_filter = ast.Constant(value=False)
+        else:
+            event_filter = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=funnel_step.event),
+            )
 
         if funnel_step.properties:
             event_properties = ast.And(
@@ -449,16 +454,25 @@ class ExperimentQueryRunner(QueryRunner):
         Returns the expression for the window funnel. The expression returns 1 if the user completed the whole funnel, 0 if they didn't.
         """
 
-        for step in funnel_metric.series:
-            if step.kind == "ActionsNode":
-                raise NotImplementedError("Funnel steps for actions are not supported yet")
+        def _get_node_name(node: EventsNode | ActionsNode) -> str:
+            if isinstance(node, ActionsNode):
+                if node.name:
+                    return node.name
+                else:
+                    raise ValueError(f"Action {node.id} has no name")
+            else:
+                if node.event:
+                    return node.event
+                else:
+                    raise ValueError(f"Event {node.event} has no name")
 
-        series = [step for step in funnel_metric.series if step.kind == "EventsNode"]
+        funnel_steps_str = ", ".join(
+            [f"event = {ast.Constant(value=_get_node_name(step)).to_hogql()}" for step in funnel_metric.series]
+        )
 
         # TODO: get conversion time window from funnel config
         num_steps = len(funnel_metric.series)
         conversion_time_window = 6048000000000000
-        funnel_steps_str = ", ".join([f"event = {ast.Constant(value=step.event).to_hogql()}" for step in series])
         return parse_expr(
             f"windowFunnel({conversion_time_window})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
             placeholders={
