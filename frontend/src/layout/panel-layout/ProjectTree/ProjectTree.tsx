@@ -24,6 +24,7 @@ export function ProjectTree(): JSX.Element {
         searchTerm,
         treeItemsNew,
         checkedItems,
+        checkedItemsCount,
     } = useValues(projectTreeLogic)
 
     const {
@@ -62,10 +63,11 @@ export function ProjectTree(): JSX.Element {
                     asChild
                     onClick={(e: any) => {
                         e.stopPropagation()
-                        if (checkedItems.includes(item.id)) {
-                            setCheckedItems(checkedItems.filter((i: any) => i !== item.id))
+                        if (checkedItems[item.id]) {
+                            const { [item.id]: _, ...rest } = checkedItems
+                            setCheckedItems(rest)
                         } else {
-                            setCheckedItems([...checkedItems, item.id])
+                            setCheckedItems({ ...checkedItems, [item.id]: true })
                         }
                     }}
                 >
@@ -145,8 +147,8 @@ export function ProjectTree(): JSX.Element {
         <PanelLayoutPanel
             searchPlaceholder="Search your project"
             panelActions={
-                checkedItems.length > 0 ? (
-                    <LemonTag type="highlight">{checkedItems.length} selected</LemonTag>
+                checkedItemsCount ? (
+                    <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                 ) : (
                     <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
                         <IconFolderPlus className="text-tertiary" />
@@ -168,7 +170,7 @@ export function ProjectTree(): JSX.Element {
                 }}
                 enableMultiSelection={true}
                 checkedItems={checkedItems}
-                onSetCheckedItemIds={setCheckedItems}
+                onSetCheckedItems={setCheckedItems}
                 onNodeClick={(node) => {
                     if (!isLayoutPanelPinned) {
                         clearActivePanelIdentifier()

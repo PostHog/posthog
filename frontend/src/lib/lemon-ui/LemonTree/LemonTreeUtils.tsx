@@ -9,7 +9,7 @@ import { TreeDataItem } from './LemonTree'
 type IconProps = {
     item: TreeDataItem
     expandedItemIds: string[]
-    checkedItems: string[]
+    checkedItems: Record<string, boolean>
     defaultNodeIcon?: React.ReactNode
     enableMultiSelection?: boolean
     handleCheckedChange?: (checked: boolean) => void
@@ -30,7 +30,7 @@ export function renderTreeNodeDisplayItem({
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
     const isFile = item.record?.type === 'file'
-    const isChecked = checkedItems.includes(item.id)
+    const isChecked = !!checkedItems[item.id]
     let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
 
     if (isFolder) {

@@ -70,7 +70,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
         setLastNewOperation: (objectType: string | null, folder: string | null) => ({ objectType, folder }),
-        setCheckedItems: (checkedItems: string[]) => ({ checkedItems }),
+        setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -348,7 +348,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         checkedItems: [
-            [] as string[],
+            {} as Record<string, boolean>,
             {
                 setCheckedItems: (_, { checkedItems }) => checkedItems,
             },
@@ -574,6 +574,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 return projectTree
             },
+        ],
+        checkedItemsCount: [
+            (s) => [s.checkedItems],
+            (checkedItems): number => Object.values(checkedItems).filter((c) => !!c).length,
         ],
     }),
     listeners(({ actions, values }) => ({
