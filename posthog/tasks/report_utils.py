@@ -6,9 +6,9 @@ import structlog
 from dateutil import parser
 from django.conf import settings
 from posthoganalytics.client import Client
-from posthog.exceptions_capture import capture_exception
 
 from posthog.cloud_utils import is_cloud
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -82,6 +82,10 @@ def capture_event(
             groups={"instance": settings.SITE_URL},
             timestamp=timestamp,
         )
+
+
+def update_group_properties(*, pha_client: Client, group_type: str, group_id: str, properties: dict[str, Any]) -> None:
+    pha_client.group_identify(group_type, group_id, properties)
 
 
 @dataclasses.dataclass
