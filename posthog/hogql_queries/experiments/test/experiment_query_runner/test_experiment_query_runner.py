@@ -4,7 +4,10 @@ from django.test import override_settings
 from pytest import mark
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.test.utils import create_standard_group_test_events, create_data_warehouse_table
+from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import (
+    create_standard_group_test_events,
+    create_data_warehouse_table,
+)
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
