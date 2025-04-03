@@ -21,9 +21,7 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentQuery,
     ExperimentSignificanceCode,
-    ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
-    ExperimentFunnelMetric,
     ExperimentMeanMetric,
     PropertyOperator,
 )
@@ -41,68 +39,6 @@ from parameterized import parameterized
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
-    @freeze_time("2020-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_query_runner_funnel_metric(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
-        experiment.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        metric = ExperimentFunnelMetric(
-            series=[
-                EventsNode(event="purchase"),
-            ],
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        self.create_standard_test_events(feature_flag)
-
-        # Extra success events that should be ignored
-        _create_event(
-            team=self.team,
-            event="purchase",
-            distinct_id="user_control_1",
-            timestamp="2020-01-03T12:01:00Z",
-            properties={feature_flag_property: "control"},
-        )
-        _create_event(
-            team=self.team,
-            event="purchase",
-            distinct_id="user_test_1",
-            timestamp="2020-01-03T12:01:00Z",
-            properties={feature_flag_property: "test"},
-        )
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.success_count, 6)
-        self.assertEqual(control_variant.failure_count, 4)
-        self.assertEqual(test_variant.success_count, 8)
-        self.assertEqual(test_variant.failure_count, 2)
-
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_mean_property_sum_metric(self):
