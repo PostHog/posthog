@@ -5,7 +5,7 @@ import { Link } from './lemon-ui/Link'
 
 /** Same as https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts */
 // Ideally this would be imported from posthog-js, we just need to start exporting the list there
-export const CAMPAIGN_PROPERTIES: string[] = [
+const CAMPAIGN_PROPERTIES: string[] = [
     'utm_source',
     'utm_medium',
     'utm_campaign',
@@ -54,7 +54,7 @@ const PERSON_PROPERTIES_ADAPTED_FROM_EVENT = new Set([
     ...CAMPAIGN_PROPERTIES,
 ])
 
-export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
+const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     '$referring_domain',
     'utm_source',
     'utm_campaign',
@@ -79,7 +79,7 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     '_kx',
 ])
 
-export const SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = new Set([
+const SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = new Set([
     '$current_url', // Gets renamed to just $url
     '$host',
     '$pathname',

@@ -91,7 +91,6 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# synced with frontend/src/lib/taxonomy.tsx
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -188,6 +187,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Rageclick",
             "description": "A user has rapidly and repeatedly clicked in a single place",
         },
+        "$dead_click": {
+            "label": "Dead click",
+            "description": "A user has clicked on something that is probably not clickable",
+        },
         "$exception": {
             "label": "Exception",
             "description": "An unexpected error or unhandled exception in your application",
@@ -215,6 +218,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_span": {
             "label": "AI Span (LLM)",
             "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)",
+        },
+        "$ai_embedding": {
+            "label": "AI Embedding (LLM)",
+            "description": "A call to an embedding model",
         },
         "Application Opened": {
             "label": "Application Opened",
@@ -1696,10 +1703,3 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
             f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']}. Captured at the start of the session and remains constant for the duration of the session."
         ),
     }
-
-
-PROPERTY_NAME_ALIASES = {
-    key: value["label"]
-    for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
-    if "label" in value and "deprecated" not in value["label"]
-}
