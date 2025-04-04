@@ -10,19 +10,8 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     hog: `
-let headers := {}
-
-for (let key, value in inputs.headers) {
-    headers[key] := value
-}
-if (inputs.additional_headers) {
-  for (let key, value in inputs.additional_headers) {
-    headers[key] := value
-  }
-}
-
 let payload := {
-  'headers': headers,
+  'headers': inputs.headers,
   'body': inputs.body,
   'method': inputs.method
 }
@@ -76,6 +65,14 @@ if (inputs.debug) {
             required: false,
         },
         {
+            key: 'body',
+            type: 'json',
+            label: 'JSON Body',
+            default: { event: '{event}', person: '{person}' },
+            secret: false,
+            required: false,
+        },
+        {
             key: 'headers',
             type: 'dictionary',
             label: 'Headers',
@@ -93,50 +90,22 @@ if (inputs.debug) {
             default: false,
         },
     ],
-    filters: { bytecode: ['_H', 1, 29] },
-    mapping_templates: [
-        {
-            name: 'Webhook',
-            include_by_default: true,
-            filters: {
-                events: [{ id: '$pageview', name: 'Pageview', type: 'events' }],
-                bytecode: ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
-            },
-            inputs_schema: [
-                {
-                    key: 'body',
-                    type: 'json',
-                    label: 'JSON Body',
-                    default: { event: '{event}', person: '{person}' },
-                    secret: false,
-                    required: false,
-                },
-                {
-                    key: 'additional_headers',
-                    type: 'dictionary',
-                    label: 'Additional headers',
-                    secret: false,
-                    required: false,
-                    default: {},
-                },
-            ],
-        },
-    ],
     sub_templates: [
         {
-            ...SUB_TEMPLATE_COMMON['early-access-feature-enrollment'],
             id: 'early-access-feature-enrollment',
             name: 'HTTP Webhook on feature enrollment',
+            filters: SUB_TEMPLATE_COMMON['early-access-feature-enrollment'].filters,
         },
         {
-            ...SUB_TEMPLATE_COMMON['survey-response'],
             id: 'survey-response',
             name: 'HTTP Webhook on survey response',
+            filters: SUB_TEMPLATE_COMMON['survey-response'].filters,
         },
         {
-            ...SUB_TEMPLATE_COMMON['activity-log'],
             id: 'activity-log',
             name: 'HTTP Webhook on team activity',
+            filters: SUB_TEMPLATE_COMMON['activity-log'].filters,
+            type: 'internal_destination',
         },
         {
             ...SUB_TEMPLATE_COMMON['error-tracking-issue-created'],
