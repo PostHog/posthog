@@ -865,7 +865,7 @@ class FeatureFlagViewSet(
             return Response([])
 
         groups = json.loads(request.GET.get("groups", "{}"))
-        matches, *_ = get_all_feature_flags(self.team, request.user.distinct_id, groups)
+        matches, *_ = get_all_feature_flags(self.team_id, request.user.distinct_id, groups)
 
         all_serialized_flags = MinimalFeatureFlagSerializer(
             feature_flags, many=True, context=self.get_serializer_context()
@@ -992,7 +992,7 @@ class FeatureFlagViewSet(
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
 
-        flags, reasons, _, _ = get_all_feature_flags(self.team, distinct_id, groups)
+        flags, reasons, _, _ = get_all_feature_flags(self.team_id, distinct_id, groups)
 
         flags_with_evaluation_reasons = {}
 

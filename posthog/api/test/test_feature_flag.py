@@ -6386,7 +6386,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(8):
             # one query to get group type mappings, another to get group properties
             # 2 to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
             self.assertTrue(all_flags["group-flag"])
             self.assertTrue(all_flags["default-flag"])
             self.assertFalse(errors)
@@ -6394,9 +6394,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
             with self.assertNumQueries(3):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team, "example_id", groups={"organization": "org:1"}
-                )
+                all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
                 self.assertTrue("group-flag" not in all_flags)
                 # can't be true unless we cache group type mappings as well
@@ -6406,7 +6404,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent correct group property overrides
             with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "random",
                     groups={"organization": "org:1"},
                     group_property_value_overrides={"organization": {"industry": "finance"}},
@@ -6419,7 +6417,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent different group property overrides
             with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "exam",
                     groups={"organization": "org:1"},
                     group_property_value_overrides={"organization": {"industry": "finna"}},
@@ -6487,7 +6485,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(4):
             # 1 query to get person properties
             # 1 to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])
@@ -6495,7 +6493,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
@@ -6504,7 +6502,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent email parameter with correct email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "random",
                     property_value_overrides={"email": "tim@posthog.com"},
                 )
@@ -6519,7 +6517,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "example_id",
                     property_value_overrides={"email": "tom@posthog.com"},
                 )
@@ -6588,7 +6586,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(4):
             # 1 query to set statement timeout
             # 1 query to get person properties
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])
@@ -6603,7 +6601,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 500,
             ),
         ):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
@@ -6612,7 +6610,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent email parameter with correct email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "random",
                     property_value_overrides={"email": "tim@posthog.com"},
                 )
@@ -6623,7 +6621,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "example_id",
                     property_value_overrides={"email": "tom@posthog.com"},
                 )
@@ -6687,7 +6685,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         with self.assertNumQueries(0), self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True):
             # No queries because of config parameter
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
             self.assertTrue(errors)
@@ -6702,7 +6700,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             ),
             self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True),
         ):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
@@ -6711,7 +6709,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # decide was sent email parameter with correct email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "random",
                     property_value_overrides={"email": "tim@posthog.com"},
                 )
@@ -6722,7 +6720,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "example_id",
                     property_value_overrides={"email": "tom@posthog.com"},
                 )
@@ -6735,6 +6733,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
+
+        team_id = self.team.pk
 
         Person.objects.create(
             team=self.team,
@@ -6798,7 +6798,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(4):
             # 1 query to get person properties
             # 1 query to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])
@@ -6815,7 +6815,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertNumQueries(4),
         ):
             # no extra queries to get person properties for the second flag after first one failed
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue("property-flag2" not in all_flags)
@@ -6898,7 +6898,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(8):
             # one query to get group type mappings, another to get group properties
             # 2 queries to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
             self.assertTrue(all_flags["group-flag"])
             self.assertTrue(all_flags["default-flag"])
             self.assertFalse(errors)
@@ -6913,9 +6913,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             ),
         ):
             with self.assertNumQueries(4):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team, "example_id", groups={"organization": "org:1"}
-                )
+                all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
                 self.assertTrue("group-flag" not in all_flags)
                 # can't be true unless we cache group type mappings as well
@@ -6925,7 +6923,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is slow, but decide was sent correct group property overrides
             with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "random",
                     groups={"organization": "org:1"},
                     group_property_value_overrides={"organization": {"industry": "finance"}},
@@ -6947,7 +6945,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent different group property overrides
             with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "exam",
                     groups={"organization": "org:1"},
                     group_property_value_overrides={"organization": {"industry": "finna"}},
@@ -7014,7 +7012,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         serialized_data.save()
 
         with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])
@@ -7029,7 +7027,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 500,
             ),
         ):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
@@ -7039,7 +7037,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # still need to get hash key override from db, so should time out
             with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
+                    team_id,
                     "random",
                     property_value_overrides={"email": "tim@posthog.com"},
                 )
@@ -7111,14 +7109,14 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         serialized_data.save()
 
         with self.assertNumQueries(9), self.settings(DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES=True):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])
             self.assertFalse(errors)
 
         # should've been false because of the override, but incident mode, so not
-        all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="other_id")
+        all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="other_id")
 
         self.assertTrue(all_flags["property-flag"])
         self.assertTrue(all_flags["default-flag"])
