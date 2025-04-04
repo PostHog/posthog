@@ -162,6 +162,7 @@ async def test_mysql_source_full_refresh(
         table_name=table_name,
         expected_rows_synced=expected_num_rows,
         expected_total_rows=expected_num_rows,
+        expected_columns=["id", "name", "email", "created_at", "unsigned_int"],
     )
 
-    assert res == TEST_DATA
+    assert res.results == TEST_DATA

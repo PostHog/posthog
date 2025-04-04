@@ -17,6 +17,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.query import execute_hogql_query
+from posthog.schema import HogQLQueryResponse
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
@@ -78,7 +79,8 @@ async def run_external_data_job_workflow(
     table_name,
     expected_rows_synced,
     expected_total_rows,
-):
+    expected_columns: list[str] | None = None,
+) -> HogQLQueryResponse:
     workflow_id = str(uuid.uuid4())
     inputs = ExternalDataWorkflowInputs(
         team_id=team.id,
@@ -138,17 +140,23 @@ async def run_external_data_job_workflow(
 
     assert external_data_schema.last_synced_at == run.created_at
 
-    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
-    assert len(res.results) == expected_total_rows
+    if expected_columns is None:
+        columns_str = "*"
+    else:
+        columns_str = ", ".join(expected_columns)
 
-    for name, field in external_tables.get(table_name, {}).items():
-        if field.hidden:
-            continue
-        assert name in (res.columns or [])
+    res = await sync_to_async(execute_hogql_query)(f"SELECT {columns_str} FROM {table_name}", team)
+    assert len(res.results) == expected_total_rows
+    if expected_columns is not None:
+        assert set(expected_columns) == set(res.columns or [])
+
+    if table_name in external_tables:
+        table_columns = [name for name, field in external_tables.get(table_name, {}).items() if not field.hidden]
+        assert set(table_columns) == set(res.columns or [])
 
     await external_data_schema.arefresh_from_db()
     assert external_data_schema.sync_type_config.get("reset_pipeline") is None
-    return res.results
+    return res
 
 
 @pytest.fixture
