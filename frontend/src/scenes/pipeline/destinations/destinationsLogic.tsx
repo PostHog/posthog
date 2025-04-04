@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -50,8 +49,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     key((props: PipelineDestinationsLogicProps) => props.types.join(',')),
     connect((props: PipelineDestinationsLogicProps) => ({
         values: [
-            projectLogic,
-            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             pipelineAccessLogic,
@@ -97,7 +96,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<number, PluginConfigTypeNew> = {}
                     const results = await api.loadPaginatedResults<PluginConfigTypeNew>(
-                        `api/projects/${values.currentProjectId}/pipeline_destination_configs`
+                        `api/projects/${values.currentTeamId}/pipeline_destination_configs`
                     )
 
                     for (const pluginConfig of results) {
@@ -203,7 +202,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     }
 
                     await deleteWithUndo({
-                        endpoint: `projects/${values.currentProjectId}/hog_functions`,
+                        endpoint: `projects/${values.currentTeamId}/hog_functions`,
                         object: {
                             id: destination.hog_function.id,
                             name: destination.name,

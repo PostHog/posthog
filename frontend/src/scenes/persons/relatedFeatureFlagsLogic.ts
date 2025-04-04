@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
 
@@ -36,7 +36,7 @@ export interface RelatedFlagsFilters {
 
 export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     path(['scenes', 'persons', 'relatedFeatureFlagsLogic']),
-    connect({ values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags']] }),
+    connect({ values: [teamLogic, ['currentTeamId'], featureFlagsLogic, ['featureFlags']] }),
     props(
         {} as {
             distinctId: string | null
@@ -56,7 +56,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             {
                 loadRelatedFeatureFlags: async () => {
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/evaluation_reasons?${toParams({
+                        `api/projects/${values.currentTeamId}/feature_flags/evaluation_reasons?${toParams({
                             ...(props.distinctId ? { distinct_id: props.distinctId } : {}),
                             ...(props.groups ? { groups: props.groups } : {}),
                         })}`

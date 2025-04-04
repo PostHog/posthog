@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { wordPluralize } from 'lib/utils'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { GroupType, GroupTypeIndex } from '~/types'
 
@@ -18,19 +18,19 @@ export interface Noun {
 export const groupsModel = kea<groupsModelType>([
     path(['models', 'groupsModel']),
     connect({
-        values: [projectLogic, ['currentProjectId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
+        values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
     }),
     loaders(({ values }) => ({
         groupTypesRaw: [
             [] as Array<GroupType>,
             {
                 loadAllGroupTypes: async () => {
-                    return await api.get(`api/projects/${values.currentProjectId}/groups_types`)
+                    return await api.get(`api/projects/${values.currentTeamId}/groups_types`)
                 },
                 updateGroupTypesMetadata: async (payload: Array<GroupType>) => {
                     if (values.groupsEnabled) {
                         return await api.update(
-                            `/api/projects/${values.currentProjectId}/groups_types/update_metadata`,
+                            `/api/projects/${values.currentTeamId}/groups_types/update_metadata`,
                             payload
                         )
                     }
@@ -38,7 +38,7 @@ export const groupsModel = kea<groupsModelType>([
                 },
                 createDetailDashboard: async (groupTypeIndex: number) => {
                     const groupType = await api.put(
-                        `/api/projects/${values.currentProjectId}/groups_types/create_detail_dashboard`,
+                        `/api/projects/${values.currentTeamId}/groups_types/create_detail_dashboard`,
                         { group_type_index: groupTypeIndex }
                     )
                     return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
@@ -62,7 +62,7 @@ export const groupsModel = kea<groupsModelType>([
                     defaultColumns: string[]
                 }) => {
                     const groupType = await api.put(
-                        `/api/projects/${values.currentProjectId}/groups_types/set_default_columns`,
+                        `/api/projects/${values.currentTeamId}/groups_types/set_default_columns`,
                         { group_type_index: groupTypeIndex, default_columns: defaultColumns }
                     )
                     return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))

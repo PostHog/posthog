@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
@@ -49,8 +49,8 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
     connect({
         values: [
-            projectLogic,
-            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             pipelineAccessLogic,
@@ -91,7 +91,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({
-                        endpoint: `projects/${values.currentProjectId}/hog_functions`,
+                        endpoint: `projects/${values.currentTeamId}/hog_functions`,
                         object: {
                             id: hogFunction.id,
                             name: hogFunction.name,

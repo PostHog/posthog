@@ -14,7 +14,6 @@ import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { hogFunctionNewUrl, hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
-import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -275,8 +274,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     }),
     connect(({ id }: HogFunctionConfigurationLogicProps) => ({
         values: [
-            projectLogic,
-            ['currentProjectId', 'currentProject'],
+            teamLogic,
+            ['currentTeamId', 'currentTeam'],
             groupsModel,
             ['groupTypes'],
             userLogic,
@@ -706,8 +705,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes, s.logicProps],
-            (configuration, currentProject, groupTypes, logicProps): HogFunctionInvocationGlobals => {
+            (s) => [s.configuration, s.currentTeam, s.groupTypes, s.logicProps],
+            (configuration, currentTeam, groupTypes, logicProps): HogFunctionInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
@@ -716,7 +715,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     distinct_id: uuid(),
                     timestamp: dayjs().toISOString(),
                     elements_chain: '',
-                    url: `${window.location.origin}/project/${currentProject?.id}/events/`,
+                    url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
                     ...(logicProps.logicKey === 'errorTracking'
                         ? {
                               event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
@@ -745,9 +744,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                     groups: {},
                     project: {
-                        id: currentProject?.id || 0,
-                        name: currentProject?.name || '',
-                        url: `${window.location.origin}/project/${currentProject?.id}`,
+                        id: currentTeam?.id || 0,
+                        name: currentTeam?.name || '',
+                        url: `${window.location.origin}/project/${currentTeam?.id}`,
                     },
                     source: {
                         name: configuration?.name ?? 'Unnamed',
@@ -1185,7 +1184,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
             const { id, name, type, template } = values.hogFunction
             await deleteWithUndo({
-                endpoint: `projects/${values.currentProjectId}/hog_functions`,
+                endpoint: `projects/${values.currentTeamId}/hog_functions`,
                 object: {
                     id,
                     name,

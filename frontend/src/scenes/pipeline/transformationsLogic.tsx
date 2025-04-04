@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
@@ -13,7 +13,7 @@ import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './util
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
     path(['scenes', 'pipeline', 'transformationsLogic']),
     connect({
-        values: [projectLogic, ['currentProjectId'], userLogic, ['user']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
     }),
     actions({
         loadPluginConfigs: true,
@@ -47,7 +47,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {
                 loadPluginConfigs: async () => {
                     const res = await api.loadPaginatedResults<PluginConfigTypeNew>(
-                        `api/projects/${values.currentProjectId}/pipeline_transformation_configs`
+                        `api/projects/${values.currentTeamId}/pipeline_transformation_configs`
                     )
 
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
