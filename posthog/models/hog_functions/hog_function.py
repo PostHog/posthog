@@ -50,10 +50,6 @@ class HogFunctionType(models.TextChoices):
     BROADCAST = "broadcast"
 
 
-class HogFunctionKind(models.TextChoices):
-    MESSAGING_CAMPAIGN = "messaging_campaign"
-
-
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
     HogFunctionType.TRANSFORMATION,
