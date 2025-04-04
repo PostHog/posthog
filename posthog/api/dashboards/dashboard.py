@@ -515,7 +515,12 @@ class DashboardsViewSet(
         # Dashboards are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
         assert self.team.project_id is not None
-        queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
+        queryset = self.queryset.filter(team=self.team.root_team)
+        # if self.team.parent_team:
+        #     # KLUDGE: This will be the default behavior if we stick with it and remove projects
+        # else:
+        #     queryset = self.queryset.filter(team__project_id=self.team.project_id)
 
         include_deleted = (
             self.action == "partial_update"
@@ -628,12 +633,12 @@ class DashboardsViewSet(
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
-    param_derived_from_user_current_team = "project_id"
+    param_derived_from_user_current_team = "team_id"
 
     def get_parents_query_dict(self) -> dict[str, Any]:
         if not self.request.user.is_authenticated or "share_token" in self.request.GET:
             return {}
-        return {"team__project_id": self.project_id}
+        return {"team_id": self.team_id}
 
 
 class LegacyInsightViewSet(InsightViewSet):

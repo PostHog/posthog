@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.db.models.query import QuerySet
+from django.db.models import Model
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -22,6 +23,7 @@ from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import RootTeamMixin
 from posthog.permissions import (
     APIScopePermission,
     AccessControlPermission,
@@ -330,6 +332,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     def _filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.parents_query_dict.copy()
 
+        # TODO: We need to know if it is a root team model and
+        # then filter to ensure that it checks the team__parent_team id if set otherwise its own id
+        model = cast(Model, queryset.model)
+
+        if RootTeamMixin in model.__bases__:
+            # TODO: This might not be the right way of doing this...
+            parents_query_dict["team_id"] = self.team.root_team.id
+
         for source, destination in self.filter_rewrite_rules.items():
             parents_query_dict[destination] = parents_query_dict[source]
             del parents_query_dict[source]
@@ -422,9 +432,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         serializer_context["get_team"] = lambda: self.team
         serializer_context["get_project"] = lambda: self.project
         serializer_context["get_organization"] = lambda: self.organization
-        if "project_id" in serializer_context:
-            # KLUDGE: This alias can be removed once the relevant models get that field directly
-            serializer_context["team_id"] = serializer_context["project_id"]
+        # if "project_id" in serializer_context:
+        #     # KLUDGE: This alias can be removed once the relevant models get that field directly
+        #     serializer_context["team_id"] = serializer_context["project_id"]
         return serializer_context
 
     @lru_cache(maxsize=1)

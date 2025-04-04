@@ -216,6 +216,15 @@ class Team(UUIDClassicModel):
         related_name="teams",
         related_query_name="team",
     )
+    # NOTE: The deletion is cascade due to us wanting to first of all solve deletion properly before allowing cascading deletes
+    parent_team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.SET_NULL,
+        related_name="child_teams",
+        related_query_name="child_team",
+        null=True,
+    )
+    # NOTE: To be removed in favour of parent_team
     project = models.ForeignKey(
         "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
@@ -558,6 +567,10 @@ class Team(UUIDClassicModel):
                 )
             )
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
+
+    @property
+    def root_team(self) -> "Team":
+        return self.parent_team if self.parent_team else self
 
     def __str__(self):
         if self.name:
