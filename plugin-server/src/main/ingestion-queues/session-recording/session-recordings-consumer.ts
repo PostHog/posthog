@@ -312,17 +312,6 @@ export class SessionRecordingIngester {
             }
         }
 
-        // added for incident 367 https://posthog.slack.com/archives/C08LPFEAUNR
-        // all session ids should be UUIDv7 and so 32 characters long
-        // we're now dropping invalid UUIDs at capture
-        // but have some naughty ones already in kafka
-        // this is a sanity check to get past those
-        if (session_id.length > 124) {
-            const semiValidTeamId = typeof team_id === 'number' || typeof team_id === 'string' ? team_id : 'unknown'
-            dropEvent(`session_id_too_long_${semiValidTeamId}`)
-            return
-        }
-
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
         if (
             await this.persistentHighWaterMarker.isBelowHighWaterMark(event.metadata, this.consumerGroupId, highOffset)
