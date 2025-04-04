@@ -225,6 +225,7 @@ pub struct FeatureFlagMatcher {
     group_type_mapping_cache: GroupTypeMappingCache,
     properties_cache: PropertiesCache,
     groups: HashMap<String, Value>,
+    static_cohort_matches: Option<HashMap<CohortId, bool>>,
 }
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
@@ -252,6 +253,7 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(project_id, reader.clone())),
             groups: groups.unwrap_or_default(),
             properties_cache: PropertiesCache::default(),
+            static_cohort_matches: None,
         }
     }
 
@@ -828,6 +830,41 @@ impl FeatureFlagMatcher {
 
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in sorted_conditions {
+            let mut cohort_ids: HashSet<CohortId> = HashSet::new();
+
+            if let Some(props) = &condition.properties {
+                for prop in props {
+                    if prop.is_cohort() {
+                        if let Some(cohort_id) = prop.get_cohort_id() {
+                            cohort_ids.insert(cohort_id);
+                        }
+                    }
+                }
+            }
+
+            let mut static_cohort_matches: HashMap<CohortId, bool> = HashMap::new();
+            if !cohort_ids.is_empty() {
+                let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
+                let static_cohorts: Vec<_> = cohorts
+                    .iter()
+                    .filter(|c| c.is_static && cohort_ids.contains(&c.id))
+                    .collect();
+
+                if !static_cohorts.is_empty() {
+                    let person_id = self.get_person_id().await?;
+                    let results = evaluate_static_cohorts(
+                        self.reader.clone(),
+                        person_id,
+                        static_cohorts.iter().map(|c| c.id).collect(),
+                    )
+                    .await?;
+                    static_cohort_matches.extend(results);
+                }
+            }
+
+            // Store static matches in struct for use during condition evaluation
+            self.static_cohort_matches = Some(static_cohort_matches);
+
             let (is_match, reason) = self
                 .is_condition_match(
                     flag,
@@ -1031,14 +1068,27 @@ impl FeatureFlagMatcher {
                 Ok(id)
             }
             None => {
+                let id = self.get_person_id_from_db().await?;
                 inc(
-                    PROPERTY_CACHE_MISSES_COUNTER,
-                    &[("type".to_string(), "person_id".to_string())],
+                    DB_PERSON_PROPERTIES_READS_COUNTER,
+                    &[("team_id".to_string(), self.team_id.to_string())],
                     1,
                 );
-                Err(FlagError::PersonNotFound)
+                self.properties_cache.person_id = Some(id);
+                Ok(id)
             }
         }
+    }
+
+    /// Fetches the `PersonId` from the database based on the current `distinct_id` and `team_id`.
+    /// This method is called when the `PersonId` is not present in the properties cache.
+    async fn get_person_id_from_db(&mut self) -> Result<PersonId, FlagError> {
+        let reader = self.reader.clone();
+        let distinct_id = self.distinct_id.clone();
+        let team_id = self.team_id;
+        fetch_person_properties_from_db(reader, distinct_id, team_id)
+            .await
+            .map(|(_, person_id)| person_id)
     }
 
     /// Get person properties from overrides, cache or database.
@@ -1072,32 +1122,21 @@ impl FeatureFlagMatcher {
         &self,
         cohort_property_filters: &[PropertyFilter],
         target_properties: &HashMap<String, Value>,
-        person_id: PersonId,
+        _person_id: PersonId,
     ) -> Result<bool, FlagError> {
         // At the start of the request, fetch all of the cohorts for the project from the cache
         // This method also caches any cohorts for a given project in memory for the duration of the application, so we don't need to fetch from
         // the database again until we restart the application.  See the CohortCacheManager for more details.
         let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
 
-        // Split the cohorts into static and dynamic, since the dynamic ones have property filters
-        // and we need to evaluate them based on the target properties, whereas the static ones are
-        // purely based on person properties and are membership-based.
-        let (static_cohorts, _): (Vec<_>, Vec<_>) = cohorts.iter().partition(|c| c.is_static);
-
         // Store all cohort match results in a HashMap to avoid re-evaluating the same cohort multiple times,
         // since the same cohort could appear in multiple property filters.
-        let mut cohort_matches = HashMap::new();
-
-        // Always evaluate static cohorts first
-        if !static_cohorts.is_empty() {
-            let results = evaluate_static_cohorts(
-                self.reader.clone(),
-                person_id,
-                static_cohorts.iter().map(|c| c.id).collect(),
-            )
-            .await?;
-            cohort_matches.extend(results);
-        }
+        // Start with any pre-computed static matches
+        let mut cohort_matches = self
+            .static_cohort_matches
+            .as_ref()
+            .map(|m| m.clone())
+            .unwrap_or_default();
 
         // For any cohorts not yet evaluated (i.e., dynamic ones), evaluate them
         for filter in cohort_property_filters {
@@ -5748,6 +5787,7 @@ mod tests {
 
         // This should not throw CohortNotFound because we skip dependency graph evaluation for static cohorts
         let result = matcher.get_match(&flag, None, None).await;
+        println!("result: {:?}", result);
         assert!(result.is_ok(), "Should not throw CohortNotFound error");
 
         let match_result = result.unwrap();
