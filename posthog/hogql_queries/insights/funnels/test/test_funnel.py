@@ -3996,10 +3996,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            breakpoint()
-
-            self.assertEqual(results[0][1]["breakdown_value"], ["test'123"])
+            self.assertEqual(results[0][1]["breakdown_value"], ["user_1"])
             self.assertEqual(results[0][1]["count"], 1)
+            self.assertEqual(results[1][1]["breakdown_value"], ["user_2"])
+            self.assertEqual(results[1][1]["count"], 1)
 
         def test_funnel_parses_event_names_correctly(self):
             _create_person(
