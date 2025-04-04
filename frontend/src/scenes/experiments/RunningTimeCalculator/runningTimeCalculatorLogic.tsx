@@ -256,8 +256,11 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 }
 
                 if (isExperimentFunnelMetric(metric)) {
+                    const firstStepCount = result?.results?.[0]?.count
                     const automaticConversionRateDecimal =
-                        result?.results?.at(-1)?.count / result?.results?.at(0)?.count || null
+                        firstStepCount && firstStepCount > 0
+                            ? (result?.results?.at(-1)?.count || 0) / firstStepCount
+                            : null
 
                     return {
                         uniqueUsers: result?.results?.[0]?.count ?? null,
