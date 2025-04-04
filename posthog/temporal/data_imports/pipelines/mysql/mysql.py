@@ -141,13 +141,13 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
 
     for col in table_structure:
         name = col.column_name
-        mysql_data_type = col.data_type
-        mysql_col_type = col.column_type
+        mysql_data_type = col.data_type.lower()
+        mysql_col_type = col.column_type.lower()
 
         # Note that deltalake doesn't support unsigned types, so we need to convert integer types to larger types
         # For example an uint32 should support values up to 2^32, but deltalake will only support 2^31
         # so in order to support unsigned types we need to convert to int64
-        is_unsigned = "unsigned" in mysql_col_type.lower()
+        is_unsigned = "unsigned" in mysql_col_type
 
         arrow_type: pa.DataType
 
