@@ -5,8 +5,6 @@ import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { cn } from 'lib/utils/css-classes'
 import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
-import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
-
 import { useMousePosition } from './useMousePosition'
 
 function HeatmapMouseInfo({
@@ -16,18 +14,13 @@ function HeatmapMouseInfo({
     heatmapJsRef: MutableRefObject<HeatmapJS<'value', 'x', 'y'> | undefined>
     containerRef: MutableRefObject<HTMLDivElement | null | undefined>
 }): JSX.Element | null {
-    const { heatmapFilters } = useValues(heatmapDataLogic)
-    const { heatmapEnabled } = useValues(heatmapToolbarMenuLogic)
-
-    const shouldShowMouseInfo = heatmapEnabled && heatmapFilters.enabled && heatmapFilters.type !== 'scrolldepth'
-
     const shiftPressed = useShiftKeyPressed()
     const { heatmapTooltipLabel } = useValues(heatmapDataLogic)
 
     const mousePosition = useMousePosition(containerRef?.current)
     const value = heatmapJsRef.current?.getValueAt(mousePosition)
 
-    if (!shouldShowMouseInfo || !mousePosition || (!value && !shiftPressed)) {
+    if (!mousePosition || (!value && !shiftPressed)) {
         return null
     }
 
@@ -67,7 +60,7 @@ export function HeatmapCanvas({
 }): JSX.Element | null {
     const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
         useValues(heatmapDataLogic)
-    const { heatmapEnabled } = useValues(heatmapToolbarMenuLogic)
+
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
 
@@ -130,7 +123,7 @@ export function HeatmapCanvas({
         })
     }, [heatmapJSColorGradient])
 
-    if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
+    if (!heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
         return null
     }
 
