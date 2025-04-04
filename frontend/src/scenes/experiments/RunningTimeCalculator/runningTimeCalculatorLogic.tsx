@@ -207,7 +207,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         ],
         eventOrAction: ['click' as string, { setEventOrAction: (_, { value }) => value }],
         minimumDetectableEffect: [
-            5 as number,
+            30 as number,
             {
                 setMinimumDetectableEffect: (_, { value }) => value,
                 loadMetricResultSuccess: (state: number, { metricResult }) => {
