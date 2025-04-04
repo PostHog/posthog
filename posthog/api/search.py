@@ -101,7 +101,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # empty queryset to union things onto it
         qs = (
             Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
-            .filter(team__project_id=self.project_id)
+            .filter(team_id=self.team_id)
             .none()
         )
 
@@ -111,7 +111,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             klass_qs, entity_name = class_queryset(
                 view=self,
                 klass=entity_meta["klass"],
-                project_id=self.project_id,
+                team_id=self.team_id,
                 query=query,
                 search_fields=entity_meta["search_fields"],
                 extra_fields=entity_meta["extra_fields"],
@@ -129,7 +129,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 def class_queryset(
     view: TeamAndOrgViewSetMixin,
     klass: type[Model],
-    project_id: int,
+    team_id: int,
     query: str | None,
     search_fields: dict[str, Literal["A", "B", "C"]],
     extra_fields: list[str] | None,
@@ -138,7 +138,7 @@ def class_queryset(
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields"]
 
-    qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
+    qs: QuerySet[Any] = klass.objects.filter(team_id=team_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
     qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type

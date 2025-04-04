@@ -922,4 +922,4 @@ def prepare_actor_query_filter(filter: T) -> T:
 
 
 class LegacyPersonViewSet(PersonViewSet):
-    param_derived_from_user_current_team = "team_id"
+    derive_current_team_from_user_only = True

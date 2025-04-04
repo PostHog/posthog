@@ -10,7 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.serializer_helpers import ReturnDict
-
+from django.db.models import QuerySet
 from posthog.api.dashboards.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
@@ -228,9 +228,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         elif use_dashboard:
             try:
-                existing_dashboard = Dashboard.objects.get(
-                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
-                )
+                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team_id=self.context["team_id"])
                 existing_tiles = (
                     DashboardTile.objects.filter(dashboard=existing_dashboard)
                     .exclude(deleted=True)
@@ -324,7 +322,7 @@ class DashboardSerializer(DashboardBasicSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
             group_type_mapping = GroupTypeMapping.objects.filter(
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard=instance
+                team_id=instance.team.id, detail_dashboard=instance
             ).first()
             if group_type_mapping:
                 group_type_mapping.detail_dashboard = None
@@ -511,17 +509,7 @@ class DashboardsViewSet(
     def get_serializer_class(self) -> type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
-    def dangerously_get_queryset(self):
-        # Dashboards are retrieved under /environments/ because they include team-specific query results,
-        # but they are in fact project-level, rather than environment-level
-        assert self.team.project_id is not None
-
-        queryset = self.queryset.filter(team=self.team.root_team)
-        # if self.team.parent_team:
-        #     # KLUDGE: This will be the default behavior if we stick with it and remove projects
-        # else:
-        #     queryset = self.queryset.filter(team__project_id=self.team.project_id)
-
+    def safely_get_queryset(self, queryset) -> QuerySet:
         include_deleted = (
             self.action == "partial_update"
             and "deleted" in self.request.data
@@ -633,7 +621,7 @@ class DashboardsViewSet(
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
-    param_derived_from_user_current_team = "team_id"
+    derive_current_team_from_user_only = True
 
     def get_parents_query_dict(self) -> dict[str, Any]:
         if not self.request.user.is_authenticated or "share_token" in self.request.GET:
@@ -642,4 +630,4 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    param_derived_from_user_current_team = "project_id"
+    derive_current_team_from_user_only = True

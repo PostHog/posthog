@@ -77,7 +77,7 @@ def get_user_blast_radius(
 
         if len(cohort_filters) == 1:
             try:
-                target_cohort = Cohort.objects.get(id=cohort_filters[0].value, team__project_id=team.project_id)
+                target_cohort = Cohort.objects.get(id=cohort_filters[0].value, team_id=team.id)
             except Cohort.DoesNotExist:
                 pass
             finally:

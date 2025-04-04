@@ -228,7 +228,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                     return self.conditions
                             else:
                                 cohort = Cohort.objects.db_manager(using_database).get(
-                                    pk=cohort_id, team__project_id=self.team.project_id, deleted=False
+                                    pk=cohort_id, team_id=self.team.id, deleted=False
                                 )
                                 seen_cohorts_cache[cohort_id] = cohort
                         except Cohort.DoesNotExist:
@@ -332,7 +332,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                 continue
                         else:
                             cohort = Cohort.objects.db_manager(using_database).get(
-                                pk=cohort_id, team__project_id=self.team.project_id, deleted=False
+                                pk=cohort_id, team_id=self.team.id, deleted=False
                             )
                             seen_cohorts_cache[cohort_id] = cohort
 

@@ -216,9 +216,7 @@ class FOSSCohortQuery(EventQuery):
                             try:
                                 if team is None:  # This ensures we only fetch team if needed, but never more than once
                                     team = Team.objects.get(pk=team_id)
-                                prop_cohort: Cohort = Cohort.objects.get(
-                                    pk=prop.value, team__project_id=team.project_id
-                                )
+                                prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team.id)
                                 if prop_cohort.is_static:
                                     new_property_group_list.append(
                                         PropertyGroup(

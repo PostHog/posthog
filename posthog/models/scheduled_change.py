@@ -1,7 +1,9 @@
 from django.db import models
 
+from posthog.models.utils import RootTeamMixin
 
-class ScheduledChange(models.Model):
+
+class ScheduledChange(RootTeamMixin, models.Model):
     class AllowedModels(models.TextChoices):
         FEATURE_FLAG = "FeatureFlag", "feature flag"
 

@@ -334,7 +334,7 @@ def create_hogql_database(
         )
 
     with timings.measure("group_type_mapping"):
-        for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
+        for mapping in GroupTypeMapping.objects.filter(team_id=team.id):
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 

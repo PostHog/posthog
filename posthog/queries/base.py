@@ -282,7 +282,7 @@ def lookup_q(key: str, value: Any) -> Q:
 
 
 def property_to_Q(
-    project_id: int,
+    team_id: int,
     property: Property,
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
@@ -301,7 +301,7 @@ def property_to_Q(
             if cohorts_cache.get(cohort_id) is None:
                 queried_cohort = (
                     Cohort.objects.db_manager(using_database)
-                    .filter(pk=cohort_id, team__project_id=project_id, deleted=False)
+                    .filter(pk=cohort_id, team_id=team_id, deleted=False)
                     .first()
                 )
                 cohorts_cache[cohort_id] = queried_cohort or ""
@@ -309,9 +309,7 @@ def property_to_Q(
             cohort = cohorts_cache[cohort_id]
         else:
             cohort = (
-                Cohort.objects.db_manager(using_database)
-                .filter(pk=cohort_id, team__project_id=project_id, deleted=False)
-                .first()
+                Cohort.objects.db_manager(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
             )
 
         if not cohort:
@@ -334,7 +332,7 @@ def property_to_Q(
             # :TRICKY: This has potential to create an infinite loop if the cohort is recursive.
             # But, this shouldn't happen because we check for cyclic cohorts on creation.
             return property_group_to_Q(
-                project_id,
+                team_id,
                 cohort.properties,
                 override_property_values,
                 cohorts_cache,
@@ -394,7 +392,7 @@ def property_to_Q(
 
 
 def property_group_to_Q(
-    project_id: int,
+    team_id: int,
     property_group: PropertyGroup,
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
@@ -410,7 +408,7 @@ def property_group_to_Q(
     if isinstance(property_group.values[0], PropertyGroup):
         for group in property_group.values:
             group_filter = property_group_to_Q(
-                project_id,
+                team_id,
                 cast(PropertyGroup, group),
                 override_property_values,
                 cohorts_cache,
@@ -423,9 +421,7 @@ def property_group_to_Q(
     else:
         for property in property_group.values:
             property = cast(Property, property)
-            property_filter = property_to_Q(
-                project_id, property, override_property_values, cohorts_cache, using_database
-            )
+            property_filter = property_to_Q(team_id, property, override_property_values, cohorts_cache, using_database)
             if property_group.type == PropertyOperatorType.OR:
                 if property.negation:
                     filters |= ~property_filter

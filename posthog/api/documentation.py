@@ -197,7 +197,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     """
     result = []
     for path, path_regex, method, callback in endpoints:
-        if getattr(callback.cls, "param_derived_from_user_current_team", None):
+        if getattr(callback.cls, "derive_current_team_from_user_only", False):
             pass
         elif (
             hasattr(callback.cls, "scope_object")
@@ -207,7 +207,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
             # If there is an API Scope set then we implictly support it and should have it in the documentation
             path = path.replace(
                 "{parent_lookup_team_id}",
-                "{project_id}",  # TODO: "{environment_id}" once project environments are rolled out
+                "{project_id}",
             )
             path = path.replace("{parent_lookup_", "{")
             result.append((path, path_regex, method, callback))
