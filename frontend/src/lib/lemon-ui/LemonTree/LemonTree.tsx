@@ -19,7 +19,7 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
-import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
+import { renderTreeNodeDisplayItem, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -38,7 +38,10 @@ export type TreeDataItem = {
     children?: TreeDataItem[]
     /** Disabled: The reason the item is disabled. */
     disabledReason?: string
-
+    /** Prevent this item from being selected */
+    disableSelect?: boolean
+    /** Is the item selected */
+    checked?: boolean | 'indeterminate'
     /** The icon to use for the side action. */
     sideIcon?: React.ReactNode
 
@@ -86,10 +89,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemLoading?: (item: TreeDataItem) => boolean
     /** Whether the item is unapplied */
     isItemUnapplied?: (item: TreeDataItem) => boolean
-    /** The default checked items. */
-    defaultCheckedItems?: string[]
     /** The function to call when the item is checked. */
-    onSetCheckedIds?: (ids: string[]) => void
+    onItemChecked?: (id: string, checked: boolean) => void
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     /** Set the IDs of the expanded items. */
@@ -156,8 +157,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             onContextMenuOpen,
             itemContextMenu,
             enableMultiSelection = false,
-            onSetCheckedItemIds,
-            checkedItems,
+            onItemChecked,
             ...props
         },
         ref
@@ -234,44 +234,19 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className="group/lemon-tree-button-group relative"
                                                 groupVariant="side-action-group"
                                             >
-                                                {/* eslint-disable-next-line react/forbid-dom-props */}
                                                 <div
                                                     className="absolute size-5"
+                                                    // eslint-disable-next-line react/forbid-dom-props
                                                     style={{ left: `${DEPTH_OFFSET + 5}px` }}
                                                 >
                                                     {/* Icon left */}
-                                                    {getIcon({
+                                                    {renderTreeNodeDisplayItem({
                                                         item,
                                                         expandedItemIds: expandedItemIds ?? [],
                                                         defaultNodeIcon,
                                                         enableMultiSelection,
-                                                        checkedItems: checkedItems ?? [],
                                                         handleCheckedChange: (checked) => {
-                                                            // Collect all child IDs recursively
-                                                            const getAllChildIds = (item: TreeDataItem): string[] => {
-                                                                let ids = [item.id]
-                                                                if (item.children) {
-                                                                    item.children.forEach((child) => {
-                                                                        ids = [...ids, ...getAllChildIds(child)]
-                                                                    })
-                                                                }
-                                                                return ids
-                                                            }
-
-                                                            const idsToUpdate = getAllChildIds(item)
-
-                                                            onSetCheckedItemIds?.(
-                                                                checked
-                                                                    ? [
-                                                                          ...new Set([
-                                                                              ...(checkedItems ?? []),
-                                                                              ...idsToUpdate,
-                                                                          ]),
-                                                                      ]
-                                                                    : (checkedItems ?? []).filter(
-                                                                          (id) => !idsToUpdate.includes(id)
-                                                                      )
-                                                            )
+                                                            onItemChecked?.(item.id, checked)
                                                         },
                                                     })}
                                                 </div>
@@ -402,8 +377,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             onContextMenuOpen={onContextMenuOpen}
                                             itemContextMenu={itemContextMenu}
                                             enableMultiSelection={enableMultiSelection}
-                                            checkedItems={checkedItems}
-                                            onSetCheckedItemIds={onSetCheckedItemIds}
+                                            onItemChecked={onItemChecked}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -454,8 +428,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             itemContextMenu,
             isFinishedBuildingTreeData,
             enableMultiSelection = false,
-            defaultCheckedItems,
-            onSetCheckedItemIds,
+            onItemChecked,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1019,7 +992,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             if (expandedItemIds && expandedItemIds.join(',') !== expandedItemIdsState.join(',')) {
                 setExpandedItemIdsState(expandedItemIds ?? [])
             }
-        }, [expandedItemIds, expandedItemIdsState]) // only trigger if external ids change not when expandedItemIdsState changes
+        }, [expandedItemIds, expandedItemIdsState])
 
         return (
             <DndContext
@@ -1069,13 +1042,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             }}
                             itemContextMenu={itemContextMenu}
                             enableMultiSelection={enableMultiSelection}
-                            onSetCheckedItemIds={(ids) => {
-                                // Ensure uniqueness when setting state
-                                const uniqueIds = [...new Set(ids)]
-                                setCheckedItemsState(uniqueIds)
-                                onSetCheckedItemIds?.(uniqueIds)
-                            }}
-                            checkedItems={checkedItemsState}
+                            onItemChecked={onItemChecked}
                             {...props}
                         />
                     </TreeNodeDroppable>
