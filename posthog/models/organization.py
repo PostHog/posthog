@@ -141,6 +141,8 @@ class Organization(UUIDModel):
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
+
+    # looking for feature? check: is_feature_available, get_available_feature, get_available_feature_limit
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
@@ -228,6 +230,10 @@ class Organization(UUIDModel):
             filter(lambda f: f and f.get("key") == feature, vals),
             None,
         )
+
+    def get_available_feature_limit(self, feature: Union[AvailableFeature, str], default=None) -> Optional[int]:
+        feature = self.get_available_feature(feature)
+        return feature.get("limit", default) or default
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return bool(self.get_available_feature(feature))

@@ -256,14 +256,7 @@ class AlertSerializer(serializers.ModelSerializer):
 
         has_alerts_feature = user_org.is_feature_available(AvailableFeature.ALERTS)
 
-        allowed_alerts_count = next(
-            (
-                feature.get("limit")
-                for feature in user_org.available_product_features or []
-                if feature.get("key") == AvailableFeature.ALERTS
-            ),
-            None,
-        )
+        allowed_alerts_count = user_org.get_available_feature_limit(AvailableFeature.ALERTS)
 
         existing_alerts_count = AlertConfiguration.objects.filter(team_id=self.context["team_id"]).count()
 
