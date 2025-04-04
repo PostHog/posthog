@@ -18,7 +18,7 @@ type Tab = 'events' | 'data-warehouse'
 export function RevenueEventsSettings(): JSX.Element {
     const [activeTab, setActiveTab] = useState<Tab>('events')
 
-    const { events, dataWarehouseTables } = useValues(revenueEventsSettingsLogic)
+    const { events } = useValues(revenueEventsSettingsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -38,7 +38,7 @@ export function RevenueEventsSettings(): JSX.Element {
                 productName="Revenue tracking"
                 thingName="revenue event"
                 description={introductionDescription}
-                isEmpty={events.length === 0 && dataWarehouseTables.length === 0}
+                isEmpty={events.length === 0}
                 actionElementOverride={
                     <>
                         <div className="flex flex-col gap-2">
