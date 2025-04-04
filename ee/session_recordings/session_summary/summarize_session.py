@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -14,7 +15,6 @@ from posthog.models import User, Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from django.template.loader import get_template
 
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 logger = structlog.get_logger(__name__)
 
@@ -27,13 +27,13 @@ class ReplaySummarizer:
 
     @staticmethod
     def _get_session_metadata(session_id: str, team: Team) -> dict[str, Any]:
-        # TODO: Switch to using it after testing with production data
-        live_session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
-        if not live_session_metadata:
-            raise ValueError(f"no session metadata found for session_id {session_id}")
-        # Convert to a dict, so that we can amend its values freely
-        live_session_metadata_dict = dict(live_session_metadata)
-        logger.debug(f"live_session_metadata: {live_session_metadata_dict}")
+        # # TODO: Switch to using it after testing with production data
+        # live_session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
+        # if not live_session_metadata:
+        #     raise ValueError(f"no session metadata found for session_id {session_id}")
+        # # Convert to a dict, so that we can amend its values freely
+        # live_session_metadata_dict = dict(live_session_metadata)
+        logger.debug(f"Session id: {session_id}, team: {team}")
 
         # TODO: Remove before merging, using to test with production data
         # Load session metadata from JSON to load with production data.
@@ -45,17 +45,17 @@ class ReplaySummarizer:
     @staticmethod
     def _get_session_events(
         session_id: str, session_metadata: dict, team: Team
-    ) -> tuple[list[str], list[tuple[str | None, ...]]]:
-        # TODO: Switch to using it after testing with production data
-        live_session_events = SessionReplayEvents().get_events(
-            session_id=str(session_id),
-            team=team,
-            metadata=session_metadata,
-            events_to_ignore=[
-                "$feature_flag_called",
-            ],
-        )
-        logger.debug(f"live_session_events: {live_session_events}")
+    ) -> tuple[list[str], list[list[str | datetime]]]:
+        # # TODO: Switch to using it after testing with production data
+        # live_session_events = SessionReplayEvents().get_events(
+        #     session_id=str(session_id),
+        #     team=team,
+        #     metadata=session_metadata,
+        #     events_to_ignore=[
+        #         "$feature_flag_called",
+        #     ],
+        # )
+        logger.debug(f"Session metadata: {session_metadata}, team: {team}")
 
         # TODO: Remove before merging, using to test with production data
         # Load session events from CSV to load with production data.
@@ -107,7 +107,10 @@ class ReplaySummarizer:
         with timer("generate_prompt"):
             prompt_data = SessionSummaryPromptData()
             simplified_events_mapping = prompt_data.load_session_data(
-                session_events, session_metadata, session_events_columns
+                raw_session_events=session_events,
+                raw_session_metadata=session_metadata,
+                raw_session_columns=session_events_columns,
+                session_id=self.recording.session_id,
             )
             # Reverse mappings for easier reference in the prompt.
             url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}

@@ -48,11 +48,12 @@ def load_session_metadata_from_json(file_path: str) -> dict[str, Any]:
     return raw_session_metadata
 
 
-def get_column_index(columns: list[str], column_name: str) -> int | None:
+def get_column_index(columns: list[str], column_name: str) -> int:
     for i, c in enumerate(columns):
         if c == column_name:
             return i
-    return None
+    else:
+        raise ValueError(f"Column {column_name} not found in the columns: {columns}")
 
 
 def prepare_datetime(raw_time: datetime | str) -> datetime:

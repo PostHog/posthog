@@ -60,9 +60,9 @@ class SessionSummarySerializer(serializers.Serializer):
 def load_raw_session_summary_from_llm_content(
     llm_response: ChatCompletion, allowed_event_ids: list[str], session_id: str
 ) -> RawSessionSummarySerializer:
-    raw_content: str = llm_response.choices[0].message.content
-    if not raw_content:
+    if not llm_response.choices or not llm_response.choices[0].message or not llm_response.choices[0].message.content:
         raise ValueError(f"No LLM content found when summarizing session_id {session_id}: {llm_response}")
+    raw_content: str = llm_response.choices[0].message.content
     try:
         # Strip the first and the last line of the content to load the YAML data only into JSON
         # TODO Work on a more robust solution
@@ -114,7 +114,11 @@ def enrich_raw_session_summary_with_events_meta(
     enriched_key_events = []
     # Enrich LLM events with metadata
     for key_event in raw_session_summary.data["key_events"]:
-        event_id = key_event["event_id"]
+        event_id: str | None = key_event.get("event_id")
+        if not event_id:
+            raise ValueError(
+                f"LLM returned event without event_id when summarizing session_id {session_id}: {raw_session_summary}"
+            )
         enriched_key_event = dict(key_event)
         enriched_key_event["event"] = simplified_events_mapping[event_id][event_index]
         # Calculate time to jump to the right place in the player

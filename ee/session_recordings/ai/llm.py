@@ -85,7 +85,7 @@ def get_raw_llm_session_summary(
     return raw_session_summary
 
 
-def call_llm(input_prompt: str, user_key: str, assistant_start_text: str | None = None) -> ChatCompletion:
+def call_llm(input_prompt: str, user_key: int, assistant_start_text: str | None = None) -> ChatCompletion:
     instance_region = get_instance_region() or "HOBBY"
     messages = [
         {
@@ -142,7 +142,7 @@ def call_llm(input_prompt: str, user_key: str, assistant_start_text: str | None 
     result = openai.chat.completions.create(
         model="gpt-4o-mini",
         temperature=0.5,
-        messages=messages,
+        messages=messages,  # type: ignore
         user=f"{instance_region}/{user_key}",
     )
     return result

@@ -9,18 +9,18 @@ from ee.session_recordings.session_summary.utils import get_column_index, prepar
 
 @dataclasses.dataclass(frozen=True)
 class SessionSummaryMetadata:
-    active_seconds: int | None
-    inactive_seconds: int | None
-    start_time: datetime | None
-    end_time: datetime | None
-    click_count: int | None
-    keypress_count: int | None
-    mouse_activity_count: int | None
-    console_log_count: int | None
-    console_warn_count: int | None
-    console_error_count: int | None
-    start_url: str | None
-    activity_score: float | None
+    active_seconds: int | None = None
+    inactive_seconds: int | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    click_count: int | None = None
+    keypress_count: int | None = None
+    mouse_activity_count: int | None = None
+    console_log_count: int | None = None
+    console_warn_count: int | None = None
+    console_error_count: int | None = None
+    start_url: str | None = None
+    activity_score: float | None = None
 
     def to_dict(self) -> dict:
         d = dataclasses.asdict(self)
@@ -37,21 +37,27 @@ class SessionSummaryPromptData:
     # as we process the data, so want to stay as loose as possible here
     columns: list[str] = dataclasses.field(default_factory=list)
     results: list[list[Any]] = dataclasses.field(default_factory=list)
-    metadata: SessionSummaryMetadata | None = None
+    metadata: SessionSummaryMetadata = dataclasses.field(default_factory=SessionSummaryMetadata)
     # In order to reduce the number of tokens in the prompt,
     # we generate mappings to use in the prompt instead of repeating the data
     window_id_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
     url_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
 
     def load_session_data(
-        self, raw_session_events: list[list[Any]], raw_session_metadata: dict[str, Any], raw_session_columns: list[str]
+        self,
+        raw_session_events: list[list[Any]],
+        raw_session_metadata: dict[str, Any],
+        raw_session_columns: list[str],
+        session_id: str,
     ) -> dict[str, list[Any]]:
         """
         Create session summary prompt data from session data, and return a mapping of event ids to events
         to combine events data with the LLM output (avoid LLM returning/hallucinating the event data in the output).
         """
-        if not raw_session_events or not raw_session_metadata:
-            return
+        if not raw_session_events:
+            raise ValueError(f"No session events provided for summarizing session_id {session_id}")
+        if not raw_session_metadata:
+            raise ValueError(f"No session metadata provided for summarizing session_id {session_id}")
         self.columns = [*raw_session_columns, "event_id"]
         self.metadata = self._prepare_metadata(raw_session_metadata)
         simplified_events_mapping: dict[str, list[Any]] = {}
