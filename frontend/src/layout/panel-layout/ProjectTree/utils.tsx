@@ -148,6 +148,13 @@ export function convertFileSystemEntryToTreeDataItem({
             if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
                 return -1
             }
+            // folders before files
+            if (a.record.type === 'folder' && b.record.type !== 'folder') {
+                return -1
+            }
+            if (b.record.type === 'folder' && a.record.type !== 'folder') {
+                return 1
+            }
             return String(a.name).localeCompare(String(b.name))
         })
         for (const node of nodes) {
