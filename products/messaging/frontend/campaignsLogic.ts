@@ -52,13 +52,13 @@ export const campaignsLogic = kea<campaignsLogicType>([
         ],
     }),
     urlToAction(({ actions }) => ({
-        '/messaging/campaigns/new': () => {
+        [urls.messagingCampaignNew()]: () => {
             actions.editCampaign('new')
         },
-        '/messaging/campaigns/:id': ({ id }) => {
+        [`${urls.messagingCampaigns()}/:id`]: ({ id }) => {
             actions.editCampaign(id ?? null)
         },
-        '/messaging/campaigns': () => {
+        [urls.messagingCampaigns()]: () => {
             actions.editCampaign(null)
         },
     })),
