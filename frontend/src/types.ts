@@ -2266,6 +2266,7 @@ export type BreakdownType =
     | 'cohort'
     | 'person'
     | 'event'
+    | 'event_metadata'
     | 'group'
     | 'session'
     | 'hogql'
