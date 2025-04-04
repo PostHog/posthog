@@ -75,6 +75,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setVolumeResolution: (volumeResolution: number) => ({ volumeResolution }),
+        setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
+        setLastSeenLoading: (loading: boolean) => ({ loading }),
     }),
 
     defaults({
@@ -82,6 +84,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         properties: {} as Record<string, string>,
         summary: null as ErrorTrackingIssueSummary | null,
         volumeResolution: 50,
+        lastSeen: null as Dayjs | null,
+        lastSeenLoading: false,
     }),
 
     reducers({
@@ -98,6 +102,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         properties: {},
         volumeResolution: {
             setVolumeResolution: (_, { volumeResolution }: { volumeResolution: number }) => volumeResolution,
+        },
+        lastSeen: {
+            setLastSeen: (prevLastSeen, { lastSeen }) => {
+                if (!prevLastSeen || prevLastSeen.isBefore(lastSeen)) {
+                    return lastSeen
+                }
+                return prevLastSeen
+            },
+        },
+        lastSeenLoading: {
+            setLastSeenLoading: (_, { loading }) => {
+                // TODO: Load last seen loading from API
+                return loading
+            },
         },
     }),
 
@@ -175,7 +193,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
     }),
 
-    loaders(({ values, props }) => ({
+    loaders(({ values, actions, props }) => ({
         issue: {
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
         },
@@ -198,12 +216,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return JSON.parse(issue.earliest!)
             },
         },
-        lastSeen: {
-            loadLastSeen: async () => {
-                // TODO: Load last seen from API
-                return dayjs()
-            },
-        },
         summary: {
             loadSummary: async () => {
                 const response = await api.query(
@@ -222,6 +234,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!response.results.length) {
                     return null
                 }
+                actions.setLastSeen(dayjs(response.results[0].last_seen))
                 const summary = response.results[0]
                 return {
                     aggregations: summary.aggregations,
@@ -288,7 +301,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
-            loadIssue: [actions.loadSummary, actions.loadLastSeen],
+            loadIssue: actions.loadSummary,
+            loadSummarySuccess: () => actions.setLastSeenLoading(false),
+            loadSummaryFailure: () => actions.setLastSeenLoading(false),
             loadIssueSuccess: [({ issue }) => actions.loadProperties(getPropertiesDateRange(issue))],
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {

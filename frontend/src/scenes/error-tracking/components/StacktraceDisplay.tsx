@@ -81,6 +81,7 @@ export function StacktraceDisplay({ className }: { className?: string }): JSX.El
                             description="Make sure sdk is setup correctly or contact support if problem persists"
                             buttonText="Check documentation"
                             buttonTo="https://posthog.com/docs/error-tracking/installation"
+                            size="small"
                         />
                     </div>
                 ))
