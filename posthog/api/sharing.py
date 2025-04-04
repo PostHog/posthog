@@ -311,9 +311,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        if "whitelabel" in request.GET and "white_labelling" in [
-            feature["key"] for feature in resource.team.organization.available_product_features
-        ]:
+        if "whitelabel" in request.GET and resource.team.organization.is_feature_available("white_labelling"):
             exported_data.update({"whitelabel": True})
         if "noHeader" in request.GET:
             exported_data.update({"noHeader": True})
