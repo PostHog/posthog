@@ -23,9 +23,11 @@ import {
     Experiment,
     ExperimentMetricMathType,
     FunnelVizType,
+    InsightType,
     PropertyMathType,
 } from '~/types'
 
+import { getMinimumDetectableEffect } from '../utils'
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
 
 export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
@@ -39,7 +41,7 @@ export enum ConversionRateInputType {
 
 const getKindField = (metric: ExperimentMetric): NodeKind => {
     if (isExperimentFunnelMetric(metric)) {
-        return NodeKind.FunnelsQuery
+        return NodeKind.EventsNode
     }
 
     if (isExperimentMeanMetric(metric)) {
@@ -132,13 +134,18 @@ const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQu
     } as TrendsQuery
 }
 
-const getFunnelQuery = (metric: ExperimentMetric, experiment: Experiment): FunnelsQuery => {
+const getFunnelQuery = (
+    metric: ExperimentMetric,
+    eventConfig: EventConfig | null,
+    experiment: Experiment
+): FunnelsQuery => {
     return {
         kind: NodeKind.FunnelsQuery,
         series: [
             {
                 kind: NodeKind.EventsNode,
-                event: '$feature_flag_called',
+                event: eventConfig?.event ?? '$feature_flag_called',
+                properties: eventConfig?.properties ?? [],
             },
             {
                 kind: getKindField(metric),
@@ -197,10 +204,16 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             5 as number,
             {
                 setMinimumDetectableEffect: (_, { value }) => value,
+                loadMetricResultSuccess: (state: number, { metricResult }) => {
+                    if (metricResult && typeof metricResult.suggestedMde === 'number') {
+                        return metricResult.suggestedMde
+                    }
+                    return state
+                },
             },
         ],
         conversionRateInputType: [
-            ConversionRateInputType.MANUAL as string,
+            ConversionRateInputType.AUTOMATIC as string,
             { setConversionRateInputType: (_, { value }) => value },
         ],
         manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
@@ -226,27 +239,42 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         : metric.metric_type === ExperimentMetricType.MEAN &&
                           metric.source.math === ExperimentMetricMathType.Sum
                         ? getSumQuery(metric, values.experiment)
-                        : getFunnelQuery(metric, values.experiment)
+                        : getFunnelQuery(metric, values.eventConfig, values.experiment)
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
-                return {
-                    uniqueUsers: result?.results?.[0]?.count ?? null,
-                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.source.math === ExperimentMetricMathType.TotalCount
-                        ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
-                        : {}),
-                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.source.math === ExperimentMetricMathType.Sum
-                        ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
-                        : {}),
-                    ...(metric.metric_type === ExperimentMetricType.FUNNEL
-                        ? {
-                              automaticConversionRateDecimal:
-                                  result?.results?.[1]?.count / result?.results?.[0]?.count || null,
-                          }
-                        : {}),
+                if (isExperimentMeanMetric(metric)) {
+                    return {
+                        uniqueUsers: result?.results?.[0]?.count ?? null,
+                        ...(metric.source.math === ExperimentMetricMathType.TotalCount
+                            ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
+                            : {}),
+                        ...(metric.source.math === ExperimentMetricMathType.Sum
+                            ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
+                            : {}),
+                    }
                 }
+
+                if (isExperimentFunnelMetric(metric)) {
+                    const automaticConversionRateDecimal =
+                        result?.results?.at(-1)?.count / result?.results?.at(0)?.count || null
+
+                    return {
+                        uniqueUsers: result?.results?.[0]?.count ?? null,
+                        automaticConversionRateDecimal: automaticConversionRateDecimal,
+                        suggestedMde: getMinimumDetectableEffect(
+                            InsightType.FUNNELS,
+                            {
+                                averageTime: 0,
+                                stepRate: 0,
+                                totalRate: automaticConversionRateDecimal ?? 0,
+                            },
+                            []
+                        ),
+                    }
+                }
+
+                return {}
             },
             // For testing purposes, we want to be able set the metric result directly
             setMetricResult: ({ value }) => value,
