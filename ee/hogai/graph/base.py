@@ -97,7 +97,7 @@ class AssistantNode(ABC):
         except KeyError:
             return {}
         if not isinstance(contextual_tools, dict):
-            raise ValueError("Contextual tools must be a dictionary")
+            raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
         return contextual_tools
 
     def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:

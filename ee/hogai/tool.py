@@ -1,11 +1,10 @@
 from abc import abstractmethod
+import json
 from typing import Literal, Any
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
-from posthog.schema import (
-    AssistantContextualTool,
-)
+from posthog.schema import AssistantContextualTool
 from langchain_core.runnables import RunnableConfig
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
@@ -34,13 +33,23 @@ class search_documentation(BaseModel):
 
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantContextualTool, type["MaxTool"]] = {}
-CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT: dict[AssistantContextualTool, str] = {}
 
 
 class MaxTool(BaseTool):
+    # LangChain's default is just "content", but we always want to return the tool call artifact too
+    # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
 
     thinking_message: str
+    """The message shown to let the user know this tool is being used. One sentence, no punctuation.
+    For example, "Updating filters"
+    """
+    root_system_prompt_template: str = "No context provided for this tool."
+    """The template for context associated with this tool, that will be injected into the root node's system prompt.
+    This helps the root node decide _when_ and _whether_ to use the tool.
+    It will be formatted like an f-string, with the tool context as the variables.
+    For example, "The current filters the user is seeing are: {current_filters}."
+    """
 
     @abstractmethod
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
@@ -62,7 +71,7 @@ class MaxTool(BaseTool):
             raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
-        self._context = config["configurable"]["contextual_tools"].get(self.get_name(), {})
+        self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
         return self._run_impl(*args, **kwargs)
 
     @property
@@ -70,3 +79,9 @@ class MaxTool(BaseTool):
         if not hasattr(self, "_context"):
             raise AttributeError("Tool has not been run yet")
         return self._context
+
+    def format_system_prompt_injection(self, context: dict[str, Any]) -> str:
+        formatted_context = {
+            key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
+        }
+        return self.root_system_prompt_template.format(**formatted_context)

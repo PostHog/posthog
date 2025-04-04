@@ -15,12 +15,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
-from ee.hogai.tool import (
-    CONTEXTUAL_TOOL_NAME_TO_TOOL,
-    CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT,
-    create_and_query_insight,
-    search_documentation,
-)
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 
 from .prompts import (
     ROOT_HARD_LIMIT_REACHED_PROMPT,
@@ -73,10 +68,12 @@ class RootNode(AssistantNode):
                     *[
                         (
                             "system",
-                            f"<{tool_name}>\n{CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT.get(AssistantContextualTool(tool_name), 'No context provided for this tool')}\n</{tool_name}>",
+                            f"<{tool_name}>\n"
+                            f"{CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]().format_system_prompt_injection(tool_context)}\n"
+                            f"</{tool_name}>",
                         )
-                        for tool_name in self._get_contextual_tools(config).keys()
-                        if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT
+                        for tool_name, tool_context in self._get_contextual_tools(config).items()
+                        if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL
                     ],
                 ],
                 template_format="mustache",
@@ -94,11 +91,6 @@ class RootNode(AssistantNode):
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
-                **{
-                    f"{tool_name}_{context_key}": context_value
-                    for tool_name, context in self._get_contextual_tools(config).items()
-                    for context_key, context_value in context.items()
-                },
             },
             config,
         )
