@@ -103,7 +103,20 @@ class IntegrationViewSet(
         if channel_id:
             channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             if channel:
-                return Response({"channels": [channel]})
+                return Response(
+                    {
+                        "channels": [
+                            {
+                                "id": channel["id"],
+                                "name": channel["name"],
+                                "is_private": channel["is_private"],
+                                "is_member": channel.get("is_member", True),
+                                "is_ext_shared": channel["is_ext_shared"],
+                                "is_private_without_access": channel["is_private_without_access"],
+                            }
+                        ]
+                    }
+                )
             else:
                 return Response({"channels": []})
 
@@ -114,6 +127,7 @@ class IntegrationViewSet(
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
+                "is_private_without_access": channel.get("is_private_without_access", False),
             }
             for channel in slack.list_channels(should_include_private_channels, authed_user)
         ]

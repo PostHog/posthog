@@ -33,6 +33,8 @@ oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
 )
 
+PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
+
 
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
     if path in d and d[path] is not None:
@@ -429,14 +431,15 @@ class SlackIntegration:
             if not isMember:
                 return None
 
+            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
+
             return {
                 "id": channel["id"],
-                "name": channel["name"]
-                if channel["is_private"] and should_include_private_channels
-                else f"PRIVATE_CHANNEL_WITHOUT_ACCESS",
+                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS if isPrivateWithoutAccess else channel["name"],
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
+                "is_private_without_access": isPrivateWithoutAccess,
             }
         except SlackApiError as e:
             if e.response["error"] == "channel_not_found":
@@ -462,10 +465,10 @@ class SlackIntegration:
                     exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
                 )
 
-                if not should_include_private_channels:
-                    for channel in res["channels"]:
-                        if channel["is_private"]:
-                            channel["name"] = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
+                for channel in res["channels"]:
+                    if channel["is_private"] and not should_include_private_channels:
+                        channel["name"] = PRIVATE_CHANNEL_WITHOUT_ACCESS
+                        channel["is_private_without_access"] = True
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]
