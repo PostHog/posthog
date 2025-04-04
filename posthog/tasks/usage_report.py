@@ -453,18 +453,14 @@ def get_teams_with_billable_event_count_in_period(
         distinct_expression = "1"
 
     # We are excluding $exception events during the beta
-    result = sync_execute(
-        f"""
+    query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
         GROUP BY team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
+    """
+
+    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
 
 
 @timed_log()
@@ -483,18 +479,14 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
-    result = sync_execute(
-        f"""
+    query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
+    """
+
+    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
 
 
 @timed_log()
