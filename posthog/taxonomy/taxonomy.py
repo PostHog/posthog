@@ -192,6 +192,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Rageclick",
             "description": "A user has rapidly and repeatedly clicked in a single place",
         },
+        "$dead_click": {
+            "label": "Dead click",
+            "description": "A user has clicked on something that is probably not clickable",
+        },
         "$exception": {
             "label": "Exception",
             "description": "An unexpected error or unhandled exception in your application",
@@ -289,6 +293,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["$pageview"],
             "system": True,
             "ignored_in_assistant": True,
+        },
+        "person_id": {
+            "label": "Person ID",
+            "description": "The ID of the person, depending on the person properties mode.",
+            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
     },
     "event_properties": {
@@ -1822,6 +1831,25 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
             f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']}. Captured at the start of the session and remains constant for the duration of the session."
         ),
     }
+
+# add distinct_id to event properties before copying to person properties so it exists in person properties as well
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["distinct_id"] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][
+    "distinct_id"
+]
+
+
+# We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["$session_duration"] = CORE_FILTER_DEFINITIONS_BY_GROUP[
+    "session_properties"
+]["$session_duration"]
+
+
+# copy meta properties to event_metadata
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"] = {}
+for key in ["distinct_id", "timestamp", "event", "person_id"]:
+    CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
+
+CORE_FILTER_DEFINITIONS_BY_GROUP["numerical_event_properties"] = CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]
 
 
 PROPERTY_NAME_ALIASES = {
