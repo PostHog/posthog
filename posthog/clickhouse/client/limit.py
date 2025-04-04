@@ -8,7 +8,7 @@ from collections.abc import Callable
 from celery import current_task
 from prometheus_client import Counter, Gauge
 
-from posthog import redis
+from posthog import redis, settings
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
 
@@ -59,11 +59,11 @@ return 1
 @dataclasses.dataclass
 class RateLimit:
     """
-    Ensures that only max_concurrent_tasks of tasks_name are executed at a given time.
+    Ensures that only max_concurrency of tasks_name are executed at a given time.
     Tasks have ttl as a safeguard against not being removed.
     """
 
-    max_concurrent_tasks: int
+    max_concurrency: int
     limit_name: str
     get_task_name: Callable
     get_task_id: Callable
@@ -104,11 +104,10 @@ class RateLimit:
         task_id = self.get_task_id(*args, **kwargs)
         current_time = self.get_time()
 
+        max_concurrency = kwargs.get("limit") or self.max_concurrency
         # Atomically check, remove expired if limit hit, and add the new task
         if (
-            self.redis_client.eval(
-                lua_script, 1, running_tasks_key, current_time, task_id, self.max_concurrent_tasks, self.ttl
-            )
+            self.redis_client.eval(lua_script, 1, running_tasks_key, current_time, task_id, max_concurrency, self.ttl)
             == 0
         ):
             from posthog.rate_limit import team_is_allowed_to_bypass_throttle
@@ -119,14 +118,14 @@ class RateLimit:
             CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
                 task_name=task_name,
                 team_id=str(kwargs.get("team_id", "")),
-                limit=self.max_concurrent_tasks,
+                limit=max_concurrency,
                 limit_name=self.limit_name,
                 result=result,
             ).inc()
 
             if not self.bypass_all and not bypass:
                 raise ConcurrencyLimitExceeded(
-                    f"Exceeded maximum concurrency limit: {self.max_concurrent_tasks} for key: {task_name} and task: {task_id}"
+                    f"Exceeded maximum concurrency limit: {max_concurrency} for key: {task_name} and task: {task_id}"
                 )
 
         return running_tasks_key, task_id
@@ -153,15 +152,15 @@ def get_api_personal_rate_limiter():
     global __API_CONCURRENT_QUERY_PER_TEAM
     if __API_CONCURRENT_QUERY_PER_TEAM is None:
         __API_CONCURRENT_QUERY_PER_TEAM = RateLimit(
-            max_concurrent_tasks=3,
-            applicable=lambda *args, **kwargs: not TEST and kwargs.get("team_id") and kwargs.get("is_api"),
-            limit_name="api_per_team",
-            get_task_name=lambda *args, **kwargs: f"api:query:per-team:{kwargs.get('team_id')}",
+            max_concurrency=3,
+            applicable=lambda *args, **kwargs: not TEST and kwargs.get("org_id") and kwargs.get("is_api"),
+            limit_name="api_per_org",
+            get_task_name=lambda *args, **kwargs: f"api:query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: current_task.request.id
             if current_task
             else (kwargs.get("task_id") or generate_short_id()),
             ttl=600,
-            bypass_all=True,
+            bypass_all=(not settings.API_QUERIES_ENABLED),
         )
     return __API_CONCURRENT_QUERY_PER_TEAM
 

@@ -1,5 +1,12 @@
 [
     {
+        "model": "deepseek-v3-base:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
         "model": "deepseek-chat-v3-0324:free",
         "cost": {
             "prompt_token": 0,
@@ -105,6 +112,202 @@
         }
     },
     {
+        "model": "gemini-2.5-pro-exp-03-25:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-1b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-4b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-4b-it",
+        "cost": {
+            "prompt_token": 2e-8,
+            "completion_token": 4e-8
+        }
+    },
+    {
+        "model": "gemma-3-12b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-12b-it",
+        "cost": {
+            "prompt_token": 5e-8,
+            "completion_token": 1e-7
+        }
+    },
+    {
+        "model": "gemma-3-27b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-27b-it",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-lite-001",
+        "cost": {
+            "prompt_token": 7.5e-8,
+            "completion_token": 3e-7
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-001",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
+        "model": "gemini-2.0-pro-exp-02-05:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-thinking-exp:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-thinking-exp-1219:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-exp:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "learnlm-1.5-pro-experimental:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-flash-1.5-8b",
+        "cost": {
+            "prompt_token": 3.75e-8,
+            "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "gemini-flash-1.5-8b-exp",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-2-27b-it",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 8e-7
+        }
+    },
+    {
+        "model": "gemma-2-9b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-2-9b-it",
+        "cost": {
+            "prompt_token": 7e-8,
+            "completion_token": 7e-8
+        }
+    },
+    {
+        "model": "gemini-flash-1.5",
+        "cost": {
+            "prompt_token": 7.5e-8,
+            "completion_token": 3e-7
+        }
+    },
+    {
+        "model": "gemini-pro-1.5",
+        "cost": {
+            "prompt_token": 0.00000125,
+            "completion_token": 0.000005
+        }
+    },
+    {
+        "model": "gemini-pro-vision",
+        "cost": {
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
+        }
+    },
+    {
+        "model": "gemini-pro",
+        "cost": {
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
+        }
+    },
+    {
+        "model": "palm-2-chat-bison-32k",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "palm-2-codechat-bison-32k",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "palm-2-chat-bison",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "palm-2-codechat-bison",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
+        }
+    },
+    {
         "model": "o1-pro",
         "cost": {
             "prompt_token": 0.00015,
@@ -161,13 +364,6 @@
         }
     },
     {
-        "model": "o1-mini-2024-09-12",
-        "cost": {
-            "prompt_token": 0.0000011,
-            "completion_token": 0.0000044
-        }
-    },
-    {
         "model": "o1-preview",
         "cost": {
             "prompt_token": 0.000015,
@@ -183,6 +379,13 @@
     },
     {
         "model": "o1-mini",
+        "cost": {
+            "prompt_token": 0.0000011,
+            "completion_token": 0.0000044
+        }
+    },
+    {
+        "model": "o1-mini-2024-09-12",
         "cost": {
             "prompt_token": 0.0000011,
             "completion_token": 0.0000044
@@ -217,13 +420,6 @@
         }
     },
     {
-        "model": "gpt-4o-2024-05-13",
-        "cost": {
-            "prompt_token": 0.000005,
-            "completion_token": 0.000015
-        }
-    },
-    {
         "model": "gpt-4o",
         "cost": {
             "prompt_token": 0.0000025,
@@ -235,6 +431,13 @@
         "cost": {
             "prompt_token": 0.000006,
             "completion_token": 0.000018
+        }
+    },
+    {
+        "model": "gpt-4o-2024-05-13",
+        "cost": {
+            "prompt_token": 0.000005,
+            "completion_token": 0.000015
         }
     },
     {
@@ -413,6 +616,13 @@
         }
     },
     {
+        "model": "codestral-mamba",
+        "cost": {
+            "prompt_token": 2.5e-7,
+            "completion_token": 2.5e-7
+        }
+    },
+    {
         "model": "mistral-nemo:free",
         "cost": {
             "prompt_token": 0,
@@ -424,13 +634,6 @@
         "cost": {
             "prompt_token": 3.5e-8,
             "completion_token": 8e-8
-        }
-    },
-    {
-        "model": "codestral-mamba",
-        "cost": {
-            "prompt_token": 2.5e-7,
-            "completion_token": 2.5e-7
         }
     },
     {
@@ -469,6 +672,13 @@
         }
     },
     {
+        "model": "mistral-medium",
+        "cost": {
+            "prompt_token": 0.00000275,
+            "completion_token": 0.0000081
+        }
+    },
+    {
         "model": "mistral-small",
         "cost": {
             "prompt_token": 2e-7,
@@ -480,13 +690,6 @@
         "cost": {
             "prompt_token": 2.5e-7,
             "completion_token": 2.5e-7
-        }
-    },
-    {
-        "model": "mistral-medium",
-        "cost": {
-            "prompt_token": 0.00000275,
-            "completion_token": 0.0000081
         }
     },
     {
@@ -518,202 +721,6 @@
         }
     },
     {
-        "model": "gemma-3-1b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-3-4b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-3-12b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-3-27b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-3-27b-it",
-        "cost": {
-            "prompt_token": 3e-7,
-            "completion_token": 5e-7
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-lite-001",
-        "cost": {
-            "prompt_token": 7.5e-8,
-            "completion_token": 3e-7
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-001",
-        "cost": {
-            "prompt_token": 1e-7,
-            "completion_token": 4e-7
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-lite-preview-02-05:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-2.0-pro-exp-02-05:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-thinking-exp:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-thinking-exp-1219:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-exp:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-exp-1206:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "learnlm-1.5-pro-experimental:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-flash-1.5-8b",
-        "cost": {
-            "prompt_token": 3.75e-8,
-            "completion_token": 1.5e-7
-        }
-    },
-    {
-        "model": "gemini-flash-1.5-8b-exp",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-2-27b-it",
-        "cost": {
-            "prompt_token": 2.7e-7,
-            "completion_token": 2.7e-7
-        }
-    },
-    {
-        "model": "gemma-2-9b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-2-9b-it",
-        "cost": {
-            "prompt_token": 3e-8,
-            "completion_token": 6e-8
-        }
-    },
-    {
-        "model": "gemini-flash-1.5",
-        "cost": {
-            "prompt_token": 7.5e-8,
-            "completion_token": 3e-7
-        }
-    },
-    {
-        "model": "gemini-pro-1.5",
-        "cost": {
-            "prompt_token": 0.00000125,
-            "completion_token": 0.000005
-        }
-    },
-    {
-        "model": "gemma-7b-it",
-        "cost": {
-            "prompt_token": 1.5e-7,
-            "completion_token": 1.5e-7
-        }
-    },
-    {
-        "model": "gemini-pro-vision",
-        "cost": {
-            "prompt_token": 5e-7,
-            "completion_token": 0.0000015
-        }
-    },
-    {
-        "model": "gemini-pro",
-        "cost": {
-            "prompt_token": 5e-7,
-            "completion_token": 0.0000015
-        }
-    },
-    {
-        "model": "palm-2-chat-bison-32k",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
-        }
-    },
-    {
-        "model": "palm-2-codechat-bison-32k",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
-        }
-    },
-    {
-        "model": "palm-2-chat-bison",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
-        }
-    },
-    {
-        "model": "palm-2-codechat-bison",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
-        }
-    },
-    {
         "model": "command-a",
         "cost": {
             "prompt_token": 0.0000025,
@@ -728,52 +735,52 @@
         }
     },
     {
-        "model": "command-r-08-2024",
+        "model": "command-r-plus-08-2024",
         "cost": {
-            "prompt_token": 1.425e-7,
-            "completion_token": 5.7e-7
+            "prompt_token": 0.0000025,
+            "completion_token": 0.00001
         }
     },
     {
-        "model": "command-r-plus-08-2024",
+        "model": "command-r-08-2024",
         "cost": {
-            "prompt_token": 0.000002375,
-            "completion_token": 0.0000095
+            "prompt_token": 1.5e-7,
+            "completion_token": 6e-7
         }
     },
     {
         "model": "command-r-plus",
         "cost": {
-            "prompt_token": 0.00000285,
-            "completion_token": 0.00001425
+            "prompt_token": 0.000003,
+            "completion_token": 0.000015
         }
     },
     {
         "model": "command-r-plus-04-2024",
         "cost": {
-            "prompt_token": 0.00000285,
-            "completion_token": 0.00001425
+            "prompt_token": 0.000003,
+            "completion_token": 0.000015
         }
     },
     {
         "model": "command",
         "cost": {
-            "prompt_token": 9.5e-7,
-            "completion_token": 0.0000019
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
         }
     },
     {
         "model": "command-r",
         "cost": {
-            "prompt_token": 4.75e-7,
-            "completion_token": 0.000001425
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
         }
     },
     {
         "model": "command-r-03-2024",
         "cost": {
-            "prompt_token": 4.75e-7,
-            "completion_token": 0.000001425
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
         }
     },
     {
@@ -833,13 +840,6 @@
         }
     },
     {
-        "model": "claude-3.7-sonnet:beta",
-        "cost": {
-            "prompt_token": 0.000003,
-            "completion_token": 0.000015
-        }
-    },
-    {
         "model": "claude-3.7-sonnet",
         "cost": {
             "prompt_token": 0.000003,
@@ -854,17 +854,10 @@
         }
     },
     {
-        "model": "claude-3.5-haiku-20241022:beta",
+        "model": "claude-3.7-sonnet:beta",
         "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 0.000004
-        }
-    },
-    {
-        "model": "claude-3.5-haiku-20241022",
-        "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 0.000004
+            "prompt_token": 0.000003,
+            "completion_token": 0.000015
         }
     },
     {
@@ -876,6 +869,20 @@
     },
     {
         "model": "claude-3.5-haiku",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.000004
+        }
+    },
+    {
+        "model": "claude-3.5-haiku-20241022:beta",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.000004
+        }
+    },
+    {
+        "model": "claude-3.5-haiku-20241022",
         "cost": {
             "prompt_token": 8e-7,
             "completion_token": 0.000004
@@ -952,20 +959,6 @@
         }
     },
     {
-        "model": "claude-2:beta",
-        "cost": {
-            "prompt_token": 0.000008,
-            "completion_token": 0.000024
-        }
-    },
-    {
-        "model": "claude-2",
-        "cost": {
-            "prompt_token": 0.000008,
-            "completion_token": 0.000024
-        }
-    },
-    {
         "model": "claude-2.1:beta",
         "cost": {
             "prompt_token": 0.000008,
@@ -974,6 +967,20 @@
     },
     {
         "model": "claude-2.1",
+        "cost": {
+            "prompt_token": 0.000008,
+            "completion_token": 0.000024
+        }
+    },
+    {
+        "model": "claude-2:beta",
+        "cost": {
+            "prompt_token": 0.000008,
+            "completion_token": 0.000024
+        }
+    },
+    {
+        "model": "claude-2",
         "cost": {
             "prompt_token": 0.000008,
             "completion_token": 0.000024
@@ -1071,13 +1078,6 @@
         }
     },
     {
-        "model": "llama-3.1-405b-instruct",
-        "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 8e-7
-        }
-    },
-    {
         "model": "llama-3.1-8b-instruct:free",
         "cost": {
             "prompt_token": 0,
@@ -1092,6 +1092,13 @@
         }
     },
     {
+        "model": "llama-3.1-405b-instruct",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 8e-7
+        }
+    },
+    {
         "model": "llama-3.1-70b-instruct",
         "cost": {
             "prompt_token": 1.2e-7,
@@ -1103,13 +1110,6 @@
         "cost": {
             "prompt_token": 2e-7,
             "completion_token": 2e-7
-        }
-    },
-    {
-        "model": "llama-3-8b-instruct:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
         }
     },
     {

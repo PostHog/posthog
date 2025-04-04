@@ -3,65 +3,86 @@ import { CSS } from '@dnd-kit/utilities'
 import { IconChevronRight, IconDocument, IconFolder, IconFolderOpen } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 
+import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
 
 type IconProps = {
     item: TreeDataItem
     expandedItemIds: string[]
     defaultNodeIcon?: React.ReactNode
+    enableMultiSelection?: boolean
+    handleCheckedChange?: (checked: boolean) => void
 }
 
-// Get the node or folder icon
-// If no icon is provided, use a defaultNodeIcon icon
-// If no defaultNodeIcon icon is provided, use empty div
-export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): JSX.Element {
-    const ICON_CLASSES = 'text-tertiary pt-0.5'
-
+// Get display item for the tree node
+// This is used to render the tree node in the tree view
+// It can render an icon or checkbox
+export function renderTreeNodeDisplayItem({
+    item,
+    expandedItemIds,
+    defaultNodeIcon,
+    enableMultiSelection = false,
+    handleCheckedChange,
+}: IconProps): JSX.Element {
+    const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
     const isFile = item.record?.type === 'file'
+    const isChecked = !!item.checked
+    let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
 
     if (isFolder) {
-        return (
-            // On folder group hover, the chevron icon should fade in and the folder should fade out
-            <div className="relative">
+        iconElement = isOpen ? <IconFolderOpen /> : <IconFolder />
+    }
+
+    if (isFile) {
+        iconElement = <IconDocument />
+    }
+
+    return (
+        <div className="relative group/lemon-tree-icon-group [&_svg]:size-4">
+            {((enableMultiSelection && !item.disableSelect) || isChecked) && (
                 <div
                     className={cn(
                         ICON_CLASSES,
-                        'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button:opacity-100 transition-opacity duration-150'
+                        'z-3 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover/lemon-tree-icon-group:opacity-100 transition-opacity duration-150',
+                        {
+                            'opacity-0': !isChecked,
+                            'opacity-100': isChecked,
+                        }
+                    )}
+                >
+                    <LemonCheckbox
+                        className="size-5 ml-[2px]"
+                        checked={item.checked ?? false}
+                        onChange={(checked) => {
+                            handleCheckedChange?.(checked)
+                        }}
+                    />
+                </div>
+            )}
+            {isFolder && (
+                <div
+                    className={cn(
+                        ICON_CLASSES,
+                        'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 transition-opacity duration-150'
                     )}
                 >
                     <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
                 </div>
-                <div
-                    className={cn(
-                        ICON_CLASSES,
-                        'group-hover/lemon-tree-button:opacity-0 transition-opacity duration-150'
-                    )}
-                >
-                    {isOpen ? <IconFolderOpen /> : <IconFolder />}
-                </div>
+            )}
+            <div
+                className={cn(
+                    ICON_CLASSES,
+                    {
+                        'text-tertiary': item.disabledReason,
+                        'group-hover/lemon-tree-button-group:opacity-0': isFolder || (isFolder && isChecked),
+                    },
+                    'transition-opacity duration-150'
+                )}
+            >
+                {iconElement}
             </div>
-        )
-    }
-
-    if (isFile) {
-        return (
-            <>
-                <div className={ICON_CLASSES}>
-                    <IconDocument />
-                </div>
-            </>
-        )
-    }
-
-    return (
-        <div
-            className={cn(ICON_CLASSES, {
-                'text-tertiary': item.disabledReason,
-            })}
-        >
-            {item.icon || defaultNodeIcon || <div />}
         </div>
     )
 }
