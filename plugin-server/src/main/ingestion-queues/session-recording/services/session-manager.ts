@@ -17,7 +17,15 @@ import { ObjectStorage } from '../../../../utils/object_storage'
 import { captureException } from '../../../../utils/posthog'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { IncomingRecordingMessage } from '../types'
-import { bufferFileDir, convertForPersistence, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
+import {
+    bufferFileDir,
+    convertForPersistence,
+    fileSafeBase64,
+    getLagMultiplier,
+    maxDefined,
+    minDefined,
+    now,
+} from '../utils'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
 
@@ -108,7 +116,6 @@ export class SessionManager {
     unsubscribe: () => void
     flushJitterMultiplier: number
     realtimeTail: Tail | null = null
-    encodedSessionId: string
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -121,13 +128,12 @@ export class SessionManager {
         public readonly topic: string,
         public readonly debug: boolean = false
     ) {
-        this.encodedSessionId = encodeURIComponent(sessionId)
         this.buffer = this.createBuffer()
 
         // NOTE: a new SessionManager indicates that either everything has been flushed or a rebalance occured so we should clear the existing redis messages
-        void realtimeManager.clearAllMessages(this.teamId, this.encodedSessionId)
+        void realtimeManager.clearAllMessages(this.teamId, this.sessionId)
 
-        this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.encodedSessionId, () => {
+        this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
             void this.startRealtime()
         })
 
@@ -351,7 +357,7 @@ export class SessionManager {
             }
 
             const { firstTimestamp, lastTimestamp } = eventsRange
-            const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.encodedSessionId}`
+            const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
 
@@ -442,7 +448,7 @@ export class SessionManager {
             if (offsets.highest) {
                 void this.offsetHighWaterMarker.add(
                     { topic: this.topic, partition: this.partition },
-                    this.encodedSessionId,
+                    this.sessionId,
                     offsets.highest
                 )
             }
@@ -456,9 +462,10 @@ export class SessionManager {
     private createBuffer(): SessionBuffer {
         try {
             const id = randomUUID()
+            const encodedSessionId = fileSafeBase64(this.sessionId)
             const fileBase = path.join(
                 bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                `${this.teamId}.${this.encodedSessionId}.${id}`
+                `${this.teamId}.${encodedSessionId}.${id}`
             )
 
             const file = (type: 'jsonl' | 'gz') => `${fileBase}.${type}`
@@ -512,19 +519,19 @@ export class SessionManager {
             return
         }
 
-        this.debugLog('⚡️', `[session-manager][realtime] Started `, { sessionId: this.encodedSessionId })
+        this.debugLog('⚡️', `[session-manager][realtime] Started `, { sessionId: this.sessionId })
 
         this.realtimeTail = new Tail(this.buffer.file('jsonl'), {
             fromBeginning: true,
         })
 
         this.realtimeTail.on('line', async (data: string) => {
-            await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.encodedSessionId, data, Date.now())
+            await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.sessionId, data, Date.now())
         })
 
         this.realtimeTail.on('error', (error) => {
             logger.error('🧨', '[session-manager][realtime] failed to watch buffer file', {
-                sessionId: this.encodedSessionId,
+                sessionId: this.sessionId,
                 teamId: this.teamId,
             })
             this.captureException(error)
