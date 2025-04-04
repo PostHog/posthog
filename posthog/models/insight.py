@@ -153,7 +153,7 @@ class Insight(FileSystemSyncMixin, models.Model):
         try:
             return {
                 "kind": "InsightVizNode",
-                "source": filter_to_query(self.filters).model_dump(exclude_none=True),
+                "source": filter_to_query(self.filters).model_dump(exclude_none=True, exclude_defaults=True),
                 "full": True,
             }
         except Exception as e:
