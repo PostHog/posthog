@@ -1,7 +1,9 @@
 survey_response = "$survey_response"
 
 
-def get_survey_response_clickhouse_query(question_index: int, question_id: str | None = None) -> str:
+def get_survey_response_clickhouse_query(
+    question_index: int, question_id: str | None = None, is_multiple_choice: bool = False
+) -> str:
     """
     Generate a ClickHouse query to extract survey response based on question index or ID
 
@@ -14,6 +16,9 @@ def get_survey_response_clickhouse_query(question_index: int, question_id: str |
     """
     id_based_key = _build_id_based_key(question_index, question_id)
     index_based_key = _build_index_based_key(question_index)
+
+    if is_multiple_choice is True:
+        return _build_multiple_choice_query(id_based_key, index_based_key)
 
     return _build_coalesce_query(id_based_key, index_based_key)
 
@@ -36,4 +41,12 @@ def _build_coalesce_query(id_based_key: str, index_based_key: str) -> str:
     return f"""COALESCE(
         NULLIF(JSONExtractString(properties, {id_based_key}), ''),
         NULLIF(JSONExtractString(properties, '{index_based_key}'), '')
+    )"""
+
+
+def _build_multiple_choice_query(id_based_key: str, index_based_key: str) -> str:
+    return f"""if(
+        JSONHas(properties, {id_based_key}) AND length(JSONExtractArrayRaw(properties, {id_based_key})) > 0,
+        JSONExtractArrayRaw(properties, {id_based_key}),
+        JSONExtractArrayRaw(properties, '{index_based_key}')
     )"""

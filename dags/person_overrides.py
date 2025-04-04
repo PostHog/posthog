@@ -400,10 +400,9 @@ def cleanup_orphaned_person_overrides_snapshot():
     cleanup_snapshot_resources(dictionary)
 
 
-# Schedule to run squash at 10 PM on Saturdays
 squash_schedule = dagster.ScheduleDefinition(
     job=squash_person_overrides,
-    cron_schedule="0 22 * * 6",  # At 22:00 (10 PM) on Saturday
+    cron_schedule=settings.SQUASH_PERSON_OVERRIDES_SCHEDULE,
     execution_timezone="UTC",
     name="squash_person_overrides_schedule",
 )

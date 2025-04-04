@@ -1,7 +1,6 @@
 import posthogEE from '@posthog/ee/exports'
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@posthog/rrweb-types'
+import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
 import { captureException } from '@sentry/react'
-import { gunzipSync, strFromU8, strToU8 } from 'fflate'
 import {
     actions,
     afterMount,
@@ -26,7 +25,6 @@ import { isObject } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
-import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/sessionrecording'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -52,220 +50,34 @@ import {
 import { PostHogEE } from '../../../../@posthog/ee/types'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
+import { stripChromeExtensionData } from './snapshot-processing/chrome-extension-stripping'
+import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
+import { decompressEvent } from './snapshot-processing/decompress'
+import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
+import {
+    getHrefFromSnapshot,
+    patchMetaEventIntoWebData,
+    ViewportResolution,
+} from './snapshot-processing/patch-meta-event'
+import { patchMetaEventIntoMobileData } from './snapshot-processing/patch-meta-event'
+import { throttleCapture } from './snapshot-processing/throttle-capturing'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
-export const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
 
-export interface ViewportResolution {
-    width: string
-    height: string
-    href: string
-}
-
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
-}
-
-// when we capture in a loop, we don't want to capture the same error twice
-// since we loop over large datasets we risk capturing the same error multiple times
-// so we use a set to throttle the errors
-const THROTTLE_CAPTURE_KEY = new Set<string>()
-function throttleCapture(key: string, fn: () => void): void {
-    if (!THROTTLE_CAPTURE_KEY.has(key)) {
-        fn()
-        THROTTLE_CAPTURE_KEY.add(key)
-    }
-}
-// only for testing
-export function clearThrottle(): void {
-    THROTTLE_CAPTURE_KEY.clear()
-}
-
-export function patchMetaEventIntoWebData(
-    snapshots: RecordingSnapshot[],
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string
-): RecordingSnapshot[] {
-    // Iterate in reverse order so we can modify the array while iterating
-    for (let i = snapshots.length - 1; i >= 0; i--) {
-        const snapshot = snapshots[i]
-        if (snapshot.type !== EventType.FullSnapshot) {
-            continue
-        }
-
-        const previousEvent = snapshots[i - 1]
-        const previousEventIsMeta = previousEvent?.type === EventType.Meta
-        if (previousEventIsMeta) {
-            continue
-        }
-
-        const viewport = viewportForTimestamp(snapshot.timestamp)
-        const thereIsNoViewport = !viewport || !viewport.width || !viewport.height
-        if (thereIsNoViewport) {
-            throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
-                posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
-                    snapshot,
-                })
-            })
-        } else {
-            snapshots.splice(i, 0, {
-                type: EventType.Meta,
-                timestamp: snapshot.timestamp,
-                windowId: snapshot.windowId,
-                data: {
-                    width: parseInt(viewport.width, 10),
-                    height: parseInt(viewport.height, 10),
-                    href: viewport.href || 'unknown',
-                },
-            })
-        }
-    }
-
-    return snapshots
-}
-
-/*
- there was a bug in mobile SDK that didn't consistently send a meta event with a full snapshot.
- rrweb player hides itself until it has seen the meta event 🤷
- but we can patch a meta event into the recording data to make it work
-*/
-function patchMetaEventIntoMobileData(
-    parsedLines: RecordingSnapshot[],
-    sessionRecordingId: string
-): RecordingSnapshot[] {
-    let fullSnapshotIndex: number = -1
-    let metaIndex: number = -1
-    try {
-        fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
-        metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
-
-        // then we need to patch the meta event into the snapshot data
-        if (fullSnapshotIndex > -1 && metaIndex === -1) {
-            const fullSnapshot = parsedLines[fullSnapshotIndex] as RecordingSnapshot & fullSnapshotEvent & eventWithTime
-            // a full snapshot (particularly from the mobile transformer) has a relatively fixed structure,
-            // but the types exposed by rrweb don't quite cover what we need , so...
-            const mainNode = fullSnapshot.data.node as any
-            const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
-            const { width, height } = targetNode.attributes
-            const metaEvent: RecordingSnapshot = {
-                windowId: fullSnapshot.windowId,
-                type: EventType.Meta,
-                timestamp: fullSnapshot.timestamp,
-                data: {
-                    href: getHrefFromSnapshot(fullSnapshot) || '',
-                    width,
-                    height,
-                },
-            }
-            parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
-        }
-    } catch (e) {
-        throttleCapture(`${sessionRecordingId}-missing-mobile-meta-patching`, () => {
-            posthog.captureException(e, {
-                tags: { feature: 'session-recording-missing-mobile-meta-patching' },
-                extra: { fullSnapshotIndex, metaIndex },
-            })
-        })
-    }
-
-    return parsedLines
 }
 
 function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
     return snapshotData.some((d) => {
         return isObject(d.data) && 'wireframes' in d.data
     })
-}
-
-function isCompressedEvent(ev: unknown): ev is compressedEventWithTime {
-    return typeof ev === 'object' && ev !== null && 'cv' in ev
-}
-
-function unzip(compressedStr: string | undefined): any {
-    if (!compressedStr) {
-        return undefined
-    }
-    return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))))
-}
-
-/**
- *
- * takes an event that might be from web, might be from mobile,
- * and might be partially compressed,
- * and decompresses it when possible
- *
- * you can't return a union of `KnownType | unknown`
- * so even though this returns `eventWithTime | unknown`
- * it has to be typed as only unknown
- *
- * KLUDGE: we shouldn't need so many type assertions on ev.data but TS is not smart enough to figure it out
- */
-function decompressEvent(ev: unknown, sessionRecordingId: string): unknown {
-    try {
-        if (isCompressedEvent(ev)) {
-            if (ev.cv === '2024-10') {
-                if (ev.type === EventType.FullSnapshot && typeof ev.data === 'string') {
-                    return {
-                        ...ev,
-                        data: unzip(ev.data),
-                    }
-                } else if (
-                    ev.type === EventType.IncrementalSnapshot &&
-                    typeof ev.data === 'object' &&
-                    'source' in ev.data
-                ) {
-                    if (ev.data.source === IncrementalSource.StyleSheetRule) {
-                        return {
-                            ...ev,
-                            data: {
-                                ...ev.data,
-                                source: IncrementalSource.StyleSheetRule,
-                                adds: unzip(ev.data.adds),
-                                removes: unzip(ev.data.removes),
-                            },
-                        }
-                    } else if (ev.data.source === IncrementalSource.Mutation && 'texts' in ev.data) {
-                        return {
-                            ...ev,
-                            data: {
-                                ...ev.data,
-                                source: IncrementalSource.Mutation,
-                                adds: unzip(ev.data.adds),
-                                removes: unzip(ev.data.removes),
-                                texts: unzip(ev.data.texts),
-                                attributes: unzip(ev.data.attributes),
-                            },
-                        }
-                    }
-                }
-            } else {
-                throttleCapture(`${sessionRecordingId}-unknown-compressed-event-version`, () => {
-                    posthog.captureException(new Error('Unknown compressed event version'), {
-                        feature: 'session-recording-compressed-event-decompression',
-                        compressedEvent: ev,
-                        compressionVersion: ev.cv,
-                    })
-                })
-                // probably unplayable but we don't know how to decompress it
-                return ev
-            }
-        }
-        return ev
-    } catch (e) {
-        throttleCapture(`${sessionRecordingId}-unknown-compressed-event-version`, () => {
-            posthog.captureException((e as Error) || new Error('Could not decompress event'), {
-                feature: 'session-recording-compressed-event-decompression',
-                compressedEvent: ev,
-            })
-        })
-        return ev
-    }
 }
 
 /**
@@ -280,57 +92,6 @@ function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean, sessi
     return withMobileTransformer
         ? postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
         : (currentEvent as eventWithTime)
-}
-
-export function chunkMutationSnapshot(snapshot: RecordingSnapshot): RecordingSnapshot[] {
-    if (
-        snapshot.type !== EventType.IncrementalSnapshot ||
-        !('data' in snapshot) ||
-        !snapshot.data ||
-        typeof snapshot.data !== 'object' ||
-        !('source' in snapshot.data) ||
-        snapshot.data.source !== IncrementalSource.Mutation ||
-        !('adds' in snapshot.data) ||
-        !Array.isArray(snapshot.data.adds) ||
-        snapshot.data.adds.length <= MUTATION_CHUNK_SIZE
-    ) {
-        return [snapshot]
-    }
-
-    const chunks: RecordingSnapshot[] = []
-    const { adds, removes, texts, attributes } = snapshot.data
-    const totalAdds = adds.length
-    const chunksCount = Math.ceil(totalAdds / MUTATION_CHUNK_SIZE)
-
-    for (let i = 0; i < chunksCount; i++) {
-        const startIdx = i * MUTATION_CHUNK_SIZE
-        const endIdx = Math.min((i + 1) * MUTATION_CHUNK_SIZE, totalAdds)
-        const isFirstChunk = i === 0
-        const isLastChunk = i === chunksCount - 1
-
-        const chunkSnapshot: RecordingSnapshot = {
-            ...snapshot,
-            timestamp: snapshot.timestamp,
-            data: {
-                ...snapshot.data,
-                adds: adds.slice(startIdx, endIdx),
-                // Keep removes in the first chunk only
-                removes: isFirstChunk ? removes : [],
-                // Keep texts and attributes in the last chunk only
-                texts: isLastChunk ? texts : [],
-                attributes: isLastChunk ? attributes : [],
-            },
-        }
-
-        // If delay was present in the original snapshot, increment it by 1 for each chunk
-        if ('delay' in snapshot) {
-            chunkSnapshot.delay = snapshot.delay || 0
-        }
-
-        chunks.push(chunkSnapshot)
-    }
-
-    return chunks
 }
 
 export const parseEncodedSnapshots = async (
@@ -414,59 +175,6 @@ export const parseEncodedSnapshots = async (
     }
 
     return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines, sessionId) : parsedLines
-}
-
-const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
-    return isObject(snapshot) && 'data' in snapshot
-        ? (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
-        : undefined
-}
-
-/*
-    cyrb53 (c) 2018 bryc (github.com/bryc)
-    License: Public domain. Attribution appreciated.
-    A fast and simple 53-bit string hash function with decent collision resistance.
-    Largely inspired by MurmurHash2/3, but with a focus on speed/simplicity.
-*/
-const cyrb53 = function (str: string, seed = 0): number {
-    let h1 = 0xdeadbeef ^ seed,
-        h2 = 0x41c6ce57 ^ seed
-    for (let i = 0, ch; i < str.length; i++) {
-        ch = str.charCodeAt(i)
-        h1 = Math.imul(h1 ^ ch, 2654435761)
-        h2 = Math.imul(h2 ^ ch, 1597334677)
-    }
-    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
-    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
-    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
-    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
-    return 4294967296 * (2097151 & h2) + (h1 >>> 0)
-}
-
-export const deduplicateSnapshots = (snapshots: RecordingSnapshot[] | null): RecordingSnapshot[] => {
-    const seenHashes: Set<string> = new Set()
-
-    return (snapshots ?? [])
-        .filter((snapshot) => {
-            // For a multitude of reasons, there can be duplicate snapshots in the same recording.
-            // we have to stringify the snapshot to compare it to other snapshots.
-            // so we can filter by storing them all in a set
-
-            // we can see duplicates that only differ by delay - these still count as duplicates
-            // even though the delay would hide that
-            const { delay: _delay, ...delayFreeSnapshot } = snapshot
-            // we check each item multiple times as new snapshots come in
-            // so store the computer value on the object to save recalculating it so much
-            const key = (snapshot as any).seen || cyrb53(JSON.stringify(delayFreeSnapshot))
-            ;(snapshot as any).seen = key
-
-            if (seenHashes.has(key)) {
-                return false
-            }
-            seenHashes.add(key)
-            return true
-        })
-        .sort((a, b) => a.timestamp - b.timestamp)
 }
 
 const generateRecordingReportDurations = (cache: Record<string, any>): RecordingReportLoadTimes => {
@@ -647,12 +355,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (breakpointLength) {
                         await breakpoint(breakpointLength)
                     }
-                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId)
+                    const blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
+                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, {
+                        blob_v2,
+                    })
                     if (!response.sources) {
                         return []
                     }
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] && anyBlobV2) {
+                    if (anyBlobV2) {
                         return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
                     }
                     return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
@@ -1256,10 +967,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return snapshotsBySource?.[sourceKey]?.snapshots || []
                     }) ?? []
 
-                return patchMetaEventIntoWebData(
-                    deduplicateSnapshots(allSnapshots),
-                    viewportForTimestamp,
-                    sessionRecordingId
+                return stripChromeExtensionData(
+                    patchMetaEventIntoWebData(
+                        deduplicateSnapshots(allSnapshots),
+                        viewportForTimestamp,
+                        sessionRecordingId
+                    )
                 )
             },
         ],

@@ -20,7 +20,7 @@ from posthog.models.team import Team
 def has_permissions_to_access_tree_view(user, team):
     tree_view_enabled = posthoganalytics.feature_enabled(
         "tree-view",
-        str(team.organization_id),
+        str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
     )
@@ -195,6 +195,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "OK",
             status=status.HTTP_200_OK,
         )
+
+    @action(methods=["POST"], detail=True)
+    def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get count of all files in a folder."""
+        instance = self.get_object()
+        if instance.type != "folder":
+            return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
+        count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
+        return Response({"count": count}, status=status.HTTP_200_OK)
 
 
 def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:

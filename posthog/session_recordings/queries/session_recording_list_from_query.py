@@ -301,9 +301,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
         ]
 
-        person_id_compare_operation = PersonsIdCompareOperation(self._team, self._query).get_operation()
-        if person_id_compare_operation:
-            exprs.append(person_id_compare_operation)
+        if self._query.distinct_ids:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["distinct_id"]),
+                    right=ast.Constant(value=self._query.distinct_ids),
+                )
+            )
+        else:
+            person_id_compare_operation = PersonsIdCompareOperation(self._team, self._query).get_operation()
+            if person_id_compare_operation:
+                exprs.append(person_id_compare_operation)
 
         # we check for session_ids type not for truthiness since we want to allow empty lists
         if isinstance(self._query.session_ids, list):
