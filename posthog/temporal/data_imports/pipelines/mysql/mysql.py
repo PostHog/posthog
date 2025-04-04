@@ -154,6 +154,7 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
         # Map MySQL type names to PyArrow types
         match mysql_data_type:
             case "bigint":
+                # There's no larger type than (u)int64
                 arrow_type = pa.uint64() if is_unsigned else pa.int64()
             case "int" | "integer" | "mediumint":
                 arrow_type = pa.uint64() if is_unsigned else pa.int32()
