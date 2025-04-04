@@ -1129,14 +1129,14 @@ const prepareUrl = (url: string): string => {
     return output
 }
 
-const PROJECT_ID_REGEX = /\/api\/projects\/(\w+)(?:$|[/?#])/
+const TEAM_ID_REGEX = /\/api\/projects\/(\w+)(?:$|[/?#])/
 
-const ensureProjectIdNotInvalid = (url: string): void => {
-    const projectIdMatch = PROJECT_ID_REGEX.exec(url)
-    if (projectIdMatch) {
-        const projectId = projectIdMatch[2].trim()
-        if (projectId === 'null' || projectId === 'undefined') {
-            throw { status: 0, detail: `Cannot make request - ${projectIdMatch[1]} ID is unknown.` }
+const ensureTeamIdNotInvalid = (url: string): void => {
+    const teamIdMatch = TEAM_ID_REGEX.exec(url)
+    if (teamIdMatch) {
+        const teamId = teamIdMatch[1].trim()
+        if (teamId === 'null' || teamId === 'undefined') {
+            throw { status: 0, detail: `Cannot make request - ${teamId} ID is unknown.` }
         }
     }
 }
@@ -3047,7 +3047,7 @@ const api = {
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
-        ensureProjectIdNotInvalid(url)
+        ensureTeamIdNotInvalid(url)
         return await handleFetch(url, 'GET', () => {
             return fetch(url, {
                 signal: options?.signal,
@@ -3066,7 +3066,7 @@ const api = {
         options?: ApiMethodOptions
     ): Promise<T> {
         url = prepareUrl(url)
-        ensureProjectIdNotInvalid(url)
+        ensureTeamIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
         const response = await handleFetch(url, method, async () => {
@@ -3101,7 +3101,7 @@ const api = {
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
-        ensureProjectIdNotInvalid(url)
+        ensureTeamIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
         return await handleFetch(url, 'POST', () =>
@@ -3121,7 +3121,7 @@ const api = {
 
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
-        ensureProjectIdNotInvalid(url)
+        ensureTeamIdNotInvalid(url)
         return await handleFetch(url, 'DELETE', () =>
             fetch(url, {
                 method: 'DELETE',
