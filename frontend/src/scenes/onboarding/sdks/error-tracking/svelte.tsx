@@ -34,27 +34,28 @@ export function SvelteInstructions(): JSX.Element {
 
 const clientSideHooks = `// src/hooks.client.js
 
-import { captureException } from 'posthog-js';
+import posthog from 'posthog-js';
 import type { HandleClientError } from '@sveltejs/kit';
 
 export const handleError = ({ error, status }: HandleClientError) => {
     // SvelteKit 2.0 offers a reliable way to check for a 404 error:
     if (status !== 404) {
-        captureException(error);
+        posthog.captureException(error);
     }
 };
 `
 
-const serverSideHooks = `// src/hooks.server.js
+const serverSideHooks = (api_token: string): string => `// src/hooks.server.js
 
 import type { HandleServerError } from '@sveltejs/kit';
-import { captureException, shutdown } from 'posthog-node';
+import { PostHog } from 'posthog-node';
+
+const client = new PostHog('${api_token}')
 
 export const handleError = async ({ error, status }: HandleServerError) => {
     if (status !== 404) {
-        captureException(error);
-        
-        await shutdown();
+        client.captureException(error);
+        await client.shutdown();
     }
 };
 `

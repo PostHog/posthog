@@ -59,7 +59,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.ERROR_TRACKING]: {
         name: 'Error Tracking',
         icon: 'IconWarning',
-        iconColor: 'rgb(243 84 84)',
+        iconColor: 'rgb(235 157 42)',
         url: urls.errorTracking(),
         scene: Scene.ErrorTracking,
     },
