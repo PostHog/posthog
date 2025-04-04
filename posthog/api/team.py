@@ -193,6 +193,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         fields = (
             "id",
             "uuid",
+            "root_team_id",
             "name",
             "access_control",
             "organization",
@@ -217,6 +218,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         read_only_fields = (
             "id",
             "uuid",
+            "root_team_id",
             "organization",
             "project_id",
             "api_token",

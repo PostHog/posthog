@@ -498,6 +498,7 @@ export interface ProjectBasicType {
 export interface TeamBasicType extends WithAccessControl {
     id: number
     uuid: string
+    root_team_id: number
     organization: string // Organization ID
     project_id: number
     api_token: string

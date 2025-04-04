@@ -553,6 +553,7 @@ const teamActionsMapping: Record<
     created_at: () => null,
     api_token: () => null,
     id: () => null,
+    root_team_id: () => null,
     updated_at: () => null,
     uuid: () => null,
     user_access_level: () => null,

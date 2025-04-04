@@ -179,6 +179,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "uuid",
+            "root_team_id",
             "organization",
             "project_id",
             "api_token",

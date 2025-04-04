@@ -42,6 +42,7 @@ export const api = apiReal as any as APIMockReturnType
 export const MOCK_DEFAULT_TEAM: TeamType = {
     id: MOCK_TEAM_ID,
     project_id: MOCK_TEAM_ID,
+    root_team_id: MOCK_TEAM_ID,
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',

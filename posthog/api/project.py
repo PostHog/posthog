@@ -132,6 +132,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "heatmaps_opt_in",  # Compat with TeamSerializer
             "product_intents",  # Compat with TeamSerializer
             "flags_persistence_default",  # Compat with TeamSerializer
+            "root_team_id",
         )
         read_only_fields = (
             "id",
@@ -147,12 +148,14 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "default_modifiers",
             "person_on_events_querying_enabled",
             "product_intents",
+            "root_team_id",
         )
 
         team_passthrough_fields = {
             "updated_at",
             "uuid",
             "api_token",
+            "root_team_id",
             "app_urls",
             "slack_incoming_webhook",
             "anonymize_ips",
