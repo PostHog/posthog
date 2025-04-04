@@ -19,7 +19,6 @@ class TestTrendsUtils(BaseTest):
             HumanMessage(content="Text2"),
         ]
         messages = filter_and_merge_messages(conversation)
-        self.assertEqual(len(messages), 4)
         self.assertEqual(
             [
                 HumanMessage(content="Text\nText"),
