@@ -513,8 +513,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
-    results = sync_execute(
-        f"""
+    query_template = f"""
         SELECT
             team_id,
             multiIf(
@@ -543,37 +542,56 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         WHERE timestamp BETWEEN %(begin)s AND %(end)s
         GROUP BY team_id, metric
         HAVING metric != 'other'
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
+    """
+
+    # Define a custom function to combine results from multiple queries
+    def combine_event_metrics_results(results_list):
+        metrics = {
+            "helicone_events": {},
+            "langfuse_events": {},
+            "keywords_ai_events": {},
+            "traceloop_events": {},
+            "web_events": {},
+            "web_lite_events": {},
+            "node_events": {},
+            "android_events": {},
+            "flutter_events": {},
+            "ios_events": {},
+            "go_events": {},
+            "java_events": {},
+            "react_native_events": {},
+            "ruby_events": {},
+            "python_events": {},
+            "php_events": {},
+            "dotnet_events": {},
+            "elixir_events": {},
+        }
+
+        # Process each result set
+        for results in results_list:
+            for team_id, metric, count in results:
+                if metric in metrics:  # Make sure the metric exists in our dictionary
+                    if team_id in metrics[metric]:
+                        metrics[metric][team_id] += count
+                    else:
+                        metrics[metric][team_id] = count
+
+        # Convert to the expected format
+        result = {}
+        for metric, team_counts in metrics.items():
+            result[metric] = list(team_counts.items())
+
+        return result
+
+    # Execute the split query with 4 splits
+    return _execute_split_query(
+        begin=begin,
+        end=end,
+        query_template=query_template,
+        params={},
+        num_splits=4,
+        combine_results_func=combine_event_metrics_results,
     )
-
-    metrics: dict[str, list[tuple[int, int]]] = {
-        "helicone_events": [],
-        "langfuse_events": [],
-        "keywords_ai_events": [],
-        "traceloop_events": [],
-        "web_events": [],
-        "web_lite_events": [],
-        "node_events": [],
-        "android_events": [],
-        "flutter_events": [],
-        "ios_events": [],
-        "go_events": [],
-        "java_events": [],
-        "react_native_events": [],
-        "ruby_events": [],
-        "python_events": [],
-        "php_events": [],
-        "dotnet_events": [],
-        "elixir_events": [],
-    }
-
-    for team_id, metric, count in results:
-        metrics[metric].append((team_id, count))
-
-    return metrics
 
 
 @timed_log()
