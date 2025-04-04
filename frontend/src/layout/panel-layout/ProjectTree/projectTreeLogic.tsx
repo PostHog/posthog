@@ -129,6 +129,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             false,
             {
                 queueAction: async ({ action }) => {
+                    actions.removeQueuedAction(action)
                     if (action.type === 'prepare-move' && action.newPath) {
                         try {
                             const response = await api.fileSystem.count(action.item.id)
@@ -144,8 +145,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             console.error('Error moving item:', error)
                             lemonToast.error(`Error moving item: ${error}`)
                         }
-                    }
-                    if (action.type === 'move' && action.newPath) {
+                    } else if (action.type === 'move' && action.newPath) {
                         try {
                             const oldPath = action.item.path
                             const newPath = action.newPath
@@ -207,7 +207,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             lemonToast.error(`Error deleting item: ${error}`)
                         }
                     }
-                    actions.removeQueuedAction(action)
                     return true
                 },
             },
@@ -447,7 +446,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         } else {
                             console.error("Item already exists, can't create", action.item)
                         }
-                    } else if (action.path) {
+                    } else if (action.path && itemsByPath[action.path]) {
                         itemsByPath[action.path] = itemsByPath[action.path].map((i) => ({ ...i, loading: true }))
                     }
                 }
