@@ -1415,7 +1415,6 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
-    DASHBOARD = 'dashboard',
 }
 
 export enum LayoutView {
@@ -2866,6 +2865,27 @@ export enum SurveyPartialResponses {
     No = 'false',
 }
 
+export interface SurveyDisplayConditions {
+    url: string
+    selector?: string
+    seenSurveyWaitPeriodInDays?: number
+    urlMatchType?: SurveyMatchType
+    deviceTypes?: string[]
+    deviceTypesMatchType?: SurveyMatchType
+    actions: {
+        values: {
+            id: number
+            name: string
+        }[]
+    } | null
+    events: {
+        repeatedActivation?: boolean
+        values: {
+            name: string
+        }[]
+    } | null
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -2877,26 +2897,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters?: FeatureFlagFilters
-    conditions: {
-        url: string
-        selector?: string
-        seenSurveyWaitPeriodInDays?: number
-        urlMatchType?: SurveyMatchType
-        deviceTypes?: string[]
-        deviceTypesMatchType?: SurveyMatchType
-        actions: {
-            values: {
-                id: number
-                name: string
-            }[]
-        } | null
-        events: {
-            repeatedActivation?: boolean
-            values: {
-                name: string
-            }[]
-        } | null
-    } | null
+    conditions: SurveyDisplayConditions | null
     appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
@@ -3880,6 +3881,7 @@ export type IntegrationKind =
     | 'linkedin-ads'
     | 'snapchat'
     | 'intercom'
+    | 'email'
 
 export interface IntegrationType {
     id: number
@@ -4296,6 +4298,19 @@ export interface ExternalDataSource {
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
 }
+
+export interface DataModelingJob {
+    id: string
+    saved_query_id: string
+    status: 'Running' | 'Completed' | 'Failed'
+    rows_materialized: number
+    error: string | null
+    created_at: string
+    last_run_at: string
+    workflow_id: string
+    workflow_run_id: string
+}
+
 export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
@@ -5139,10 +5154,20 @@ export interface ProductManifest {
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
-    treeItems?: FileSystemImport[]
+    treeItemsNew?: FileSystemImport[]
+    treeItemsExplore?: FileSystemImport[]
 }
 
 export interface ProjectTreeRef {
+    /**
+     * Type of file system object.
+     * Use "/" as a separator to add an internal type, e.g. "hog/site_destination".
+     * Search with "hog/" to match all internal types.
+     */
     type: string
+    /**
+     * The ref of the file system object.
+     * Usually the "id" or "short_id" of the database object.
+     */
     ref: string
 }

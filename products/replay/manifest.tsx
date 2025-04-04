@@ -29,24 +29,24 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.replayPlaylist(ref),
         },
     },
-    treeItems: [
+    treeItemsExplore: [
         {
-            path: 'Explore/Recordings/Recordings',
+            path: 'Recordings/Recordings',
             href: () => urls.replay(ReplayTabs.Home),
             icon: <IconRewindPlay />,
         },
         {
-            path: 'Explore/Recordings/What to watch',
+            path: 'Recordings/What to watch',
             href: () => urls.replay(ReplayTabs.Templates),
             icon: <IconRewindPlay />,
         },
         {
-            path: 'Explore/Recordings/Playlists',
+            path: 'Recordings/Playlists',
             href: () => urls.replay(ReplayTabs.Playlists),
             icon: <IconRewindPlay />,
         },
         {
-            path: 'Explore/Recordings/Settings',
+            path: 'Recordings/Settings',
             href: () => urls.replay(ReplayTabs.Settings),
             icon: <IconRewindPlay />,
         },

@@ -292,7 +292,7 @@ class TaxonomyAgentToolkit(ABC):
             if entity_definition := mapping.get(entity, {}).get(prop_name):
                 if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
                     continue
-                description = entity_definition.get("description")
+                description = entity_definition.get("description_llm") or entity_definition.get("description")
             enriched_props.append((prop_name, prop_type, description))
         return enriched_props
 

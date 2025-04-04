@@ -1,4 +1,4 @@
-import { LemonBanner, LemonDivider, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,6 +9,7 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import SetupWizardBanner from './components/SetupWizardBanner'
 import { JSInstallSnippet } from './js-web'
 import { nextJsInstructionsLogic, type NextJSRouter } from './nextJsInstructionsLogic'
 
@@ -167,31 +168,15 @@ function SuspendedPostHogPageView() {
 export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
     const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
-    const { preflight, isCloudOrDev } = useValues(preflightLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
 
-    const region = preflight?.region || 'us'
-
-    const wizardCommand = `npx @posthog/wizard@latest${region ? ` --region ${region.toLowerCase()}` : ''}`
     return (
         <>
             {showSetupWizard && (
                 <>
                     <h2>Automated Installation</h2>
-                    <LemonBanner type="info" hideIcon={true}>
-                        <h3 className="flex items-center gap-2 pb-1">
-                            <LemonTag type="completion">ALPHA</LemonTag> AI setup wizard
-                        </h3>
-                        <div className="flex flex-col p-2">
-                            <p className="font-normal pb-1">
-                                Try using the AI setup wizard to automatically install PostHog.
-                            </p>
-                            <p className="font-normal pb-2">
-                                Run the following command from the root of your NextJS project.
-                            </p>
-                            <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
-                        </div>
-                    </LemonBanner>
+                    <SetupWizardBanner integrationName="Next.js" />
                     <LemonDivider label="OR" />
                     <h2>Manual Installation</h2>
                 </>
