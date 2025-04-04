@@ -576,7 +576,7 @@ projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
-    ["project_id"],
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(
