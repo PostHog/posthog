@@ -4,7 +4,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
-import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -58,7 +58,11 @@ export function ProjectTree(): JSX.Element {
     }, [treeRef, setPanelTreeRef])
 
     // Merge duplicate menu code for both context and dropdown menus
-    const renderMenuItems = (item: any, MenuItem: typeof ContextMenuItem | typeof DropdownMenuItem): JSX.Element => (
+    const renderMenuItems = (
+        item: any,
+        MenuItem: typeof ContextMenuItem | typeof DropdownMenuItem,
+        type: 'context' | 'dropdown'
+    ): JSX.Element => (
         <>
             {item.record?.path ? (
                 <MenuItem
@@ -117,7 +121,15 @@ export function ProjectTree(): JSX.Element {
             ) : null}
             {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
                 <>
-                    {!item.id?.startsWith('project-folder-empty/') ? <ContextMenuSeparator /> : null}
+                    {!item.id?.startsWith('project-folder-empty/') ? (
+                        <>
+                            {type === 'context' ? (
+                                <ContextMenuSeparator />
+                            ) : type === 'dropdown' ? (
+                                <DropdownMenuSeparator />
+                            ) : null}
+                        </>
+                    ) : null}
                     <MenuItem
                         asChild
                         onClick={(e: any) => {
@@ -258,13 +270,13 @@ export function ProjectTree(): JSX.Element {
                     if (item.id.startsWith('project-folder-empty/')) {
                         return undefined
                     }
-                    return <ContextMenuGroup>{renderMenuItems(item, ContextMenuItem)}</ContextMenuGroup>
+                    return <ContextMenuGroup>{renderMenuItems(item, ContextMenuItem, 'context')}</ContextMenuGroup>
                 }}
                 itemSideAction={(item) => {
                     if (item.id.startsWith('project-folder-empty/')) {
                         return undefined
                     }
-                    return <DropdownMenuGroup>{renderMenuItems(item, DropdownMenuItem)}</DropdownMenuGroup>
+                    return <DropdownMenuGroup>{renderMenuItems(item, DropdownMenuItem, 'dropdown')}</DropdownMenuGroup>
                 }}
             />
         </PanelLayoutPanel>

@@ -196,6 +196,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         )
                     }
 
+                    const isFolder = item.record?.type === 'folder'
+
                     const content = (
                         <AccordionPrimitive.Root
                             type="multiple"
@@ -302,7 +304,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         <>
                                                             {renderItem(
                                                                 item,
-                                                                <span className="truncate">{displayName}</span>
+                                                                <span
+                                                                    className={cn(
+                                                                        'truncate',
+                                                                        isFolder && 'font-semibold'
+                                                                    )}
+                                                                >
+                                                                    {displayName}
+                                                                </span>
                                                             )}
 
                                                             {/* Loading state */}
@@ -314,7 +323,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             )}
                                                         </>
                                                     ) : (
-                                                        <span className="truncate">{displayName}</span>
+                                                        <span className={cn('truncate', isFolder && 'font-semibold')}>
+                                                            {displayName}
+                                                        </span>
                                                     )}
                                                 </ButtonPrimitive>
                                                 {itemSideAction && (

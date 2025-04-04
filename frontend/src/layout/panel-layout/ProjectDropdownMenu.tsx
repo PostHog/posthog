@@ -2,7 +2,6 @@ import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@post
 import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -106,60 +105,58 @@ export function ProjectDropdownMenu(): JSX.Element | null {
             >
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <ScrollableShadows direction="vertical" className="flex flex-col gap-px w-auto" styledScrollbars>
-                    <DropdownMenuItem asChild>
-                        <ButtonGroupPrimitive fullWidth groupVariant="side-action-group">
-                            <ButtonPrimitive
-                                menuItem
-                                active
-                                disabled
-                                sideActionLeft
-                                tooltip={`Current project: ${currentTeam.name}`}
-                                tooltipPlacement="right"
-                            >
-                                <ProjectName team={currentTeam} />
-                            </ButtonPrimitive>
-                            <ButtonPrimitive
-                                active
-                                href={urls.project(currentTeam.id, urls.settings('project'))}
-                                iconOnly
-                                sideActionRight
-                                tooltip={`View settings for project: ${currentTeam.name}`}
-                                tooltipPlacement="right"
-                            >
-                                <IconGear className="text-tertiary" />
-                            </ButtonPrimitive>
-                        </ButtonGroupPrimitive>
-                    </DropdownMenuItem>
-
-                    {currentOrganization?.teams &&
-                        currentOrganization.teams
-                            .filter((team) => team.id !== currentTeam?.id)
-                            .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                            .map((team) => <OtherProjectButton key={team.id} team={team} />)}
-
-                    {preflight?.can_create_org && (
-                        <DropdownMenuItem
-                            asChild
-                            onClick={() =>
-                                guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
-                                    closeAccountPopover()
-                                    showCreateProjectModal()
-                                })
-                            }
+                <DropdownMenuItem asChild>
+                    <ButtonGroupPrimitive fullWidth groupVariant="side-action-group">
+                        <ButtonPrimitive
+                            menuItem
+                            active
+                            disabled
+                            sideActionLeft
+                            tooltip={`Current project: ${currentTeam.name}`}
+                            tooltipPlacement="right"
                         >
-                            <ButtonPrimitive
-                                menuItem
-                                data-attr="new-project-button"
-                                tooltip="Create a new project"
-                                tooltipPlacement="right"
-                            >
-                                <IconPlusSmall className="text-tertiary" />
-                                New project
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    )}
-                </ScrollableShadows>
+                            <ProjectName team={currentTeam} />
+                        </ButtonPrimitive>
+                        <ButtonPrimitive
+                            active
+                            href={urls.project(currentTeam.id, urls.settings('project'))}
+                            iconOnly
+                            sideActionRight
+                            tooltip={`View settings for project: ${currentTeam.name}`}
+                            tooltipPlacement="right"
+                        >
+                            <IconGear className="text-tertiary" />
+                        </ButtonPrimitive>
+                    </ButtonGroupPrimitive>
+                </DropdownMenuItem>
+
+                {currentOrganization?.teams &&
+                    currentOrganization.teams
+                        .filter((team) => team.id !== currentTeam?.id)
+                        .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                        .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+
+                {preflight?.can_create_org && (
+                    <DropdownMenuItem
+                        asChild
+                        onClick={() =>
+                            guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
+                                closeAccountPopover()
+                                showCreateProjectModal()
+                            })
+                        }
+                    >
+                        <ButtonPrimitive
+                            menuItem
+                            data-attr="new-project-button"
+                            tooltip="Create a new project"
+                            tooltipPlacement="right"
+                        >
+                            <IconPlusSmall className="text-tertiary" />
+                            New project
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                )}
             </DropdownMenuContent>
         </DropdownMenu>
     ) : null
