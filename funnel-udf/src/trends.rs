@@ -216,7 +216,7 @@ impl AggregateFunnelRow {
                             .unwrap()
                     {
                         let mut entered_timestamp =
-                            vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.to_step + 1];
+                            vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
                         entered_timestamp[1] = entered_timestamp_one;
                         let interval_data = IntervalData {
                             max_step: MaxStep {
@@ -236,9 +236,11 @@ impl AggregateFunnelRow {
             } else {
                 vars.interval_start_to_entered_timestamps.retain(
                     |&interval_start, interval_data| {
-                        let in_match_window = (event.timestamp
-                            - interval_data.entered_timestamp[step - 1].timestamp)
-                            <= args.conversion_window_limit as f64;
+                        let in_match_window = interval_data.entered_timestamp[step - 1].timestamp
+                            != 0.0
+                            && (event.timestamp
+                                - interval_data.entered_timestamp[step - 1].timestamp)
+                                <= args.conversion_window_limit as f64;
                         let previous_step_excluded =
                             interval_data.entered_timestamp[step - 1].excluded;
                         let already_reached_this_step = interval_data.entered_timestamp[step]

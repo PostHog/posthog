@@ -16,6 +16,7 @@ import {
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
+    HogQLQuery,
     InsightVizNode,
     Node,
     NodeKind,
@@ -277,6 +278,18 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
+export function getCohortNameFromId(
+    cohortId: string | number | null | undefined,
+    cohorts: CohortType[] | null | undefined
+): string {
+    // :TRICKY: Different endpoints represent the all users cohort breakdown differently
+    if (cohortId === 'all' || cohortId === 0) {
+        return 'All Users'
+    }
+
+    return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
+}
+
 export function formatBreakdownLabel(
     breakdown_value: BreakdownKeyType | undefined,
     breakdownFilter: BreakdownFilter | null | undefined,
@@ -315,12 +328,7 @@ export function formatBreakdownLabel(
     }
 
     if (breakdownFilter?.breakdown_type === 'cohort') {
-        // :TRICKY: Different endpoints represent the all users cohort breakdown differently
-        if (breakdown_value === 0 || breakdown_value === 'all') {
-            return 'All Users'
-        }
-
-        return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
+        return getCohortNameFromId(breakdown_value, cohorts)
     }
 
     if (typeof breakdown_value == 'number') {
@@ -333,10 +341,10 @@ export function formatBreakdownLabel(
     }
 
     // stringified numbers
-    if (!Number.isNaN(Number(breakdown_value))) {
+    if (breakdown_value && /^\d+$/.test(breakdown_value)) {
         const numericValue =
             Number.isInteger(Number(breakdown_value)) && !Number.isSafeInteger(Number(breakdown_value))
-                ? BigInt(breakdown_value!)
+                ? BigInt(breakdown_value)
                 : Number(breakdown_value)
         return formatNumericBreakdownLabel(
             numericValue,
@@ -364,6 +372,16 @@ export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
     return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
 }
 
+export function sortCohorts(
+    cohortIdA: string | number | null | undefined,
+    cohortIdB: string | number | null | undefined,
+    cohorts: CohortType[] | null | undefined
+): number {
+    const nameA = getCohortNameFromId(cohortIdA, cohorts)
+    const nameB = getCohortNameFromId(cohortIdB, cohorts)
+    return nameA.localeCompare(nameB)
+}
+
 export function sortDates(dates: Array<string | null>): Array<string | null> {
     return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
 }
@@ -386,7 +404,7 @@ export const INSIGHT_TYPE_URLS = {
     PATHS: urls.insightNew({ type: InsightType.PATHS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
-    SQL: urls.insightNew({ query: examples.DataVisualization }),
+    SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */

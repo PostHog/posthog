@@ -74,7 +74,7 @@ export const SyncProgressStep = (): JSX.Element => {
                             className="my-1"
                             type="primary"
                             onClick={cancelWizard}
-                            to={urls.insightNew({ query })}
+                            to={urls.sqlEditor(query.source.query)}
                         >
                             Query
                         </LemonButton>

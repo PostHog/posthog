@@ -1332,7 +1332,7 @@ describe('SessionBatchRecorder', () => {
 
             // All sessions should have the same batch ID
             const batchId = storedBlocks[0].batchId
-            expect(batchId).toBeDefined()
+            expect(batchId).toBeTruthy()
             expect(typeof batchId).toBe('string')
             expect(storedBlocks[1].batchId).toBe(batchId)
         })

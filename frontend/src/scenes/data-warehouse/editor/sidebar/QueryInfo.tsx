@@ -1,4 +1,4 @@
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonTable, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -58,18 +58,27 @@ const OPTIONS = [
 
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
-    const { editingView } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery } = useActions(multitabEditorLogic)
+    const { editingView, isValidView } = useValues(multitabEditorLogic)
+    const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
 
-    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
+    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
+        useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
+    if (initialDataWarehouseSavedQueryLoading) {
+        return (
+            <div className="w-full h-full flex items-center justify-center">
+                <Spinner className="text-lg" />
+            </div>
+        )
+    }
+
     return (
-        <div className="overflow-scroll">
-            <div className="flex flex-col flex-1 p-4 gap-4 ">
+        <div className="overflow-auto">
+            <div className="flex flex-col flex-1 p-4 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">Materialization</h3>
@@ -135,21 +144,22 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 </p>
                                 <LemonButton
                                     onClick={() => {
-                                        return (
-                                            editingView &&
+                                        if (editingView) {
                                             updateDataWarehouseSavedQuery({
                                                 id: editingView.id,
                                                 sync_frequency: '24hour',
                                                 types: [[]],
                                                 lifecycle: 'create',
                                             })
-                                        )
+                                        } else {
+                                            saveAsView({ materializeAfterSave: true })
+                                        }
                                     }}
                                     type="primary"
-                                    disabledReason={editingView ? undefined : 'You must save the view first'}
+                                    disabledReason={!editingView && !isValidView && 'Some fields may need an alias'}
                                     loading={updatingDataWarehouseSavedQuery}
                                 >
-                                    Materialize
+                                    {editingView ? 'Materialize' : 'Save and materialize'}
                                 </LemonButton>
                             </div>
                         )}

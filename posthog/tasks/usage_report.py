@@ -157,6 +157,7 @@ class UsageReportCounters:
     python_events_count_in_period: int
     php_events_count_in_period: int
     dotnet_events_count_in_period: int
+    elixir_events_count_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -461,6 +462,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {lib_expression} = 'posthog-python', 'python_events',
                 {lib_expression} = 'posthog-php', 'php_events',
                 {lib_expression} = 'posthog-dotnet', 'dotnet_events',
+                {lib_expression} = 'posthog-elixir', 'elixir_events',
                 'other'
             ) AS metric,
             count(1) as count
@@ -492,6 +494,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         "python_events": [],
         "php_events": [],
         "dotnet_events": [],
+        "elixir_events": [],
     }
 
     for team_id, metric, count in results:
@@ -590,7 +593,7 @@ def get_teams_with_api_queries_metrics(
         AND is_initial_query
         AND event_time between %(begin)s AND %(end)s
         AND team_id > 0
-        AND JSONExtractBool(log_comment, 'qaas')
+        AND JSONExtractBool(log_comment, 'chargeable')
         GROUP BY team_id
     """
     with tags_context(usage_report="get_teams_with_api_queries_metrics"):
@@ -934,6 +937,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_python_events_count_in_period": all_metrics["python_events"],
         "teams_with_php_events_count_in_period": all_metrics["php_events"],
         "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
+        "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -1185,6 +1189,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
         dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
+        elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         exceptions_captured_in_period=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
     )
@@ -1225,15 +1230,25 @@ def _add_team_report_to_org_reports(
 
 
 def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
+    logger.info("Querying all org reports", period_start=period_start, period_end=period_end)
+
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+
+    logger.info("Querying all teams")
 
     teams = _get_teams_for_usage_reports()
 
+    logger.info("Querying all teams complete", teams_count=len(teams))
+
     org_reports: dict[str, OrgReport] = {}
+
+    logger.info("Generating org reports")
 
     for team in teams:
         team_report = _get_team_report(all_data, team)
         _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
+
+    logger.info("Generating org reports complete", org_reports_count=len(org_reports))
 
     return org_reports
 

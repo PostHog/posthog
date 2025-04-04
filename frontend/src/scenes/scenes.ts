@@ -193,6 +193,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Action',
         defaultDocsPath: '/docs/data/actions',
     },
+    [Scene.Groups]: {
+        projectBased: true,
+        name: 'Groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
     [Scene.Group]: {
         projectBased: true,
         name: 'People & groups',
@@ -251,11 +256,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.FEATURE_FLAG,
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
-    [Scene.FeatureManagement]: {
-        projectBased: true,
-        name: 'Features',
-        defaultDocsPath: '/docs/feature-flags',
-    },
     [Scene.Surveys]: {
         projectBased: true,
         name: 'Surveys',
@@ -273,29 +273,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
-    [Scene.DataWarehouse]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/cdp/sources',
-    },
     [Scene.SQLEditor]: {
         projectBased: true,
         name: 'SQL editor',
         defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
-    },
-    [Scene.DataWarehouseExternal]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/cdp/sources',
-    },
-    [Scene.DataWarehouseRedirect]: {
-        name: 'Data warehouse redirect',
-    },
-    [Scene.DataWarehouseTable]: {
-        projectBased: true,
-        name: 'Data warehouse table',
-        defaultDocsPath: '/docs/data-warehouse',
+        hideProjectNotice: true,
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -615,15 +598,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
-    [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
-    [urls.dataWarehouseView(':id')]: [Scene.DataWarehouse, 'dataWarehouseView'],
-    [urls.dataWarehouseTable()]: [Scene.DataWarehouseTable, 'dataWarehouseTable'],
-    [urls.dataWarehouseRedirect(':kind')]: [Scene.DataWarehouseRedirect, 'dataWarehouseRedirect'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
-    [urls.featureManagement()]: [Scene.FeatureManagement, 'featureManagement'],
-    [urls.featureManagement(':id')]: [Scene.FeatureManagement, 'featureManagementWithId'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],

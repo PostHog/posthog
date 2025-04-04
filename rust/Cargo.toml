@@ -67,14 +67,14 @@ opentelemetry-otlp = "0.15.0"
 opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
 public-suffix = "0.1.2"
 rand = "0.8.5"
-rdkafka = { version = "0.37.0", features = ["cmake-build", "ssl", "tracing"] }
+rdkafka = { version = "0.37.0", features = ["ssl", "tracing"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = { version = "1.0" }
 serde_json = { version = "1.0" }
 serde_urlencoded = "0.7.1"
 siphasher = "1.0.1"
-sqlx = { version = "0.8.2", features = [
+sqlx = { version = "0.8.3", features = [
     "chrono",
     "json",
     "migrate",

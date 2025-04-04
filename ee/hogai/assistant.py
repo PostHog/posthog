@@ -10,6 +10,7 @@ from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.errors import GraphRecursionError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
@@ -179,6 +180,13 @@ class Assistant:
                     )
                 else:
                     self._report_conversation_state(last_viz_message)
+            except GraphRecursionError:
+                yield self._serialize_message(
+                    FailureMessage(
+                        content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
+                        id=str(uuid4()),
+                    )
+                )
             except Exception as e:
                 # Reset the state, so that the next generation starts from the beginning.
                 self._graph.update_state(config, PartialAssistantState.get_reset_state())

@@ -42,20 +42,20 @@ pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 #[derive(Debug)]
 pub enum QuotaResource {
     Events,
+    Exceptions,
     Recordings,
     Replay,
     FeatureFlags,
-    Exceptions,
 }
 
 impl QuotaResource {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Events => "events",
+            Self::Exceptions => "exceptions",
             Self::Recordings => "recordings",
             Self::Replay => "replay",
             Self::FeatureFlags => "feature_flag_requests",
-            Self::Exceptions => "exceptions",
         }
     }
 }
