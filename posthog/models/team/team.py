@@ -572,6 +572,10 @@ class Team(UUIDClassicModel):
     def root_team(self) -> "Team":
         return self.parent_team if self.parent_team else self
 
+    @property
+    def root_team_id(self) -> int:
+        return self.parent_team_id if self.parent_team_id else self.id
+
     def __str__(self):
         if self.name:
             return self.name

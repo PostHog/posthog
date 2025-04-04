@@ -402,7 +402,7 @@ def get_feature_flags_response_or_body(
 
     # Compute feature flags
     feature_flags, _, feature_flag_payloads, errors, flags_details = get_all_feature_flags_with_details(
-        team.id,
+        team.root_team_id,
         distinct_id,
         data.get("groups") or {},
         hash_key_override=data.get("$anon_distinct_id"),

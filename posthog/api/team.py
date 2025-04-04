@@ -98,6 +98,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
             "flags_persistence_default",
+            "root_team_id",
         ]
         read_only_fields = fields
 
