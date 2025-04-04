@@ -69,19 +69,21 @@ class TreeWalker:
         prev_line: int | None = None
         output: list[str] = []
 
+        def add_ellipsis():
+            if prev_line is not None and chunk_position - prev_line > 1:
+                output[-1] += " ..."
+
         for line, node in path:
             decl = self._extract_declaration_header(node)
             if not decl:
                 continue
 
-            if prev_line is not None and line - prev_line > 1:
-                output[-1] += " ..."
+            add_ellipsis()
 
             output.append(decl)
             prev_line = line
 
-        if chunk_position - prev_line > 1:
-            output[-1] += " ..."
+        add_ellipsis()
 
         return "\n\n".join(output)
 
@@ -91,7 +93,7 @@ class TreeWalker:
         # Map of node types to their body node types
         body_type_map = {
             "function_declaration": ["block", "statement_block"],
-            "function_definition": ["block", "statement_block"],
+            "function_definition": ["block", "statement_block", "compound_statement"],
             "method_declaration": ["block", "statement_block"],
             "method_definition": ["block", "statement_block"],
             "function_item": ["block", "statement_block"],
@@ -135,19 +137,19 @@ def chunk_code(lang: ProgrammingLanguage, content: str, chunk_size: int, chunk_o
         line_end = line_number + chunk.count("\n")
 
         chunks_with_positions.append(
-            {
-                "line_start": line_number,
-                "line_end": line_end,
-                "context": "",
-                "content": chunk,
-            }
+            Chunk(
+                line_start=line_number,
+                line_end=line_end,
+                context="",
+                content=chunk,
+            )
         )
         capture_context_for.add(line_number)
 
     chunk_context = TreeWalker(lang, content, capture_context_for).traverse()
 
     for chunk in chunks_with_positions:
-        if chunk["line_start"] in chunk_context:
-            chunk["context"] = chunk_context[chunk["line_start"]]
+        if chunk.line_start in chunk_context:
+            chunk.context = chunk_context[chunk.line_start]
 
     return chunks_with_positions
