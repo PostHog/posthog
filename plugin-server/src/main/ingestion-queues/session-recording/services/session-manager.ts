@@ -17,7 +17,15 @@ import { ObjectStorage } from '../../../../utils/object_storage'
 import { captureException } from '../../../../utils/posthog'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { IncomingRecordingMessage } from '../types'
-import { bufferFileDir, convertForPersistence, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
+import {
+    bufferFileDir,
+    convertForPersistence,
+    fileSafeBase64,
+    getLagMultiplier,
+    maxDefined,
+    minDefined,
+    now,
+} from '../utils'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
 
@@ -454,9 +462,10 @@ export class SessionManager {
     private createBuffer(): SessionBuffer {
         try {
             const id = randomUUID()
+            const encodedSessionId = fileSafeBase64(this.sessionId)
             const fileBase = path.join(
                 bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                `${this.teamId}.${this.sessionId}.${id}`
+                `${this.teamId}.${encodedSessionId}.${id}`
             )
 
             const file = (type: 'jsonl' | 'gz') => `${fileBase}.${type}`
