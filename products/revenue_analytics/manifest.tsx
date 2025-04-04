@@ -17,18 +17,10 @@ export const manifest: ProductManifest = {
     routes: {
         '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     },
-    redirects: {},
     urls: {
         revenueAnalytics: (): string => '/revenue_analytics',
     },
-    fileSystemTypes: {
-        // TODO: add to project tree backend
-        // revenue_analytics: {
-        //     icon: <IconRocket />,
-        //     href: (ref: string) => urls.revenueAnalytics(ref),
-        // },
-    },
-    treeItems: [
+    treeItemsExplore: [
         {
             path: 'Explore/Revenue analytics',
             icon: <IconRocket />,

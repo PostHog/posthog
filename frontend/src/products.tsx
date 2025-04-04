@@ -290,6 +290,7 @@ export const treeItemsNew = [
 export const treeItemsExplore = [
     { path: 'Data management/Actions', icon: <IconRocket />, href: () => urls.actions() },
     { path: 'Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
+    { path: 'Explore/Revenue analytics', icon: <IconRocket />, href: () => urls.revenueAnalytics() },
     { path: 'People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
     { path: 'Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
     { path: 'Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
