@@ -1,6 +1,5 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from posthog.admin.inlines.action_inline import ActionInline
 from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
 from django.urls import reverse
 
@@ -34,14 +33,14 @@ class TeamAdmin(admin.ModelAdmin):
         "id",
         "uuid",
         "organization",
+        "project",
         "primary_dashboard",
         "test_account_filters",
         "created_at",
         "updated_at",
     ]
-    autocomplete_fields = ["project"]
 
-    inlines = [GroupTypeMappingInline, ActionInline]
+    inlines = [GroupTypeMappingInline]
     fieldsets = [
         (
             None,

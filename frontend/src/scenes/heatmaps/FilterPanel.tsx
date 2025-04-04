@@ -62,7 +62,12 @@ export function FilterPanel({
     const debouncedLoading = useDebounceLoading(loading ?? false)
 
     return (
-        <div className={clsx('flex flex-col gap-y-2 px-2 py-1 border-r', !filterPanelCollapsed && 'w-100')}>
+        <div
+            className={clsx(
+                'flex flex-col gap-y-2 px-2 py-1 border-r border-t bg-surface-primary mt-2',
+                !filterPanelCollapsed && 'w-100'
+            )}
+        >
             {filterPanelCollapsed ? (
                 <Tooltip title="Expand heatmap settings">
                     <LemonButton

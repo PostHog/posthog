@@ -44,6 +44,7 @@ import {
     getResponseFieldWithId,
     sanitizeHTML,
     sanitizeSurveyAppearance,
+    sanitizeSurveyDisplayConditions,
     validateColor,
 } from './utils'
 
@@ -1613,6 +1614,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const payload = {
                     ...surveyPayload,
+                    conditions: sanitizeSurveyDisplayConditions(surveyPayload.conditions),
                     appearance: sanitizeSurveyAppearance(surveyPayload.appearance),
                 }
 

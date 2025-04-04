@@ -19,7 +19,7 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
-import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
+import { renderTreeNodeDisplayItem, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -38,7 +38,10 @@ export type TreeDataItem = {
     children?: TreeDataItem[]
     /** Disabled: The reason the item is disabled. */
     disabledReason?: string
-
+    /** Prevent this item from being selected */
+    disableSelect?: boolean
+    /** Is the item selected */
+    checked?: boolean | 'indeterminate'
     /** The icon to use for the side action. */
     sideIcon?: React.ReactNode
 
@@ -69,6 +72,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
+    /** Whether to enable multi-selection. */
+    enableMultiSelection?: boolean
     /** Whether the item is active, useful for highlighting the current item against a URL path,
      * this takes precedence over showFolderActiveState, and selectedId state */
     isItemActive?: (item: TreeDataItem) => boolean
@@ -84,6 +89,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemLoading?: (item: TreeDataItem) => boolean
     /** Whether the item is unapplied */
     isItemUnapplied?: (item: TreeDataItem) => boolean
+    /** The function to call when the item is checked. */
+    onItemChecked?: (id: string, checked: boolean) => void
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     /** Set the IDs of the expanded items. */
@@ -104,6 +111,8 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     contentRef?: React.RefObject<HTMLElement>
     /** Handler for when a drag operation completes */
     onDragEnd?: (dragEvent: DragEndEvent) => void
+    /** Whether the item is checked. */
+    isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
 }
 
 export type LemonTreeNodeProps = LemonTreeBaseProps & {
@@ -142,6 +151,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             enableDragAndDrop = false,
             onContextMenuOpen,
             itemContextMenu,
+            enableMultiSelection = false,
+            onItemChecked,
             ...props
         },
         ref
@@ -218,9 +229,26 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className="group/lemon-tree-button-group relative"
                                                 groupVariant="side-action-group"
                                             >
+                                                <div
+                                                    className="absolute size-5"
+                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                    style={{ left: `${DEPTH_OFFSET + 5}px` }}
+                                                >
+                                                    {/* Icon left */}
+                                                    {renderTreeNodeDisplayItem({
+                                                        item,
+                                                        expandedItemIds: expandedItemIds ?? [],
+                                                        defaultNodeIcon,
+                                                        enableMultiSelection,
+                                                        handleCheckedChange: (checked) => {
+                                                            onItemChecked?.(item.id, checked)
+                                                        },
+                                                    })}
+                                                </div>
+
                                                 <ButtonPrimitive
                                                     className={cn(
-                                                        'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)]',
+                                                        'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] pl-8',
                                                         {
                                                             'bg-fill-button-tertiary-hover':
                                                                 selectedId === item.id ||
@@ -231,7 +259,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     onClick={() => {
                                                         handleClick(item)
                                                     }}
-                                                    onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
+                                                    // onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
+                                                    href={item.record?.href}
                                                     role="treeitem"
                                                     data-id={item.id}
                                                     active={getItemActiveState(item)}
@@ -267,13 +296,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             }}
                                                         />
                                                     )}
-
-                                                    {/* Icon left */}
-                                                    {getIcon({
-                                                        item,
-                                                        expandedItemIds: expandedItemIds ?? [],
-                                                        defaultNodeIcon,
-                                                    })}
 
                                                     {/* Render contents */}
                                                     {renderItem ? (
@@ -349,6 +371,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             enableDragAndDrop={enableDragAndDrop}
                                             onContextMenuOpen={onContextMenuOpen}
                                             itemContextMenu={itemContextMenu}
+                                            enableMultiSelection={enableMultiSelection}
+                                            onItemChecked={onItemChecked}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -398,6 +422,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             enableDragAndDrop = false,
             itemContextMenu,
             isFinishedBuildingTreeData,
+            enableMultiSelection = false,
+            onItemChecked,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -960,7 +986,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             if (expandedItemIds && expandedItemIds.join(',') !== expandedItemIdsState.join(',')) {
                 setExpandedItemIdsState(expandedItemIds ?? [])
             }
-        }, [expandedItemIds, expandedItemIdsState]) // only trigger if external ids change not when expandedItemIdsState changes
+        }, [expandedItemIds, expandedItemIdsState])
 
         return (
             <DndContext
@@ -1009,6 +1035,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 setIsNodeTreeContextMenuOpen(open)
                             }}
                             itemContextMenu={itemContextMenu}
+                            enableMultiSelection={enableMultiSelection}
+                            onItemChecked={onItemChecked}
                             {...props}
                         />
                     </TreeNodeDroppable>
