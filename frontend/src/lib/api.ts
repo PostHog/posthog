@@ -358,7 +358,7 @@ class ApiRequest {
 
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('insights')
+        return this.projectsDetail(teamId).addPathComponent('insights')
     }
 
     public insight(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
@@ -854,7 +854,7 @@ class ApiRequest {
 
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('subscriptions')
+        return this.projectsDetail(teamId).addPathComponent('subscriptions')
     }
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
