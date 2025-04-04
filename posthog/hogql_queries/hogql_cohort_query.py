@@ -422,19 +422,19 @@ class HogQLCohortQuery:
                 raise ValidationError("Cohort has a property group with no condition", str(prop))
 
             all_children_negated = all(condition.negation for condition in children)
-            all_children_not_negated = all(not condition.negation for condition in children)
+            all_children_positive = all(not condition.negation for condition in children)
 
             parent_condition_negated = all_children_negated
 
             if prop.type == PropertyOperatorType.OR:
-                if all_children_negated or all_children_not_negated:
+                if all_children_positive or all_children_negated:
                     return Condition(
                         ast.SelectSetQuery(
                             initial_select_query=children[0][0],
                             subsequent_select_queries=[
                                 SelectSetNode(
                                     select_query=query,
-                                    set_operator="UNION DISTINCT" if all_children_not_negated else "INTERSECT",
+                                    set_operator="UNION_DISTINCT" if all_children_positive else "INTERSECT",
                                 )
                                 for (query, negation) in children[1:]
                             ],
