@@ -183,8 +183,8 @@ projects_router.register(
     "project_dashboard_templates",
     ["project_id"],
 )
-environment_dashboards_router, legacy_project_dashboards_router = register_grandfathered_environment_nested_viewset(
-    r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
+project_dashboards_router = projects_router.register(
+    r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
 
 register_grandfathered_environment_nested_viewset(
@@ -485,13 +485,7 @@ else:
     router.register(r"person", LegacyPersonViewSet, "persons")
 
 
-environment_dashboards_router.register(
-    r"sharing",
-    sharing.SharingConfigurationViewSet,
-    "environment_dashboard_sharing",
-    ["team_id", "dashboard_id"],
-)
-legacy_project_dashboards_router.register(
+project_dashboards_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
     "project_dashboard_sharing",

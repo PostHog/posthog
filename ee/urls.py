@@ -27,7 +27,7 @@ from .api.rbac import organization_resource_access, role
 
 def extend_api_router() -> None:
     from posthog.api import (
-        legacy_project_dashboards_router,
+        project_dashboards_router,
         organizations_router,
         project_feature_flags_router,
         projects_router,
@@ -71,7 +71,7 @@ def extend_api_router() -> None:
         ["team_id"],
     )
 
-    legacy_project_dashboards_router.register(
+    project_dashboards_router.register(
         r"collaborators",
         dashboard_collaborator.DashboardCollaboratorViewSet,
         "project_dashboard_collaborators",
