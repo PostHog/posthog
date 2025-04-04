@@ -1,6 +1,7 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
+import { memo } from 'react'
 import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
 
 import { surveyLogic, SurveyUserStats } from './surveyLogic'
@@ -106,7 +107,7 @@ function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUserStats
     return <StackedBar segments={segments} />
 }
 
-export function SurveyStatsSummary(): JSX.Element {
+function _SurveyStatsSummary(): JSX.Element {
     const { surveyUserStats, surveyUserStatsLoading } = useValues(surveyLogic)
 
     return (
@@ -118,7 +119,7 @@ export function SurveyStatsSummary(): JSX.Element {
                     <div className="flex flex-wrap gap-4 mb-4">
                         <StatCard title="Total Unique Users Reached" value="" valueLoading />
                         <StatCard title="Responses" value="" valueLoading />
-                        <StatCard title="Conversion rate" value="" valueLoading />
+                        <StatCard title="Conversion rate (by unique users)" value="" valueLoading />
                     </div>
                     {/* Skeleton for StackedBar */}
                     <LemonSkeleton className="h-8 w-full" />
@@ -138,3 +139,5 @@ export function SurveyStatsSummary(): JSX.Element {
         </div>
     )
 }
+
+export const SurveyStatsSummary = memo(_SurveyStatsSummary)
