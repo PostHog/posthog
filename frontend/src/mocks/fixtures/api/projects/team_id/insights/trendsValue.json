@@ -85,6 +85,9 @@
     "query": {
         "kind": "InsightVizNode",
         "source": {
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
@@ -97,11 +100,13 @@
             "series": [
                 {
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "name": "$pageview"
                 }
             ],
             "trendsFilter": {
-                "display": "ActionsBarValue"
+                "display": "ActionsBarValue",
+                "resultCustomizationBy": "value"
             }
         },
         "full": true

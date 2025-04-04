@@ -373,6 +373,7 @@
     "query": {
         "kind": "InsightVizNode",
         "source": {
+            "kind": "RetentionQuery",
             "properties": {
                 "type": "AND",
                 "values": [
@@ -384,6 +385,7 @@
             },
             "retentionFilter": {
                 "meanRetentionCalculation": "simple",
+                "period": "Day",
                 "retentionType": "retention_first_time",
                 "returningEntity": {
                     "id": "$pageview",

@@ -12,22 +12,31 @@
                 "date_to": "2023-07-10"
             },
             "filterTestAccounts": true,
+            "interval": "day",
+            "kind": "TrendsQuery",
             "series": [
                 {
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "math": "total",
                     "name": "$pageview"
                 },
                 {
                     "event": "$rageclick",
+                    "kind": "EventsNode",
                     "math": "total",
                     "name": "$rageclick"
                 },
                 {
+                    "kind": "EventsNode",
                     "math": "total",
                     "name": "All events"
                 }
-            ]
+            ],
+            "trendsFilter": {
+                "display": "ActionsLineGraph",
+                "resultCustomizationBy": "value"
+            }
         },
         "full": true
     },

@@ -191,14 +191,19 @@
             "dateRange": {
                 "date_from": "-7d"
             },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
             "series": [
                 {
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "name": "$pageview"
                 }
             ],
             "trendsFilter": {
-                "display": "ActionsAreaGraph"
+                "display": "ActionsAreaGraph",
+                "resultCustomizationBy": "value"
             }
         },
         "full": true

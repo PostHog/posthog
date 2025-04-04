@@ -140,8 +140,12 @@
         "kind": "InsightVizNode",
         "source": {
             "breakdownFilter": {
-                "breakdown": "$geoip_country_code"
+                "breakdown": "$geoip_country_code",
+                "breakdown_type": "event"
             },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
@@ -154,11 +158,13 @@
             "series": [
                 {
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "name": "$pageview"
                 }
             ],
             "trendsFilter": {
-                "display": "WorldMap"
+                "display": "WorldMap",
+                "resultCustomizationBy": "value"
             }
         },
         "full": true

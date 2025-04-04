@@ -8,13 +8,15 @@
         "kind": "InsightVizNode",
         "source": {
             "breakdownFilter": {
-                "breakdown": "$referring_domain"
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
             },
             "dateRange": {
                 "date_from": "-90d"
             },
             "filterTestAccounts": true,
             "interval": "week",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
@@ -27,26 +29,35 @@
             "series": [
                 {
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "math": "dau",
                     "name": "$pageview",
                     "properties": [
                         {
                             "key": "$referring_domain",
                             "operator": "regex",
+                            "type": "event",
                             "value": "google|duckduckgo|brave|bing"
                         },
                         {
                             "key": "$host",
+                            "operator": "exact",
+                            "type": "event",
                             "value": ["posthog.com"]
                         },
                         {
                             "key": "utm_medium",
                             "operator": "not_icontains",
+                            "type": "event",
                             "value": "cpc"
                         }
                     ]
                 }
-            ]
+            ],
+            "trendsFilter": {
+                "display": "ActionsLineGraph",
+                "resultCustomizationBy": "value"
+            }
         },
         "full": true
     },

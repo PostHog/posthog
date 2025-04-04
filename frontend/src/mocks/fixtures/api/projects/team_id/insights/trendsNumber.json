@@ -89,14 +89,19 @@
             "dateRange": {
                 "date_from": "-7d"
             },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
             "series": [
                 {
                     "event": "signed_up",
+                    "kind": "EventsNode",
                     "name": "signed_up"
                 }
             ],
             "trendsFilter": {
-                "display": "BoldNumber"
+                "display": "BoldNumber",
+                "resultCustomizationBy": "value"
             }
         },
         "full": true

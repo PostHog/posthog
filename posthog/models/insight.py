@@ -153,7 +153,7 @@ class Insight(FileSystemSyncMixin, models.Model):
         try:
             return {
                 "kind": "InsightVizNode",
-                "source": filter_to_query(self.filters).model_dump(exclude_none=True, exclude_defaults=True),
+                "source": filter_to_query(self.filters).model_dump(exclude_none=True),
                 "full": True,
             }
         except Exception as e:
@@ -168,9 +168,7 @@ class Insight(FileSystemSyncMixin, models.Model):
                 **(
                     dashboard_filters_override
                     if dashboard_filters_override is not None
-                    else dashboard.filters
-                    if dashboard
-                    else {}
+                    else dashboard.filters if dashboard else {}
                 )
             }
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
@@ -243,9 +241,7 @@ class Insight(FileSystemSyncMixin, models.Model):
             (
                 dashboard_filters_override
                 if dashboard_filters_override is not None
-                else dashboard.filters
-                if dashboard
-                else {}
+                else dashboard.filters if dashboard else {}
             ),
             self.team,
         )

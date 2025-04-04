@@ -63,10 +63,12 @@
         "kind": "InsightVizNode",
         "source": {
             "funnelsFilter": {
+                "exclusions": [],
                 "funnelVizType": "time_to_convert",
                 "layout": "horizontal"
             },
             "interval": "day",
+            "kind": "FunnelsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
@@ -79,14 +81,17 @@
             "series": [
                 {
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "name": "$pageview"
                 },
                 {
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "name": "$pageview"
                 },
                 {
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "name": "$pageview"
                 }
             ]

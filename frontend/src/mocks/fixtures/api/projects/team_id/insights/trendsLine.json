@@ -181,6 +181,7 @@
                 "date_from": "-8w"
             },
             "interval": "week",
+            "kind": "TrendsQuery",
             "properties": {
                 "type": "AND",
                 "values": [
@@ -189,10 +190,14 @@
                         "values": [
                             {
                                 "key": "$current_url",
+                                "operator": "exact",
+                                "type": "event",
                                 "value": ["https://hedgebox.net/signup/"]
                             },
                             {
                                 "key": "$geoip_country_code",
+                                "operator": "exact",
+                                "type": "event",
                                 "value": ["PY"]
                             }
                         ]
@@ -203,16 +208,19 @@
                             {
                                 "key": "$browser",
                                 "operator": "icontains",
+                                "type": "event",
                                 "value": "XX"
                             },
                             {
                                 "key": "$session_duration",
                                 "operator": "exact",
+                                "type": "session",
                                 "value": 3.0
                             },
                             {
                                 "key": "selector",
                                 "operator": "exact",
+                                "type": "element",
                                 "value": ["href"]
                             }
                         ]
@@ -223,21 +231,29 @@
                 {
                     "custom_name": "Pageviews",
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "math": "total",
                     "name": "$pageview",
                     "properties": [
                         {
                             "key": "from_invite",
+                            "operator": "exact",
+                            "type": "event",
                             "value": ["false"]
                         },
                         {
                             "key": "$referrer",
                             "operator": "is_not_set",
+                            "type": "event",
                             "value": "is_not_set"
                         }
                     ]
                 }
-            ]
+            ],
+            "trendsFilter": {
+                "display": "ActionsLineGraph",
+                "resultCustomizationBy": "value"
+            }
         },
         "full": true
     }

@@ -140,6 +140,9 @@
     "query": {
         "kind": "InsightVizNode",
         "source": {
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "StickinessQuery",
             "properties": {
                 "type": "AND",
                 "values": [
@@ -152,6 +155,7 @@
             "series": [
                 {
                     "event": "$pageview",
+                    "kind": "EventsNode",
                     "name": "$pageview"
                 }
             ]
