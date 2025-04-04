@@ -44,6 +44,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    message_template,
     notebook,
     organization,
     organization_domain,
@@ -69,6 +70,7 @@ from . import (
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
+from .messages import MessageViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -641,4 +643,18 @@ register_grandfathered_environment_nested_viewset(
     data_modeling_job.DataModelingJobViewSet,
     "environment_data_modeling_jobs",
     ["team_id"],
+)
+
+projects_router.register(
+    r"message_templates",
+    message_template.MessageTemplateViewSet,
+    "project_message_templates",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"messages",
+    MessageViewSet,
+    "project_messages",
+    ["project_id"],
 )
