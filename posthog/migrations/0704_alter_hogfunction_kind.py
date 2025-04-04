@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0702_datacolortheme_project"),
+        ("posthog", "0703_dashboard_breakdown_colors_and_more"),
     ]
 
     operations = [
