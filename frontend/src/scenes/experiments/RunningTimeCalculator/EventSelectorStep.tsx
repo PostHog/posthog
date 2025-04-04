@@ -31,8 +31,8 @@ export const EventSelectorStep = (): JSX.Element => {
     return (
         <RunningTimeCalculatorModalStep
             stepNumber={1}
-            title="Select an Event"
-            description="Choose an event to analyze. We'll use historical data from this event to estimate the experiment duration."
+            title="Select Baseline Event"
+            description="Choose an event to establish your baseline metrics. We'll analyze its historical data to calculate the minimum sample size and estimated duration for your experiment."
         >
             <ActionFilter
                 bordered
