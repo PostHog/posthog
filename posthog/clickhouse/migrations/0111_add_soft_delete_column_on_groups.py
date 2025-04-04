@@ -1,3 +1,4 @@
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 DROP_COLUMNS_INDEX_GROUPS = """
@@ -21,8 +22,8 @@ ADD INDEX IF NOT EXISTS is_deleted_idx (is_deleted) TYPE minmax GRANULARITY 1
 """
 
 operations = [
-    run_sql_with_exceptions(DROP_COLUMNS_INDEX_GROUPS),
-    run_sql_with_exceptions(DROP_COLUMNS_GROUPS),
-    run_sql_with_exceptions(ADD_COLUMNS_GROUPS),
-    run_sql_with_exceptions(ADD_COLUMNS_INDEX_GROUPS),
+    run_sql_with_exceptions(DROP_COLUMNS_INDEX_GROUPS, node_role=NodeRole.ALL),
+    run_sql_with_exceptions(DROP_COLUMNS_GROUPS, node_role=NodeRole.ALL),
+    run_sql_with_exceptions(ADD_COLUMNS_GROUPS, node_role=NodeRole.ALL),
+    run_sql_with_exceptions(ADD_COLUMNS_INDEX_GROUPS, node_role=NodeRole.ALL),
 ]
