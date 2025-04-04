@@ -75,7 +75,7 @@ export const teamLogic = kea<teamLogicType>([
                         return null
                     }
                     try {
-                        return await api.get('api/environments/@current')
+                        return await api.get('api/projects/@current')
                     } catch {
                         return values.currentTeam
                     }
@@ -94,7 +94,7 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     const promises: [Promise<TeamType>, Promise<ProjectType> | undefined] = [
-                        api.update(`api/environments/${values.currentTeam.id}`, payload),
+                        api.update(`api/projects/${values.currentTeam.id}`, payload),
                         undefined,
                     ]
                     if (

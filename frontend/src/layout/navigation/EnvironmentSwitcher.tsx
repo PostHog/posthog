@@ -35,12 +35,12 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
     const [currentProjectSection, otherProjectsSection] = useMemo<
         [LemonMenuSection | null, LemonMenuSection | null]
     >(() => {
-        if (!currentOrganization || !currentTeam?.project_id) {
+        if (!currentOrganization || !currentTeam?.root_team_id) {
             return [null, null]
         }
 
         const currentProjectItems: LemonMenuItem[] = []
-        const matchForCurrentProject = searchedProjectsMap.get(currentTeam.project_id)
+        const matchForCurrentProject = searchedProjectsMap.get(currentTeam.root_team_id)
         if (matchForCurrentProject) {
             const [projectName, projectTeams] = matchForCurrentProject
             const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
@@ -52,7 +52,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                 ) : (
                     <UploadedLogo
                         name={projectName}
-                        entityId={currentTeam.project_id}
+                        entityId={currentTeam.root_team_id}
                         outlinedLettermark
                         size="small"
                     />
@@ -62,7 +62,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                     icon: <IconGear />,
                     tooltip: "Go to this project's settings",
                     onClick: onClickInside,
-                    to: urls.project(currentTeam.project_id, urls.settings('project')),
+                    to: urls.project(currentTeam.root_team_id, urls.settings('project')),
                 },
                 className: 'opacity-100', // This button is not disabled in a traditional sense here
             })
@@ -76,7 +76,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                     onClickInside?.()
                     guardAvailableFeature(AvailableFeature.ENVIRONMENTS, showCreateEnvironmentModal, {
                         currentUsage: currentOrganization?.teams?.filter(
-                            (team) => team.project_id === currentTeam.project_id
+                            (team) => team.root_team_id === currentTeam.root_team_id
                         ).length,
                     })
                 },
@@ -87,7 +87,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
 
         const otherProjectsItems: LemonMenuItem[] = []
         for (const [projectId, [projectName, projectTeams]] of searchedProjectsMap.entries()) {
-            if (projectId === currentTeam?.project_id) {
+            if (projectId === currentTeam?.root_team_id) {
                 continue
             }
             const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
@@ -196,7 +196,7 @@ function convertTeamToMenuItem(
         tooltip:
             team.id === currentTeam.id
                 ? 'Currently active environment'
-                : team.project_id === currentTeam.project_id
+                : team.root_team_id === currentTeam.root_team_id
                 ? 'Switch to this environment'
                 : 'Switch to this environment of the project',
         onClick: onClickInside,
@@ -218,11 +218,11 @@ function determineProjectSwitchUrl(pathname: string, newTeamId: number): string 
     if (currentOrganization?.teams) {
         const targetTeam = currentOrganization.teams.find((team) => team.id === newTeamId)
         if (targetTeam) {
-            targetTeamProjectId = targetTeam.project_id
+            targetTeamProjectId = targetTeam.root_team_id
         }
     }
 
-    return getProjectSwitchTargetUrl(pathname, newTeamId, currentTeam?.project_id, targetTeamProjectId)
+    return getProjectSwitchTargetUrl(pathname, newTeamId, currentTeam?.root_team_id, targetTeamProjectId)
 }
 
 function EnvironmentSwitcherSearch(): JSX.Element {
