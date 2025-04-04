@@ -54,4 +54,4 @@ Ideally, **do not use the ON CLUSTER clause**, since the DDL statement will be r
 
 ### Testing
 
-To re-run a migration, you'll need to delete the entry from the `infi_clickhouse_orm_migrations` and `infi_clickhouse_orm_migrations_distributed` tables.
+To re-run a migration, you'll need to delete the entry from the `infi_clickhouse_orm_migrations` table.
