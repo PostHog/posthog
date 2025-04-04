@@ -59,11 +59,11 @@ impl EventPropertiesBatch {
     }
 
     pub fn should_flush_batch(&self) -> bool {
-        self.to_cache.len() >= self.batch_size
+        self.team_ids.len() >= self.batch_size
     }
 
     pub fn is_empty(&self) -> bool {
-        self.to_cache.len() == 0
+        self.team_ids.len() == 0
     }
 
     pub fn cache_batch(&mut self, cache: &mut Arc<Cache<Update, ()>>) {
@@ -110,11 +110,11 @@ impl EventDefinitionsBatch {
     }
 
     pub fn should_flush_batch(&self) -> bool {
-        self.to_cache.len() >= self.batch_size
+        self.ids.len() >= self.batch_size
     }
 
     pub fn is_empty(&self) -> bool {
-        self.to_cache.len() == 0
+        self.ids.len() == 0
     }
 
     pub fn cache_batch(mut self, cache: &mut Arc<Cache<Update, ()>>) {
@@ -196,11 +196,11 @@ impl PropertyDefinitionsBatch {
     }
 
     pub fn should_flush_batch(&self) -> bool {
-        self.to_cache.len() >= self.batch_size
+        self.ids.len() >= self.batch_size
     }
 
     pub fn is_empty(&self) -> bool {
-        self.to_cache.len() == 0
+        self.ids.len() == 0
     }
 
     pub fn cache_batch(&mut self, cache: &mut Arc<Cache<Update, ()>>) {
