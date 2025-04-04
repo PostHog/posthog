@@ -761,18 +761,22 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return
             }
             const checkedItems = { ...values.checkedItems }
-            const itemIndex = sortedItems.findIndex((i) => i.id === clickedItem.id)
-            for (let i = itemIndex; i < sortedItems.length; i++) {
-                const item = sortedItems[i]
-                if (item.path !== clickedItem.path && !item.path.startsWith(clickedItem.path + '/')) {
-                    break
+            if (clickedItem.type === 'folder') {
+                const itemIndex = sortedItems.findIndex((i) => i.id === clickedItem.id)
+                for (let i = itemIndex; i < sortedItems.length; i++) {
+                    const item = sortedItems[i]
+                    if (item.path !== clickedItem.path && !item.path.startsWith(clickedItem.path + '/')) {
+                        break
+                    }
+                    const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                    if (checked) {
+                        checkedItems[itemId] = true
+                    } else {
+                        checkedItems[itemId] = false
+                    }
                 }
-                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
-                if (checked) {
-                    checkedItems[itemId] = true
-                } else {
-                    checkedItems[itemId] = false
-                }
+            } else {
+                checkedItems[`project/${clickedItem.id}`] = !!checked
             }
             actions.setCheckedItems(checkedItems)
         },
