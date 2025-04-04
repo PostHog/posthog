@@ -358,7 +358,7 @@ pub async fn process_replay_events<'a>(
     // Reject session_ids that are too long, or that contains non-alphanumeric characters,
     // this is a proxy for "not a valid UUID"
     // we can't just reject non-UUIDv7 strings because
-    // some running versions of PostHog JS in the wild are still pre-version 1.73.0 
+    // some running versions of PostHog JS in the wild are still pre-version 1.73.0
     // when we started sending valid UUIDv7 session_ids
     // at time of writing they are ~4-5% of all sessions
     // they'll be having a bad time generally but replay probably works a little for them
