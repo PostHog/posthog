@@ -222,7 +222,7 @@ class Organization(UUIDModel):
 
         return self.available_product_features
 
-    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> dict:
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> dict | None:
         return next(
             filter(lambda f: f.get("key") == feature, self.available_product_features or []),
             None,
