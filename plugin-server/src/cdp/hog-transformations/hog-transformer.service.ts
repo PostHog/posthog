@@ -41,7 +41,7 @@ export const hogTransformationCompleted = new Counter({
 export const hogTransformationDisabled = new Counter({
     name: 'hog_transformation_disabled_total',
     help: 'Number of times a transformation was skipped due to being disabled',
-    labelNames: ['team_id', 'function_id', 'state'],
+    labelNames: ['state'],
 })
 
 export const hogWatcherLatency = new Histogram({
@@ -188,8 +188,6 @@ export class HogTransformerService {
                         if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
                             hogTransformationDisabled
                                 .labels({
-                                    team_id: hogFunction.team_id.toString(),
-                                    function_id: hogFunction.id,
                                     state: HogWatcherState[functionState],
                                 })
                                 .inc()
