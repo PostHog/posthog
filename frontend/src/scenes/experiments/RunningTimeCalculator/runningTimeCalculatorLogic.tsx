@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
@@ -190,7 +190,13 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         }) => ({ value }),
         setConversionRateInputType: (value: string) => ({ value }),
         setManualConversionRate: (value: number) => ({ value }),
-        setEventConfig: (value: EventConfig) => ({ value }),
+        setExposureEstimateConfig: (value: EventConfig) => ({ value }),
+    }),
+    defaults({
+        exposureEstimateConfig: {
+            event: '$pageview',
+            properties: [],
+        },
     }),
     reducers({
         metricIndex: [
@@ -217,7 +223,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             { setConversionRateInputType: (_, { value }) => value },
         ],
         manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
-        eventConfig: [null as EventConfig | null, { setEventConfig: (_, { value }) => value }],
+        exposureEstimateConfig: [null as EventConfig | null, { setExposureEstimateConfig: (_, { value }) => value }],
     }),
     loaders(({ values }) => ({
         metricResult: {
@@ -462,7 +468,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 return sampleSizeFormula * numberOfVariants
             },
         ],
-
         recommendedRunningTime: [
             (s) => [s.recommendedSampleSize, s.uniqueUsers],
             (recommendedSampleSize: number, uniqueUsers: number): number => {

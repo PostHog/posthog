@@ -6,27 +6,26 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import { EventConfig, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
+
+const exposureEstimateConfigToFilter = (exposureEstimateConfig: EventConfig): FilterType => ({
+    events: [
+        {
+            id: exposureEstimateConfig.event,
+            kind: NodeKind.EventsNode,
+            type: 'events',
+            name: exposureEstimateConfig.event,
+            properties: exposureEstimateConfig.properties || [],
+        },
+    ],
+})
 
 export const EventSelectorStep = (): JSX.Element => {
     const { experimentId } = useValues(experimentLogic)
 
-    const { eventConfig } = useValues(runningTimeCalculatorLogic({ experimentId }))
-    const { setEventConfig } = useActions(runningTimeCalculatorLogic({ experimentId }))
-
-    const filters = {
-        events: [
-            {
-                id: '$pageview',
-                kind: NodeKind.EventsNode,
-                type: 'events',
-                name: '$pageview',
-                properties: [],
-                ...eventConfig,
-            },
-        ],
-    }
+    const { exposureEstimateConfig } = useValues(runningTimeCalculatorLogic({ experimentId }))
+    const { setExposureEstimateConfig } = useActions(runningTimeCalculatorLogic({ experimentId }))
 
     return (
         <RunningTimeCalculatorModalStep
@@ -38,14 +37,14 @@ export const EventSelectorStep = (): JSX.Element => {
                 bordered
                 hideRename={true}
                 typeKey="running-time-calculator"
-                filters={filters}
+                filters={exposureEstimateConfigToFilter(exposureEstimateConfig)}
                 entitiesLimit={1}
                 mathAvailability={MathAvailability.None}
                 setFilters={({ events }: Partial<FilterType>) => {
                     if (!events || events.length === 0) {
                         return
                     }
-                    setEventConfig({
+                    setExposureEstimateConfig({
                         event: events[0].id,
                         properties: events[0].properties,
                     })

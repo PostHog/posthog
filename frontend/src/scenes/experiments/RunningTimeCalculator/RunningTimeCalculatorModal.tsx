@@ -19,7 +19,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
         recommendedRunningTime,
         uniqueUsers,
         metricResultLoading,
-        eventConfig,
+        exposureEstimateConfig,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
     const { setMinimumDetectableEffect } = useActions(runningTimeCalculatorLogic({ experimentId }))
 
@@ -36,7 +36,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         updateExperiment({
                             parameters: {
                                 ...experiment?.parameters,
-                                exposure_estimate_config: eventConfig,
+                                exposure_estimate_config: exposureEstimateConfig,
                                 recommended_running_time: recommendedRunningTime,
                                 recommended_sample_size: recommendedSampleSize || undefined,
                                 minimum_detectable_effect: minimumDetectableEffect || undefined,
@@ -48,7 +48,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
             }
         >
             <EventSelectorStep />
-            {eventConfig && <MetricSelectorStep />}
+            {exposureEstimateConfig && <MetricSelectorStep />}
 
             <div className="deprecated-space-y-6">
                 {!metricResultLoading && uniqueUsers !== null && (
