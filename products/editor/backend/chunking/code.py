@@ -22,17 +22,12 @@ class TreeWalker:
         self.source_code = source_code.encode()
         self.root = Parser(get_parser_language(lang)).parse(self.source_code).root_node
         self.context: dict[int, str] = {}
-        self.visited: set[SyntaxNode] = set()
         self.path: list[tuple[int, SyntaxNode]] = []
         self.lookup_lines = lookup_lines
         self.output: dict[int, str] = {}
 
     def traverse(self):
         def dfs(node: SyntaxNode):
-            if node in self.visited:
-                return
-            self.visited.add(node)
-
             start_line_number = node.start_point.row
             end_line_number = node.end_point.row
 
