@@ -233,7 +233,7 @@ class Organization(UUIDModel):
 
     def get_available_feature_limit(self, feature: Union[AvailableFeature, str], default=None) -> Optional[int]:
         feature = self.get_available_feature(feature)
-        return feature.get("limit", default) or default
+        return feature.get("limit", default) if feature else default
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return bool(self.get_available_feature(feature))
