@@ -669,6 +669,12 @@ export const billingLogic = kea<billingLogicType>([
                 return x.percentage_usage > 1 && x.usage_key
             })
 
+            const hideProductFlag = `billing_hide_product_${productOverLimit?.type}`
+            const isHidden = values.featureFlags[hideProductFlag] === true
+            if (isHidden) {
+                return
+            }
+
             if (productOverLimit) {
                 actions.setBillingAlert({
                     status: 'error',
