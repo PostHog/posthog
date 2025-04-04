@@ -289,16 +289,10 @@ const HogQLForDataVisualization: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
     query: `select toDate(timestamp) as timestamp, count()
 from events
-where {filters} and timestamp <= now()
+where timestamp >= now() - interval '7 days'
 group by timestamp
 order by timestamp asc
 limit 100`,
-    explain: true,
-    filters: {
-        dateRange: {
-            date_from: '-7d',
-        },
-    },
 }
 
 const HogQLForDataWarehouse: HogQLQuery = {
@@ -559,6 +553,7 @@ export const examples: Record<string, Node> = {
     HogQLRaw,
     HogQLTable,
     DataVisualization,
+    HogQLForDataVisualization,
     Hog,
     Hoggonacci,
     DataWarehouse,

@@ -1,5 +1,6 @@
 use std::ops::Deref;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use axum::{debug_handler, Json};
 use bytes::Bytes;
@@ -351,6 +352,13 @@ pub async fn process_replay_events<'a>(
         .properties
         .remove("$session_id")
         .ok_or(CaptureError::MissingSessionId)?;
+
+    // Validate session_id is a valid UUID
+    let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
+    if Uuid::parse_str(session_id_str).is_err() {
+        return Err(CaptureError::InvalidSessionId);
+    }
+
     let window_id = events[0]
         .properties
         .remove("$window_id")
@@ -394,12 +402,7 @@ pub async fn process_replay_events<'a>(
 
     let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
-        session_id: Some(
-            session_id
-                .as_str()
-                .ok_or(CaptureError::InvalidSessionId)?
-                .to_string(),
-        ),
+        session_id: Some(session_id_str.to_string()),
     };
 
     let event = CapturedEvent {

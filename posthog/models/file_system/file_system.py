@@ -2,12 +2,12 @@ from django.db import models
 from typing import Optional
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import uuid7
+from posthog.models.utils import uuid7, TeamProjectMixin
 from django.db.models.expressions import F
 from django.db.models.functions import Coalesce
 
 
-class FileSystem(models.Model):
+class FileSystem(TeamProjectMixin, models.Model):
     """
     A model representing a "file" (or folder) in our hierarchical system.
     """

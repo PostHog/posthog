@@ -478,6 +478,20 @@ class TestFileSystemAPI(APIBaseTest):
         file2.refresh_from_db()
         self.assertEqual(file2.path, "NewFolder/File2")
 
+    def test_count_of_files(self):
+        """
+        Moving a folder should update all child paths correctly.
+        """
+        # Create a folder and some files inside it
+        folder = FileSystem.objects.create(team=self.team, path="OldFolder", type="folder", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
+
+        # Move the folder
+        response = self.client.post(f"/api/projects/{self.team.id}/file_system/{folder.pk}/count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["count"], 2)
+
     def test_list_by_type_filter(self):
         """
         Ensure that the list endpoint filters results by the 'type' query parameter.

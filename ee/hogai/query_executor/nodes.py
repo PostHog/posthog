@@ -50,7 +50,7 @@ class QueryExecutorNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if not isinstance(viz_message, VisualizationMessage):
-            raise ValueError("Can only run summarization with a visualization message as the last one in the state")
+            raise ValueError(f"Expected a visualization message, found {type(viz_message)}")
         if viz_message.answer is None:
             raise ValueError("Did not find query in the visualization message")
 
@@ -70,19 +70,27 @@ class QueryExecutorNode(AssistantNode):
                     else ExecutionMode.CALCULATE_BLOCKING_ALWAYS
                 ),
             ).model_dump(mode="json")
-            if results_response.get("query_status") and not results_response["query_status"]["complete"]:
-                query_id = results_response["query_status"]["id"]
-                for i in range(0, 999):
-                    sleep(i / 2)  # We start at 0.5s and every iteration we wait 0.5s more
-                    query_status = get_query_status(team_id=self._team.pk, query_id=query_id)
-                    if query_status.error:
-                        if query_status.error_message:
-                            raise APIException(query_status.error_message)
-                        else:
-                            raise ValueError("Query failed")
-                    if query_status.complete:
-                        results_response = query_status.results
-                        break
+            # If response has an async query_status, that's always the thing to use
+            if query_status := results_response.get("query_status"):
+                if not query_status["complete"]:
+                    # If it's an in-progress (likely just kicked off) status, let's poll until complete
+                    for wait_ms in range(100, 12000, 100):  # 726 s in total, if my math is correct
+                        sleep(wait_ms / 1000)
+                        query_status = get_query_status(team_id=self._team.pk, query_id=query_status["id"]).model_dump(
+                            mode="json"
+                        )
+                        if query_status["complete"]:
+                            break
+                    else:
+                        raise APIException(
+                            "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
+                        )
+                # With results ready, let's first check for errors - then actually use the results
+                if query_status.get("error"):
+                    if error_message := query_status.get("error_message"):
+                        raise APIException(error_message)
+                    raise Exception("Query failed")
+                results_response = query_status["results"]
         except (APIException, ExposedHogQLError, ExposedCHQueryError) as err:
             err_message = str(err)
             if isinstance(err, APIException):

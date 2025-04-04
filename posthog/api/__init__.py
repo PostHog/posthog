@@ -14,6 +14,7 @@ from posthog.warehouse.api import (
     table,
     view_link,
     query_tab_state,
+    data_modeling_job,
 )
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -634,3 +635,10 @@ environments_router.register(
 )
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
+
+register_grandfathered_environment_nested_viewset(
+    r"data_modeling_jobs",
+    data_modeling_job.DataModelingJobViewSet,
+    "environment_data_modeling_jobs",
+    ["team_id"],
+)

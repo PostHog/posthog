@@ -177,7 +177,7 @@ export class CdpApi {
                 },
             }
 
-            if (['destination', 'internal_destination'].includes(compoundConfiguration.type)) {
+            if (['destination', 'internal_destination', 'broadcast'].includes(compoundConfiguration.type)) {
                 const {
                     invocations,
                     logs: filterLogs,

@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -28,6 +29,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -69,6 +71,7 @@ import {
 
 import { getResponseBytes, sortDates, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
+import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
@@ -182,7 +185,16 @@ async function getSingleInsight(
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], variableDataLogic, ['variables']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            variableDataLogic,
+            ['variables'],
+            dataThemeLogic,
+            ['getTheme'],
+        ],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
 
@@ -228,9 +240,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
-        setFiltersAndLayoutsAndVariables: (filters: DashboardFilter, variables: Record<string, HogQLVariable>) => ({
+        setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
+        setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
+        setFiltersAndLayoutsAndVariables: (
+            filters: DashboardFilter,
+            variables: Record<string, HogQLVariable>,
+            breakdownColors: BreakdownColorConfig[],
+            dataColorThemeId: number | null
+        ) => ({
             filters,
             variables,
+            breakdownColors,
+            dataColorThemeId,
         }),
         previewTemporaryFilters: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
@@ -344,6 +365,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 filters: values.filters,
                                 variables: values.insightVariables,
+                                breakdown_colors: values.temporaryBreakdownColors,
+                                data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -593,6 +616,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               breakdown_filter: dashboard?.filters.breakdown_filter || null,
                           }
                         : state,
+            },
+        ],
+        temporaryBreakdownColors: [
+            [] as BreakdownColorConfig[],
+            {
+                setBreakdownColorConfig: (state, { config }) => {
+                    const existingConfigIndex = state.findIndex((c) => c.breakdownValue === config.breakdownValue)
+                    if (existingConfigIndex >= 0) {
+                        return [...state.slice(0, existingConfigIndex), config, ...state.slice(existingConfigIndex + 1)]
+                    }
+                    return [...state, config]
+                },
+                loadDashboardSuccess: (state, { dashboard }) => {
+                    return [...state, ...(dashboard?.breakdown_colors ?? [])]
+                },
+            },
+        ],
+        dataColorThemeId: [
+            null as number | null,
+            {
+                setDataColorThemeId: (_, { dataColorThemeId }) => dataColorThemeId || null,
+                loadDashboardSuccess: (_, { dashboard }) => dashboard?.data_color_theme_id || null,
             },
         ],
         filters: [
@@ -1038,6 +1083,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (
                     !!newestRefreshed &&
                     !(placement === DashboardPlacement.FeatureFlag) &&
+                    !(placement === DashboardPlacement.Group) &&
                     oldestClientRefreshAllowed?.isAfter(now())
                 )
             },
@@ -1165,6 +1211,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return 0
                 })
             },
+        ],
+        dataColorTheme: [
+            (s) => [s.dataColorThemeId, s.getTheme],
+            (dataColorThemeId, getTheme): DataColorTheme | null => getTheme(dataColorThemeId),
         ],
     })),
     events(({ actions, cache, props }) => ({
@@ -1491,7 +1541,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // this is done in the reducer for dashboard
                 } else if (source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                     // save edit mode changes
-                    actions.setFiltersAndLayoutsAndVariables(values.temporaryFilters, values.temporaryVariables)
+                    actions.setFiltersAndLayoutsAndVariables(
+                        values.temporaryFilters,
+                        values.temporaryVariables,
+                        values.temporaryBreakdownColors,
+                        values.dataColorThemeId
+                    )
                 }
             }
 

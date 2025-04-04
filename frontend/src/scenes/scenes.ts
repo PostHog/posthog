@@ -193,6 +193,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Action',
         defaultDocsPath: '/docs/data/actions',
     },
+    [Scene.Groups]: {
+        projectBased: true,
+        name: 'Groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
     [Scene.Group]: {
         projectBased: true,
         name: 'People & groups',
@@ -273,6 +278,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'SQL editor',
         defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
+        hideProjectNotice: true,
     },
     [Scene.SavedInsights]: {
         projectBased: true,
