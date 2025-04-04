@@ -15,6 +15,7 @@ from dags import (
     materialized_columns,
     orm_examples,
     person_overrides,
+    property_definitions,
     slack_alerts,
 )
 
@@ -61,6 +62,7 @@ defs = dagster.Definitions(
         materialized_columns.materialize_column,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
+        property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
         backups.non_sharded_backup,
     ],
@@ -69,6 +71,7 @@ defs = dagster.Definitions(
         exchange_rate.hourly_exchange_rates_schedule,
         export_query_logs_to_s3.query_logs_export_schedule,
         person_overrides.squash_schedule,
+        property_definitions.property_definitions_hourly_schedule,
         backups.full_sharded_backup_schedule,
         backups.incremental_sharded_backup_schedule,
         backups.full_non_sharded_backup_schedule,
