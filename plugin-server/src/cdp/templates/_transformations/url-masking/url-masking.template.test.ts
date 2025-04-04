@@ -20,7 +20,7 @@ describe('url-masking.template', () => {
             },
         })
 
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 urlProperties: {
                     $current_url: 'email, password',
@@ -30,9 +30,6 @@ describe('url-masking.template', () => {
             },
             mockGlobals
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -53,7 +50,7 @@ describe('url-masking.template', () => {
             },
         })
 
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 urlProperties: {
                     $current_url: 'email, password',
@@ -62,9 +59,6 @@ describe('url-masking.template', () => {
             },
             mockGlobals
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -84,7 +78,7 @@ describe('url-masking.template', () => {
             },
         })
 
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 urlProperties: {
                     $current_url: 'email',
@@ -93,9 +87,6 @@ describe('url-masking.template', () => {
             },
             mockGlobals
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -115,7 +106,7 @@ describe('url-masking.template', () => {
             },
         })
 
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 urlProperties: {
                     $current_url: 'email',
@@ -125,9 +116,6 @@ describe('url-masking.template', () => {
             },
             mockGlobals
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -147,7 +135,7 @@ describe('url-masking.template', () => {
             },
         })
 
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 urlProperties: {
                     $current_url: 'email, password, token',
@@ -156,9 +144,6 @@ describe('url-masking.template', () => {
             },
             mockGlobals
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -178,7 +163,7 @@ describe('url-masking.template', () => {
             },
         })
 
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 urlProperties: {
                     $current_url: 'email, token',
@@ -187,9 +172,6 @@ describe('url-masking.template', () => {
             },
             mockGlobals
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
