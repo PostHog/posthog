@@ -164,10 +164,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
-        if targets and any(target.type != "folder" for target in targets):
-            return Response({"detail": "Cannot move into a file"}, status=status.HTTP_400_BAD_REQUEST)
-
         if instance.type == "folder":
             if new_path.startswith(instance.path):
                 return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
@@ -178,6 +174,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     file.depth = len(split_path(file.path))
                     file.save()
 
+                targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+                # We're a folder, and we're moving into a folder with the same name. Delete one.
                 if any(target.type == "folder" for target in targets):
                     # TODO: merge access controls once those are in place
                     instance.delete()
