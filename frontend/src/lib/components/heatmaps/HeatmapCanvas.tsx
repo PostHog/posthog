@@ -34,6 +34,7 @@ function HeatmapMouseInfo({
                 top: mousePosition.y,
                 left: mousePosition.x,
             }}
+            data-attr="heatmap-mouse-info"
         >
             <div
                 className="absolute border rounded bg-surface-primary shadow-md p-2 mx-2 -translate-y-1/2"
@@ -135,11 +136,7 @@ export function HeatmapCanvas({
                 className="absolute inset-0"
                 ref={setHeatmapContainer}
             />
-            <HeatmapMouseInfo
-                heatmapJsRef={heatmapsJsRef}
-                containerRef={heatmapsJsContainerRef}
-                data-attr="heatmap-mouse-info"
-            />
+            <HeatmapMouseInfo heatmapJsRef={heatmapsJsRef} containerRef={heatmapsJsContainerRef} />
         </div>
     )
 }
