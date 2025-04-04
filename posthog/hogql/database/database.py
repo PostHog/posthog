@@ -267,7 +267,7 @@ def create_hogql_database(
     if team_id is None and team is None:
         raise ValueError("Either team or team_id must be provided")
 
-    team = team or Team.objects.get(pk=team_id)
+    team = cast("Team", team or Team.objects.get(pk=team_id))
 
     if timings is None:
         timings = HogQLTimings()
