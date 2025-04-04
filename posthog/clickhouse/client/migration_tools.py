@@ -24,7 +24,7 @@ def run_sql_with_exceptions(sql: str, node_role: NodeRole = NodeRole.DATA, shard
     cluster = get_migrations_cluster()
 
     def is_alter_on_replicated_table(sql: str) -> bool:
-        return sql.strip().startswith("ALTER TABLE") and re.search(r"replicated\w*mergetree", sql.lower())
+        return sql.strip().lower().startswith("alter table") and re.search(r"replicated\w*mergetree", sql.lower())
 
     def run_migration():
         query = Query(sql)
