@@ -1,1 +1,1 @@
-0703_add_hogfunction_kind
+0703_alter_hogfunction_kind
