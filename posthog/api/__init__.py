@@ -108,7 +108,7 @@ projects_router.register(
     "project_pipeline_transformation_configs",
     ["team_id"],
 )
-project_plugins_configs_router.register(
+projects_router.register(
     r"pipeline_destination_configs",
     plugin.PipelineDestinationsConfigsViewSet,
     "project_pipeline_destination_configs",
@@ -120,7 +120,7 @@ projects_router.register(
     "project_pipeline_frontend_apps_configs",
     ["team_id"],
 )
-project_plugins_configs_router.register(
+projects_router.register(
     r"pipeline_import_apps_configs",
     plugin.PipelineImportAppsConfigsViewSet,
     "project_pipeline_import_apps_configs",
