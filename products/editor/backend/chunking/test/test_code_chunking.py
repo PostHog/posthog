@@ -1,15 +1,7 @@
-import os
-from contextlib import contextmanager
-
 from posthog.test.base import BaseTest
 from products.editor.backend.chunking import ProgrammingLanguage, chunk_text
 
-
-@contextmanager
-def load_fixture(file_name: str):
-    file_dir = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(file_dir, "fixtures", file_name)) as f:
-        yield f.read()
+from .util import load_fixture
 
 
 class TestCodeChunking(BaseTest):
