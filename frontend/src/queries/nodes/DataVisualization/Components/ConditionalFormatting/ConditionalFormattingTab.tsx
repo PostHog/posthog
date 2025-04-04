@@ -2,8 +2,8 @@ import './ConditionalFormattingTab.scss'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonColorGlyph, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonColorPicker } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonColorPicker } from 'lib/lemon-ui/LemonColor/LemonColorPicker'
 
 import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 

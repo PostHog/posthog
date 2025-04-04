@@ -216,7 +216,7 @@ class FunnelBase(ABC):
         elif breakdownType == "group":
             properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
             return get_breakdown_expr(breakdown, properties_column)
-        elif breakdownType == "hogql":
+        elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
             return ast.Alias(
                 alias="value",
