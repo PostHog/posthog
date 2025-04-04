@@ -87,12 +87,16 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutNavbarVisibleForDesktop,
         activePanelIdentifier,
         isLayoutNavCollapsed,
+        isLayoutPanelVisibleForDesktop,
+        isLayoutPanelVisibleForMobile,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef } =
         useActions(panelLayoutLogic)
-    const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile
-    const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
+    const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile || isLayoutPanelVisibleForMobile
+    const showDesktopNavbarOverlay =
+        (isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible) ||
+        isLayoutPanelVisibleForDesktop
     useMountedLogic(projectTreeLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -102,14 +106,6 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
             setMainContentRef(mainRef)
         }
     }, [mainRef, setMainContentRef])
-
-    // Watch for switch to mobile, if panel is visible, hide it
-    useEffect(() => {
-        if (isLayoutPanelVisible && isMobileLayout) {
-            clearActivePanelIdentifier()
-            showLayoutPanel(false)
-        }
-    }, [isMobileLayout, isLayoutPanelVisible, clearActivePanelIdentifier, showLayoutPanel])
 
     return (
         <div className="relative" ref={containerRef}>
