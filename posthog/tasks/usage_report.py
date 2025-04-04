@@ -499,7 +499,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         WHERE timestamp between %(begin)s AND %(end)s
         AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
         GROUP BY team_id
-    """,
+        """,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
