@@ -971,7 +971,7 @@ class ApiRequest {
 
     // # Queries
     public query(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query')
+        return this.projectsDetail(teamId).addPathComponent('query')
     }
 
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
@@ -988,11 +988,11 @@ class ApiRequest {
 
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('conversations')
+        return this.projectsDetail(teamId).addPathComponent('conversations')
     }
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
+        return this.conversations(teamId).addPathComponent(id)
     }
 
     // Notebooks
@@ -1116,7 +1116,7 @@ class ApiRequest {
 
     // Max Core Memory
     public coreMemory(): ApiRequest {
-        return this.environmentsDetail().addPathComponent('core_memory')
+        return this.projectsDetail().addPathComponent('core_memory')
     }
 
     public coreMemoryDetail(id: CoreMemory['id']): ApiRequest {
