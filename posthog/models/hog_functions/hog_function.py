@@ -117,6 +117,8 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
             folder = "Unfiled/Destinations"
             url_type = f"destinations"
         return FileSystemRepresentation(
+            project_id=self.team.project_id,
+            team_id=self.team.id,
             base_folder=folder,
             type=f"hog/{self.type}",
             ref=str(self.pk),
