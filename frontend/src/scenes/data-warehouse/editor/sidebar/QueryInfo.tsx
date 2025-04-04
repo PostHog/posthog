@@ -181,8 +181,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         <div>
                             <h3>Materialization Runs</h3>
                             <p>
-                                Materialization runs are the process of updating a materialized view. This can be done
-                                on a schedule or on demand.
+                                Below are the last 10 runs for this materialized view. These can be scheduled or run on
+                                demand.
                             </p>
                         </div>
                         <LemonTable
@@ -201,9 +201,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
                                         return error ? (
                                             <Tooltip title={error}>
-                                                <LemonTag type={type} className="cursor-help">
-                                                    {status} ⚠️
-                                                </LemonTag>
+                                                <LemonTag type={type}>{status}</LemonTag>
                                             </Tooltip>
                                         ) : (
                                             <LemonTag type={type}>{status}</LemonTag>
@@ -213,9 +211,11 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     title: 'Rows',
                                     dataIndex: 'rows_materialized',
+                                    render: (_, { rows_materialized, status }: DataModelingJob) =>
+                                        status === 'Running' && rows_materialized === 0 ? '~' : rows_materialized,
                                 },
                                 {
-                                    title: 'Last updated',
+                                    title: 'Updated',
                                     dataIndex: 'last_run_at',
                                     render: (_, { last_run_at }: DataModelingJob) =>
                                         humanFriendlyDetailedTime(last_run_at),
