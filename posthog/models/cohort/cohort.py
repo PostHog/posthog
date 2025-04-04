@@ -17,7 +17,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
-from posthog.models.utils import sane_repr
+from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
@@ -74,7 +74,7 @@ class Group:
         return dup
 
 
-class CohortManager(models.Manager):
+class CohortManager(RootTeamManager):
     def create(self, *args: Any, **kwargs: Any):
         if kwargs.get("groups"):
             kwargs["groups"] = [Group(**group).to_dict() for group in kwargs["groups"]]
@@ -82,7 +82,7 @@ class CohortManager(models.Manager):
         return cohort
 
 
-class Cohort(FileSystemSyncMixin, models.Model):
+class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)

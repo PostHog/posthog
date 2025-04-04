@@ -90,7 +90,9 @@ class EventDefinitionViewSet(
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
-        params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
+        # TRICKY: We started writing these things to project_id - what we actually want to to do is use the team_id and ensure it
+        # is always set as the root team id but that needs some ingestion changes
+        params = {"project_id": self.team_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = [self._ordering_params_from_request()]
 
         ingestion_taxonomy_is_available = self.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)

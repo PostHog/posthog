@@ -239,7 +239,7 @@ class TrendsQueryRunner(QueryRunner):
                     if value != "all" and str(value) != "0":
                         res_breakdown.append(
                             BreakdownItem(
-                                label=Cohort.objects.get(pk=int(value), team__project_id=self.team.project_id).name,
+                                label=Cohort.objects.get(pk=int(value), team_id=self.team.id).name,
                                 value=value,
                             )
                         )
@@ -653,7 +653,7 @@ class TrendsQueryRunner(QueryRunner):
             return series.event
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
-            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            action = Action.objects.get(pk=int(series.id), team_id=self.team.id)
             return action.name
 
         if isinstance(series, DataWarehouseNode):

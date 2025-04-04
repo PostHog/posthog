@@ -160,7 +160,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     @cached_property
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team_id=self.team.id)
             return action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             return ast.CompareOperation(

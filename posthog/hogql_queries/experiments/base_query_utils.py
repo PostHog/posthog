@@ -51,7 +51,7 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
 
     if isinstance(entity_node, ActionsNode):
         try:
-            action = Action.objects.get(pk=int(entity_node.id), team__project_id=team.project_id)
+            action = Action.objects.get(pk=int(entity_node.id), team_id=team.id)
             event_filter = action_to_expr(action)
         except Action.DoesNotExist:
             # If an action doesn't exist, we want to return no events

@@ -274,7 +274,7 @@ class Assistant:
                                         else action.tool_input["action_id"]
                                     )
                                     try:
-                                        action_model = Action.objects.get(pk=id, team__project_id=self._team.project_id)
+                                        action_model = Action.objects.get(pk=id, team_id=self._team.id)
                                         if action.tool == "retrieve_action_properties":
                                             substeps.append(f"Exploring `{action_model.name}` action properties")
                                         elif action.tool == "retrieve_action_property_values" and isinstance(

@@ -109,7 +109,7 @@ class EventsQueryRunner(QueryRunner):
                 if self.query.actionId:
                     with self.timings.measure("action_id"):
                         try:
-                            action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
+                            action = Action.objects.get(pk=self.query.actionId, team_id=self.team.id)
                         except Action.DoesNotExist:
                             raise Exception("Action does not exist")
                         if not action.steps:

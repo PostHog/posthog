@@ -1148,4 +1148,4 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
-    param_derived_from_user_current_team = "team_id"
+    derive_current_team_from_user_only = True

@@ -606,7 +606,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         for entity in self.entities:
             if entity.kind == NodeKind.ACTIONS_NODE:
-                action = Action.objects.get(pk=int(entity.id), team__project_id=self._team.project_id)
+                action = Action.objects.get(pk=int(entity.id), team_id=self._team.id)
                 event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
             else:
                 if entity.event and entity.event not in event_names:

@@ -2,7 +2,7 @@ from typing import cast
 
 from django.core.management.base import BaseCommand
 
-from posthog.models import FeatureFlag, Project, User
+from posthog.models import FeatureFlag, Team, User
 
 # These flags won't be enabled when syncing feature flags
 # Turn these on for flags that heavily change the behavior and that you wouldn't like
@@ -43,27 +43,25 @@ class Command(BaseCommand):
                     parsing_flags = True
 
         first_user = cast(User, User.objects.first())
-        for project in Project.objects.all():
-            existing_flags = FeatureFlag.objects.filter(team__project_id=project.id).values_list("key", flat=True)
-            deleted_flags = FeatureFlag.objects.filter(team__project_id=project.id, deleted=True).values_list(
-                "key", flat=True
-            )
+        for team in Team.objects.all():
+            existing_flags = FeatureFlag.objects.filter(team_id=team.id).values_list("key", flat=True)
+            deleted_flags = FeatureFlag.objects.filter(team_id=team.id, deleted=True).values_list("key", flat=True)
             for flag in flags.keys():
                 flag_type = flags[flag]
                 is_enabled = flag not in INACTIVE_FLAGS
 
                 if flag in deleted_flags:
-                    ff = FeatureFlag.objects.filter(team__project_id=project.id, key=flag)[0]
+                    ff = FeatureFlag.objects.filter(team_id=team.id, key=flag)[0]
                     ff.deleted = False
                     ff.active = is_enabled
                     ff.save()
                     print(
-                        f"Undeleted feature flag '{flag} for project {project.id} {' - ' + project.name if project.name else ''}"
+                        f"Undeleted feature flag '{flag} for project {team.id} {' - ' + team.name if team.name else ''}"
                     )
                 elif flag not in existing_flags:
                     if flag_type == "multivariate":
                         FeatureFlag.objects.create(
-                            team=project.teams.first(),
+                            team=team,
                             rollout_percentage=100,
                             name=flag,
                             key=flag,
@@ -89,7 +87,7 @@ class Command(BaseCommand):
                         )
                     else:
                         FeatureFlag.objects.create(
-                            team=project.teams.first(),
+                            team=team,
                             rollout_percentage=100,
                             name=flag,
                             key=flag,
@@ -97,5 +95,5 @@ class Command(BaseCommand):
                             active=is_enabled,
                         )
                     print(
-                        f"Created feature flag '{flag} for project {project.id} {' - ' + project.name if project.name else ''}"
+                        f"Created feature flag '{flag} for project {team.id} {' - ' + team.name if team.name else ''}"
                     )

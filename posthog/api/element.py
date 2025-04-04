@@ -184,4 +184,4 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 class LegacyElementViewSet(ElementViewSet):
-    param_derived_from_user_current_team = "team_id"
+    derive_current_team_from_user_only = True

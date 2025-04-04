@@ -45,6 +45,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    get_organization_from_view,
 )
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -253,7 +254,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return "v2"
 
     def get_has_group_types(self, team: Team) -> bool:
-        return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
+        return GroupTypeMapping.objects.filter(team_id=team.id).exists()
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(
@@ -544,7 +545,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             IsAuthenticated,
             APIScopePermission,
             AccessControlPermission,
-            PremiumMultiEnvironmentPermission,
+            PremiumMultiProjectPermission,
             *self.permission_classes,
         ]
 
@@ -850,49 +851,47 @@ def validate_team_attrs(
     return attrs
 
 
-class PremiumMultiEnvironmentPermission(BasePermission):
+class PremiumMultiProjectPermission(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+    message = "You must upgrade your PostHog plan to be able to create and manage more projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:
             return True
 
         try:
-            project = view.project
-        except KeyError:  # KeyError occurs when "project_id" is not in parents_query_dict
-            raise exceptions.ValidationError(
-                "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
-            )
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return False
 
         if request.data.get("is_demo"):
             # If we're requesting to make a demo project but the org already has a demo project
-            if project.organization.teams.filter(is_demo=True).count() > 0:
+            if organization.teams.filter(is_demo=True).count() > 0:
                 return False
 
-        has_environments_feature = project.organization.is_feature_available(AvailableFeature.ENVIRONMENTS)
-        current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
+        has_projects_feature = organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+        current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("id").count()
 
-        allowed_team_per_project_count = next(
+        allowed_project_count = next(
             (
                 feature.get("limit")
-                for feature in project.organization.available_product_features or []
-                if feature.get("key") == AvailableFeature.ENVIRONMENTS
+                for feature in organization.available_product_features or []
+                if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
             ),
             None,
         )
 
-        if has_environments_feature:
+        if has_projects_feature:
             # If allowed_project_count is None then the user is allowed unlimited projects
-            if allowed_team_per_project_count is None:
+            if allowed_project_count is None:
                 return True
             # Check current limit against allowed limit
-            if current_non_demo_team_count >= allowed_team_per_project_count:
+            if current_non_demo_project_count >= allowed_project_count:
                 return False
         else:
             # If the org doesn't have the feature, they can only have one non-demo project
-            if current_non_demo_team_count >= 1:
+            if current_non_demo_project_count >= 1:
                 return False
 
         # in any other case, we're good to go

@@ -271,4 +271,4 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class LegacyHeatmapViewSet(HeatmapViewSet):
-    param_derived_from_user_current_team = "team_id"
+    derive_current_team_from_user_only = True

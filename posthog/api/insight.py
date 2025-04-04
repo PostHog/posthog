@@ -761,17 +761,7 @@ class InsightViewSet(
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
 
-    def dangerously_get_queryset(self):
-        # Insights are retrieved under /environments/ because they include team-specific query results,
-        # but they are in fact project-level, rather than environment-level
-        assert self.team.project_id is not None
-
-        if self.team.parent_team:
-            # KLUDGE: This will be the default behavior if we stick with it and remove projects
-            queryset = self.queryset.filter(team=self.team.root_team)
-        else:
-            queryset = self.queryset.filter(team__project_id=self.team.project_id)
-
+    def safely_get_queryset(self, queryset) -> QuerySet:
         include_deleted = False
 
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
@@ -1184,4 +1174,4 @@ When set, the specified dashboard's filters and date range override will be appl
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    param_derived_from_user_current_team = "project_id"
+    derive_current_team_from_user_only = True

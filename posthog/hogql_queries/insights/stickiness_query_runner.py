@@ -358,7 +358,7 @@ class StickinessQueryRunner(QueryRunner):
             )
         elif isinstance(series, ActionsNode):
             try:
-                action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+                action = Action.objects.get(pk=int(series.id), team_id=self.team.id)
                 filters.append(action_to_expr(action))
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events
@@ -413,7 +413,7 @@ class StickinessQueryRunner(QueryRunner):
 
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
-            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            action = Action.objects.get(pk=int(series.id), team_id=self.team.id)
             return action.name
 
     def intervals_num(self):

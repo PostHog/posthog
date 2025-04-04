@@ -192,7 +192,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 instance = cast(Cohort, self.instance)
                 cohort_id = instance.pk
                 flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
-                    team__project_id=self.context["project_id"], active=True, deleted=False
+                    team_id=self.context["team_id"], active=True, deleted=False
                 )
                 cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
 
@@ -205,7 +205,7 @@ class CohortSerializer(serializers.ModelSerializer):
                             )
 
                     if prop.type == "cohort":
-                        nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
+                        nested_cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
                         dependent_cohorts = get_dependent_cohorts(nested_cohort)
                         for dependent_cohort in [nested_cohort, *dependent_cohorts]:
                             if (
@@ -236,7 +236,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
-            relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
+            relevant_team_ids = Team.objects.filter(id=cohort.team_id).values_list("id", flat=True)
             cohort.deleted = deleted_state
             if deleted_state:
                 # De-attach from experiments
@@ -498,7 +498,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not Cohort.objects.filter(id=item_id, team__project_id=self.project_id).exists():
+        if not Cohort.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
@@ -548,13 +548,11 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 
 class LegacyCohortViewSet(CohortViewSet):
-    param_derived_from_user_current_team = "team_id"
+    derive_current_team_from_user_only = True
 
 
 def will_create_loops(cohort: Cohort) -> bool:
     # Loops can only be formed when trying to update a Cohort, not when creating one
-    project_id = cohort.team.project_id
-
     # We can model this as a directed graph, where each node is a Cohort and each edge is a reference to another Cohort
     # There's a loop only if there's a cycle in the directed graph. The "directed" bit is important.
     # For example, if Cohort A exists, and Cohort B references Cohort A, and Cohort C references both Cohort A & B
@@ -574,7 +572,7 @@ def will_create_loops(cohort: Cohort) -> bool:
                     return True
                 elif property.value not in seen_cohorts:
                     try:
-                        nested_cohort = Cohort.objects.get(pk=property.value, team__project_id=project_id)
+                        nested_cohort = Cohort.objects.get(pk=property.value, team_id=cohort.team_id)
                     except Cohort.DoesNotExist:
                         raise ValidationError("Invalid Cohort ID in filter")
 
@@ -677,16 +675,15 @@ def insert_actors_into_cohort_by_query(
 
 def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000):
     # :TODO: Find a way to incorporate this into the same code path as feature flag evaluation
-    project_id = Team.objects.only("project_id").get(pk=team_id).project_id
     try:
-        feature_flag = FeatureFlag.objects.get(team__project_id=project_id, key=flag)
+        feature_flag = FeatureFlag.objects.get(team_id=team_id, key=flag)
     except FeatureFlag.DoesNotExist:
         return []
 
     if not feature_flag.active or feature_flag.deleted or feature_flag.aggregation_group_type_index is not None:
         return []
 
-    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
+    cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
     matcher_cache = FlagsMatcherCache(team_id=team_id)
     uuids_to_add_to_cohort = []
     cohorts_cache: dict[int, CohortOrEmpty] = {}
@@ -695,9 +692,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # TODO: Consider disabling flags with cohorts for creating static cohorts
         # because this is currently a lot more inefficient for flag matching,
         # as we're required to go to the database for each person.
-        cohorts_cache = {
-            cohort.pk: cohort for cohort in Cohort.objects.filter(team__project_id=project_id, deleted=False)
-        }
+        cohorts_cache = {cohort.pk: cohort for cohort in Cohort.objects.filter(team_id=team_id, deleted=False)}
 
     default_person_properties = {}
     for condition in feature_flag.conditions:

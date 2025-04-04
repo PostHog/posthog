@@ -323,7 +323,7 @@ class TrendsActorsQueryBuilder:
         if isinstance(self.entity, ActionsNode):
             # Actions
             try:
-                action = Action.objects.get(pk=int(self.entity.id), team__project_id=self.team.project_id)
+                action = Action.objects.get(pk=int(self.entity.id), team_id=self.team.id)
                 return action_to_expr(action)
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events
