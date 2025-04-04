@@ -14,27 +14,6 @@ class ProgrammingLanguage(StrEnum):
     GO = "go"
     BASH = "bash"
 
-    # CPP = "cpp"
-    # C_SHARP = "c_sharp"
-    # C = "c"
-    # CSS = "css"
-    # PHP = "php"
-    # JSON = "json"
-    # ELM = "elm"
-    # ELISP = "elisp"
-    # ELIXIR = "elixir"
-    # EMBEDDED_TEMPLATE = "embedded_template"
-    # HTML = "html"
-    # JAVA = "java"
-    # LUA = "lua"
-    # OCAML = "ocaml"
-    # QL = "ql"
-    # RESCRIPT = "rescript"
-    # RUBY = "ruby"
-    # SYSTEMRDL = "systemrdl"
-    # TOML = "toml"
-    # SOLIDITY = "solidity"
-
 
 def get_parser_language(lang: ProgrammingLanguage) -> Language:
     match lang:
