@@ -290,7 +290,7 @@ projects_router.register(
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
 
-projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
+projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources
