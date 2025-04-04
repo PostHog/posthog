@@ -14,6 +14,7 @@ from posthog.warehouse.api import (
     table,
     view_link,
     query_tab_state,
+    data_modeling_job,
 )
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -543,25 +544,25 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(
+environments_router.register(
     r"error_tracking/symbol_sets",
     error_tracking.ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",
     ["team_id"],
 )
 
-projects_router.register(
+environments_router.register(
     r"error_tracking/issue",
     error_tracking.ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
     ["team_id"],
 )
 
-projects_router.register(
+environments_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
-    ["project_id"],
+    ["team_id"],
 )
 
 projects_router.register(
@@ -634,3 +635,10 @@ environments_router.register(
 )
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
+
+register_grandfathered_environment_nested_viewset(
+    r"data_modeling_jobs",
+    data_modeling_job.DataModelingJobViewSet,
+    "environment_data_modeling_jobs",
+    ["team_id"],
+)

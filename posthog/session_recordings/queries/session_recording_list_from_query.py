@@ -301,9 +301,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
         ]
 
-        person_id_compare_operation = PersonsIdCompareOperation(self._team, self._query).get_operation()
-        if person_id_compare_operation:
-            exprs.append(person_id_compare_operation)
+        if self._query.distinct_ids:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["distinct_id"]),
+                    right=ast.Constant(value=self._query.distinct_ids),
+                )
+            )
+        else:
+            person_id_compare_operation = PersonsIdCompareOperation(self._team, self._query).get_operation()
+            if person_id_compare_operation:
+                exprs.append(person_id_compare_operation)
 
         # we check for session_ids type not for truthiness since we want to allow empty lists
         if isinstance(self._query.session_ids, list):
@@ -678,17 +687,21 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self.query_date_range.date_from() - timedelta(minutes=2)),
+                    # TRICKY: technically you could start sending us events
+                    # almost 24 hours before the session recording starts
+                    # so we push the events date range a day earlier
+                    right=ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
                 )
             )
 
-        # but we don't want to include events after date_to if provided
+        # and the events can end almost 24 hours after the session recording ends
+        # so we push the events date range a day later
         if self._query.date_to:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self.query_date_range.date_to()),
+                    right=ast.Constant(value=self.query_date_range.date_to() + timedelta(days=1)),
                 )
             )
 

@@ -17,13 +17,14 @@ import { router } from 'kea-router'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -35,6 +36,7 @@ import {
     FilterLogicalOperator,
     HogFunctionFiltersType,
     PersonPropertyFilter,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
@@ -71,7 +73,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
@@ -82,7 +83,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     }
 
     const destinationFilters: HogFunctionFiltersType | null =
-        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && showLinkedHogFunctions
+        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature
             ? {
                   events: [
                       {
@@ -546,6 +547,8 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
         propertiesViaUrl: false,
     })
 
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
+
     return (
         <div className="relative">
             {/* NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query */}
@@ -553,6 +556,13 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
                 <LemonButton
                     key="view-opt-in-session-recordings"
                     to={urls.replay(ReplayTabs.Home, recordingsFilters)}
+                    onClick={() => {
+                        addProductIntentForCrossSell({
+                            from: ProductKey.EARLY_ACCESS_FEATURES,
+                            to: ProductKey.SESSION_REPLAY,
+                            intent_context: ProductIntentContext.EARLY_ACCESS_FEATURE_VIEW_RECORDINGS,
+                        })
+                    }}
                     type="secondary"
                 >
                     View recordings

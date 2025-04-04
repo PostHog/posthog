@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import random
 import typing
+from collections.abc import Collection
 
 import pyarrow as pa
 import pytest
@@ -146,7 +147,8 @@ def test_slice_record_batch_into_single_record_slices():
     """Test we slice a record batch into slices with a single record."""
     n_legs = pa.array([2, 2, 4, 4, 5, 100])
     animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+    arrays: Collection[pa.Array[typing.Any]] = [n_legs, animals]
+    batch = pa.RecordBatch.from_arrays(arrays, names=["n_legs", "animals"])
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=1, min_records_per_batch=1))
     assert len(slices) == 6
@@ -157,7 +159,7 @@ def test_slice_record_batch_into_one_batch():
     """Test we do not slice a record batch without a bytes limit."""
     n_legs = pa.array([2, 2, 4, 4, 5, 100])
     animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])  # type: ignore
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=0))
     assert len(slices) == 1
@@ -168,7 +170,7 @@ def test_slice_record_batch_in_half():
     """Test we can slice a record batch into half size."""
     n_legs = pa.array([4] * 6)
     animals = pa.array(["Dog"] * 6)
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])  # type: ignore
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=batch.nbytes // 2, min_records_per_batch=1))
     assert len(slices) == 2
@@ -279,5 +281,11 @@ async def test_sessions_record_batch_model(ateam, data_interval_start, data_inte
     assert f"less(_inserted_at, toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" in printed_query
 
     # check that we have a date range set on the inner query using the session ID
-    assert "lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight" in printed_query
-    assert "greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight" in printed_query
+    assert (
+        "lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus("
+        in printed_query
+    )
+    assert (
+        "greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus("
+        in printed_query
+    )

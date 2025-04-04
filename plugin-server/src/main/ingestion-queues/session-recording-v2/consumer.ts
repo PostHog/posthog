@@ -15,8 +15,8 @@ import { PostgresRouter } from '~/src/utils/db/postgres'
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
+import { logger as logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { status as logger } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
@@ -117,7 +117,8 @@ export class SessionRecordingIngester {
         const metadataStore = new SessionMetadataStore(producer)
         const consoleLogStore = new SessionConsoleLogStore(
             producer,
-            this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC
+            this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
+            { messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
         )
         this.fileStorage = s3Client
             ? new S3SessionBatchFileStorage(

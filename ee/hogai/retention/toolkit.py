@@ -15,11 +15,18 @@ Use this tool to provide the final answer to the user's question.
 
 Answer in the following format:
 ```
-Activation event:
-chosen event
+Activation:
+(if an event is used)
+- event: chosen event name
+(or if an action is used)
+- action id: `numeric id`
+- action name: action name
 
-Retention event:
-chosen event (can be the same as activation event, or different)
+Retention:
+- event: chosen event name (can be the same as activation event, or different)
+(or if an action is used)
+- action id: `numeric id`
+- action name: action name
 
 (if filters are used)
 Filters:

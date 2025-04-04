@@ -17,11 +17,11 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../help
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 jest.setTimeout(30000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Log,
+    LOG_LEVEL: LogLevel.Info,
 }
 
 describe('postgres parity', () => {
@@ -110,7 +110,7 @@ describe('postgres parity', () => {
         const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
         expect(postgresPersons).toEqual([
             {
-                id: expect.any(Number),
+                id: expect.any(String),
                 created_at: expect.any(DateTime),
                 properties: {
                     userProp: 'propValue',

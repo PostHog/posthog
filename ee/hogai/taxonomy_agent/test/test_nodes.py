@@ -123,6 +123,15 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[4].type, "human")
         self.assertIn("Question 3", history[4].content)
 
+    def test_adds_format_reminder(self):
+        node = self._get_node()
+        history = node._construct_messages(
+            AssistantState(messages=[HumanMessage(content="Message")], root_tool_insight_plan="Text")
+        )
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Reminder", history[0].content)
+
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
         for i in range(26):

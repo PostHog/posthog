@@ -311,12 +311,14 @@ class Resolver(CloningVisitor):
                 return response
 
         if isinstance(node.table, ast.Field):
-            table_name = str(node.table.chain[0])
-            table_alias = node.alias or table_name
+            table_name_chain = [str(n) for n in node.table.chain]
+            table_name_dot_notation = ".".join(table_name_chain)
+            table_name_alias = "__".join(table_name_chain)
+            table_alias: str = node.alias or table_name_alias
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            database_table = self.database.get_table(table_name)
+            database_table = self.database.get_table(table_name_dot_notation)
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -343,7 +345,7 @@ class Resolver(CloningVisitor):
 
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
-            if table_alias != table_name or isinstance(database_table, FunctionCallTable):
+            if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
@@ -774,11 +776,15 @@ class Resolver(CloningVisitor):
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
+        if node is None:
+            return None
         node.type = resolve_constant_data_type(node.value)
         return node
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(
             nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
         )
@@ -786,6 +792,8 @@ class Resolver(CloningVisitor):
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(
             nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
         )
@@ -793,6 +801,8 @@ class Resolver(CloningVisitor):
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
         return node
 

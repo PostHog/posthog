@@ -44,21 +44,10 @@ export { Element } from '@posthog/plugin-scaffold' // Re-export Element from sca
 type Brand<K, T> = K & { __brand: T }
 
 export enum LogLevel {
-    None = 'none',
     Debug = 'debug',
     Info = 'info',
-    Log = 'log',
     Warn = 'warn',
     Error = 'error',
-}
-
-export const logLevelToNumber: Record<LogLevel, number> = {
-    [LogLevel.None]: 0,
-    [LogLevel.Debug]: 10,
-    [LogLevel.Info]: 20,
-    [LogLevel.Log]: 30,
-    [LogLevel.Warn]: 40,
-    [LogLevel.Error]: 50,
 }
 
 export enum KafkaSecurityProtocol {
@@ -121,12 +110,12 @@ export type CdpConfig = {
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
+    CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
-    CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED: boolean
 }
 
 export type IngestionConsumerConfig = {
@@ -145,6 +134,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
+    INGESTION_FORCE_OVERFLOW_TOKENS: string // comma-separated list of tokens to always route to overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
@@ -237,6 +227,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
+    FILTER_TRANSFORMATIONS_ENABLED_TEAMS: number[] // comma-separated list of team IDs to enable filter-based transformations for
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -267,8 +258,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
-    USE_SIMD_JSON_PARSE: boolean
-    USE_SIMD_JSON_PARSE_FOR_COMPARISON: boolean
+    LAZY_LOADER_DEFAULT_BUFFER_MS: number
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
     STARTUP_PROFILE_CPU: boolean
@@ -323,7 +313,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
 
-    // cookieless
+    // cookieless, should match the values in rust/feature-flags/src/config.rs
     COOKIELESS_DISABLED: boolean
     COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
@@ -342,6 +332,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
+    SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -350,6 +341,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
     PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
     PROPERTY_DEFS_WRITE_DISABLED: boolean
+
+    CDP_HOG_WATCHER_SAMPLE_RATE: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -832,7 +825,9 @@ export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
 
 /** Properties shared by RawPerson and Person. */
 export interface BasePerson {
-    id: number
+    // NOTE: id is a bigint in the DB, which pg lib returns as a string
+    // We leave it as a string as dealing with the bigint type is tricky and we don't need any of its features
+    id: string
     team_id: number
     properties: Properties
     is_user_id: number

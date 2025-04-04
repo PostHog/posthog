@@ -13,9 +13,14 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
-import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import posthog from 'posthog-js'
+import {
+    getEventDefinitionIcon,
+    getEventMetadataDefinitionIcon,
+    getPropertyDefinitionIcon,
+} from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
@@ -27,7 +32,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActionType,
@@ -103,6 +108,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
             ['columnsJoinedToPersons'],
+            propertyDefinitionsModel,
+            ['eventMetadataPropertyDefinitions'],
         ],
     }),
     actions(() => ({
@@ -114,10 +121,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => ({
+        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any, originalQuery) => ({
             group,
             value,
             item,
+            originalQuery,
         }),
         infiniteListResultsReceived: (groupType: TaxonomicFilterGroupType, results: ListStorage) => ({
             groupType,
@@ -187,6 +195,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
+                s.eventMetadataPropertyDefinitions,
             ],
             (
                 teamId,
@@ -197,7 +206,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns,
                 metadataSource,
                 excludedProperties,
-                propertyAllowList
+                propertyAllowList,
+                eventMetadataPropertyDefinitions
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -316,6 +326,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.EventProperties],
                         propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
                         ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Event metadata',
+                        searchPlaceholder: 'event metadata',
+                        type: TaxonomicFilterGroupType.EventMetadata,
+                        options: eventMetadataPropertyDefinitions,
+                        getIcon: (option: PropertyDefinition) => getEventMetadataDefinitionIcon(option),
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.EventMetadata
+                            )
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) => {
+                            return `api/event/values/?key=${encodeURIComponent(key)}&is_column=true`
+                        },
+                        getPopoverHeader: () => 'Event metadata',
                     },
                     {
                         name: 'Feature flags',
@@ -652,9 +681,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ group, value, item }) => {
+        selectItem: ({ group, value, item, originalQuery }) => {
             if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
-                props.onChange?.(group, value, item)
+                try {
+                    const hasOriginalQuery = originalQuery && originalQuery.trim().length > 0
+                    const hasName = item && item.name && item.name.trim().length > 0
+                    const hasSwappedIn = hasOriginalQuery && hasName && item.name !== originalQuery
+                    if (hasSwappedIn) {
+                        posthog.capture('selected swapped in query in taxonomic filter', {
+                            group: group.type,
+                            value: value,
+                            itemName: item.name,
+                            originalQuery,
+                            item,
+                        })
+                    }
+                } catch (e) {
+                    posthog.captureException(e, { posthog_feature: 'taxonomic_filter_swapped_in_query' })
+                }
+                props.onChange?.(group, value, item, originalQuery)
             }
             actions.setSearchQuery('')
         },
@@ -714,7 +759,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             }
         },
 
-        setSearchQuery: () => {
+        setSearchQuery: async ({ searchQuery }, breakpoint) => {
             const { activeTaxonomicGroup, infiniteListCounts } = values
 
             // Taxonomic group with a local data source, zero results after searching.
@@ -726,11 +771,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ) {
                 actions.tabRight()
             }
+
+            await breakpoint(500)
+            if (searchQuery) {
+                posthog.capture('taxonomic_filter_search_query', {
+                    searchQuery,
+                    groupType: activeTaxonomicGroup?.type,
+                })
+            }
         },
 
         infiniteListResultsReceived: ({ groupType, results }) => {
             // Open the next tab if no results on an active tab.
-            if (groupType === values.activeTab && !results.count && !results.expandedCount) {
+            const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
+            const onReplayTabWithSomeSearchResults =
+                values.activeTab === TaxonomicFilterGroupType.Replay && results.count > 0
+
+            if (activeTabHasNoResults || onReplayTabWithSomeSearchResults) {
                 actions.tabRight()
             }
 

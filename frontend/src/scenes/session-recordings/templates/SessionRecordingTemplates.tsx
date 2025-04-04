@@ -176,7 +176,7 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
                         </div>
                     )}
                     <h3 className="mb-0">
-                        <Link onClick={() => showVariables()} className="text-accent-primary">
+                        <Link onClick={() => showVariables()} className="text-accent">
                             {props.template.name}
                         </Link>
                     </h3>
@@ -191,7 +191,6 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
 const SessionRecordingTemplates = (): JSX.Element => {
     return (
         <div>
-            <h2>Figure out what to watch</h2>
             <p>To get the most out of session replay, you just need to know where to start. </p>
             <p>
                 Use our templates to find a focus area, then watch the filtered replays to see where users struggle,

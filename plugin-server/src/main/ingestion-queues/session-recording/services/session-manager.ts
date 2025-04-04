@@ -12,9 +12,9 @@ import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
+import { logger } from '../../../../utils/logger'
 import { ObjectStorage } from '../../../../utils/object_storage'
 import { captureException } from '../../../../utils/posthog'
-import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { IncomingRecordingMessage } from '../types'
 import { bufferFileDir, convertForPersistence, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
@@ -108,6 +108,7 @@ export class SessionManager {
     unsubscribe: () => void
     flushJitterMultiplier: number
     realtimeTail: Tail | null = null
+    encodedSessionId: string
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -120,12 +121,13 @@ export class SessionManager {
         public readonly topic: string,
         public readonly debug: boolean = false
     ) {
+        this.encodedSessionId = encodeURIComponent(sessionId)
         this.buffer = this.createBuffer()
 
         // NOTE: a new SessionManager indicates that either everything has been flushed or a rebalance occured so we should clear the existing redis messages
-        void realtimeManager.clearAllMessages(this.teamId, this.sessionId)
+        void realtimeManager.clearAllMessages(this.teamId, this.encodedSessionId)
 
-        this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
+        this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.encodedSessionId, () => {
             void this.startRealtime()
         })
 
@@ -149,7 +151,7 @@ export class SessionManager {
         if (!this.debug) {
             return
         }
-        status.debug(icon, message, extra)
+        logger.debug(icon, message, extra)
     }
 
     private captureException(error: Error, extra: Record<string, any> = {}): void {
@@ -322,7 +324,7 @@ export class SessionManager {
         }
 
         const flushTimeout = setTimeout(() => {
-            status.error('🧨', '[session-manager] flush timed out', {
+            logger.error('🧨', '[session-manager] flush timed out', {
                 ...this.logContext(),
             })
 
@@ -349,7 +351,7 @@ export class SessionManager {
             }
 
             const { firstTimestamp, lastTimestamp } = eventsRange
-            const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
+            const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.encodedSessionId}`
             const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
 
@@ -362,7 +364,7 @@ export class SessionManager {
 
             readStream.on('error', (err) => {
                 // TODO: What should we do here?
-                status.error('🧨', '[session-manager] readstream errored', {
+                logger.error('🧨', '[session-manager] readstream errored', {
                     ...this.logContext(),
                     error: err,
                 })
@@ -409,7 +411,7 @@ export class SessionManager {
             await this.inProgressUpload?.abort()
 
             // TODO: If we fail to write to S3 we should be do something about it
-            status.error('🧨', '[session-manager] failed writing session recording blob to S3', {
+            logger.error('🧨', '[session-manager] failed writing session recording blob to S3', {
                 errorMessage: `${error.name || 'Unknown Error Type'}: ${error.message}`,
                 error,
                 ...this.logContext(),
@@ -440,7 +442,7 @@ export class SessionManager {
             if (offsets.highest) {
                 void this.offsetHighWaterMarker.add(
                     { topic: this.topic, partition: this.partition },
-                    this.sessionId,
+                    this.encodedSessionId,
                     offsets.highest
                 )
             }
@@ -456,7 +458,7 @@ export class SessionManager {
             const id = randomUUID()
             const fileBase = path.join(
                 bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                `${this.teamId}.${this.sessionId}.${id}`
+                `${this.teamId}.${this.encodedSessionId}.${id}`
             )
 
             const file = (type: 'jsonl' | 'gz') => `${fileBase}.${type}`
@@ -466,7 +468,7 @@ export class SessionManager {
             // The compressed file
             pipeline(writeStream, zlib.createGzip(), createWriteStream(file('gz'))).catch((error) => {
                 // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
-                status.error('🧨', '[session-manager] writestream errored', {
+                logger.error('🧨', '[session-manager] writestream errored', {
                     ...this.logContext(),
                     error,
                 })
@@ -477,7 +479,7 @@ export class SessionManager {
             // The uncompressed file which we need for realtime playback
             pipeline(writeStream, createWriteStream(file('jsonl'))).catch((error) => {
                 // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
-                status.error('🧨', '[session-manager] writestream errored', {
+                logger.error('🧨', '[session-manager] writestream errored', {
                     ...this.logContext(),
                     error,
                 })
@@ -510,19 +512,19 @@ export class SessionManager {
             return
         }
 
-        this.debugLog('⚡️', `[session-manager][realtime] Started `, { sessionId: this.sessionId })
+        this.debugLog('⚡️', `[session-manager][realtime] Started `, { sessionId: this.encodedSessionId })
 
         this.realtimeTail = new Tail(this.buffer.file('jsonl'), {
             fromBeginning: true,
         })
 
         this.realtimeTail.on('line', async (data: string) => {
-            await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.sessionId, data, Date.now())
+            await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.encodedSessionId, data, Date.now())
         })
 
         this.realtimeTail.on('error', (error) => {
-            status.error('🧨', '[session-manager][realtime] failed to watch buffer file', {
-                sessionId: this.sessionId,
+            logger.error('🧨', '[session-manager][realtime] failed to watch buffer file', {
+                sessionId: this.encodedSessionId,
                 teamId: this.teamId,
             })
             this.captureException(error)
@@ -543,7 +545,7 @@ export class SessionManager {
         this.stopRealtime()
         if (this.inProgressUpload !== null) {
             await this.inProgressUpload.abort().catch((error) => {
-                status.error('🧨', '[session-manager][realtime] failed to abort in progress upload', {
+                logger.error('🧨', '[session-manager][realtime] failed to abort in progress upload', {
                     ...this.logContext(),
                     error,
                 })

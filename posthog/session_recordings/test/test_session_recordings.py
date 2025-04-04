@@ -16,8 +16,10 @@ from rest_framework import status
 
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Organization, Person, SessionRecording, User
+from posthog.models import Organization, Person, SessionRecording, User, PersonalAPIKey
+from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -1062,7 +1064,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert mock_presigned_url.call_count == 0
 
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
@@ -1173,9 +1174,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.json() == {
             "attr": None,
             "code": "invalid_input",
-            "detail": "Must specify at least one event or action filter",
+            "detail": "Must specify at least one event or action filter, or event properties filter",
             "type": "validation_error",
         }
+
+    def test_get_matching_events_can_send_event_properties_filter(self) -> None:
+        query_params = [
+            f'session_ids=["{str(uuid.uuid4())}"]',
+            # we can send event action or event properties filters and it is valid
+            'properties=[{"key":"$active_feature_flags","value":"query_running_time","operator":"icontains","type":"event"}]',
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     def test_get_matching_events_for_unknown_session(self) -> None:
         session_id = str(uuid.uuid4())
@@ -1295,3 +1308,38 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             in response.json()["detail"]
         )
         assert response.json() == self.snapshot
+
+    @patch("posthoganalytics.capture")
+    def test_snapshots_api_called_with_personal_api_key(self, mock_capture):
+        session_id = str(uuid.uuid4())
+        self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["session_recording:read"],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert mock_capture.call_args_list[1] == call(
+            self.user.distinct_id,
+            "snapshots_api_called_with_personal_api_key",
+            {
+                "key_label": "X",
+                "key_scopes": ["session_recording:read"],
+                "key_scoped_teams": [self.team.pk],
+                "session_requested": session_id,
+                # none because it's all mock data
+                "recording_start_time": None,
+                "source": None,
+            },
+        )

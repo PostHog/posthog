@@ -115,8 +115,6 @@ class ShutdownMonitor:
             self.logger.info("Starting shutdown monitoring thread.")
 
             while not self._stop_event_sync.is_set():
-                self.logger.debug("Checking for worker shutdown.")
-
                 try:
                     activity.wait_for_worker_shutdown_sync(timeout=0.1)
                 except RuntimeError:
@@ -183,4 +181,7 @@ class ShutdownMonitor:
     def raise_if_is_worker_shutdown(self):
         """Raise an exception if worker is shutting down."""
         if self.is_worker_shutdown():
+            self.logger.debug("Worker is shutting down.")
             raise WorkerShuttingDownError.from_activity_context()
+
+        self.logger.debug("Worker is not shutting down.")

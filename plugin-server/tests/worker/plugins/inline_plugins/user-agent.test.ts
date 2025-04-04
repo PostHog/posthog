@@ -11,7 +11,7 @@ describe('user-agent tests', () => {
     beforeAll(async () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
         await resetTestDatabase()
     })
 

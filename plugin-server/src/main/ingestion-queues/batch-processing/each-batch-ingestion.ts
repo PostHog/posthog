@@ -4,9 +4,9 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
+import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { retryIfRetriable } from '../../../utils/retries'
-import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
 import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
@@ -54,7 +54,7 @@ async function handleProcessingError(
     pluginEvent: PipelineEvent,
     queue: IngestionConsumer
 ) {
-    status.error('🔥', `Error processing message`, {
+    logger.error('🔥', `Error processing message`, {
         stack: error.stack,
         error: error,
     })
@@ -85,7 +85,7 @@ async function handleProcessingError(
             // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
             // offset and move on.
             if (error?.isRetriable === false) {
-                status.error('🔥', `Error pushing to DLQ`, {
+                logger.error('🔥', `Error pushing to DLQ`, {
                     stack: error.stack,
                     error: error,
                 })
@@ -190,7 +190,7 @@ export async function eachBatchParallelIngestion(
                 processedBatches++
                 batchSpan.finish()
             }
-            status.debug('🧩', `Stopping worker after processing ${processedBatches} micro-batches`)
+            logger.debug('🧩', `Stopping worker after processing ${processedBatches} micro-batches`)
             return Promise.resolve()
         }
 
@@ -250,7 +250,7 @@ export async function eachBatchParallelIngestion(
         }
         kafkaBatchOffsetCommitted.inc() // successfully processed batch, consumer will commit offsets
 
-        status.debug(
+        logger.debug(
             '🧩',
             `Kafka batch of ${messages.length} events completed in ${
                 new Date().valueOf() - batchStartTimer.valueOf()
@@ -355,7 +355,7 @@ export function splitIngestionBatch(
             // Local overflow detection triggering, reroute to overflow topic too
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
             if (LoggingLimiter.consume(eventKey, 1)) {
-                status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
+                logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
             }
             output.toOverflow.push(message)
             continue

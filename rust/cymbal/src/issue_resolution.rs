@@ -3,7 +3,8 @@ use std::fmt::Display;
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::send_iter_to_kafka;
-use sqlx::postgres::any::AnyConnectionBackend;
+
+use sqlx::Acquire;
 use uuid::Uuid;
 
 use crate::{
@@ -107,7 +108,7 @@ impl Issue {
             r#"
             INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)
             VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (id) DO NOTHING
+            ON CONFLICT (id) DO UPDATE SET team_id = EXCLUDED.team_id -- a no-op update to force a returned row
             RETURNING (xmax = 0) AS was_inserted
             "#,
             self.id,
@@ -117,7 +118,7 @@ impl Issue {
             self.description
         )
         .fetch_one(executor)
-        .await?
+        .await.expect("Got at least one row back")
         // TODO - I'm fairly sure the Option here is a bug in sqlx, so the unwrap will
         // never be hit, but nonetheless I'm not 100% sure the "no rows" case actually
         // means the insert was not done.
@@ -205,7 +206,7 @@ impl IssueFingerprintOverride {
             r#"
             INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)
             VALUES ($1, $2, $3, $4, 0, $5, NOW())
-            ON CONFLICT (team_id, fingerprint) DO NOTHING
+            ON CONFLICT (team_id, fingerprint) DO UPDATE SET team_id = EXCLUDED.team_id -- a no-op update to force a returned row
             RETURNING id, team_id, issue_id, fingerprint, version
             "#,
             Uuid::new_v4(),
@@ -213,7 +214,7 @@ impl IssueFingerprintOverride {
             issue.id,
             fingerprint,
             first_seen
-        ).fetch_one(executor).await?;
+        ).fetch_one(executor).await.expect("Got at least one row back");
 
         Ok(res)
     }
@@ -241,15 +242,15 @@ pub async fn resolve_issue(
     // beat us to creating this new issue). Then, possibly reopen the issue.
 
     // Start a transaction, so we can roll it back on override insert failure
-    conn.begin().await?;
+    let mut txn = conn.begin().await?;
     // Insert a new issue
     let issue = Issue::new(team_id, name.to_string(), description.to_string());
     // We don't actually care if we insert the issue here or not - conflicts aren't possible at
     // this stage.
-    issue.insert(&mut *conn).await?;
+    issue.insert(&mut *txn).await?;
     // Insert the fingerprint override
     let issue_override = IssueFingerprintOverride::create_or_load(
-        &mut *conn,
+        &mut *txn,
         team_id,
         fingerprint,
         &issue,
@@ -262,10 +263,10 @@ pub async fn resolve_issue(
     // use the retrieved issue override.
     let was_created = issue_override.issue_id == issue.id;
     if !was_created {
-        conn.rollback().await?;
+        txn.rollback().await?;
     } else {
         send_issue_created_alert(context, &issue).await?;
-        conn.commit().await?;
+        txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
     }
 

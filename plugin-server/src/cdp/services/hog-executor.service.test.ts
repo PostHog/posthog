@@ -6,20 +6,10 @@ import { HogExecutorService } from '../../../src/cdp/services/hog-executor.servi
 import { HogFunctionInvocation, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
-import { status } from '../../../src/utils/status'
+import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
-
-jest.mock('../../../src/utils/status', () => ({
-    status: {
-        error: jest.fn(),
-        info: jest.fn(),
-        warn: jest.fn(),
-        debug: jest.fn(),
-        updatePrompt: jest.fn(),
-    },
-}))
 
 const setupFetchResponse = (
     invocation: HogFunctionInvocation,
@@ -181,7 +171,7 @@ describe('Hog Executor', () => {
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('fetch')
-            expect(result.invocation.vmState).toBeDefined()
+            expect(result.invocation.vmState).toBeTruthy()
 
             // Simulate what the callback does
             setupFetchResponse(result.invocation)
@@ -331,7 +321,7 @@ describe('Hog Executor', () => {
             expect(resultsShouldMatch.logs[0].message).toMatchInlineSnapshot(
                 `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
             )
-            expect(status.error).toHaveBeenCalledWith(
+            expect(logger.error).toHaveBeenCalledWith(
                 '🦔',
                 expect.stringContaining('Error filtering function'),
                 truth(
@@ -662,6 +652,28 @@ describe('Hog Executor', () => {
             expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
                 {
                   "version": "v=1.2.3",
+                }
+            `)
+        })
+
+        it('crafts a mailjet request', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.send_email,
+                ...HOG_INPUTS_EXAMPLES.email,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const result = executor.execute(createInvocation(fn))
+            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
+                {
+                  "body": "{"Messages":[{"From":{"Email":"info@posthog.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
+                  "headers": {
+                    "Authorization": "Basic dGVzdF9hcGlfa2V5OnRlc3Rfc2VjcmV0X2tleQ==",
+                    "Content-Type": "application/json",
+                  },
+                  "method": "POST",
+                  "return_queue": "hog",
+                  "url": "https://api.mailjet.com/v3.1/send",
                 }
             `)
         })

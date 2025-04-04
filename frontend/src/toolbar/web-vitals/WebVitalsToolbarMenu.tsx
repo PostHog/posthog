@@ -20,7 +20,7 @@ const ALL_METRICS: WebVitalsMetric[] = ['INP', 'LCP', 'FCP', 'CLS']
 
 export const WebVitalsToolbarMenu = (): JSX.Element => {
     const { localWebVitals, remoteWebVitals } = useValues(webVitalsToolbarLogic)
-    const { posthog } = useValues(toolbarConfigLogic)
+    const { posthog, apiURL } = useValues(toolbarConfigLogic)
 
     return (
         <ToolbarMenu>
@@ -71,7 +71,7 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
 
             <ToolbarMenu.Footer>
                 <div className="flex flex-row justify-between w-full">
-                    <Link to={urls.webAnalyticsWebVitals()} target="_blank">
+                    <Link to={`${apiURL}${urls.webAnalyticsWebVitals()}`} target="_blank">
                         View all metrics
                     </Link>
                     <Link to="https://posthog.com/docs/web-analytics/web-vitals" target="_blank">
@@ -140,9 +140,7 @@ const MetricCard = ({ metric, value }: { metric: WebVitalsMetric; value: number 
 const DottedTooltip = ({ children, title }: { children: React.ReactNode; title: React.ReactNode }): JSX.Element => {
     return (
         <Tooltip title={<div className="text-sm min-w-80">{title}</div>} interactive>
-            <span className="text-sm font-bold border-b border-dotted border-accent-primary cursor-help">
-                {children}
-            </span>
+            <span className="text-sm font-bold border-b border-dotted border-accent cursor-help">{children}</span>
         </Tooltip>
     )
 }

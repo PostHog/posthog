@@ -7,6 +7,7 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     calculateViewportRange,
@@ -15,8 +16,10 @@ import {
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
+import { isValidRegexPattern } from 'lib/utils/regexp'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
+import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -30,6 +33,14 @@ export type HeatmapsBrowserLogicProps = {
 export interface IFrameBanner {
     level: LemonBannerProps['type']
     message: string | JSX.Element
+}
+
+export interface ReplayIframeData {
+    html: string
+    width: number // NB this should be meta width
+    height: number // NB this should be meta height
+    startDateTime: string | undefined
+    url: string | undefined
 }
 
 // team id is always available on window
@@ -46,7 +57,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 type: AuthorizedUrlListType.TOOLBAR_URLS,
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
+            heatmapDataLogic,
+            ['heatmapEmpty'],
         ],
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref']],
     }),
 
     actions({
@@ -71,6 +85,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
         startTrackingLoading: true,
         stopTrackingLoading: true,
+        setReplayIframeData: (replayIframeData: ReplayIframeData | null) => ({ replayIframeData }),
+        setReplayIframeDataURL: (url: string | null) => ({ url }),
     }),
 
     loaders(({ values }) => ({
@@ -128,6 +144,25 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     reducers({
+        hasValidReplayIframeData: [
+            false,
+            {
+                setReplayIframeData: (_, { replayIframeData }) =>
+                    !!replayIframeData?.url?.trim().length && !!replayIframeData?.html.trim().length,
+            },
+        ],
+        replayIframeData: [
+            null as ReplayIframeData | null,
+            {
+                setReplayIframeData: (_, { replayIframeData }) => replayIframeData,
+                setReplayIframeDataURL: (state, { url }) => {
+                    if (state === null) {
+                        return null
+                    }
+                    return { ...state, url } as ReplayIframeData
+                },
+            },
+        ],
         filterPanelCollapsed: [
             false as boolean,
             { persist: true },
@@ -215,6 +250,28 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             },
         ],
 
+        isBrowserUrlValid: [
+            (s) => [s.browserUrl],
+            (browserUrl) => {
+                if (!browserUrl) {
+                    // an empty browserUrl is valid
+                    // since we just won't do anything with it
+                    return true
+                }
+
+                try {
+                    // must be something that can be parsed as a URL
+                    new URL(browserUrl)
+                    // and must be a valid URL that our redirects can cope with
+                    // this is a very loose check, but `http:/blaj` is not valid for PostHog
+                    // but survives new URL(http:/blaj)
+                    return browserUrl.includes('://')
+                } catch (e) {
+                    return false
+                }
+            },
+        ],
+
         viewportRange: [
             (s) => [s.heatmapFilters, s.iframeWidth],
             (heatmapFilters, iframeWidth) => {
@@ -229,6 +286,16 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     }),
 
     listeners(({ actions, cache, props, values }) => ({
+        setReplayIframeData: ({ replayIframeData }) => {
+            if (replayIframeData && replayIframeData.url) {
+                // we don't want to use the toolbar fetch or the iframe message approach
+                actions.setFetchFn('native')
+                actions.setHref(replayIframeData.url, isValidRegexPattern(replayIframeData.url) ? 'regex' : 'exact')
+            } else {
+                removeReplayIframeDataFromLocalStorage()
+            }
+        },
+
         setBrowserSearch: async (_, breakpoint) => {
             await breakpoint(200)
             actions.loadBrowserSearchResults()
@@ -265,6 +332,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         onIframeLoad: () => {
+            // if we've got valid replay iframe data we don't want to init and communicate with the embedded toolbar
+            // TODO this seems not fire with srcdoc
+            if (values.hasValidReplayIframeData) {
+                actions.loadHeatmap()
+                return
+            }
             // we get this callback whether the iframe loaded successfully or not
             // and don't get a signal if the load was successful, so we have to check
             // but there's no slam dunk way to do that
@@ -344,6 +417,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
         },
 
+        setReplayIframeDataURL: async ({ url }, breakpoint) => {
+            await breakpoint(150)
+            if (url?.trim().length) {
+                // we don't want to use the toolbar fetch or the iframe message approach
+                actions.setFetchFn('native')
+                actions.setHref(url, isValidRegexPattern(url) ? 'regex' : 'exact')
+            }
+        },
+
         setBrowserUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
             if (url?.trim().length) {
@@ -400,6 +482,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
             if (searchParams.commonFilters && !objectsEqual(searchParams.commonFilters, values.commonFilters)) {
                 actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
+            }
+            if (searchParams.iframeStorage) {
+                const replayFrameData = JSON.parse(
+                    localStorage.getItem(searchParams.iframeStorage) || '{}'
+                ) as ReplayIframeData
+                actions.setReplayIframeData(replayFrameData)
             }
         },
     })),

@@ -2,7 +2,16 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import { BasePerson, Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
+import {
+    BasePerson,
+    Hub,
+    InternalPerson,
+    Person,
+    PropertyOperator,
+    PropertyUpdateOperation,
+    RawAction,
+    Team,
+} from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -12,7 +21,7 @@ import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 describe('DB', () => {
     let hub: Hub
@@ -256,7 +265,7 @@ describe('DB', () => {
         })
     })
 
-    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
+    async function fetchPersonByPersonId(teamId: number, personId: InternalPerson['id']): Promise<Person | undefined> {
         const selectResult = await db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
@@ -490,7 +499,7 @@ describe('DB', () => {
             expect(person).toEqual(createdPerson)
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: uuid.toString(),
                     properties: { foo: 'bar' },
                     is_identified: true,

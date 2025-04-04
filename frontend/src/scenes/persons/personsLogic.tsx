@@ -281,10 +281,6 @@ export const personsLogic = kea<personsLogicType>([
             ],
         ],
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
-        showCustomerSuccessDashboards: [
-            (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.CS_DASHBOARDS],
-        ],
         feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.PERSON_FEED_CANVAS]],
         primaryDistinctId: [
             (s) => [s.person],

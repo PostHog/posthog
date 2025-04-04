@@ -1,15 +1,21 @@
 import dataclasses
+import typing as t
 
 from django.db import close_old_connections
 from temporalio import activity
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
-
-from posthog.warehouse.models import sync_old_schemas_with_new_schemas, ExternalDataSource
+from posthog.temporal.data_imports.pipelines.bigquery import get_schemas as get_bigquery_schemas
+from posthog.temporal.data_imports.pipelines.schemas import (
+    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
+)
+from posthog.warehouse.models import (
+    ExternalDataSource,
+    sync_old_schemas_with_new_schemas,
+)
 from posthog.warehouse.models.external_data_schema import (
-    get_sql_schemas_for_source_type,
     get_snowflake_schemas,
+    get_sql_schemas_for_source_type,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -18,6 +24,13 @@ from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 class SyncNewSchemasActivityInputs:
     source_id: str
     team_id: int
+
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "source_id": self.source_id,
+            "team_id": self.team_id,
+        }
 
 
 @activity.defn
@@ -111,6 +124,28 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         )
 
         schemas_to_sync = list(sql_schemas.keys())
+    elif source.source_type == ExternalDataSource.Type.BIGQUERY:
+        if not source.job_inputs:
+            return
+
+        dataset_id = source.job_inputs.get("dataset_id")
+        project_id = source.job_inputs.get("project_id")
+        private_key = source.job_inputs.get("private_key")
+        private_key_id = source.job_inputs.get("private_key_id")
+        client_email = source.job_inputs.get("client_email")
+        token_uri = source.job_inputs.get("token_uri")
+
+        bq_schemas = get_bigquery_schemas(
+            dataset_id=dataset_id,
+            project_id=project_id,
+            private_key=private_key,
+            private_key_id=private_key_id,
+            client_email=client_email,
+            token_uri=token_uri,
+            logger=logger,
+        )
+
+        schemas_to_sync = list(bq_schemas.keys())
     else:
         schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source.source_type, ()))
 

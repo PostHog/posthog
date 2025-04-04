@@ -178,8 +178,8 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         ingester.partitionMetrics[1] = { lastMessageTimestamp: 1000000, offsetLag: 0 }
 
         expect(Object.keys(ingester.sessions).length).toBe(2)
-        expect(ingester.sessions['2-sid1-throw']).toBeDefined()
-        expect(ingester.sessions['2-sid2']).toBeDefined()
+        expect(ingester.sessions['2-sid1-throw']).toBeTruthy()
+        expect(ingester.sessions['2-sid2']).toBeTruthy()
 
         await expect(() => ingester.flushAllReadySessions(noop)).rejects.toThrow(
             'Failed to flush sessions. With 1 errors out of 2 sessions.'
@@ -237,7 +237,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             await ingester.consume(event)
             await waitForExpect(() => {
                 expect(Object.keys(ingester.sessions).length).toBe(1)
-                expect(ingester.sessions['1-session_id_1']).toBeDefined()
+                expect(ingester.sessions['1-session_id_1']).toBeTruthy()
             })
         })
 
@@ -246,13 +246,13 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_2' }))
 
             expect(Object.keys(ingester.sessions).length).toBe(2)
-            expect(ingester.sessions['2-session_id_1']).toBeDefined()
-            expect(ingester.sessions['2-session_id_2']).toBeDefined()
+            expect(ingester.sessions['2-session_id_1']).toBeTruthy()
+            expect(ingester.sessions['2-session_id_2']).toBeTruthy()
 
             await ingester.destroySessions([['2-session_id_1', ingester.sessions['2-session_id_1']]])
 
             expect(Object.keys(ingester.sessions).length).toBe(1)
-            expect(ingester.sessions['2-session_id_2']).toBeDefined()
+            expect(ingester.sessions['2-session_id_2']).toBeTruthy()
         })
 
         it('handles multiple incoming sessions', async () => {
@@ -262,8 +262,8 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             })
             await Promise.all([ingester.consume(event), ingester.consume(event2)])
             expect(Object.keys(ingester.sessions).length).toBe(2)
-            expect(ingester.sessions['1-session_id_1']).toBeDefined()
-            expect(ingester.sessions['1-session_id_2']).toBeDefined()
+            expect(ingester.sessions['1-session_id_1']).toBeTruthy()
+            expect(ingester.sessions['1-session_id_2']).toBeTruthy()
         })
 
         // This test is flaky and no-one has time to look into it https://posthog.slack.com/archives/C0460HY55M0/p1696437876690329
@@ -273,7 +273,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 session_id: sessionId,
             })
             await ingester.consume(event)
-            expect(ingester.sessions[`1-${sessionId}`]).toBeDefined()
+            expect(ingester.sessions[`1-${sessionId}`]).toBeTruthy()
             // Force the flush
             ingester.partitionMetrics[event.metadata.partition] = {
                 lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
@@ -282,7 +282,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             await ingester.flushAllReadySessions(noop)
 
             await waitForExpect(() => {
-                expect(ingester.sessions[`1-${sessionId}`]).not.toBeDefined()
+                expect(ingester.sessions[`1-${sessionId}`]).not.toBeTruthy()
             }, 10000)
         })
 

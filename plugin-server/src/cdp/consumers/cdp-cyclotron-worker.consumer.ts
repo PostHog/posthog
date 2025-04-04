@@ -1,7 +1,7 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
 import { Counter, Gauge } from 'prom-client'
 
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -66,13 +66,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
                 const id = item.invocation.id
                 if (item.error) {
-                    status.debug('⚡️', 'Updating job to failed', id)
+                    logger.debug('⚡️', 'Updating job to failed', id)
                     this.cyclotronWorker?.updateJob(id, 'failed')
                 } else if (item.finished) {
-                    status.debug('⚡️', 'Updating job to completed', id)
+                    logger.debug('⚡️', 'Updating job to completed', id)
                     this.cyclotronWorker?.updateJob(id, 'completed')
                 } else {
-                    status.debug('⚡️', 'Updating job to available', id)
+                    logger.debug('⚡️', 'Updating job to available', id)
 
                     const updates = invocationToCyclotronJobUpdate(item.invocation)
 
@@ -104,19 +104,16 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             hogFunctionIds.push(job.functionId)
         }
 
-        if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
-            const hogFunctions = await this.hogFunctionManagerLazy.getHogFunctions(hogFunctionIds)
-            status.info('🧐', `Lazy loaded ${Object.keys(hogFunctions).length} hog functions`)
-        }
+        const hogFunctions = await this.hogFunctionManager.getHogFunctions(hogFunctionIds)
 
         for (const job of jobs) {
             // NOTE: This is all a bit messy and might be better to refactor into a helper
-            const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId!)
+            const hogFunction = hogFunctions[job.functionId!]
 
             if (!hogFunction) {
                 // Here we need to mark the job as failed
 
-                status.error('⚠️', 'Error finding hog function', {
+                logger.error('⚠️', 'Error finding hog function', {
                     id: job.functionId,
                 })
                 this.cyclotronWorker.updateJob(job.id, 'failed')
@@ -137,7 +134,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await super.start()
 
         this.cyclotronWorker = new CyclotronWorker({
-            pool: { dbUrl: this.hub.CYCLOTRON_DATABASE_URL },
+            pool: {
+                dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+                shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+            },
             queueName: this.queue,
             includeVmState: true,
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,

@@ -2,7 +2,7 @@ import { Assignment } from 'node-rdkafka'
 
 import { countPartitionsPerTopic } from '../../../src/kafka/consumer'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 jest.setTimeout(70000) // 60 sec timeout
 
 describe('countPartitionsPerTopic', () => {

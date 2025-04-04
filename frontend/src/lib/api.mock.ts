@@ -111,6 +111,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         dataWarehouseTables: [
             {
                 tableName: 'mock_table',
+                distinctIdColumn: 'distinct_id',
                 timestampColumn: 'timestamp',
                 revenueColumn: 'revenue',
                 revenueCurrencyColumn: { static: CurrencyCode.SCR },
@@ -336,5 +337,11 @@ export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
             '#30d5c8',
         ],
         is_global: true,
+    },
+    {
+        id: 2,
+        name: 'Custom Theme',
+        colors: ['#00ffff', '#ff00ff', '#ffff00'],
+        is_global: false,
     },
 ]

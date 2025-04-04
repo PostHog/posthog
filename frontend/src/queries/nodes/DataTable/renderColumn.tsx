@@ -27,6 +27,7 @@ import { QueryContext } from '~/queries/types'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
     isPersonsNode,
     isRevenueExampleEventsQuery,
@@ -274,12 +275,25 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--accent-primary)' }}
+                iconStyle={{ color: 'var(--accent)' }}
                 description="person id"
             >
                 {String(value)}
             </CopyToClipboardInline>
         )
+    } else if (key === 'key' && isGroupsQuery(query.source)) {
+        return (
+            <CopyToClipboardInline
+                explicitValue={String(value)}
+                iconStyle={{ color: 'var(--accent)' }}
+                description="group id"
+            >
+                {String(value)}
+            </CopyToClipboardInline>
+        )
+    } else if (key === 'group_name' && isGroupsQuery(query.source)) {
+        const key = (record as any[])[1] // 'key' is the second column in the groups query
+        return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
     }
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

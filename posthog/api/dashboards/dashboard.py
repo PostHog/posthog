@@ -14,6 +14,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.api.dashboards.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -150,6 +151,8 @@ class DashboardSerializer(DashboardBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
+    breakdown_colors = serializers.JSONField(required=False)
+    data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
 
     class Meta:
         model = Dashboard
@@ -168,6 +171,8 @@ class DashboardSerializer(DashboardBasicSerializer):
             "delete_insights",
             "filters",
             "variables",
+            "breakdown_colors",
+            "data_color_theme_id",
             "tags",
             "tiles",
             "restriction_level",
@@ -322,6 +327,12 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
+            group_type_mapping = GroupTypeMapping.objects.filter(
+                team=instance.team, project_id=instance.team.project_id, detail_dashboard=instance
+            ).first()
+            if group_type_mapping:
+                group_type_mapping.detail_dashboard = None
+                group_type_mapping.save()
 
         request_filters = initial_data.get("filters")
         if request_filters:

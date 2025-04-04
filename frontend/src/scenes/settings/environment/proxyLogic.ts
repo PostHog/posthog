@@ -91,6 +91,7 @@ export const proxyLogic = kea<proxyLogicType>([
             }),
             submit: ({ domain }) => {
                 actions.createRecord({ domain })
+                actions.resetCreateRecord()
             },
         },
     })),

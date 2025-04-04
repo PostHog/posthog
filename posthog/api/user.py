@@ -5,7 +5,7 @@ import time
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any, Optional, cast
 
 import jwt
@@ -170,7 +170,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         expires_at_time = get_impersonated_session_expires_at(self.context["request"])
 
-        return expires_at_time.replace(tzinfo=timezone.utc).isoformat() if expires_at_time else None
+        return expires_at_time.replace(tzinfo=UTC).isoformat() if expires_at_time else None
 
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:
@@ -187,7 +187,7 @@ class UserSerializer(serializers.ModelSerializer):
             seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE
         )
 
-        return session_expiry_time.replace(tzinfo=timezone.utc).isoformat()
+        return session_expiry_time.replace(tzinfo=UTC).isoformat()
 
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
