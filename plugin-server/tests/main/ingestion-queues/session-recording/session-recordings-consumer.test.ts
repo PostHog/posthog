@@ -4,8 +4,6 @@ import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
-import { fileSafeBase64 } from '~/src/main/ingestion-queues/session-recording/utils'
-
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
@@ -585,17 +583,13 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                     noop
                 )
 
-                const sid1 = fileSafeBase64('sid1')
-                const sid2 = fileSafeBase64('sid2')
-                const sid3 = fileSafeBase64('sid3')
-
                 expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
-                    expect.stringContaining(`${team.id}.${sid1}.`), // gz
-                    expect.stringContaining(`${team.id}.${sid1}.`), // json
-                    expect.stringContaining(`${team.id}.${sid2}.`), // gz
-                    expect.stringContaining(`${team.id}.${sid2}.`), // json
-                    expect.stringContaining(`${team.id}.${sid3}.`), // gz
-                    expect.stringContaining(`${team.id}.${sid3}.`), // json
+                    expect.stringContaining(`${team.id}.sid1.`), // gz
+                    expect.stringContaining(`${team.id}.sid1.`), // json
+                    expect.stringContaining(`${team.id}.sid2.`), // gz
+                    expect.stringContaining(`${team.id}.sid2.`), // json
+                    expect.stringContaining(`${team.id}.sid3.`), // gz
+                    expect.stringContaining(`${team.id}.sid3.`), // json
                 ])
 
                 const revokePromise = ingester.onRevokePartitions([createTP(1, consumedTopic)])
@@ -606,8 +600,8 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
                 // Only files left on the system should be the sid3 ones
                 expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
-                    expect.stringContaining(`${team.id}.${sid3}.`), // gz
-                    expect.stringContaining(`${team.id}.${sid3}.`), // json
+                    expect.stringContaining(`${team.id}.sid3.`), // gz
+                    expect.stringContaining(`${team.id}.sid3.`), // json
                 ])
 
                 expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
