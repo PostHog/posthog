@@ -40,7 +40,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/accounts",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -75,7 +75,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/balance_transactions",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -110,7 +110,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/charges",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -144,7 +144,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/customers",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -178,7 +178,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "collection_method": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -214,7 +214,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "active": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -251,7 +251,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "active": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -286,7 +286,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "collection_method": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
