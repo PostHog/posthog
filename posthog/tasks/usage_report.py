@@ -357,6 +357,87 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def _execute_split_query(
+    begin: datetime, end: datetime, query_template: str, params: dict, num_splits: int = 2, combine_results_func=None
+) -> Any:
+    """
+    Helper function to execute a query split into multiple parts to reduce load.
+    Splits the time period into num_splits parts and runs separate queries, then combines the results.
+
+    Args:
+        begin: Start of the time period
+        end: End of the time period
+        query_template: SQL query template with %(begin)s and %(end)s placeholders
+        params: Additional parameters for the query
+        num_splits: Number of time splits to make (default: 2)
+        combine_results_func: Optional function to combine results from multiple queries
+                             If None, uses the default team_id count combiner
+
+    Returns:
+        Combined query results
+    """
+    # Calculate the time interval for each split
+    time_delta = (end - begin) / num_splits
+
+    all_results = []
+
+    # Execute query for each time split
+    for i in range(num_splits):
+        split_begin = begin + (time_delta * i)
+        split_end = begin + (time_delta * (i + 1))
+
+        # For the last split, use the exact end time to avoid rounding issues
+        if i == num_splits - 1:
+            split_end = end
+
+        # Create a copy of params and update with the split time range
+        split_params = params.copy()
+        split_params["begin"] = split_begin
+        split_params["end"] = split_end
+
+        # Execute the query for this time split
+        split_result = sync_execute(
+            query_template,
+            split_params,
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+        )
+
+        all_results.append(split_result)
+
+    # If no custom combine function is provided, use the default team_id count combiner
+    if combine_results_func is None:
+        return _combine_team_count_results(all_results)
+    else:
+        return combine_results_func(all_results)
+
+
+def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
+    """
+    Default function to combine results from multiple queries that return (team_id, count) tuples.
+
+    Args:
+        results_list: List of query results, each containing (team_id, count) tuples
+
+    Returns:
+        Combined list of (team_id, count) tuples
+    """
+    team_counts = {}
+
+    # Combine all results
+    for results in results_list:
+        for team_id, count in results:
+            if team_id in team_counts:
+                team_counts[team_id] += count
+            else:
+                team_counts[team_id] = count
+
+    # Convert back to the expected format
+    return list(team_counts.items())
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> list[tuple[int, int]]:
