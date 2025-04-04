@@ -51,41 +51,34 @@ class SessionSummaryPromptData:
         """
         if not raw_session_events or not raw_session_metadata:
             return
-        self.columns = [*raw_session_columns, "milliseconds_since_start", "event_id"]
+        self.columns = [*raw_session_columns, "event_id"]
         self.metadata = self._prepare_metadata(raw_session_metadata)
         simplified_events_mapping: dict[str, list[Any]] = {}
         # Pick indexes as we iterate over arrays
         window_id_index = get_column_index(self.columns, "$window_id")
         current_url_index = get_column_index(self.columns, "$current_url")
         timestamp_index = get_column_index(self.columns, "timestamp")
-        ms_since_start_index = len(self.columns) - 2
         event_id_index = len(self.columns) - 1
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
         for event in raw_session_events:
             # Copy the event to avoid mutating the original
-            simplified_event = [*list(event), None, None]
+            simplified_event = [*list(event), None]
+            # Stringify timestamp to avoid datetime objects in the prompt
+            if timestamp_index is not None:
+                simplified_event[timestamp_index] = event[timestamp_index].isoformat()
             # Simplify Window IDs
             if window_id_index is not None:
                 simplified_event[window_id_index] = self._simplify_window_id(event[window_id_index])
             # Simplify URLs
             if current_url_index is not None:
                 simplified_event[current_url_index] = self._simplify_url(event[current_url_index])
-            # Calculate time since start to jump to the right place in the player
-            if timestamp_index is not None:
-                simplified_event[ms_since_start_index] = self._calculate_time_since_start(
-                    event[timestamp_index], self.metadata.start_time
-                )
             # Generate a hex for each event to make sure we can identify repeated events, and identify the event
             event_id = self._get_deterministic_hex(simplified_event)
             if event_id in simplified_events_mapping:
                 # Skip repeated events
                 continue
             simplified_event[event_id_index] = event_id
-            # Remove timestamp as we don't need it anymore
-            del simplified_event[timestamp_index]
             simplified_events_mapping[event_id] = simplified_event
-        # Remove timestamp column (as we don't store timestamps)
-        del self.columns[timestamp_index]
         self.results = list(simplified_events_mapping.values())
         return simplified_events_mapping
 
@@ -95,8 +88,8 @@ class SessionSummaryPromptData:
             if ef not in raw_session_metadata:
                 continue
             del raw_session_metadata[ef]
-        start_time = self._prepare_datetime(raw_session_metadata.get("start_time"))
-        end_time = self._prepare_datetime(raw_session_metadata.get("end_time"))
+        start_time = prepare_datetime(raw_session_metadata.get("start_time"))
+        end_time = prepare_datetime(raw_session_metadata.get("end_time"))
         return SessionSummaryMetadata(
             active_seconds=raw_session_metadata.get("active_seconds"),
             inactive_seconds=raw_session_metadata.get("inactive_seconds"),
@@ -127,21 +120,6 @@ class SessionSummaryPromptData:
         return self.url_mapping[url]
 
     @staticmethod
-    def _prepare_datetime(raw_time: datetime | str | None) -> datetime | None:
-        if not raw_time:
-            return None
-        if isinstance(raw_time, str):
-            return datetime.fromisoformat(raw_time)
-        return raw_time
-
-    @staticmethod
-    def _calculate_time_since_start(session_timestamp: str, session_start_time: datetime | None) -> str:
-        if not session_start_time or not session_timestamp:
-            return None
-        timestamp_datetime = datetime.fromisoformat(session_timestamp)
-        return int((timestamp_datetime - session_start_time).total_seconds() * 1000)
-
-    @staticmethod
     def _get_deterministic_hex(event: list[Any], length: int = 8) -> str:
         """
         Generate a hex for each event to make sure we can identify repeated events.
@@ -158,6 +136,7 @@ class SessionSummaryPromptData:
         return hashlib.sha256(event_string.encode()).hexdigest()[:length]
 
 
+# TODO Move to utils
 def get_column_index(columns: list[str], column_name: str) -> int | None:
     for i, c in enumerate(columns):
         if c == column_name:
@@ -165,6 +144,16 @@ def get_column_index(columns: list[str], column_name: str) -> int | None:
     return None
 
 
+# TODO Move to utils
+def prepare_datetime(raw_time: datetime | str | None) -> datetime | None:
+    if not raw_time:
+        return None
+    if isinstance(raw_time, str):
+        return datetime.fromisoformat(raw_time)
+    return raw_time
+
+
+# TODO Move to utils
 def shorten_url(url: str, max_length: int = 256) -> str:
     """
     Shorten long URLs to a more readable length, trying to keep the context.

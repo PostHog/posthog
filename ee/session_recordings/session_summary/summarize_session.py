@@ -1,3 +1,6 @@
+from typing import Any
+
+import structlog
 from ee.session_recordings.ai.llm import get_raw_llm_session_summary
 from ee.session_recordings.ai.output_data import enrich_raw_session_summary_with_events_meta
 from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData, shorten_url
@@ -10,6 +13,10 @@ from posthog.models import User, Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from django.template.loader import get_template
 
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+logger = structlog.get_logger(__name__)
+
 
 class ReplaySummarizer:
     def __init__(self, recording: SessionRecording, user: User, team: Team):
@@ -18,31 +25,37 @@ class ReplaySummarizer:
         self.team = team
 
     @staticmethod
-    def _get_session_metadata(session_id: str, team: Team) -> dict:
-        # TODO: Uncomment after testing with production data
-        # session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
-        # if not session_metadata:
-        #     raise ValueError(f"no session metadata found for session_id {session_id}")
-        # Load session metadata from JSON to load with production data.
+    def _get_session_metadata(session_id: str, team: Team) -> dict[str, Any]:
+        # TODO: Switch to using it after testing with production data
+        live_session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
+        if not live_session_metadata:
+            raise ValueError(f"no session metadata found for session_id {session_id}")
+        # Convert to a dict, so that we can amend its values freely
+        live_session_metadata_dict = dict(live_session_metadata)
+        logger.debug(f"live_session_metadata: {live_session_metadata_dict}")
+
         # TODO: Remove before merging, using to test with production data
-        session_metadata = load_session_metadata_from_json(
+        # Load session metadata from JSON to load with production data.
+        session_metadata_dict = load_session_metadata_from_json(
             "/Users/woutut/Documents/Code/posthog/playground/single-session-metadata_0195f10e-7c84-7944-9ea2-0303a4b37af7.json"
         )
-        # Convert session_metadata to a dict, so that we can amend its values freely
-        session_metadata_dict = dict(session_metadata)
         return session_metadata_dict
 
     @staticmethod
-    def _get_session_events(session_id: str, team: Team) -> tuple[list[str], list[tuple[str | None, ...]]]:
-        # TODO: Uncomment after testing with production data
-        # session_events = SessionReplayEvents().get_events(
-        #     session_id=str(session_id),
-        #     team=team,
-        #     metadata=session_metadata,
-        #     events_to_ignore=[
-        #         "$feature_flag_called",
-        #     ],
-        # )
+    def _get_session_events(
+        session_id: str, session_metadata: dict, team: Team
+    ) -> tuple[list[str], list[tuple[str | None, ...]]]:
+        # TODO: Switch to using it after testing with production data
+        live_session_events = SessionReplayEvents().get_events(
+            session_id=str(session_id),
+            team=team,
+            metadata=session_metadata,
+            events_to_ignore=[
+                "$feature_flag_called",
+            ],
+        )
+        logger.debug(f"live_session_events: {live_session_events}")
+
         # Load session events from CSV to load with production data.
         # TODO: Remove before merging, using to test with production data
         session_events_columns, session_events = load_sesssion_recording_events_from_csv(
@@ -84,7 +97,9 @@ class ReplaySummarizer:
         with timer("get_metadata"):
             session_metadata = self._get_session_metadata(self.recording.session_id, self.team)
         with timer("get_events"):
-            session_events_columns, session_events = self._get_session_events(self.recording.session_id, self.team)
+            session_events_columns, session_events = self._get_session_events(
+                self.recording.session_id, session_metadata, self.team
+            )
         # TODO Get web analytics data on URLs to better understand what the user was doing
         # related to average visitors of the same pages (left the page too fast, unexpected bounce, etc.).
         # Keep in mind that in-app behavior (like querying insights a lot) differs from the web (visiting a lot of pages).
@@ -111,6 +126,7 @@ class ReplaySummarizer:
             simplified_events_columns=prompt_data.columns,
             url_mapping_reversed=url_mapping_reversed,
             window_mapping_reversed=window_mapping_reversed,
+            session_start_time=prompt_data.metadata.start_time,
             session_id=self.recording.session_id,
         )
         # TODO Make the output streamable (the main reason behing using YAML

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 from rest_framework import serializers
 from openai.types.chat.chat_completion import ChatCompletion
@@ -30,7 +31,8 @@ class KeyEventSerializer(BaseKeyEventSerializer):
     LLM events enriched with metadata.
     """
 
-    milliseconds_since_start = serializers.IntegerField()
+    timestamp = serializers.CharField(max_length=128)
+    milliseconds_since_start = serializers.IntegerField(min_value=0)
     window_id = serializers.CharField(max_length=128, required=False, allow_null=True)
     current_url = serializers.CharField(min_length=1)
     event = serializers.CharField(min_length=1, max_length=128)
@@ -88,42 +90,59 @@ def load_raw_session_summary_from_llm_content(
     return raw_session_summary
 
 
+def _calculate_time_since_start(session_timestamp: str, session_start_time: datetime | None) -> int | None:
+    if not session_start_time or not session_timestamp:
+        return None
+    timestamp_datetime = datetime.fromisoformat(session_timestamp)
+    return int((timestamp_datetime - session_start_time).total_seconds() * 1000)
+
+
 def enrich_raw_session_summary_with_events_meta(
     raw_session_summary: RawSessionSummarySerializer,
     simplified_events_mapping: dict[str, list[Any]],
     simplified_events_columns: list[str],
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
+    session_start_time: datetime | None,
     session_id: str,
 ) -> SessionSummarySerializer:
-    ms_since_start_index = get_column_index(simplified_events_columns, "milliseconds_since_start")
+    timestamp_index = get_column_index(simplified_events_columns, "timestamp")
     window_id_index = get_column_index(simplified_events_columns, "$window_id")
     current_url_index = get_column_index(simplified_events_columns, "$current_url")
     event_index = get_column_index(simplified_events_columns, "event")
     event_type_index = get_column_index(simplified_events_columns, "$event_type")
     enriched_key_events = []
-    # TODO Check that LLM returns events in the chronological order (include timestamp, maybe?)
+    # Enrich LLM events with metadata
     for key_event in raw_session_summary.data["key_events"]:
         event_id = key_event["event_id"]
         enriched_key_event = dict(key_event)
-        enriched_key_event["milliseconds_since_start"] = simplified_events_mapping[event_id][ms_since_start_index]
         enriched_key_event["event"] = simplified_events_mapping[event_id][event_index]
-        # Avoid adding blank/null values as they don't add any information
+        # Calculate time to jump to the right place in the player
+        timestamp = simplified_events_mapping[event_id][timestamp_index]
+        enriched_key_event["timestamp"] = timestamp
+        ms_since_start = _calculate_time_since_start(timestamp, session_start_time)
+        if ms_since_start:
+            enriched_key_event["milliseconds_since_start"] = ms_since_start
+        # Add full URL of the event page
         current_url = simplified_events_mapping[event_id][current_url_index]
         full_current_url = current_url and url_mapping_reversed.get(current_url)
         if full_current_url:
             enriched_key_event["current_url"] = full_current_url
+        # Add window ID of the event
         window_id = simplified_events_mapping[event_id][window_id_index]
         full_window_id = window_id and window_mapping_reversed.get(window_id)
         if full_window_id:
             enriched_key_event["window_id"] = full_window_id
+        # Add event type (if applicable)
         event_type = simplified_events_mapping[event_id][event_type_index]
         if event_type:
             enriched_key_event["event_type"] = event_type
         enriched_key_events.append(enriched_key_event)
+    # Ensure chronolical order of the events
+    enriched_key_events.sort(key=lambda x: x["milliseconds_since_start"])
+    # Validate the enriched content against the schema
     summary_to_enrich = dict(raw_session_summary.data)
     summary_to_enrich["key_events"] = enriched_key_events
-    # Validate the enriched content against the schema
     session_summary = SessionSummarySerializer(data=summary_to_enrich)
     if not session_summary.is_valid():
         raise ValueError(
