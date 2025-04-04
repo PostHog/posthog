@@ -1,4 +1,6 @@
 from typing import Any
+import requests
+from urllib.parse import urlparse
 
 from django.utils import timezone
 from rest_framework import response, serializers, status
@@ -11,6 +13,91 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership
 from posthog.cloud_utils import get_cached_instance_license
 from ee.billing.billing_manager import BillingManager
+
+
+# Match the same list used in frontend/src/scenes/startups/startupProgramLogic.ts
+PUBLIC_EMAIL_DOMAINS = [
+    "gmail.com",
+    "yahoo.com",
+    "hotmail.com",
+    "outlook.com",
+    "aol.com",
+    "protonmail.com",
+    "icloud.com",
+    "mail.com",
+    "zoho.com",
+    "yandex.com",
+    "gmx.com",
+    "live.com",
+    "mail.ru",
+]
+
+
+def extract_domain(url: str) -> str:
+    """Extract domain from URL, removing 'www.' prefix."""
+    try:
+        if not url.startswith(("http://", "https://")):
+            url = f"https://{url}"
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc
+        return domain.replace("www.", "")
+    except Exception:
+        return url.replace("www.", "")
+
+
+def verify_yc_batch_membership(yc_batch: str, organization_name: str, user_email: str) -> bool:
+    """
+    Verify if a company is part of the specified YC batch by checking against the YC API.
+
+    Args:
+        yc_batch: The YC batch code (e.g., 'W22', 'S23')
+        organization_name: The name of the organization to check
+        user_email: User email to check domain match
+
+    Returns:
+        bool: True if the company is verified in the batch, False otherwise
+    """
+    if not yc_batch or yc_batch == "Earlier":
+        return False
+
+    try:
+        url = f"https://yc-oss.github.io/api/batches/{yc_batch.lower()}.json"
+        response = requests.get(url, timeout=5)  # 5 second timeout
+
+        if not response.ok:
+            return False
+
+        companies = response.json()
+
+        normalized_org_name = organization_name.lower().strip()
+
+        email_domain = None
+        if user_email and "@" in user_email:
+            email_domain = user_email.split("@")[1].lower()
+            if email_domain in PUBLIC_EMAIL_DOMAINS:
+                email_domain = None
+
+        # Check if the company is in the batch
+        for company in companies:
+            if not company.get("name") and not company.get("website"):
+                continue
+
+            company_name = company.get("name", "").lower().strip()
+
+            company_domain = None
+            if company.get("website"):
+                company_domain = extract_domain(company.get("website", ""))
+
+            name_match = company_name == normalized_org_name
+            domain_match = email_domain and company_domain and email_domain == company_domain
+
+            if name_match or domain_match:
+                return True
+
+        return False
+    except Exception:
+        # If any error occurs, default to requiring manual verification
+        return False
 
 
 def check_organization_eligibility(organization_id: str, user: Any) -> str:
@@ -94,10 +181,23 @@ class StartupApplicationSerializer(serializers.Serializer):
             data.pop("yc_merch_count", None)
 
         elif program == "yc":
+            verified = False
+
             if not data.get("yc_batch"):
                 errors["yc_batch"] = "YC batch is required for YC applications"
-            if not data.get("yc_proof_screenshot_url"):
-                errors["yc_proof_screenshot_url"] = "Screenshot proof is required for YC applications"
+            else:
+                organization = Organization.objects.get(id=data["organization_id"])
+                user = self.context["request"].user
+                verified = verify_yc_batch_membership(
+                    yc_batch=data["yc_batch"], organization_name=organization.name, user_email=user.email
+                )
+
+                if not verified and not data.get("yc_proof_screenshot_url"):
+                    errors["yc_proof_screenshot_url"] = (
+                        "Screenshot proof is required for YC applications that cannot be automatically verified"
+                    )
+
+            data["yc_verified_automatically"] = verified
 
             # Remove startup fields for YC program
             data.pop("raised", None)
