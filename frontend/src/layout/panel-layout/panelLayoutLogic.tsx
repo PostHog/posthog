@@ -43,26 +43,18 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 mobileLayout: () => true,
             },
         ],
-        isLayoutPanelVisibleForDesktop: [
-            false,
-            { persist: true },
-            {
-                showLayoutPanel: (_, { visible }) => visible,
-                mobileLayout: () => false,
-            },
-        ],
-        isLayoutPanelVisibleForMobile: [
-            false,
-            {
-                showLayoutPanel: (_, { visible }) => visible,
-                mobileLayout: () => true,
-            },
-        ],
         isLayoutPanelCloseable: [
             true,
             {
                 showLayoutPanel: () => true,
                 toggleLayoutPanelPinned: () => false,
+            },
+        ],
+        isLayoutNavbarVisible: [
+            false,
+            { persist: true },
+            {
+                showLayoutNavBar: (_, { visible }) => visible,
             },
         ],
         isLayoutPanelVisible: [
