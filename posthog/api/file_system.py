@@ -172,7 +172,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         if instance.type == "folder":
-            if new_path.startswith(instance.path):
+            if new_path == instance.path:
                 return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():

@@ -801,7 +801,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         moveItem: async ({ oldPath, newPath, force }) => {
-            if (newPath.startsWith(oldPath + '/')) {
+            if (newPath === oldPath) {
                 lemonToast.error('Cannot move folder into itself')
                 return
             }
