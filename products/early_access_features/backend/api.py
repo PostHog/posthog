@@ -271,9 +271,7 @@ def early_access_features(request: Request):
         )
 
     early_access_features = MinimalEarlyAccessFeatureSerializer(
-        EarlyAccessFeature.objects.filter(team__project_id=team.project_id, stage__in=stages).select_related(
-            "feature_flag"
-        ),
+        EarlyAccessFeature.objects.filter(team_id=team.id, stage__in=stages).select_related("feature_flag"),
         many=True,
     ).data
 
