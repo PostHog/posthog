@@ -603,7 +603,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
         metadata = request.data.get("metadata", {})
-        context = request.data.get("intent_context")
+        context = request.data.get("intent_context", "unknown")
 
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
