@@ -200,27 +200,27 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Automatically captured web vitals data",
         },
         "$ai_generation": {
-            "label": "AI generation",
+            "label": "AI generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
         },
         "$ai_metric": {
-            "label": "AI metric",
+            "label": "AI metric (LLM)",
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
         },
         "$ai_feedback": {
-            "label": "AI feedback",
+            "label": "AI feedback (LLM)",
             "description": "User-provided feedback for a trace of a generative AI model (LLM).",
         },
         "$ai_trace": {
-            "label": "AI trace",
+            "label": "AI trace (LLM)",
             "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls.",
         },
         "$ai_span": {
-            "label": "AI span",
+            "label": "AI span (LLM)",
             "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs).",
         },
         "$ai_embedding": {
-            "label": "AI embedding",
+            "label": "AI embedding (LLM)",
             "description": "A call to an embedding model.",
         },
         "Application Opened": {
