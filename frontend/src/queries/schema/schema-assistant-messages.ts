@@ -40,6 +40,8 @@ export interface AssistantToolCall {
     id: string
     name: string
     args: Record<string, unknown>
+    /** @default "tool_call" */
+    type: 'tool_call'
 }
 
 export interface AssistantMessage extends BaseAssistantMessage {
