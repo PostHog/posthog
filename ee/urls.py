@@ -27,12 +27,10 @@ from .api.rbac import organization_resource_access, role
 
 def extend_api_router() -> None:
     from posthog.api import (
-        environment_dashboards_router,
-        environments_router,
         legacy_project_dashboards_router,
         organizations_router,
         project_feature_flags_router,
-        register_grandfathered_environment_nested_viewset,
+        projects_router,
         router as root_router,
     )
 
@@ -65,38 +63,24 @@ def extend_api_router() -> None:
         ["organization_id"],
     )
     # End: routes to be deprecated
-    register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
-    register_grandfathered_environment_nested_viewset(
+    projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
+    projects_router.register(
         r"explicit_members",
         explicit_team_member.ExplicitTeamMemberViewSet,
-        "environment_explicit_members",
+        "project_explicit_members",
         ["team_id"],
     )
 
-    environment_dashboards_router.register(
-        r"collaborators",
-        dashboard_collaborator.DashboardCollaboratorViewSet,
-        "environment_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
-    )
     legacy_project_dashboards_router.register(
         r"collaborators",
         dashboard_collaborator.DashboardCollaboratorViewSet,
         "project_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
+        ["team_id", "dashboard_id"],
     )
 
-    register_grandfathered_environment_nested_viewset(
-        r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
-    )
-
-    environments_router.register(
-        r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
-    )
-
-    environments_router.register(
-        r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
-    )
+    projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "project_subscriptions", ["team_id"])
+    projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])
+    projects_router.register(r"core_memory", core_memory.MaxCoreMemoryViewSet, "project_core_memory", ["team_id"])
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe

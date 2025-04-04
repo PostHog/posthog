@@ -341,8 +341,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             parents_query_dict["team_id"] = self.team.root_team.id
 
         for source, destination in self.filter_rewrite_rules.items():
-            parents_query_dict[destination] = parents_query_dict[source]
-            del parents_query_dict[source]
+            # TODO: Can we make this more clear and repeatable?
+            if source == "root_team_id":
+                parents_query_dict[destination] = self.team.root_team.id
+                del parents_query_dict["team_id"]
+            else:
+                parents_query_dict[destination] = parents_query_dict[source]
+                del parents_query_dict[source]
 
         if "project_id" in parents_query_dict:
             # KLUDGE: This rewrite can be removed once the relevant models get that field directly

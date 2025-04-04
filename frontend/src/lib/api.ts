@@ -555,7 +555,7 @@ class ApiRequest {
 
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dashboards')
+        return this.projectsDetail(teamId).addPathComponent('dashboards')
     }
 
     public dashboardsDetail(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -564,9 +564,9 @@ class ApiRequest {
 
     public dashboardCollaborators(
         dashboardId: DashboardType['id'],
-        projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId() // Collaborators endpoint is project-level, not team-level
+        teamId: TeamType['id'] = ApiConfig.getCurrentTeamId() // Collaborators endpoint is project-level, not team-level
     ): ApiRequest {
-        return this.dashboardsDetail(dashboardId, projectId).addPathComponent('collaborators')
+        return this.dashboardsDetail(dashboardId, teamId).addPathComponent('collaborators')
     }
 
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
