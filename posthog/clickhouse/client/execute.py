@@ -160,6 +160,13 @@ def sync_execute(
         "query_id": query_id,
     }
 
+    if workload == Workload.OFFLINE:
+        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
+        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
+        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
+        # these disruptions
+        settings["use_hedged_requests"] = "0"
+
     try:
         with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
             result = client.execute(
