@@ -608,9 +608,6 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
-        if not context:
-            return response.Response({"error": "intent_context is required"}, status=400)
-
         if not isinstance(metadata, dict):
             return response.Response({"error": "'metadata' must be a dictionary"}, status=400)
 

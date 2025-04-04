@@ -4,7 +4,7 @@ from typing import Optional
 from celery import shared_task
 from django.db import models
 
-from ..error_tracking.error_tracking import ErrorTrackingIssue
+from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey
