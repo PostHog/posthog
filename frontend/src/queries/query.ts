@@ -3,8 +3,6 @@ import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { OnlineExportContext, QueryExportContext } from '~/types'
-
 import {
     DashboardFilter,
     DataNode,
@@ -15,7 +13,9 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
-} from './schema'
+} from '~/queries/schema/schema-general'
+import { OnlineExportContext, QueryExportContext } from '~/types'
+
 import {
     isAsyncResponse,
     isDataTableNode,
