@@ -130,6 +130,7 @@ export const RecordingsUniversalFilters = ({
                 <>
                     <LemonButton
                         type="secondary"
+                        size="small"
                         icon={<IconFilter />}
                         onClick={() => {
                             setIsFiltersExpanded(!isFiltersExpanded)
@@ -147,7 +148,12 @@ export const RecordingsUniversalFilters = ({
                             isFiltersExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
                         )}
                     >
-                        <div className={clsx('divide-y bg-surface-primary rounded-b w-full', className)}>
+                        <div
+                            className={clsx(
+                                'divide-y bg-surface-primary rounded-b w-full max-h-[300px] overflow-y-auto',
+                                className
+                            )}
+                        >
                             <div className="flex items-center py-2">
                                 <AndOrFilterSelect
                                     value={filters.filter_group.type}
@@ -226,51 +232,60 @@ export const RecordingsUniversalFilters = ({
                                 >
                                     <RecordingsUniversalFilterGroup size="xsmall" />
                                 </UniversalFilters>
+                                {!savedFilters.results?.find((filter) => filter.filters === filters) && (
+                                    <LemonButton type="secondary" size="xsmall" onClick={() => {}}>
+                                        Save filters
+                                    </LemonButton>
+                                )}
+                            </div>
+                            <div className="flex justify-between p-2">
+                                <LemonSelect
+                                    options={savedFilters.results?.map((filter) => {
+                                        const counter = filter.recordings_counts?.saved_filters?.count ?? 0
+                                        const label = filter.name ? filter.name : 'Unnamed'
+                                        const badgeContent = counter === 1 ? '1 recording' : `${counter} recordings`
+                                        return {
+                                            label: (
+                                                <div className="flex items-center gap-2">
+                                                    {label}
+                                                    {counter > 0 && <LemonBadge content={badgeContent} />}
+                                                </div>
+                                            ),
+                                            value: filter.short_id,
+                                        }
+                                    })}
+                                    type="secondary"
+                                    size="xsmall"
+                                    disabledReason={savedFiltersLoading ? 'Loading...' : undefined}
+                                    placeholder={`Apply saved filter ${
+                                        savedFilters.results?.length > 0 ? `(${savedFilters.results?.length})` : ''
+                                    }`}
+                                    onChange={(value) => {
+                                        const filter = savedFilters.results.find((filter) => filter.short_id === value)
+                                        if (filter && filter.filters) {
+                                            setFilters(filter.filters)
+                                        }
+                                    }}
+                                />
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    onClick={resetFilters}
+                                    icon={<IconRevert />}
+                                    tooltip="Reset any changes you've made to the filters"
+                                    disabledReason={
+                                        !(resetFilters && (totalFiltersCount ?? 0) > 0)
+                                            ? 'No filters applied'
+                                            : undefined
+                                    }
+                                >
+                                    Reset filters
+                                </LemonButton>
                             </div>
                         </div>
                     </div>
                 </>
             </MaxTool>
-            <div className="flex justify-between mt-2">
-                <LemonSelect
-                    options={savedFilters.results?.map((filter) => {
-                        const counter = filter.recordings_counts?.saved_filters?.count ?? 0
-                        const label = filter.name ? filter.name : 'Unnamed'
-                        const badgeContent = counter === 1 ? '1 recording' : `${counter} recordings`
-                        return {
-                            label: (
-                                <div className="flex items-center gap-2">
-                                    {label}
-                                    {counter > 0 && <LemonBadge content={badgeContent} />}
-                                </div>
-                            ),
-                            value: filter.short_id,
-                        }
-                    })}
-                    type="secondary"
-                    size="xsmall"
-                    disabledReason={savedFiltersLoading ? 'Loading...' : undefined}
-                    placeholder={`Apply saved filter ${
-                        savedFilters.results?.length > 0 ? `(${savedFilters.results?.length})` : ''
-                    }`}
-                    onChange={(value) => {
-                        const filter = savedFilters.results.find((filter) => filter.short_id === value)
-                        if (filter && filter.filters) {
-                            setFilters(filter.filters)
-                        }
-                    }}
-                />
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    onClick={resetFilters}
-                    icon={<IconRevert />}
-                    tooltip="Reset any changes you've made to the filters"
-                    disabledReason={!(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined}
-                >
-                    Reset filters
-                </LemonButton>
-            </div>
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
