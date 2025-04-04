@@ -255,10 +255,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
                 deleteSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-                    return {
+                    const newState = {
                         ...state,
                         [folder]: state[folder].filter((item) => item.id !== savedItem.id),
                     }
+                    if (savedItem.type === 'folder') {
+                        for (const folder of Object.keys(newState)) {
+                            if (folder === savedItem.path || folder.startsWith(savedItem.path + '/')) {
+                                delete newState[folder]
+                            }
+                        }
+                    }
+                    return newState
                 },
                 movedItem: (state, { oldPath, newPath, item }) => {
                     const newState = { ...state }
