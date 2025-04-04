@@ -426,7 +426,3 @@ export const allSettledWithConcurrency = async <T, Q>(
         run()
     })
 }
-
-export const fileSafeBase64 = (str: string) => {
-    return Buffer.from(str, 'utf-8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_')
-}
