@@ -22,7 +22,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
     }
 
     return (
-        <div className="Popover Popover--padded Popover--appear-done Popover--enter-done my-4">
+        <div className="Popover Popover--padded Popover--appear-done Popover--enter-done my-4 max-w-2xl">
             <div className="Popover__box p-4">
                 {survey.questions.map((question: SurveyQuestion) => (
                     <div key={question.question} className="text-sm">
@@ -37,7 +37,6 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                             if (index === question.choices.length - 1 && question.hasOpenChoice) {
                                                 return (
                                                     <div className="mt-2" key={choice}>
-                                                        {choice}
                                                         <LemonTextArea
                                                             placeholder="Please share any additional comments or feedback"
                                                             onChange={setOpenChoice}

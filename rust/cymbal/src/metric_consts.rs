@@ -52,3 +52,4 @@ pub const EVENT_BATCH_SIZE: &str = "cymbal_event_batch_size";
 pub const HANDLE_BATCH_TIME: &str = "cymbal_handle_batch_time";
 pub const EVENTS_WRITTEN: &str = "cymbal_events_written";
 pub const EMIT_EVENTS_TIME: &str = "cymbal_emit_events_time";
+pub const GEOIP_PROCESSED: &str = "cymbal_geoip_processed";

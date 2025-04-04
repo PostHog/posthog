@@ -8,6 +8,7 @@ use common_types::ClickHouseEvent;
 use metrics::counter;
 use serde_json::Value;
 use tracing::{error, warn};
+use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
@@ -61,6 +62,7 @@ pub async fn do_exception_handling(
             .expect("no events have been dropped since indexed-property gathering")
             .team_id;
         for exception in props.exception_list.iter_mut() {
+            exception.exception_id = Some(Uuid::now_v7().to_string());
             let frames = match exception.stack.take() {
                 Some(Stacktrace::Raw { frames }) => {
                     if frames.is_empty() {

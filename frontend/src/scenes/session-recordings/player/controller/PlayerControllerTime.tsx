@@ -33,10 +33,10 @@ function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Ele
     )
     return size === 'small' ? (
         <Tooltip title={fullDisplay}>
-            <span>{current}</span>
+            <span className="text-muted text-xs">{current}</span>
         </Tooltip>
     ) : (
-        <span>{fullDisplay}</span>
+        <span className="text-muted text-xs">{fullDisplay}</span>
     )
 }
 
@@ -44,13 +44,22 @@ export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
     const { logicProps, currentTimestamp, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
+    const { setTimestampFormat } = useActions(playerSettingsLogic)
 
     const scrubbingTimestamp = sessionPlayerData.start?.valueOf()
         ? scrubbingTime + sessionPlayerData.start?.valueOf()
         : undefined
 
     return (
-        <div data-attr="recording-timestamp" className="text-center whitespace-nowrap font-mono text-xs">
+        <LemonButton
+            data-attr="recording-timestamp"
+            className="text-center whitespace-nowrap font-mono text-xs"
+            onClick={() => {
+                const values = Object.values(TimestampFormat)
+                const nextIndex = (values.indexOf(timestampFormat) + 1) % values.length
+                setTimestampFormat(values[nextIndex])
+            }}
+        >
             {timestampFormat === TimestampFormat.Relative ? (
                 <RelativeTimestampLabel size={size} />
             ) : (
@@ -60,7 +69,7 @@ export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
                     containerSize={size}
                 />
             )}
-        </div>
+        </LemonButton>
     )
 }
 

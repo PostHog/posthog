@@ -1056,6 +1056,7 @@ def snowflake_cursor(snowflake_config):
         warehouse=snowflake_config["warehouse"],
         private_key=private_key,
     ) as connection:
+        connection.telemetry_enabled = False
         cursor = connection.cursor()
         cursor.execute(f'CREATE DATABASE "{snowflake_config["database"]}"')
         cursor.execute(f'CREATE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
