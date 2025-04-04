@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api, { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -114,11 +114,6 @@ export const projectLogic = kea<projectLogicType>([
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
     }),
     listeners(({ actions }) => ({
-        loadCurrentProjectSuccess: ({ currentProject }) => {
-            if (currentProject) {
-                ApiConfig.setCurrentProjectId(currentProject.id)
-            }
-        },
         deleteProject: async ({ project }) => {
             try {
                 await api.delete(`api/projects/${project.id}`)
