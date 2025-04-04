@@ -358,29 +358,6 @@ def validate_rate_limit(value):
         )
 
 
-class TeamProjectMixin(models.Model):
-    """
-    A mixin that ensures project_id is set from team.project_id when saving if not explicitly set.
-    Used for models transitioning from team to project based architecture.
-    """
-
-    class Meta:
-        abstract = True
-
-    def save(self, *args, **kwargs):
-        team_id = self.team_id  # type: ignore
-        project_id = self.project_id  # type: ignore
-        if not project_id and team_id:
-            from posthog.models.team import Team
-
-            team = Team.objects.filter(id=team_id).only("project_id").first()
-            if team and team.project_id:
-                self.project_id = team.project_id
-            else:
-                raise ValueError("Team or project not found")
-        super().save(*args, **kwargs)
-
-
 class RootTeamQuerySet(models.QuerySet):
     def filter(self, *args, **kwargs):
         from posthog.models.team import Team
