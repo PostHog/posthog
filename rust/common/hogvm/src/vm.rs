@@ -6,8 +6,8 @@ use serde_json::Value as JsonValue;
 use crate::{
     error::{Error, VmError},
     ops::Operation,
-    util::like,
-    values::{FromHogValue, HogValue},
+    util::{like, regex_match},
+    values::{FromHogValue, HogValue, Num, NumOp},
 };
 
 pub struct ExecutionContext<'a> {
@@ -131,6 +131,7 @@ impl<'a> VmState<'a> {
             stack_frames: Vec::new(),
             ip: 0,
             context,
+            heap: Default::default(),
         }
     }
 
@@ -190,8 +191,10 @@ impl<'a> VmState<'a> {
         Ok(())
     }
 
-    fn try_import(&self, chain: &[String]) -> Result<HogValue, VmError> {
-        todo!()
+    // TODO - this is how function calls are constructed - you construct a function
+    // reference, push it onto the stack, and then call it
+    fn get_fn_reference(&self, _chain: &[String]) -> Result<HogValue, VmError> {
+        return Err(VmError::NotImplemented("imports".to_string()));
     }
 
     pub fn step(&mut self) -> Result<Option<()>, VmError> {
@@ -199,8 +202,8 @@ impl<'a> VmState<'a> {
 
         match op {
             Operation::GetGlobal => {
-                // GetGlobal is used to do 1 of 2 things, either push a value from a global variable onto the stack, or push a new hog
-                // closure onto the stack, potentially from an STL function (as far as I can tell, this is how imports work)
+                // GetGlobal is used to do 1 of 2 things, either push a value from a global variable onto the stack, or push a new
+                // function reference (referred to in other impls as a "closure") onto the stack - either a native one, or a hog one
                 let mut chain: Vec<String> = Vec::new();
                 let count: usize = self.next()?;
                 for _ in 0..count {
@@ -214,7 +217,7 @@ impl<'a> VmState<'a> {
                             .ok_or(VmError::UnknownGlobal(chain.join(".")))?
                             .clone(),
                     )?;
-                } else if let Ok(closure) = self.try_import(&chain) {
+                } else if let Ok(closure) = self.get_fn_reference(&chain) {
                     self.push_stack(closure)?;
                 } else {
                     return Err(VmError::UnknownGlobal(chain.join(".")));
@@ -247,24 +250,24 @@ impl<'a> VmState<'a> {
                 self.push_stack(!val)?;
             }
             Operation::Plus => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.plus(&b)?)?;
+                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(Num::binary_op(NumOp::Add, &a, &b)?)?;
             }
             Operation::Minus => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.minus(&b)?)?;
+                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(Num::binary_op(NumOp::Sub, &a, &b)?)?;
             }
             Operation::Mult => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.multiply(&b)?)?;
+                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(Num::binary_op(NumOp::Mul, &a, &b)?)?;
             }
             Operation::Div => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.divide(&b)?)?;
+                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(Num::binary_op(NumOp::Div, &a, &b)?)?;
             }
             Operation::Mod => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.modulo(&b)?)?;
+                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(Num::binary_op(NumOp::Mod, &a, &b)?)?;
             }
             Operation::Eq => {
                 let (a, b) = (self.pop_stack()?, self.pop_stack()?);
@@ -275,49 +278,61 @@ impl<'a> VmState<'a> {
                 self.push_stack(a.not_equals(&b)?)?;
             }
             Operation::Gt => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.gt(&b)?)?;
+                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(Num::binary_op(NumOp::Gt, &a, &b)?)?;
             }
             Operation::GtEq => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.gte(&b)?)?;
+                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(Num::binary_op(NumOp::Gte, &a, &b)?)?;
             }
             Operation::Lt => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.lt(&b)?)?;
+                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(Num::binary_op(NumOp::Lt, &a, &b)?)?;
             }
             Operation::LtEq => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.lte(&b)?)?;
+                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(Num::binary_op(NumOp::Lte, &a, &b)?)?;
             }
             Operation::Like => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(like(a.try_as::<String>()?, b.try_as::<String>()?, true))?;
+                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(like(val, pat, true)?)?;
             }
             Operation::Ilike => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(like(a.try_as::<String>()?, b.try_as::<String>()?, false))?;
+                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(like(val, pat, false)?)?;
             }
             Operation::NotLike => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(!like(a.try_as::<String>()?, b.try_as::<String>()?, true))?;
+                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(!like(val, pat, true)?)?;
             }
             Operation::NotIlike => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(!like(a.try_as::<String>()?, b.try_as::<String>()?, false))?;
+                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(!like(val, pat, false)?)?;
             }
             Operation::In => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.contains(&b)?)?;
+                let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
+                self.push_stack(haystack.contains(&needle)?)?;
             }
             Operation::NotIn => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.contains(&b)?.not()?)?;
+                let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
+                self.push_stack(haystack.contains(&needle)?.not()?)?;
             }
-            Operation::Regex => return Err(VmError::NotImplemented("Regex".to_string())),
-            Operation::NotRegex => return Err(VmError::NotImplemented("NotRegex".to_string())),
-            Operation::Iregex => return Err(VmError::NotImplemented("Iregex".to_string())),
-            Operation::NotIregex => return Err(VmError::NotImplemented("NotIregex".to_string())),
+            Operation::Regex => {
+                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(regex_match(val, pat, true)?)?;
+            }
+            Operation::NotRegex => {
+                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(!regex_match(val, pat, true)?)?;
+            }
+            Operation::Iregex => {
+                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(regex_match(val, pat, false)?)?;
+            }
+            Operation::NotIregex => {
+                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
+                self.push_stack(!regex_match(val, pat, false)?)?;
+            }
             Operation::InCohort => return Err(VmError::NotImplemented("InCohort".to_string())),
             Operation::NotInCohort => {
                 return Err(VmError::NotImplemented("NotInCohort".to_string()))

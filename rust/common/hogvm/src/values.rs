@@ -20,7 +20,7 @@ pub enum HogValue {
 
 // Basically, for anything we want to be able to cheaply convert try and convert a hog value into, e.g.
 // a bool or an int, but also for ref types, like a &str or a &[HogValue]
-pub trait FromHogRef: Sized {
+pub trait FromHogRef {
     fn from_ref(value: &HogValue) -> Result<&Self, VmError>;
 }
 
@@ -41,7 +41,7 @@ impl HogValue {
         }
     }
 
-    pub fn try_as<T>(&self) -> Result<&T, VmError>
+    pub fn try_as<T: ?Sized>(&self) -> Result<&T, VmError>
     where
         T: FromHogRef,
     {
@@ -79,31 +79,6 @@ impl HogValue {
 
     pub fn not(&self) -> Result<HogValue, VmError> {
         Ok(Self::Boolean(!*self.try_as::<bool>()?))
-    }
-
-    pub fn plus(&self, rhs: &HogValue) -> Result<HogValue, VmError> {
-        let (a, b) = (self.try_as()?, rhs.try_as()?);
-        Num::binary_op(NumOp::Add, a, b)
-    }
-
-    pub fn minus(&self, rhs: &HogValue) -> Result<HogValue, VmError> {
-        let (a, b) = (self.try_as()?, rhs.try_as()?);
-        Num::binary_op(NumOp::Sub, a, b)
-    }
-
-    pub fn multiply(&self, rhs: &HogValue) -> Result<HogValue, VmError> {
-        let (a, b) = (self.try_as()?, rhs.try_as()?);
-        Num::binary_op(NumOp::Mul, a, b)
-    }
-
-    pub fn divide(&self, rhs: &HogValue) -> Result<HogValue, VmError> {
-        let (a, b) = (self.try_as()?, rhs.try_as()?);
-        Num::binary_op(NumOp::Div, a, b)
-    }
-
-    pub fn modulo(&self, rhs: &HogValue) -> Result<HogValue, VmError> {
-        let (a, b) = (self.try_as()?, rhs.try_as()?);
-        Num::binary_op(NumOp::Mod, a, b)
     }
 
     fn coerce_types(&self, rhs: &HogValue) -> Result<(HogValue, HogValue), VmError> {
@@ -153,40 +128,15 @@ impl HogValue {
         self.equals(other)?.not()
     }
 
-    fn coerce_to_num(&self, other: &HogValue) -> Result<(HogValue, HogValue), VmError> {
-        let (lhs_num, _) = self.coerce_types(&1.into())?;
-        lhs_num.coerce_types(other)
-    }
-
-    pub fn gt(&self, other: &HogValue) -> Result<HogValue, VmError> {
-        let (lhs, rhs) = self.coerce_to_num(other)?;
-        Num::binary_op(NumOp::Gt, lhs.try_as()?, rhs.try_as()?)
-    }
-
-    pub fn lt(&self, other: &HogValue) -> Result<HogValue, VmError> {
-        let (lhs, rhs) = self.coerce_to_num(other)?;
-        Num::binary_op(NumOp::Lt, lhs.try_as()?, rhs.try_as()?)
-    }
-
-    pub fn gte(&self, other: &HogValue) -> Result<HogValue, VmError> {
-        let (lhs, rhs) = self.coerce_to_num(other)?;
-        Num::binary_op(NumOp::Gte, lhs.try_as()?, rhs.try_as()?)
-    }
-
-    pub fn lte(&self, other: &HogValue) -> Result<HogValue, VmError> {
-        let (lhs, rhs) = self.coerce_to_num(other)?;
-        Num::binary_op(NumOp::Lte, lhs.try_as()?, rhs.try_as()?)
-    }
-
     pub fn contains(&self, other: &HogValue) -> Result<HogValue, VmError> {
         match self {
             HogValue::String(s) => {
-                let needle: &String = other.try_as()?;
+                let needle: &str = other.try_as()?;
                 Ok(s.contains(needle).into())
             }
             HogValue::Array(vals) => Ok(vals.contains(other).into()),
             HogValue::Object(map) => {
-                let key: &String = other.try_as()?;
+                let key: &str = other.try_as()?;
                 Ok(map.contains_key(key).into())
             }
             _ => Err(VmError::CannotCoerce(
@@ -236,8 +186,8 @@ impl FromHogRef for Num {
     }
 }
 
-impl FromHogRef for String {
-    fn from_ref(value: &HogValue) -> Result<&String, VmError> {
+impl FromHogRef for str {
+    fn from_ref(value: &HogValue) -> Result<&Self, VmError> {
         match value {
             HogValue::String(s) => Ok(s),
             _ => Err(VmError::InvalidValue(
@@ -245,6 +195,15 @@ impl FromHogRef for String {
                 "String".to_string(),
             )),
         }
+    }
+}
+
+impl<T> FromHogValue for T
+where
+    T: FromHogRef + Clone,
+{
+    fn from_val(value: HogValue) -> Result<Self, VmError> {
+        value.try_as::<T>().cloned()
     }
 }
 
@@ -291,7 +250,7 @@ impl From<Num> for HogValue {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum NumOp {
+pub enum NumOp {
     Add,
     Sub,
     Mul,
