@@ -1,10 +1,120 @@
 from rest_framework import status
 from datetime import timedelta
 from django.utils import timezone
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+from rest_framework.exceptions import ValidationError
 
 from posthog.test.base import APIBaseTest
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.api.startups import check_organization_eligibility
+
+
+class TestOrganizationEligibility(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization = Organization.objects.create(name="Test Organization")
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=self.user,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        # Create an organization where the user is not an admin
+        self.non_admin_org = Organization.objects.create(name="Non-Admin Organization")
+        OrganizationMembership.objects.create(
+            organization=self.non_admin_org,
+            user=self.user,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+    def test_nonexistent_organization(self):
+        """Test that a nonexistent organization ID raises the correct error."""
+        with self.assertRaises(ValidationError) as context:
+            check_organization_eligibility("00000000-0000-0000-0000-000000000000", self.user)
+
+        self.assertEqual(str(context.exception.detail[0]), "Organization not found")
+
+    def test_non_admin_user(self):
+        """Test that a non-admin user cannot apply for the startup program."""
+        with self.assertRaises(ValidationError) as context:
+            check_organization_eligibility(str(self.non_admin_org.id), self.user)
+
+        self.assertEqual(str(context.exception.detail[0]), "You must be an organization admin or owner to apply")
+
+    @patch("posthog.api.startups.get_cached_instance_license")
+    def test_no_license(self, mock_get_license):
+        """Test that a missing license raises the correct error."""
+        mock_get_license.return_value = None
+
+        with self.assertRaises(ValidationError) as context:
+            check_organization_eligibility(str(self.organization.id), self.user)
+
+        self.assertEqual(str(context.exception.detail[0]), "No license found")
+
+    @patch("posthog.api.startups.get_cached_instance_license")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_no_active_subscription(self, mock_get_billing, mock_get_license):
+        """Test that an organization without an active subscription cannot apply."""
+        mock_get_license.return_value = MagicMock()
+        mock_get_billing.return_value = {"has_active_subscription": False}
+
+        with self.assertRaises(ValidationError) as context:
+            check_organization_eligibility(str(self.organization.id), self.user)
+
+        self.assertEqual(
+            str(context.exception.detail[0]), "You need an active subscription to apply for the startup program"
+        )
+
+    @patch("posthog.api.startups.get_cached_instance_license")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_already_in_startup_program(self, mock_get_billing, mock_get_license):
+        """Test that an organization already in the startup program cannot apply again."""
+        mock_get_license.return_value = MagicMock()
+        mock_get_billing.return_value = {"has_active_subscription": True, "startup_program_label": "startups"}
+
+        with self.assertRaises(ValidationError) as context:
+            check_organization_eligibility(str(self.organization.id), self.user)
+
+        self.assertEqual(str(context.exception.detail[0]), "Your organization is already in the startup program")
+
+    @patch("posthog.api.startups.get_cached_instance_license")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_valid_organization(self, mock_get_billing, mock_get_license):
+        """Test that a valid organization can apply for the startup program."""
+        mock_get_license.return_value = MagicMock()
+        mock_get_billing.return_value = {"has_active_subscription": True, "startup_program_label": None}
+
+        result = check_organization_eligibility(str(self.organization.id), self.user)
+
+        self.assertEqual(result, str(self.organization.id))
+        mock_get_billing.assert_called_once()
+
+    @patch("posthog.api.startups.get_cached_instance_license")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_billing_without_startup_program_field(self, mock_get_billing, mock_get_license):
+        """Test that billing response without startup_program_label field works."""
+        mock_get_license.return_value = MagicMock()
+        mock_get_billing.return_value = {
+            "has_active_subscription": True,
+            # startup_program_label is missing
+        }
+
+        result = check_organization_eligibility(str(self.organization.id), self.user)
+
+        self.assertEqual(result, str(self.organization.id))
+        mock_get_billing.assert_called_once()
+
+    @patch("posthog.api.startups.get_cached_instance_license")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_empty_startup_program_label(self, mock_get_billing, mock_get_license):
+        """Test that an empty startup_program_label is treated as not being in the program."""
+        mock_get_license.return_value = MagicMock()
+        mock_get_billing.return_value = {"has_active_subscription": True, "startup_program_label": ""}
+
+        result = check_organization_eligibility(str(self.organization.id), self.user)
+
+        self.assertEqual(result, str(self.organization.id))
+        mock_get_billing.assert_called_once()
 
 
 class TestStartupsAPI(APIBaseTest):
@@ -73,8 +183,11 @@ class TestStartupsAPI(APIBaseTest):
         self.assertEqual(response_data["attr"], "organization_id")
         self.assertEqual(response_data["detail"], "You must be an organization admin or owner to apply")
 
-    def test_missing_startups_fields(self):
+    @patch("posthog.api.startups.check_organization_eligibility")
+    def test_missing_startups_fields(self, mock_check_eligibility):
         """Test that startup program applications require the appropriate fields."""
+        mock_check_eligibility.return_value = str(self.organization.id)
+
         response = self.client.post(
             "/api/startups/apply/",
             {
@@ -101,8 +214,11 @@ class TestStartupsAPI(APIBaseTest):
         self.assertEqual(response_data["type"], "validation_error")
         self.assertEqual(response_data["detail"], "Incorporation date is required for startup program applications")
 
-    def test_missing_yc_fields(self):
+    @patch("posthog.api.startups.check_organization_eligibility")
+    def test_missing_yc_fields(self, mock_check_eligibility):
         """Test that YC program applications require the appropriate fields."""
+        mock_check_eligibility.return_value = str(self.organization.id)
+
         response = self.client.post(
             "/api/startups/apply/",
             {
@@ -129,10 +245,12 @@ class TestStartupsAPI(APIBaseTest):
         self.assertEqual(response_data["type"], "validation_error")
         self.assertEqual(response_data["detail"], "Screenshot proof is required for YC applications")
 
-    def test_startup_older_than_two_years_rejected(self):
+    @patch("posthog.api.startups.check_organization_eligibility")
+    def test_startup_older_than_two_years_rejected(self, mock_check_eligibility):
         """Test that startups older than 2 years are rejected."""
         # Calculate a date that's just over 2 years old
         old_date = (timezone.now().date() - timedelta(days=732)).strftime("%Y-%m-%d")  # 2 years and 2 days ago
+        mock_check_eligibility.return_value = str(self.organization.id)
 
         response = self.client.post(
             "/api/startups/apply/",
@@ -151,8 +269,11 @@ class TestStartupsAPI(APIBaseTest):
             response_data["detail"], "Companies older than 2 years are not eligible for the startup program"
         )
 
-    def test_startup_raised_too_much_rejected(self):
+    @patch("posthog.api.startups.check_organization_eligibility")
+    def test_startup_raised_too_much_rejected(self, mock_check_eligibility):
         """Test that startups that have raised $5M or more are rejected."""
+        mock_check_eligibility.return_value = str(self.organization.id)
+
         response = self.client.post(
             "/api/startups/apply/",
             {
@@ -170,10 +291,12 @@ class TestStartupsAPI(APIBaseTest):
             response_data["detail"], "Companies that have raised $5M or more are not eligible for the startup program"
         )
 
+    @patch("posthog.api.startups.check_organization_eligibility")
     @patch("posthog.api.startups.StartupApplicationSerializer.create")
-    def test_successful_startup_application(self, mock_create):
+    def test_successful_startup_application(self, mock_create, mock_check_eligibility):
         """Test that a valid startup application is successfully submitted."""
         one_year_ago = (timezone.now().date() - timedelta(days=365)).strftime("%Y-%m-%d")
+        mock_check_eligibility.return_value = str(self.organization.id)
 
         mock_create.return_value = {
             "organization_id": str(self.organization.id),
@@ -203,9 +326,12 @@ class TestStartupsAPI(APIBaseTest):
         self.assertEqual(response_data["raised"], "1000000")
         self.assertEqual(response_data["incorporation_date"], one_year_ago)
 
+    @patch("posthog.api.startups.check_organization_eligibility")
     @patch("posthog.api.startups.StartupApplicationSerializer.create")
-    def test_successful_yc_application(self, mock_create):
+    def test_successful_yc_application(self, mock_create, mock_check_eligibility):
         """Test that a valid YC application is successfully submitted."""
+        mock_check_eligibility.return_value = str(self.organization.id)
+
         mock_create.return_value = {
             "organization_id": str(self.organization.id),
             "organization_name": "Test Organization",

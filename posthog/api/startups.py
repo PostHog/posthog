@@ -13,6 +13,38 @@ from posthog.cloud_utils import get_cached_instance_license
 from ee.billing.billing_manager import BillingManager
 
 
+def check_organization_eligibility(organization_id: str, user: Any) -> str:
+    """
+    Validates that an organization is eligible for the startup program.
+
+    Returns organization_id if valid, otherwise raises ValidationError.
+    """
+    try:
+        organization = Organization.objects.get(id=organization_id)
+
+        membership = organization.memberships.filter(user=user).first()
+        if not membership or not membership.level >= OrganizationMembership.Level.ADMIN:
+            raise ValidationError("You must be an organization admin or owner to apply")
+
+        license = get_cached_instance_license()
+        if not license:
+            raise ValidationError("No license found")
+
+        billing_manager = BillingManager(license, user)
+        billing_info = billing_manager.get_billing(organization)
+
+        if not billing_info.get("has_active_subscription"):
+            raise ValidationError("You need an active subscription to apply for the startup program")
+
+        if billing_info.get("startup_program_label"):
+            raise ValidationError("Your organization is already in the startup program")
+
+    except Organization.DoesNotExist:
+        raise ValidationError("Organization not found")
+
+    return organization_id
+
+
 class StartupApplicationSerializer(serializers.Serializer):
     program = serializers.ChoiceField(
         required=True,
@@ -30,30 +62,7 @@ class StartupApplicationSerializer(serializers.Serializer):
     yc_merch_count = serializers.IntegerField(required=False, min_value=0, max_value=5)
 
     def validate_organization_id(self, value: str) -> str:
-        try:
-            organization = Organization.objects.get(id=value)
-
-            user = self.context["request"].user
-            membership = organization.memberships.filter(user=user).first()
-            if not membership or not membership.level >= OrganizationMembership.Level.ADMIN:
-                raise ValidationError("You must be an organization admin or owner to apply")
-
-            license = get_cached_instance_license()
-            if not license:
-                raise ValidationError("No license found")
-
-            billing_manager = BillingManager(license, user)
-            billing_info = billing_manager.get_billing(organization)
-
-            if not billing_info.get("has_active_subscription"):
-                raise ValidationError("You need an active subscription to apply for the startup program")
-
-            if billing_info.get("startup_program_label"):
-                raise ValidationError("Your organization is already in the startup program")
-
-        except Organization.DoesNotExist:
-            raise ValidationError("Organization not found")
-        return value
+        return check_organization_eligibility(value, self.context["request"].user)
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         program = data["program"]
