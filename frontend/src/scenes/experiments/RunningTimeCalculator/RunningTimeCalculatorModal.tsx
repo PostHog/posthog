@@ -62,7 +62,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                 <LemonInput
                                     className="w-[80px]"
                                     min={0}
-                                    step={0.1}
+                                    step={1}
                                     type="number"
                                     value={minimumDetectableEffect}
                                     onChange={(newValue) => {
