@@ -2,17 +2,17 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import UniqueConstraint
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import RootTeamMixin, RootTeamManager, UUIDModel
 
 
-class DashboardTemplateManager(models.Manager):
+class DashboardTemplateManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)
 
 
-class DashboardTemplate(UUIDModel):
+class DashboardTemplate(RootTeamMixin, UUIDModel):
     objects = DashboardTemplateManager()
-    objects_including_soft_deleted = models.Manager()
+    objects_including_soft_deleted = RootTeamManager()
 
     class Scope(models.TextChoices):
         """Visibility of the dashboard template"""
