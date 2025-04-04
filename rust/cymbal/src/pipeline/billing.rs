@@ -6,7 +6,7 @@ use super::IncomingEvent;
 
 pub async fn apply_billing_limits(
     in_buf: Vec<IncomingEvent>,
-    context: &AppContext,
+    _context: &AppContext,
 ) -> Result<Vec<IncomingEvent>, PipelineFailure> {
     let start_count = in_buf.len();
 
