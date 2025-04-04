@@ -1,6 +1,7 @@
 ---
 description: Rules for writing frontend code at PostHog (mostly React + Typescript with Kea)
-globs: frontend/*.tsx, frontend/*.ts
+globs: products/**/*.ts,products/**/*.tsx,frontend/
+alwaysApply: false
 ---
 
 You are an expert in TypeScript, React, Kea, Tailwind, and UX design.
