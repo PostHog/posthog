@@ -49,7 +49,12 @@ export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
                         ...values.filters,
                         breakdown_by: 'name',
                     }
-                    return await api.hogFunctions.metrics(props.id, params)
+                    const result = await api.hogFunctions.metrics(props.id, params)
+                    // Clear the series if no filters have been selected
+                    if (values.filters.name === '') {
+                        result.series = []
+                    }
+                    return result
                 },
             },
         ],
