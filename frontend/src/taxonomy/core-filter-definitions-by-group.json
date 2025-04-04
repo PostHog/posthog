@@ -1977,47 +1977,39 @@
                 "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
             ]
         },
-        "$session_entry_url": {
-            "label": "Session entry Current URL",
-            "description": "The URL visited at the time of the event.. Captured at the start of the session and remains constant for the duration of the session.",
+        "$session_entry_referring_domain": {
+            "label": "Session entry Referring Domain",
+            "description": "Domain of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": [
-                "https://example.com/interesting-article?parameter=true"
+                "google.com",
+                "facebook.com"
             ]
         },
         "$session_entry__kx": {
             "label": "Session entry _kx",
             "description": "Klaviyo Tracking ID. Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_fbclid": {
-            "label": "Session entry fbclid",
-            "description": "Facebook Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_msclkid": {
-            "label": "Session entry msclkid",
-            "description": "Microsoft Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_referrer": {
-            "label": "Session entry Referrer URL",
-            "description": "URL of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
+        "$session_entry_utm_campaign": {
+            "label": "Session entry UTM Campaign",
+            "description": "UTM campaign tag.. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": [
-                "https://google.com/search?q=posthog&rlz=1C..."
+                "feature launch",
+                "discount"
             ]
         },
-        "$session_entry_pathname": {
-            "label": "Session entry Path Name",
-            "description": "The path of the Current URL, which means everything in the url after the domain.. Captured at the start of the session and remains constant for the duration of the session.",
+        "$session_entry_utm_medium": {
+            "label": "Session entry UTM Medium",
+            "description": "UTM medium tag.. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": [
-                "/pricing",
-                "/about-us/team"
+                "Social",
+                "Organic",
+                "Paid",
+                "Email"
             ]
         },
-        "$session_entry_rdt_cid": {
-            "label": "Session entry rdt_cid",
-            "description": "Reddit Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_dclid": {
-            "label": "Session entry dclid",
-            "description": "DoubleClick ID. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_wbraid": {
+            "label": "Session entry wbraid",
+            "description": "Google Ads, app to web. Captured at the start of the session and remains constant for the duration of the session."
         },
         "$session_entry_utm_content": {
             "label": "Session entry UTM Content",
@@ -2027,21 +2019,49 @@
                 "second button"
             ]
         },
-        "$session_entry_twclid": {
-            "label": "Session entry twclid",
-            "description": "Twitter Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_fbclid": {
+            "label": "Session entry fbclid",
+            "description": "Facebook Click ID. Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_igshid": {
-            "label": "Session entry igshid",
-            "description": "Instagram Share ID. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_gad_source": {
+            "label": "Session entry gad_source",
+            "description": "Google Ads Source. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_pathname": {
+            "label": "Session entry Path Name",
+            "description": "The path of the Current URL, which means everything in the url after the domain.. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": [
+                "/pricing",
+                "/about-us/team"
+            ]
         },
         "$session_entry_gclsrc": {
             "label": "Session entry gclsrc",
             "description": "Google Click Source. Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_wbraid": {
-            "label": "Session entry wbraid",
-            "description": "Google Ads, app to web. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_rdt_cid": {
+            "label": "Session entry rdt_cid",
+            "description": "Reddit Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_host": {
+            "label": "Session entry Host",
+            "description": "The hostname of the Current URL.. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ]
+        },
+        "$session_entry_msclkid": {
+            "label": "Session entry msclkid",
+            "description": "Microsoft Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_dclid": {
+            "label": "Session entry dclid",
+            "description": "DoubleClick ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_igshid": {
+            "label": "Session entry igshid",
+            "description": "Instagram Share ID. Captured at the start of the session and remains constant for the duration of the session."
         },
         "$session_entry_irclid": {
             "label": "Session entry irclid",
@@ -2054,9 +2074,24 @@
                 "free goodies"
             ]
         },
-        "$session_entry_ttclid": {
-            "label": "Session entry ttclid",
-            "description": "TikTok Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_mc_cid": {
+            "label": "Session entry mc_cid",
+            "description": "Mailchimp Campaign ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_gbraid": {
+            "label": "Session entry gbraid",
+            "description": "Google Ads, web to app. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_li_fat_id": {
+            "label": "Session entry li_fat_id",
+            "description": "LinkedIn First-Party Ad Tracking ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_referrer": {
+            "label": "Session entry Referrer URL",
+            "description": "URL of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": [
+                "https://google.com/search?q=posthog&rlz=1C..."
+            ]
         },
         "$session_entry_utm_source": {
             "label": "Session entry UTM Source",
@@ -2068,59 +2103,24 @@
                 "Facebook"
             ]
         },
-        "$session_entry_gbraid": {
-            "label": "Session entry gbraid",
-            "description": "Google Ads, web to app. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_ttclid": {
+            "label": "Session entry ttclid",
+            "description": "TikTok Click ID. Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_li_fat_id": {
-            "label": "Session entry li_fat_id",
-            "description": "LinkedIn First-Party Ad Tracking ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_gad_source": {
-            "label": "Session entry gad_source",
-            "description": "Google Ads Source. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_host": {
-            "label": "Session entry Host",
-            "description": "The hostname of the Current URL.. Captured at the start of the session and remains constant for the duration of the session.",
+        "$session_entry_url": {
+            "label": "Session entry Current URL",
+            "description": "The URL visited at the time of the event.. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": [
-                "example.com",
-                "localhost:8000"
-            ]
-        },
-        "$session_entry_referring_domain": {
-            "label": "Session entry Referring Domain",
-            "description": "Domain of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": [
-                "google.com",
-                "facebook.com"
+                "https://example.com/interesting-article?parameter=true"
             ]
         },
         "$session_entry_gclid": {
             "label": "Session entry gclid",
             "description": "Google Click ID. Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_mc_cid": {
-            "label": "Session entry mc_cid",
-            "description": "Mailchimp Campaign ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_utm_medium": {
-            "label": "Session entry UTM Medium",
-            "description": "UTM medium tag.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": [
-                "Social",
-                "Organic",
-                "Paid",
-                "Email"
-            ]
-        },
-        "$session_entry_utm_campaign": {
-            "label": "Session entry UTM Campaign",
-            "description": "UTM campaign tag.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": [
-                "feature launch",
-                "discount"
-            ]
+        "$session_entry_twclid": {
+            "label": "Session entry twclid",
+            "description": "Twitter Click ID. Captured at the start of the session and remains constant for the duration of the session."
         }
     },
     "numerical_event_properties": {},
