@@ -541,7 +541,7 @@ projects_router.register(
     r"notebooks",
     notebook.NotebookViewSet,
     "project_notebooks",
-    ["project_id"],
+    ["team_id"],
 )
 
 environments_router.register(

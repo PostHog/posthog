@@ -334,10 +334,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
         # TODO: We need to know if it is a root team model and
         # then filter to ensure that it checks the team__parent_team id if set otherwise its own id
-        # model = cast(Model, queryset.model)
+        model = cast(Model, queryset.model)
 
-        # if RootTeamMixin in model.__bases__:
-        #     model.USE_PARENT_TEAM = self.use_parent_team
+        if RootTeamMixin in model.__bases__:
+            # TODO: This might not be the right way of doing this...
+            parents_query_dict["team_id"] = self.team.root_team.id
 
         for source, destination in self.filter_rewrite_rules.items():
             parents_query_dict[destination] = parents_query_dict[source]
