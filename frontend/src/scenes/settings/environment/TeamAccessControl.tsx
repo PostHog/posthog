@@ -29,6 +29,7 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
+import { ResourcesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourcesAccessControls'
 import { AvailableFeature, FusedTeamMemberType } from '~/types'
 
 import { AddMembersModalWithButton } from './AddMembersModal'
@@ -230,7 +231,12 @@ export function TeamAccessControl(): JSX.Element {
 
     // Only render the new access control if they have been migrated and have the feature flag enabled
     if (newAccessControl && currentTeam?.access_control_version === 'v2') {
-        return <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
+        return (
+            <div className="space-y-6">
+                <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
+                <ResourcesAccessControls />
+            </div>
+        )
     }
 
     return (

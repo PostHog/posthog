@@ -6,6 +6,7 @@ import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Error404 as Error404Component } from '~/layout/Error404'
+import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
@@ -30,6 +31,11 @@ export const preloadedScenes: Record<string, LoadedScene> = {
         component: Error404Component,
         sceneParams: emptySceneParams,
     },
+    [Scene.ErrorAccessDenied]: {
+        id: Scene.ErrorAccessDenied,
+        component: ErrorAccessDeniedComponent,
+        sceneParams: emptySceneParams,
+    },
     [Scene.ErrorNetwork]: {
         id: Scene.ErrorNetwork,
         component: ErrorNetworkComponent,
@@ -46,6 +52,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Error404]: {
         name: 'Not found',
         projectBased: true,
+    },
+    [Scene.ErrorAccessDenied]: {
+        name: 'Access denied',
     },
     [Scene.ErrorNetwork]: {
         name: 'Network error',
