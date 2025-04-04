@@ -7,7 +7,7 @@ from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     NodeRole,
 )
-from posthog.models.group.sql import GROUPS_TABLE
+from posthog.models.group.sql import GROUPS_TABLE, PENDING_GROUP_DELETES_TABLE_PREFIX
 from dags.common import JobOwners
 import uuid
 from posthog.clickhouse.cluster import (
@@ -33,7 +33,7 @@ class PendingGroupDeletesTable:
 
     @property
     def table_name(self) -> str:
-        return f"pending_group_deletes_{self.table_id}"
+        return f"{PENDING_GROUP_DELETES_TABLE_PREFIX}{self.table_id}"
 
     @property
     def qualified_name(self):
