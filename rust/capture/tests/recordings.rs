@@ -6,6 +6,7 @@ use limiters::redis::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::{json, value::Value};
 use time::Duration;
+use uuid::Uuid;
 
 mod common;
 
@@ -14,7 +15,7 @@ async fn it_captures_one_recording() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
-    let session_id = random_string("id", 16);
+    let session_id = Uuid::now_v7().to_string();
     let window_id = random_string("id", 16);
     let lib = random_string("lib", 16);
 
@@ -69,7 +70,7 @@ async fn it_captures_one_recording_with_user_agent_fallback_for_lib() -> Result<
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
-    let session_id = random_string("id", 16);
+    let session_id = Uuid::now_v7().to_string();
     let window_id = random_string("id", 16);
     let lib = "posthog-android/1.0.4";
 
@@ -126,7 +127,7 @@ async fn it_fails_no_session_id() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
-    let session_id = random_string("id", 16);
+    let session_id = Uuid::now_v7().to_string();
     let window_id = random_string("id", 16);
 
     let main_topic = EphemeralTopic::new().await;
@@ -174,11 +175,37 @@ async fn it_rejects_bad_session_id() -> Result<()> {
 }
 
 #[tokio::test]
+async fn it_rejects_non_uuid_session_id() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let window_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_recordings(&main_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": distinct_id,
+        "$session_id": "not-a-uuid-string",
+        "properties": {
+            "$session_id": "not-a-uuid-string",
+            "$window_id": window_id,
+            "$snapshot_data": [],
+        }
+    });
+    let res = server.capture_recording(event.to_string(), None).await;
+    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_defaults_window_id_to_session_id() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
-    let session_id = random_string("id", 16);
+    let session_id = Uuid::now_v7().to_string();
 
     let main_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_recordings(&main_topic).await;
@@ -201,9 +228,9 @@ async fn it_defaults_window_id_to_session_id() -> Result<()> {
 async fn it_applies_overflow_limits() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
-    let session1 = random_string("session1", 16);
-    let session2 = random_string("session2", 16);
-    let session3 = random_string("session3", 16);
+    let session1 = Uuid::now_v7().to_string();
+    let session2 = Uuid::now_v7().to_string();
+    let session3 = Uuid::now_v7().to_string();
     let distinct_id = random_string("id", 16);
 
     let topic = EphemeralTopic::new().await;
