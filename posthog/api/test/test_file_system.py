@@ -605,7 +605,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(result["depth"], 1)
         # Verify that the child file was linked with its path updated.
         linked_child = FileSystem.objects.filter(team=self.team, path="LinkedFolder/Child.txt", type="doc").first()
-        self.assertIsNotNone(linked_child)
+        assert linked_child is not None
         self.assertEqual(linked_child.depth, 2)
 
     def test_link_folder_into_itself(self):
@@ -641,9 +641,9 @@ class TestFileSystemAPI(APIBaseTest):
         # For the path "A/B/C", we expect the parent folders "A" and "A/B" to be created.
         folder_a = FileSystem.objects.filter(team=self.team, path="A", type="folder").first()
         folder_ab = FileSystem.objects.filter(team=self.team, path="A/B", type="folder").first()
-        self.assertIsNotNone(folder_a)
+        assert folder_a is not None
         self.assertEqual(folder_a.depth, 1)
-        self.assertIsNotNone(folder_ab)
+        assert folder_ab is not None
         self.assertEqual(folder_ab.depth, 2)
         # The full path "A/B/C" should NOT be created by assure_parent_folders.
         folder_abc = FileSystem.objects.filter(team=self.team, path="A/B/C").first()
