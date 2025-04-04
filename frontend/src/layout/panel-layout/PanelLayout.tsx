@@ -10,7 +10,7 @@ import { ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
-    base: 'gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]',
+    base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)]',
     variants: {
         isLayoutNavbarVisibleForMobile: {
             true: 'translate-x-0',
@@ -87,12 +87,11 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutNavbarVisibleForDesktop,
         activePanelIdentifier,
         isLayoutNavCollapsed,
+        isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef } =
         useActions(panelLayoutLogic)
-    const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile
-    const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
     useMountedLogic(projectTreeLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -124,26 +123,24 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 </PanelLayoutNavBar>
             </div>
 
-            {isMobileLayout && showMobileNavbarOverlay && (
+            {isLayoutPanelVisible && !isLayoutPanelPinned && (
                 <div
                     onClick={() => {
-                        // Pinned or not, hide the navbar and panel
+                        showLayoutPanel(false)
+                        clearActivePanelIdentifier()
+                    }}
+                    className="z-[var(--z-layout-panel-overlay)] fixed inset-0 w-screen h-screen"
+                />
+            )}
+            {isMobileLayout && isLayoutNavbarVisible && (
+                <div
+                    onClick={() => {
+                        // On mobile, hide the navbar and panel when the overlay is clicked
                         showLayoutNavBar(false)
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
                     }}
-                    className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
-                />
-            )}
-            {!isMobileLayout && showDesktopNavbarOverlay && (
-                <div
-                    onClick={() => {
-                        if (!isLayoutPanelPinned) {
-                            showLayoutPanel(false)
-                            clearActivePanelIdentifier()
-                        }
-                    }}
-                    className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-navbar-overlay)] fixed inset-0 w-screen h-screen"
                 />
             )}
         </div>
