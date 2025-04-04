@@ -1,8 +1,8 @@
 import csv
+from datetime import datetime
 import json
 from typing import Any
-
-from ee.session_recordings.ai.prompt_data import get_column_index, prepare_datetime
+from urllib.parse import urlparse
 
 
 def load_sesssion_recording_events_from_csv(file_path: str) -> tuple[list[str], list[list[str | None]]]:
@@ -42,3 +42,46 @@ def load_session_metadata_from_json(file_path: str) -> dict[str, Any]:
     raw_session_metadata["start_time"] = prepare_datetime(raw_session_metadata.get("start_time"))
     raw_session_metadata["end_time"] = prepare_datetime(raw_session_metadata.get("end_time"))
     return raw_session_metadata
+
+
+def get_column_index(columns: list[str], column_name: str) -> int | None:
+    for i, c in enumerate(columns):
+        if c == column_name:
+            return i
+    return None
+
+
+def prepare_datetime(raw_time: datetime | str | None) -> datetime | None:
+    if not raw_time:
+        return None
+    if isinstance(raw_time, str):
+        return datetime.fromisoformat(raw_time)
+    return raw_time
+
+
+def shorten_url(url: str, max_length: int = 256) -> str:
+    """
+    Shorten long URLs to a more readable length, trying to keep the context.
+    """
+    if len(url) <= max_length:
+        return url
+    parsed = urlparse(url)
+    # If it's just a long path - keep it and return as is
+    if not parsed.query and not parsed.fragment:
+        return url
+    base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    # Calculate how many chars we can keep from query
+    # Subtract "[...]" length that we'll add between parts
+    remaining_length = max_length - len(base_url) - 5
+    # If query is the longer part
+    if parsed.query and len(parsed.query) > len(parsed.fragment):
+        query_start = parsed.query[: remaining_length // 2]
+        query_end = parsed.query[-remaining_length // 2 :]
+        return f"{base_url}?{query_start}[...]{query_end}"
+    # If fragment is the longer part
+    if parsed.fragment and len(parsed.fragment) > len(parsed.query):
+        fragment_start = parsed.fragment[: remaining_length // 2]
+        fragment_end = parsed.fragment[-remaining_length // 2 :]
+        return f"{base_url}#{fragment_start}[...]{fragment_end}"
+    # If unclear - return the base URL
+    return f"{base_url}"

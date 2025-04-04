@@ -4,7 +4,7 @@ from rest_framework import serializers
 from openai.types.chat.chat_completion import ChatCompletion
 import yaml
 
-from ee.session_recordings.ai.prompt_data import get_column_index
+from ee.session_recordings.session_summary.utils import get_column_index
 
 
 class EventTagSerializer(serializers.Serializer):

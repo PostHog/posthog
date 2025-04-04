@@ -3,10 +3,11 @@ from typing import Any
 import structlog
 from ee.session_recordings.ai.llm import get_raw_llm_session_summary
 from ee.session_recordings.ai.output_data import enrich_raw_session_summary_with_events_meta
-from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData, shorten_url
+from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.utils import (
     load_session_metadata_from_json,
     load_sesssion_recording_events_from_csv,
+    shorten_url,
 )
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
