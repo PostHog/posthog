@@ -124,8 +124,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # All of these three ways should return the same set of insights,
         # i.e. all insights in the test project regardless of environment
         response_project = self.client.get(f"/api/projects/{self.project.id}/insights/").json()
-        response_env_current = self.client.get(f"/api/environments/{self.team.id}/insights/").json()
-        response_env_other = self.client.get(f"/api/environments/{other_team_in_project.id}/insights/").json()
+        response_env_current = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
+        response_env_other = self.client.get(f"/api/projects/{other_team_in_project.id}/insights/").json()
 
         self.assertEqual({insight["id"] for insight in response_project["results"]}, {insight_a.id, insight_b.id})
         self.assertEqual({insight["id"] for insight in response_env_current["results"]}, {insight_a.id, insight_b.id})
@@ -546,7 +546,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         )
 
-        response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=TRENDS")
+        response = self.client.get(f"/api/projects/{self.team.pk}/insights/?insight=TRENDS")
 
         self.assertEqual(len(response.json()["results"]), 2)
 

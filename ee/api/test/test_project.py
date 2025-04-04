@@ -125,7 +125,7 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         )
 
         # The other team should not be returned as it's restricted for the logged-in user
-        projects_response = self.client.get(f"/api/environments/")
+        projects_response = self.client.get(f"/api/projects/")
 
         # 9 (above):
         with self.assertNumQueries(FuzzyInt(13, 14)):

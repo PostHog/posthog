@@ -36,7 +36,7 @@ const meta: Meta = {
                 '/api/projects/:id/surveys/responses_count/': { results: [] },
             },
             post: {
-                '/api/environments/:team_id/query': {},
+                '/api/projects/:team_id/query': {},
             },
         }),
     ],
@@ -72,7 +72,7 @@ export const SidePanelNotebooks: StoryFn = () => {
 export const SidePanelMax: StoryFn = () => {
     useStorybookMocks({
         get: {
-            '/api/environments/:team_id/core_memory': EMPTY_PAGINATED_RESPONSE,
+            '/api/projects/:team_id/core_memory': EMPTY_PAGINATED_RESPONSE,
         },
     })
 

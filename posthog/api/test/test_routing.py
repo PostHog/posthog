@@ -56,7 +56,7 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.current_team_annotation = Annotation.objects.create(team=self.team, organization=self.organization)
 
     def test_environment_nested_filtering(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+        response = self.client.get(f"/api/projects/{self.team.id}/foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
 

@@ -64,9 +64,7 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
 
                     const params = { pathname: window.location.pathname }
 
-                    const response = await toolbarFetch(
-                        `/api/environments/@current/web_vitals${encodeParams(params, '?')}`
-                    )
+                    const response = await toolbarFetch(`/api/projects/@current/web_vitals${encodeParams(params, '?')}`)
                     breakpoint()
 
                     if (!response.ok) {

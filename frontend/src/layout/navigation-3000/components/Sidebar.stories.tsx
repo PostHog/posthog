@@ -37,7 +37,7 @@ const multipliedFeatureFlagsJson = {
 export function Dashboards(): JSX.Element {
     useStorybookMocks({
         get: {
-            '/api/environments/:team_id/dashboards/': dashboardsJson,
+            '/api/projects/:team_id/dashboards/': dashboardsJson,
         },
     })
     const { showSidebar } = useActions(navigation3000Logic)

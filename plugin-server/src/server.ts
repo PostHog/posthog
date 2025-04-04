@@ -141,18 +141,18 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.processAsyncOnEventHandlers) {
-                serviceLoaders.push(async () => {
-                    await initPlugins()
-                    return startAsyncOnEventHandlerConsumer({
-                        hub: hub,
-                    })
-                })
-            }
+            // if (capabilities.processAsyncOnEventHandlers) {
+            //     serviceLoaders.push(async () => {
+            //         await initPlugins()
+            //         return startAsyncOnEventHandlerConsumer({
+            //             hub: hub,
+            //         })
+            //     })
+            // }
 
-            if (capabilities.processAsyncWebhooksHandlers) {
-                serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
-            }
+            // if (capabilities.processAsyncWebhooksHandlers) {
+            //     serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
+            // }
 
             if (capabilities.sessionRecordingBlobIngestion) {
                 serviceLoaders.push(async () => {

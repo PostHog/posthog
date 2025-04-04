@@ -1053,7 +1053,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
     def test_async_query_invalid_json(self):
         response = self.client.post(
-            f"/api/environments/{self.team.pk}/query_awaited/", data="invalid json", content_type="application/json"
+            f"/api/projects/{self.team.pk}/query_awaited/", data="invalid json", content_type="application/json"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response["Content-Type"], "text/event-stream")
@@ -1069,14 +1069,14 @@ class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
         self.client.logout()
         query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
         response = self.client.post(
-            f"/api/environments/{self.team.id}/query_awaited/",
+            f"/api/projects/{self.team.id}/query_awaited/",
             data=json.dumps({"query": query.dict()}),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_get_returns_405(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/query_awaited/")
+        response = self.client.get(f"/api/projects/{self.team.id}/query_awaited/")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
 

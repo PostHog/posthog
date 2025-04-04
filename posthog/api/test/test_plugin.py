@@ -1215,7 +1215,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=self.team, order=0)
 
-        response = self.client.get(f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/")
+        response = self.client.get(f"/api/projects/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"count": 0, "next": None, "previous": None, "results": []})
 

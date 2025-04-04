@@ -30,7 +30,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             if not team_id:
                 team_id = self.team.pk
 
-            starting_log_response = self.client.get(f"/api/environments/{team_id}/activity")
+            starting_log_response = self.client.get(f"/api/projects/{team_id}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
             assert starting_log_response.json()["results"] == expected
 
@@ -118,14 +118,14 @@ def team_enterprise_api_test_factory():  # type: ignore
         def test_delete_team_as_org_admin_allowed(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            response = self.client.delete(f"/api/environments/{self.team.id}")
+            response = self.client.delete(f"/api/projects/{self.team.id}")
             self.assertEqual(response.status_code, HTTP_204_NO_CONTENT)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 0)
 
         def test_delete_team_as_org_member_forbidden(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            response = self.client.delete(f"/api/environments/{self.team.id}")
+            response = self.client.delete(f"/api/projects/{self.team.id}")
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
@@ -137,7 +137,7 @@ def team_enterprise_api_test_factory():  # type: ignore
                 parent_membership=self.organization_membership,
                 level=ExplicitTeamMembership.Level.ADMIN,
             )
-            response = self.client.delete(f"/api/environments/{self.team.id}")
+            response = self.client.delete(f"/api/projects/{self.team.id}")
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
@@ -151,7 +151,7 @@ def team_enterprise_api_test_factory():  # type: ignore
                 parent_membership=self.organization_membership,
                 level=ExplicitTeamMembership.Level.ADMIN,
             )
-            response = self.client.delete(f"/api/environments/{self.team.id}")
+            response = self.client.delete(f"/api/projects/{self.team.id}")
             self.assertEqual(response.status_code, HTTP_204_NO_CONTENT)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 0)
 
@@ -159,7 +159,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
             team = Team.objects.create(organization=self.organization)
-            response = self.client.delete(f"/api/environments/{team.id}")
+            response = self.client.delete(f"/api/projects/{team.id}")
             self.assertEqual(response.status_code, HTTP_204_NO_CONTENT)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
@@ -167,18 +167,18 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
             team = Team.objects.create(organization=self.organization)
-            response = self.client.delete(f"/api/environments/{team.id}")
+            response = self.client.delete(f"/api/projects/{team.id}")
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
         def test_no_delete_team_not_belonging_to_organization(self):
             team_1 = Organization.objects.bootstrap(None)[2]
-            response = self.client.delete(f"/api/environments/{team_1.id}")
+            response = self.client.delete(f"/api/projects/{team_1.id}")
             self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
             self.assertTrue(Team.objects.filter(id=team_1.id).exists())
             organization, _, _ = User.objects.bootstrap("X", "someone@x.com", "qwerty", "Someone")
             team_2 = Team.objects.create(organization=organization)
-            response = self.client.delete(f"/api/environments/{team_2.id}")
+            response = self.client.delete(f"/api/projects/{team_2.id}")
             self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
             self.assertEqual(Team.objects.filter(organization=organization).count(), 2)
 
@@ -188,7 +188,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
 
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": True})
+            response = self.client.patch(f"/api/projects/@current/", {"access_control": True})
             self.team.refresh_from_db()
 
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
@@ -198,7 +198,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": True})
+            response = self.client.patch(f"/api/projects/@current/", {"access_control": True})
             self.team.refresh_from_db()
 
             self.assertEqual(response.status_code, HTTP_200_OK)
@@ -213,7 +213,7 @@ def team_enterprise_api_test_factory():  # type: ignore
                 level=ExplicitTeamMembership.Level.ADMIN,
             )
 
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": True})
+            response = self.client.patch(f"/api/projects/@current/", {"access_control": True})
             self.team.refresh_from_db()
 
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
@@ -225,7 +225,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.team.access_control = True
             self.team.save()
 
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": False})
+            response = self.client.patch(f"/api/projects/@current/", {"access_control": False})
             self.team.refresh_from_db()
 
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
@@ -244,7 +244,7 @@ def team_enterprise_api_test_factory():  # type: ignore
                 level=ExplicitTeamMembership.Level.ADMIN,
             )
 
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": False})
+            response = self.client.patch(f"/api/projects/@current/", {"access_control": False})
             self.team.refresh_from_db()
 
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
@@ -256,7 +256,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.team.access_control = True
             self.team.save()
 
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": False})
+            response = self.client.patch(f"/api/projects/@current/", {"access_control": False})
             self.team.refresh_from_db()
 
             self.assertEqual(response.status_code, HTTP_200_OK)
@@ -264,12 +264,12 @@ def team_enterprise_api_test_factory():  # type: ignore
 
         def test_can_update_and_retrieve_person_property_names_excluded_from_correlation(self):
             response = self.client.patch(
-                f"/api/environments/@current/",
+                f"/api/projects/@current/",
                 {"correlation_config": {"excluded_person_property_names": ["$os"]}},
             )
             self.assertEqual(response.status_code, HTTP_200_OK)
 
-            response = self.client.get(f"/api/environments/@current/")
+            response = self.client.get(f"/api/projects/@current/")
             self.assertEqual(response.status_code, HTTP_200_OK)
 
             response_data = response.json()
@@ -285,7 +285,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            response = self.client.get(f"/api/environments/@current/")
+            response = self.client.get(f"/api/projects/@current/")
             response_data = response.json()
 
             self.assertEqual(response.status_code, HTTP_200_OK)
@@ -302,7 +302,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
 
-            response = self.client.get(f"/api/environments/@current/")
+            response = self.client.get(f"/api/projects/@current/")
             response_data = response.json()
 
             self.assertEqual(response.status_code, HTTP_200_OK)
@@ -321,7 +321,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.team.access_control = True
             self.team.save()
 
-            response = self.client.get(f"/api/environments/@current/")
+            response = self.client.get(f"/api/projects/@current/")
             response_data = response.json()
 
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
@@ -341,7 +341,7 @@ def team_enterprise_api_test_factory():  # type: ignore
                 level=ExplicitTeamMembership.Level.MEMBER,
             )
 
-            response = self.client.get(f"/api/environments/@current/")
+            response = self.client.get(f"/api/projects/@current/")
             response_data = response.json()
 
             self.assertEqual(response.status_code, HTTP_200_OK)
@@ -365,7 +365,7 @@ def team_enterprise_api_test_factory():  # type: ignore
                 level=ExplicitTeamMembership.Level.ADMIN,
             )
 
-            response = self.client.get(f"/api/environments/@current/")
+            response = self.client.get(f"/api/projects/@current/")
             response_data = response.json()
 
             self.assertEqual(response.status_code, HTTP_200_OK)
@@ -380,14 +380,14 @@ def team_enterprise_api_test_factory():  # type: ignore
 
         def test_fetch_team_as_org_outsider(self):
             self.organization_membership.delete()
-            response = self.client.get(f"/api/environments/@current/")
+            response = self.client.get(f"/api/projects/@current/")
             response_data = response.json()
 
             self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
             self.assertEqual(self.not_found_response(), response_data)
 
         def test_fetch_nonexistent_team(self):
-            response = self.client.get(f"/api/environments/234444/")
+            response = self.client.get(f"/api/projects/234444/")
             response_data = response.json()
 
             self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
@@ -445,7 +445,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(cached_team.id, response.json()["id"])
 
             response = self.client.patch(
-                f"/api/environments/{team_id}/",
+                f"/api/projects/{team_id}/",
                 {"timezone": "Europe/Istanbul", "session_recording_opt_in": True},
             )
             self.assertEqual(response.status_code, 200)
@@ -461,7 +461,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(cached_team.timezone, "UTC")
 
             # reset token should update cache as well
-            response = self.client.patch(f"/api/environments/{team_id}/reset_token/")
+            response = self.client.patch(f"/api/projects/{team_id}/reset_token/")
             response_data = response.json()
 
             cached_team = get_team_in_cache(token)
@@ -522,7 +522,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         self.organization_membership.save()
         self.assertEqual(Team.objects.count(), 1)
         self.assertEqual(Project.objects.count(), 1)
-        response = self.client.post("/api/environments/", {"name": "Test"})
+        response = self.client.post("/api/projects/", {"name": "Test"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Team.objects.count(), 1)
         self.assertEqual(Project.objects.count(), 1)
@@ -557,7 +557,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        response = self.client.patch(f"/api/environments/@current/", {"name": "Erinaceus europaeus"})
+        response = self.client.patch(f"/api/projects/@current/", {"name": "Erinaceus europaeus"})
         self.team.refresh_from_db()
 
         self.assertEqual(response.status_code, HTTP_200_OK)
@@ -569,7 +569,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         self.team.access_control = True
         self.team.save()
 
-        response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
+        response = self.client.patch(f"/api/projects/@current/", {"name": "Acherontia atropos"})
         self.team.refresh_from_db()
 
         self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
@@ -578,7 +578,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_rename_private_team_current_as_org_outsider_forbidden(self):
         self.organization_membership.delete()
 
-        response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
+        response = self.client.patch(f"/api/projects/@current/", {"name": "Acherontia atropos"})
         self.team.refresh_from_db()
 
         self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
@@ -586,7 +586,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_rename_private_team_id_as_org_outsider_forbidden(self):
         self.organization_membership.delete()
 
-        response = self.client.patch(f"/api/environments/{self.team.id}/", {"name": "Acherontia atropos"})
+        response = self.client.patch(f"/api/projects/{self.team.id}/", {"name": "Acherontia atropos"})
         self.team.refresh_from_db()
 
         self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
@@ -602,7 +602,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
             level=ExplicitTeamMembership.Level.MEMBER,
         )
 
-        response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
+        response = self.client.patch(f"/api/projects/@current/", {"name": "Acherontia atropos"})
         self.team.refresh_from_db()
 
         self.assertEqual(response.status_code, HTTP_200_OK)
@@ -618,7 +618,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         )
 
         # The other team should not be returned as it's restricted for the logged-in user
-        projects_response = self.client.get(f"/api/environments/")
+        projects_response = self.client.get(f"/api/projects/")
 
         # 9 (above):
         with self.assertNumQueries(FuzzyInt(13, 14)):

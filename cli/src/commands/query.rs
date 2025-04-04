@@ -56,7 +56,7 @@ pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
                 println!("Final query: {}", res);
             }
             if *execute {
-                let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
+                let query_endpoint = format!("{}/api/projects/{}/query", host, creds.env_id);
                 let res = run_query(&query_endpoint, &creds.token, &res)??;
                 for result in res.results {
                     println!("{}", serde_json::to_string(&result)?);
@@ -64,7 +64,7 @@ pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
             }
         }
         QueryCommand::Run { query, debug } => {
-            let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
+            let query_endpoint = format!("{}/api/projects/{}/query", host, creds.env_id);
             let res = run_query(&query_endpoint, &creds.token, query)??;
             if *debug {
                 println!("{}", serde_json::to_string_pretty(&res)?);
@@ -75,7 +75,7 @@ pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
             }
         }
         QueryCommand::Check { query, raw } => {
-            let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
+            let query_endpoint = format!("{}/api/projects/{}/query", host, creds.env_id);
             let res = check_query(&query_endpoint, &creds.token, query)?;
             if *raw {
                 println!("{}", serde_json::to_string_pretty(&res)?);

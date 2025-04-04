@@ -294,7 +294,7 @@ impl QueryTui {
 
     fn spawn_bg_query(&mut self, lines: Vec<String>) {
         let query = lines.join("\n");
-        let query_endpoint = format!("{}/api/environments/{}/query", self.host, self.creds.env_id);
+        let query_endpoint = format!("{}/api/projects/{}/query", self.host, self.creds.env_id);
         let m_token = self.creds.token.clone();
         let handle =
             std::thread::spawn(move || query::run_query(&query_endpoint, &m_token, &query));

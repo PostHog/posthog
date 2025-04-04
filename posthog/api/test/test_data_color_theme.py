@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest
 
 class TestDataColorTheme(APIBaseTest):
     def test_can_fetch_public_themes(self) -> None:
-        response = self.client.get(f"/api/environments/{self.team.pk}/data_color_themes")
+        response = self.client.get(f"/api/projects/{self.team.pk}/data_color_themes")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data[0]["is_global"]
@@ -20,7 +20,7 @@ class TestDataColorTheme(APIBaseTest):
         DataColorTheme.objects.create(name="Custom theme 1", colors=[], team=self.team)
         DataColorTheme.objects.create(name="Custom theme 2", colors=[], team=other_team)
 
-        response = self.client.get(f"/api/environments/{self.team.pk}/data_color_themes")
+        response = self.client.get(f"/api/projects/{self.team.pk}/data_color_themes")
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data) == 2
@@ -34,9 +34,7 @@ class TestDataColorTheme(APIBaseTest):
 
         theme = DataColorTheme.objects.create(name="Original name", colors=[], team=self.team)
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"}
-        )
+        response = self.client.patch(f"/api/projects/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"})
 
         assert response.status_code == status.HTTP_200_OK
         assert DataColorTheme.objects.get(pk=theme.pk).name == "New name"
@@ -44,9 +42,7 @@ class TestDataColorTheme(APIBaseTest):
     def test_can_not_edit_own_themes_when_feature_disabled(self) -> None:
         theme = DataColorTheme.objects.create(name="Original name", colors=[], team=self.team)
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"}
-        )
+        response = self.client.patch(f"/api/projects/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "This feature is only available on paid plans."
@@ -56,9 +52,7 @@ class TestDataColorTheme(APIBaseTest):
         theme = DataColorTheme.objects.first()
         assert theme
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"}
-        )
+        response = self.client.patch(f"/api/projects/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "Only staff users can edit global themes."
@@ -70,9 +64,7 @@ class TestDataColorTheme(APIBaseTest):
         theme = DataColorTheme.objects.first()
         assert theme
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"}
-        )
+        response = self.client.patch(f"/api/projects/{self.team.pk}/data_color_themes/{theme.pk}", {"name": "New name"})
 
         assert response.status_code == status.HTTP_200_OK
         assert DataColorTheme.objects.get(pk=theme.pk).name == "New name"
