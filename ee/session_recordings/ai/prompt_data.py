@@ -39,7 +39,7 @@ class SessionSummaryPromptData:
     metadata: SessionSummaryMetadata | None = None
     # In order to reduce the number of tokens in the prompt,
     # we generate mappings to use in the prompt instead of repeating the data
-    window_id_mapping: dict[str, int] = dataclasses.field(default_factory=dict)
+    window_id_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
     url_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
 
     def load_session_data(
@@ -53,11 +53,11 @@ class SessionSummaryPromptData:
             return
         self.columns = [*raw_session_columns, "milliseconds_since_start", "event_id"]
         self.metadata = self._prepare_metadata(raw_session_metadata)
-        events_mapping: dict[str, list[Any]] = {}
+        simplified_events_mapping: dict[str, list[Any]] = {}
         # Pick indexes as we iterate over arrays
-        window_id_index = self._get_column_index("$window_id")
-        current_url_index = self._get_column_index("$current_url")
-        timestamp_index = self._get_column_index("timestamp")
+        window_id_index = get_column_index(self.columns, "$window_id")
+        current_url_index = get_column_index(self.columns, "$current_url")
+        timestamp_index = get_column_index(self.columns, "timestamp")
         ms_since_start_index = len(self.columns) - 2
         event_id_index = len(self.columns) - 1
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
@@ -77,17 +77,17 @@ class SessionSummaryPromptData:
                 )
             # Generate a hex for each event to make sure we can identify repeated events, and identify the event
             event_id = self._get_deterministic_hex(simplified_event)
-            if event_id in events_mapping:
+            if event_id in simplified_events_mapping:
                 # Skip repeated events
                 continue
             simplified_event[event_id_index] = event_id
             # Remove timestamp as we don't need it anymore
             del simplified_event[timestamp_index]
-            events_mapping[event_id] = simplified_event
+            simplified_events_mapping[event_id] = simplified_event
         # Remove timestamp column (as we don't store timestamps)
         del self.columns[timestamp_index]
-        self.results = list(events_mapping.values())
-        return events_mapping
+        self.results = list(simplified_events_mapping.values())
+        return simplified_events_mapping
 
     def _prepare_metadata(self, raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
         # Remove excessive data
@@ -126,12 +126,6 @@ class SessionSummaryPromptData:
             self.url_mapping[url] = f"url_{len(self.url_mapping) + 1}"
         return self.url_mapping[url]
 
-    def _get_column_index(self, column_name: str) -> int | None:
-        for i, c in enumerate(self.columns):
-            if c == column_name:
-                return i
-        return None
-
     @staticmethod
     def _prepare_datetime(raw_time: datetime | str | None) -> datetime | None:
         if not raw_time:
@@ -162,6 +156,13 @@ class SessionSummaryPromptData:
         # so we can the same string using the same combination of values only.
         event_string = "\0".join(format_value(x) for x in event)
         return hashlib.sha256(event_string.encode()).hexdigest()[:length]
+
+
+def get_column_index(columns: list[str], column_name: str) -> int | None:
+    for i, c in enumerate(columns):
+        if c == column_name:
+            return i
+    return None
 
 
 def shorten_url(url: str, max_length: int = 256) -> str:

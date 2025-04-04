@@ -1,6 +1,6 @@
 import openai
 import structlog
-from ee.session_recordings.ai.output_data import load_session_summary_from_llm_content
+from ee.session_recordings.ai.output_data import load_raw_session_summary_from_llm_content
 from ee.session_recordings.session_summary import ExceptionToRetry
 from prometheus_client import Histogram
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_fixed, wait_random
@@ -55,7 +55,9 @@ def _failed_get_llm_summary(
     wait=wait_fixed(2) + wait_random(0, 10),
     retry_error_callback=_failed_get_llm_summary,
 )
-def get_llm_summary(rendered_summary_template: str, user: User, session_id: str):
+def get_raw_llm_session_summary(
+    rendered_summary_template: str, user: User, allowed_event_ids: list[str], session_id: str
+):
     # Get the LLM response
     # assistant_start_text = "```yaml\nsummary: "
     try:
@@ -70,15 +72,17 @@ def get_llm_summary(rendered_summary_template: str, user: User, session_id: str)
         TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
     # Ensure the LLM response is valid
     try:
-        summary = load_session_summary_from_llm_content(llm_response, session_id)
+        raw_session_summary = load_raw_session_summary_from_llm_content(
+            llm_response=llm_response, allowed_event_ids=allowed_event_ids, session_id=session_id
+        )
     # Validation errors should be retried if LLM wasn't able to generate a valid schema from the first attempt
     except ValueError as err:
         # TODO: Instead of running the whole call, could ask LLM to fix the error instead (faster)
         logger.exception(
-            f"Error loading session summary for session_id {session_id} by user {user.pk}, retrying: {err}"
+            f"Error loading raw session summary from LLM for session_id {session_id} by user {user.pk}, retrying: {err}"
         )
         raise ExceptionToRetry()
-    return summary
+    return raw_session_summary
 
 
 def call_llm(input_prompt: str, user_key: str, assistant_start_text: str | None = None) -> ChatCompletion:

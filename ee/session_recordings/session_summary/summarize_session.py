@@ -1,4 +1,5 @@
-from ee.session_recordings.ai.llm import get_llm_summary
+from ee.session_recordings.ai.llm import get_raw_llm_session_summary
+from ee.session_recordings.ai.output_data import enrich_raw_session_summary_with_events_meta
 from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData, shorten_url
 from ee.session_recordings.session_summary.utils import (
     load_session_metadata_from_json,
@@ -44,23 +45,21 @@ class ReplaySummarizer:
         # )
         # Load session events from CSV to load with production data.
         # TODO: Remove before merging, using to test with production data
-        session_events = load_sesssion_recording_events_from_csv(
+        session_events_columns, session_events = load_sesssion_recording_events_from_csv(
             "/Users/woutut/Documents/Code/posthog/playground/single-session-csv-export_0195f10e-7c84-7944-9ea2-0303a4b37af7.csv"
         )
-        if not session_events or not session_events[0] or not session_events[1]:
+        if not session_events_columns or not session_events:
             raise ValueError(f"no events found for session_id {session_id}")
-        return session_events[0], session_events[1]
+        return session_events_columns, session_events
 
     def _generate_prompt(
-        self, session_metadata: dict, session_events_columns: list[str], session_events: list[tuple[str | None, ...]]
+        self,
+        prompt_data: SessionSummaryPromptData,
+        url_mapping_reversed: dict[str, str],
+        window_mapping_reversed: dict[str, str],
     ) -> str:
-        prompt_data = SessionSummaryPromptData()
-        prompt_data.load_session_data(session_events, session_metadata, session_events_columns)
-        # Reverse mappings for easier reference in the prompt.
-        full_url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
-        window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
         # Keep shortened URLs for the prompt to reduce the number of tokens
-        url_mapping_reversed = {k: shorten_url(v) for k, v in full_url_mapping_reversed.items()}
+        short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
         # Render all templates
         summary_template = get_template(f"session_summaries/single-replay_base-prompt.djt")
         summary_example = get_template(f"session_summaries/single-replay_example.yml").render()
@@ -69,7 +68,7 @@ class ReplaySummarizer:
                 "EVENTS_COLUMNS": prompt_data.columns,
                 "EVENTS_DATA": prompt_data.results,
                 "SESSION_METADATA": prompt_data.metadata.to_dict(),
-                "URL_MAPPING": url_mapping_reversed,
+                "URL_MAPPING": short_url_mapping_reversed,
                 "WINDOW_ID_MAPPING": window_mapping_reversed,
                 "SUMMARY_EXAMPLE": summary_example,
             }
@@ -90,9 +89,30 @@ class ReplaySummarizer:
         # related to average visitors of the same pages (left the page too fast, unexpected bounce, etc.).
         # Keep in mind that in-app behavior (like querying insights a lot) differs from the web (visiting a lot of pages).
         with timer("generate_prompt"):
-            rendered_summary_prompt = self._generate_prompt(session_metadata, session_events_columns, session_events)
+            prompt_data = SessionSummaryPromptData()
+            simplified_events_mapping = prompt_data.load_session_data(
+                session_events, session_metadata, session_events_columns
+            )
+            # Reverse mappings for easier reference in the prompt.
+            url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
+            window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
+            rendered_summary_prompt = self._generate_prompt(prompt_data, url_mapping_reversed, window_mapping_reversed)
         with timer("openai_completion"):
-            session_summary = get_llm_summary(rendered_summary_prompt, self.user, self.recording.session_id)
+            raw_session_summary = get_raw_llm_session_summary(
+                rendered_summary_template=rendered_summary_prompt,
+                user=self.user,
+                allowed_event_ids=list(simplified_events_mapping.keys()),
+                session_id=self.recording.session_id,
+            )
+        # Enrich the session summary with events metadata
+        session_summary = enrich_raw_session_summary_with_events_meta(
+            raw_session_summary=raw_session_summary,
+            simplified_events_mapping=simplified_events_mapping,
+            simplified_events_columns=prompt_data.columns,
+            url_mapping_reversed=url_mapping_reversed,
+            window_mapping_reversed=window_mapping_reversed,
+            session_id=self.recording.session_id,
+        )
         # TODO Make the output streamable (the main reason behing using YAML
         # to keep it partially parsable to avoid waiting for the LLM to finish)
         return {"content": session_summary.data, "timings": timer.get_all_timings()}
