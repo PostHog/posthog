@@ -10,6 +10,9 @@ from posthog.clickhouse.cluster import (
 from posthog.models.group.sql import GROUPS_TABLE
 from dags.common import JobOwners
 import uuid
+from posthog.clickhouse.cluster import (
+    LightweightDeleteMutationRunner,
+)
 
 
 class DeleteGroupsConfig(dagster.Config):
@@ -113,6 +116,31 @@ def load_deleted_groups(
 
 
 @dagster.op
+def delete_groups(
+    context: dagster.OpExecutionContext,
+    table: PendingGroupDeletesTable,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> PendingGroupDeletesTable:
+    """Delete groups from the groups table that are marked for deletion using LightweightDeleteMutationRunner."""
+
+    mutation_runner = LightweightDeleteMutationRunner(
+        GROUPS_TABLE,
+        "exists(SELECT 1 FROM {table} WHERE team_id = groups.team_id AND group_type_index = groups.group_type_index AND group_key = groups.group_key)".format(
+            table=table.qualified_name
+        ),
+    )
+
+    mutation = cluster.any_host_by_role(mutation_runner, NodeRole.DATA).result()
+    cluster.map_all_hosts(mutation.wait).result()
+
+    verify_query = f"SELECT count() FROM {table.qualified_name}"
+    [[deleted_count]] = cluster.any_host_by_role(lambda client: client.execute(verify_query), NodeRole.DATA).result()
+    context.add_output_metadata({"groups_deleted": dagster.MetadataValue.int(deleted_count)})
+
+    return table
+
+
+@dagster.op
 def cleanup_delete_assets(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: DeleteGroupsConfig,
@@ -128,4 +156,5 @@ def delete_groups_job():
     """Job that handles deletion of groups marked as deleted."""
     table = create_pending_group_deletions_table()
     loaded_table = load_deleted_groups(table)
-    cleanup_delete_assets(table=loaded_table)
+    deleted_table = delete_groups(loaded_table)
+    cleanup_delete_assets(table=deleted_table)
