@@ -682,6 +682,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "If provided by the licensed geoip database",
             "examples": ["null", "0.1"],
             "ignored_in_assistant": True,
+            "system": True,
         },
         "$geoip_subdivision_3_name": {
             "label": "Subdivision 3 Name",
