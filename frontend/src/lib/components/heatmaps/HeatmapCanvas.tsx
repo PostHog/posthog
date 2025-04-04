@@ -60,6 +60,7 @@ export function HeatmapCanvas({
 }): JSX.Element | null {
     const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
         useValues(heatmapDataLogic)
+
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
 
