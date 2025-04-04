@@ -143,10 +143,6 @@ const meta: Meta = {
                     200,
                     { success: true },
                 ],
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id/playlist_viewed': [
-                    200,
-                    { success: true },
-                ],
                 '/api/projects/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
