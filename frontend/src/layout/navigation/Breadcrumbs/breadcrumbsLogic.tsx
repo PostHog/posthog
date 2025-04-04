@@ -11,9 +11,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
+import { EnvironmentSwitcherOverlay } from '../EnvironmentSwitcher'
 import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
@@ -181,7 +181,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         name: currentTeam.name,
                         tag: currentTeam.name,
                         popover: {
-                            overlay: <ProjectSwitcherOverlay />,
+                            overlay: <EnvironmentSwitcherOverlay />,
                         },
                     })
                 }

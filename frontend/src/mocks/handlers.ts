@@ -91,8 +91,6 @@ export const defaultMocks: Mocks = {
         },
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/groups_types/': [],
-        '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/groups_types/': [],
         '/api/projects/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/insights/:insight_id/sharing/': {
             enabled: false,
@@ -147,7 +145,6 @@ export const defaultMocks: Mocks = {
             party_mode_enabled: true,
             interactions_enabled: true,
         },
-        '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/api/projects/:team_id/comments/count': { count: 0 },
         '/api/projects/:team_id/comments': { results: [] },

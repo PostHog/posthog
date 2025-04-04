@@ -16,7 +16,7 @@ import {
 } from 'lib/utils/product-intents'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, ProductKey, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import { projectLogic } from './projectLogic'
@@ -93,21 +93,7 @@ export const teamLogic = kea<teamLogicType>([
                         }
                     }
 
-                    const promises: [Promise<TeamType>, Promise<ProjectType> | undefined] = [
-                        api.update(`api/projects/${values.currentTeam.id}`, payload),
-                        undefined,
-                    ]
-                    if (
-                        Object.keys(payload).length === 1 &&
-                        payload.name &&
-                        values.currentProject &&
-                        !values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
-                    ) {
-                        // If we're only updating the name and the user doesn't have access to the environments feature,
-                        // update the project name as well, for 100% equivalence
-                        promises[0] = api.update(`api/projects/${values.currentProject.id}`, { name: payload.name })
-                    }
-                    const [patchedTeam] = await Promise.all(promises)
+                    const patchedTeam = await api.update(`api/projects/${values.currentTeam.id}`, payload)
                     breakpoint()
 
                     // We need to reload current org (which lists its teams) in organizationLogic AND in userLogic

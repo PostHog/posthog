@@ -69,7 +69,7 @@ export function WebSnippet(): JSX.Element {
             )}
 
             <FlaggedFeature flag="remote-config">
-                <h3 className="mt-4 flex items-center gap-2">
+                <h3 className="flex items-center gap-2 mt-4">
                     Web Snippet V2 <LemonTag type="warning">Experimental</LemonTag>
                 </h3>
                 <p>
@@ -92,9 +92,6 @@ export function WebSnippet(): JSX.Element {
 
 export function Bookmarklet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <>
@@ -102,7 +99,7 @@ export function Bookmarklet(): JSX.Element {
             <p>
                 Just drag the bookmarklet below to your bookmarks bar, open the website you want to test PostHog on and
                 click it. This will enable our tracking, on the currently loaded page only. The data will show up in
-                this {displayNoun}.
+                this project.
             </p>
             <div>{isAuthenticatedTeam(currentTeam) && <JSBookmarklet team={currentTeam} />}</div>
         </>
@@ -137,7 +134,7 @@ export function TeamVariables(): JSX.Element {
     const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <div className="flex items-start gap-4 flex-wrap">
+        <div className="flex flex-wrap items-start gap-4">
             <div className="flex-1">
                 <h3 id="project-api-key" className="min-w-[25rem]">
                     {capitalizeFirstLetter(displayNoun)} API key
