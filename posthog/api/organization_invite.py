@@ -137,6 +137,23 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         local_part, domain = email.split("@")
         return f"{local_part}@{domain.lower()}"
 
+    def validate_level(self, level: int) -> int:
+        # Validate that the user can't invite someone with a higher permission level than their own
+        try:
+            user_membership = OrganizationMembership.objects.get(
+                organization_id=self.context["organization_id"],
+                user=self.context["request"].user,
+            )
+            if level > user_membership.level:
+                raise exceptions.PermissionDenied(
+                    "You cannot invite a user with a higher permission level than your own."
+                )
+        except OrganizationMembership.DoesNotExist:
+            # This should not happen in normal operation, but we'll handle it just in case
+            raise exceptions.PermissionDenied("You must be a member of the organization to send invites.")
+
+        return level
+
     def validate_private_project_access(
         self, private_project_access: Optional[list[dict[str, Any]]]
     ) -> Optional[list[dict[str, Any]]]:

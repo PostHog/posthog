@@ -148,16 +148,8 @@ class Database(BaseModel):
         "events",
         "groups",
         "persons",
-        "person_distinct_ids",
-        "session_replay_events",
-        "cohort_people",
-        "static_cohort_people",
-        "log_entries",
-        "app_metrics",
         "sessions",
-        "heatmaps",
         "query_log",
-        "exchange_rate",
     ]
 
     _warehouse_table_names: list[str] = []
@@ -617,6 +609,7 @@ def serialize_database(
             ),
         )
         .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
+        .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
         .all()
         if warehouse_table_names
         else []

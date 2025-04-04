@@ -34,8 +34,15 @@ from ee.hogai.trends.nodes import (
     TrendsPlannerNode,
     TrendsPlannerToolsNode,
 )
+from ee.hogai.sql.nodes import (
+    SQLGeneratorNode,
+    SQLGeneratorToolsNode,
+    SQLPlannerNode,
+    SQLPlannerToolsNode,
+)
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
+from ee.hogai.session_recordings_filters.nodes import SessionRecordingsFiltersNode
 
 checkpointer = DjangoCheckpointer()
 
@@ -71,7 +78,8 @@ class AssistantGraph:
         builder = self._graph
         path_map = path_map or {
             "insights": AssistantNodeName.INSIGHT_RAG_CONTEXT,
-            "docs": AssistantNodeName.INKEEP_DOCS,
+            "search_documentation": AssistantNodeName.INKEEP_DOCS,
+            "search_session_recordings": AssistantNodeName.SESSION_RECORDINGS_FILTERS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
         }
@@ -96,6 +104,7 @@ class AssistantGraph:
                 "trends": AssistantNodeName.TRENDS_PLANNER,
                 "funnel": AssistantNodeName.FUNNEL_PLANNER,
                 "retention": AssistantNodeName.RETENTION_PLANNER,
+                "sql": AssistantNodeName.SQL_PLANNER,
                 "end": AssistantNodeName.ROOT,
             },
         )
@@ -239,6 +248,52 @@ class AssistantGraph:
 
         return self
 
+    def add_sql_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.SQL_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
+        builder = self._graph
+
+        sql_planner = SQLPlannerNode(self._team)
+        builder.add_node(AssistantNodeName.SQL_PLANNER, sql_planner)
+        builder.add_edge(AssistantNodeName.SQL_PLANNER, AssistantNodeName.SQL_PLANNER_TOOLS)
+
+        sql_planner_tools = SQLPlannerToolsNode(self._team)
+        builder.add_node(AssistantNodeName.SQL_PLANNER_TOOLS, sql_planner_tools)
+        builder.add_conditional_edges(
+            AssistantNodeName.SQL_PLANNER_TOOLS,
+            sql_planner_tools.router,
+            path_map={
+                "continue": AssistantNodeName.SQL_PLANNER,
+                "plan_found": next_node,
+                "root": root_node,
+            },
+        )
+
+        return self
+
+    def add_sql_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
+        builder = self._graph
+
+        sql_generator = SQLGeneratorNode(self._team)
+        builder.add_node(AssistantNodeName.SQL_GENERATOR, sql_generator)
+
+        sql_generator_tools = SQLGeneratorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.SQL_GENERATOR_TOOLS, sql_generator_tools)
+
+        builder.add_edge(AssistantNodeName.SQL_GENERATOR_TOOLS, AssistantNodeName.SQL_GENERATOR)
+        builder.add_conditional_edges(
+            AssistantNodeName.SQL_GENERATOR,
+            sql_generator.router,
+            path_map={
+                "tools": AssistantNodeName.SQL_GENERATOR_TOOLS,
+                "next": next_node,
+            },
+        )
+
+        return self
+
     def add_query_executor(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
         builder = self._graph
         query_executor_node = QueryExecutorNode(self._team)
@@ -318,6 +373,13 @@ class AssistantGraph:
         )
         return self
 
+    def add_session_recordings_filters(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
+        builder = self._graph
+        session_recordings_filters_node = SessionRecordingsFiltersNode(self._team)
+        builder.add_node(AssistantNodeName.SESSION_RECORDINGS_FILTERS, session_recordings_filters_node)
+        builder.add_edge(AssistantNodeName.SESSION_RECORDINGS_FILTERS, next_node)
+        return self
+
     def compile_full_graph(self):
         return (
             self.add_memory_initializer()
@@ -331,7 +393,10 @@ class AssistantGraph:
             .add_funnel_generator()
             .add_retention_planner()
             .add_retention_generator()
+            .add_sql_planner()
+            .add_sql_generator()
             .add_query_executor()
+            .add_session_recordings_filters()
             .add_inkeep_docs()
             .compile()
         )

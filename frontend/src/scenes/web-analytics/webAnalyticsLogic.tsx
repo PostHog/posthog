@@ -2,10 +2,11 @@ import { IconGear } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
@@ -28,6 +29,7 @@ import {
     BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
+    DataWarehouseNode,
     EventsNode,
     InsightVizNode,
     NodeKind,
@@ -965,22 +967,39 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING] &&
                     !(conversionGoal && 'actionId' in conversionGoal)
 
-                const revenueEventsSeries: EventsNode[] =
+                const revenueEventsSeries: (EventsNode | DataWarehouseNode)[] =
                     includeRevenue && currentTeam?.revenue_tracking_config
-                        ? currentTeam.revenue_tracking_config.events.map((e) => ({
-                              math: PropertyMathType.Sum,
-                              name: e.eventName,
-                              event: e.eventName,
-                              kind: NodeKind.EventsNode,
-                              custom_name: e.eventName,
-                              math_property: e.revenueProperty,
-                              math_property_revenue_currency: e.revenueCurrencyProperty,
-                          }))
+                        ? ([
+                              ...currentTeam.revenue_tracking_config.events.map((e) => ({
+                                  name: e.eventName,
+                                  event: e.eventName,
+                                  custom_name: e.eventName,
+                                  math: PropertyMathType.Sum,
+                                  kind: NodeKind.EventsNode,
+                                  math_property: e.revenueProperty,
+                                  math_property_revenue_currency: e.revenueCurrencyProperty,
+                              })),
+                              ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS]
+                                  ? currentTeam.revenue_tracking_config.dataWarehouseTables.map((t) => ({
+                                        id: t.tableName,
+                                        name: t.tableName,
+                                        table_name: t.tableName,
+                                        kind: NodeKind.DataWarehouseNode,
+                                        math: PropertyMathType.Sum,
+                                        id_field: t.distinctIdColumn,
+                                        distinct_id_field: t.distinctIdColumn,
+                                        math_property: t.revenueColumn,
+                                        math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                                        math_property_revenue_currency: t.revenueCurrencyColumn,
+                                        timestamp_field: t.timestampColumn,
+                                    }))
+                                  : []),
+                          ] as (EventsNode | DataWarehouseNode)[])
                         : []
 
                 const conversionRevenueSeries =
                     conversionGoal && 'customEventName' in conversionGoal && includeRevenue
-                        ? revenueEventsSeries.filter((e) => e.event === conversionGoal.customEventName)
+                        ? revenueEventsSeries.filter((e) => 'event' in e && e.event === conversionGoal.customEventName)
                         : []
 
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
@@ -1021,6 +1040,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         hidePersonsModal: true,
                         embedded: true,
+                        hideTooltipOnScroll: true,
                     },
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
@@ -1078,6 +1098,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 hidePersonsModal: true,
                                 embedded: true,
+                                hideTooltipOnScroll: true,
                             },
                             canOpenInsight: true,
                             canOpenModal: false,
@@ -2290,7 +2311,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     actionToUrl(({ values }) => {
         const stateToUrl = (): string => {
-            const urlParams = new URLSearchParams()
+            const searchParams = { ...router.values.searchParams }
+            const urlParams = new URLSearchParams(searchParams)
 
             const {
                 rawWebAnalyticsFilters,

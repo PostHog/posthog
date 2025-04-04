@@ -385,15 +385,9 @@ def render_template(
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
-    try:
-        year_in_hog_url = f"/year_in_posthog/2024/{str(request.user.uuid)}"  # type: ignore
-    except:
-        year_in_hog_url = None
-
     posthog_app_context: dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "year_in_hog_url": year_in_hog_url,
     }
 
     posthog_bootstrap: dict[str, Any] = {}
@@ -523,7 +517,7 @@ async def initialize_self_capture_api_token():
         )
         # Get the current user's team (or first team in the instance) to set self capture configs
         team = None
-        if user and getattr(user, "team", None):
+        if user and getattr(user, "current_team", None):
             team = user.current_team
         else:
             team = await Team.objects.only("api_token").aget()
@@ -1274,7 +1268,7 @@ def is_json(val):
     return True
 
 
-def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) -> str:
     if not timestamp:
         timestamp = timezone.now()
 
@@ -1458,8 +1452,10 @@ async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.d
 def patchable(fn):
     """
     Decorator which allows patching behavior of a function at run-time.
+    Supports chaining multiple patches in sequence, where earlier patches
+    are applied before later ones.
 
-    Used in benchmarking scripts.
+    Used in benchmarking scripts and tests.
     """
 
     import posthog
@@ -1469,26 +1465,48 @@ def patchable(fn):
 
     @wraps(fn)
     def inner(*args, **kwargs):
-        return inner._impl(*args, **kwargs)  # type: ignore
+        # Execute patches in sequence: first patch → second patch → ... → original function
+        return execute_patch_chain(0, *args, **kwargs)
+
+    # Initialize empty patch list
+    inner._patch_list = []  # type: ignore[attr-defined]
+
+    # Function to execute the patch chain starting from a specific index
+    def execute_patch_chain(index, *args, **kwargs):
+        # If we've gone through all patches, execute the original function
+        if index >= len(inner._patch_list):  # type: ignore[attr-defined]
+            return fn(*args, **kwargs)
+
+        # Execute the current patch, passing a function that will invoke the next patch
+        next_fn = lambda *a, **kw: execute_patch_chain(index + 1, *a, **kw)
+        return inner._patch_list[index](next_fn, *args, **kwargs)  # type: ignore[attr-defined]
+
+    inner._execute_patch_chain = execute_patch_chain  # type: ignore[attr-defined]
 
     def patch(wrapper):
-        inner._impl = lambda *args, **kw: wrapper(fn, *args, **kw)  # type: ignore
+        # Add the wrapper to the end of the patch list
+        inner._patch_list.append(wrapper)  # type: ignore[attr-defined]
 
-    inner._impl = fn  # type: ignore
-    inner._patch = patch  # type: ignore
+    def unpatch():
+        # Remove the most recent patch if there is one
+        if inner._patch_list:  # type: ignore[attr-defined]
+            inner._patch_list.pop()  # type: ignore[attr-defined]
 
     @contextmanager
     def temp_patch(wrapper):
         """
-        Context manager for temporary patching.  Restores the original function when the 'with' block exits.
+        Context manager for temporary patching. Adds the wrapper to the patch list
+        and removes it when the 'with' block exits.
         """
         patch(wrapper)
         try:
             yield
         finally:
-            inner._impl = fn  # type: ignore
+            unpatch()
 
-    inner._temp_patch = temp_patch  # type: ignore
+    inner._patch = patch  # type: ignore[attr-defined]
+    inner._unpatch = unpatch  # type: ignore[attr-defined]
+    inner._temp_patch = temp_patch  # type: ignore[attr-defined]
 
     return inner
 

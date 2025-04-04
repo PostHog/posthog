@@ -41,9 +41,11 @@ class OrganizationUsageResource(TypedDict):
 # as well as for enforcing limits.
 class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
+    exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
+    api_queries_read_bytes: Optional[OrganizationUsageResource]
     period: Optional[list[str]]
 
 
@@ -145,6 +147,7 @@ class Organization(UUIDModel):
     #   'events': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 },
     #   'recordings': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
     #   'feature_flags_requests': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
+    #   'api_queries_read_bytes': { 'usage': 123456789, 'limit': 1000000000000, 'todays_usage': 1234 }
     #   'period': ['2021-01-01', '2021-01-31']
     # }
     # Also currently indicates if the organization is on billing V2 or not
@@ -219,9 +222,15 @@ class Organization(UUIDModel):
 
         return self.available_product_features
 
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[dict]:
+        vals: list[dict[str, Any]] = self.available_product_features or []
+        return next(
+            filter(lambda f: f and f.get("key") == feature, vals),
+            None,
+        )
+
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
-        available_product_feature_keys = [feature["key"] for feature in self.available_product_features or []]
-        return feature in available_product_feature_keys
+        return bool(self.get_available_feature(feature))
 
     @property
     def active_invites(self) -> QuerySet:

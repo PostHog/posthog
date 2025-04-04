@@ -23,6 +23,21 @@ import { useRef } from 'react'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from './hogFunctionTestLogic'
 
+export function HogFunctionTestPlaceholder({
+    title,
+    description,
+}: {
+    title?: string | JSX.Element
+    description?: string | JSX.Element
+}): JSX.Element {
+    return (
+        <div className="border bg-accent-3000 rounded p-3 space-y-2">
+            <h2 className="flex-1 m-0">{title || 'Testing'}</h2>
+            <p>{description || 'Save your configuration to enable testing'}</p>
+        </div>
+    )
+}
+
 const HogFunctionTestEditor = ({
     value,
     onChange,
@@ -135,7 +150,7 @@ const HogFunctionTestEditor = ({
     )
 }
 
-export function HogFunctionTest(): JSX.Element {
+export function HogFunctionTest({ configurable }: { configurable: boolean }): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const {
         isTestInvocationSubmitting,
@@ -165,13 +180,16 @@ export function HogFunctionTest(): JSX.Element {
 
     const testResultsRef = useRef<HTMLDivElement>(null)
 
+    const inactive = !expanded && configurable
+
     return (
         <Form logic={hogFunctionTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
             <div
                 ref={testResultsRef}
                 className={clsx(
                     'border rounded p-3 deprecated-space-y-2',
-                    expanded ? 'bg-surface-secondary min-h-120' : 'bg-surface-primary'
+                    expanded || !configurable ? 'bg-surface-primary' : 'bg-surface-secondary',
+                    expanded && configurable ? 'min-h-120' : ''
                 )}
             >
                 <div className="flex items-center justify-end gap-2">
@@ -180,10 +198,10 @@ export function HogFunctionTest(): JSX.Element {
                             <span>Testing</span>
                             {sampleGlobalsLoading && !fetchCancelled ? <Spinner /> : null}
                         </h2>
-                        {!expanded && <p>Click here to test your function with an example event</p>}
+                        {inactive ? <p>Click here to test your function with an example event</p> : null}
                     </div>
 
-                    {!expanded ? (
+                    {inactive ? (
                         <LemonButton
                             data-attr="expand-hog-testing"
                             type="secondary"
@@ -240,58 +258,65 @@ export function HogFunctionTest(): JSX.Element {
                                                         />
                                                     )}
                                                 </LemonField>
-                                                <LemonDivider />
-                                                <LemonButton
-                                                    fullWidth
-                                                    onClick={loadSampleGlobals}
-                                                    loading={sampleGlobalsLoading && !fetchCancelled}
-                                                    tooltip="Find the last event matching filters, and use it to populate the globals below."
-                                                >
-                                                    Fetch new event
-                                                </LemonButton>
-                                                <LemonDivider />
-                                                {savedGlobals.map(({ name, globals }, index) => (
-                                                    <div className="flex justify-between w-full" key={index}>
+                                                {configurable ? (
+                                                    <>
+                                                        <LemonDivider />
                                                         <LemonButton
-                                                            data-attr="open-hog-test-data"
-                                                            key={index}
-                                                            onClick={() => setSampleGlobals(globals)}
                                                             fullWidth
-                                                            className="flex-1"
+                                                            onClick={loadSampleGlobals}
+                                                            loading={sampleGlobalsLoading && !fetchCancelled}
+                                                            tooltip="Find the last event matching filters, and use it to populate the globals below."
                                                         >
-                                                            {name}
+                                                            Fetch new event
                                                         </LemonButton>
-                                                        <LemonButton
-                                                            data-attr="delete-hog-test-data"
-                                                            size="small"
-                                                            icon={<IconX />}
-                                                            onClick={() => deleteSavedGlobals(index)}
-                                                            tooltip="Delete saved test data"
-                                                        />
-                                                    </div>
-                                                ))}
-                                                {testInvocation.globals && (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        data-attr="save-hog-test-data"
-                                                        onClick={() => {
-                                                            const name = prompt('Name this test data')
-                                                            if (name) {
-                                                                saveGlobals(name, JSON.parse(testInvocation.globals))
-                                                            }
-                                                        }}
-                                                        disabledReason={(() => {
-                                                            try {
-                                                                JSON.parse(testInvocation.globals)
-                                                            } catch (e) {
-                                                                return 'Invalid globals JSON'
-                                                            }
-                                                            return undefined
-                                                        })()}
-                                                    >
-                                                        Save test data
-                                                    </LemonButton>
-                                                )}
+                                                        <LemonDivider />
+                                                        {savedGlobals.map(({ name, globals }, index) => (
+                                                            <div className="flex justify-between w-full" key={index}>
+                                                                <LemonButton
+                                                                    data-attr="open-hog-test-data"
+                                                                    key={index}
+                                                                    onClick={() => setSampleGlobals(globals)}
+                                                                    fullWidth
+                                                                    className="flex-1"
+                                                                >
+                                                                    {name}
+                                                                </LemonButton>
+                                                                <LemonButton
+                                                                    data-attr="delete-hog-test-data"
+                                                                    size="small"
+                                                                    icon={<IconX />}
+                                                                    onClick={() => deleteSavedGlobals(index)}
+                                                                    tooltip="Delete saved test data"
+                                                                />
+                                                            </div>
+                                                        ))}
+                                                        {testInvocation.globals && (
+                                                            <LemonButton
+                                                                fullWidth
+                                                                data-attr="save-hog-test-data"
+                                                                onClick={() => {
+                                                                    const name = prompt('Name this test data')
+                                                                    if (name) {
+                                                                        saveGlobals(
+                                                                            name,
+                                                                            JSON.parse(testInvocation.globals)
+                                                                        )
+                                                                    }
+                                                                }}
+                                                                disabledReason={(() => {
+                                                                    try {
+                                                                        JSON.parse(testInvocation.globals)
+                                                                    } catch (e) {
+                                                                        return 'Invalid globals JSON'
+                                                                    }
+                                                                    return undefined
+                                                                })()}
+                                                            >
+                                                                Save test data
+                                                            </LemonButton>
+                                                        )}
+                                                    </>
+                                                ) : null}
                                             </>
                                         }
                                     />
@@ -306,25 +331,41 @@ export function HogFunctionTest(): JSX.Element {
                                 </>
                             )}
 
-                            <LemonButton
-                                data-attr="hide-hog-testing"
-                                icon={<IconX />}
-                                onClick={() => toggleExpanded()}
-                                tooltip="Hide testing"
-                            />
+                            {expanded && (
+                                <LemonButton
+                                    data-attr="hide-hog-testing"
+                                    icon={<IconX />}
+                                    onClick={() => toggleExpanded()}
+                                    tooltip="Hide testing"
+                                />
+                            )}
                         </>
                     )}
                 </div>
 
-                {expanded && (
+                {expanded || !configurable ? (
                     <>
                         {testResult ? (
                             <div className="deprecated-space-y-2" data-attr="test-results">
-                                <LemonBanner type={testResult.status === 'success' ? 'success' : 'error'}>
-                                    {testResult.status === 'success' ? 'Success' : 'Error'}
+                                <LemonBanner
+                                    type={
+                                        testResult.status === 'success'
+                                            ? 'success'
+                                            : testResult.status === 'skipped'
+                                            ? 'warning'
+                                            : 'error'
+                                    }
+                                >
+                                    {testResult.status === 'success'
+                                        ? 'Success'
+                                        : testResult.status === 'skipped'
+                                        ? `${
+                                              type.charAt(0).toUpperCase() + type.slice(1)
+                                          } was skipped because the event did not match the filter criteria`
+                                        : 'Error'}
                                 </LemonBanner>
 
-                                {type === 'transformation' && testResult.status === 'success' ? (
+                                {type === 'transformation' && testResult.status !== 'error' ? (
                                     <>
                                         <div className="flex items-center justify-between gap-2">
                                             <LemonLabel>Transformation result</LemonLabel>
@@ -346,7 +387,9 @@ export function HogFunctionTest(): JSX.Element {
                                             <>
                                                 {!sortedTestsResult?.hasDiff && (
                                                     <LemonBanner type="info">
-                                                        The event was unmodified by the transformation.
+                                                        {testResult.status === 'skipped'
+                                                            ? 'The event was not modified as it did not match the filter criteria.'
+                                                            : 'The event was unmodified by the transformation.'}
                                                     </LemonBanner>
                                                 )}
                                                 <CodeEditorResizeable
@@ -420,7 +463,7 @@ export function HogFunctionTest(): JSX.Element {
                                     pagination={{ pageSize: 200, hideOnSinglePage: true }}
                                 />
                             </div>
-                        ) : (
+                        ) : configurable ? (
                             <div className="deprecated-space-y-2">
                                 <LemonField name="globals">
                                     {({ value, onChange }) => (
@@ -459,9 +502,9 @@ export function HogFunctionTest(): JSX.Element {
                                     )}
                                 </LemonField>
                             </div>
-                        )}
+                        ) : null}
                     </>
-                )}
+                ) : null}
             </div>
 
             {jsonError && <LemonBanner type="error">JSON Error: {jsonError}</LemonBanner>}

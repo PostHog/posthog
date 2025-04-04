@@ -23,7 +23,13 @@ import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { useMemo } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    GroupTypeIndex,
+    PropertyDefinitionType,
+    PropertyFilterType,
+} from '~/types'
 
 import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
@@ -61,12 +67,13 @@ export function TaxonomicPropertyFilter({
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.HogQLExpression,
     ]
-    const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
-        taxonomicGroup,
-        value,
-        item
-    ) => {
-        selectItem(taxonomicGroup, value, item?.propertyFilterType, item)
+    const taxonomicOnChange: (
+        group: TaxonomicFilterGroup,
+        value: TaxonomicFilterValue,
+        item: any,
+        originalQuery?: string
+    ) => void = (taxonomicGroup, value, item, originalQuery) => {
+        selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
         if (taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression) {
             onComplete?.()
         }
@@ -143,6 +150,7 @@ export function TaxonomicPropertyFilter({
                         value: newValue || null,
                         operator: newOperator,
                         type: filter?.type,
+                        label: filter?.label,
                         ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
                     } as AnyPropertyFilter)
                 }
@@ -150,6 +158,11 @@ export function TaxonomicPropertyFilter({
                     onComplete()
                 }
             }}
+            groupTypeIndex={
+                isGroupPropertyFilter(filter) && typeof filter?.group_type_index === 'number'
+                    ? (filter?.group_type_index as GroupTypeIndex)
+                    : undefined
+            }
         />
     )
 
@@ -209,6 +222,9 @@ export function TaxonomicPropertyFilter({
                             >
                                 {filter?.type === 'cohort' ? (
                                     filter.cohort_name || `Cohort #${filter?.value}`
+                                ) : filter?.type === PropertyFilterType.EventMetadata &&
+                                  filter?.key?.startsWith('$group_') ? (
+                                    filter.label || `Group ${filter?.value}`
                                 ) : filter?.key ? (
                                     <PropertyKeyInfo
                                         value={filter.key}

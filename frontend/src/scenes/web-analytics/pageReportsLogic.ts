@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
-import { CompareFilter, InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -260,10 +260,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         combinedMetricsQuery: [
             (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
             (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
-                (
-                    dateFilter: typeof webAnalyticsLogic.values.dateFilter,
-                    compareFilter: CompareFilter
-                ): InsightVizNode<TrendsQuery> => ({
+                (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -296,7 +293,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             display: ChartDisplayType.ActionsLineGraph,
                             showLegend: true,
                         },
-                        compareFilter,
                         filterTestAccounts: shouldFilterTestAccounts,
                         properties: pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : [],
                     },
@@ -305,24 +301,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         tiles: [
-            (s) => [
-                s.queries,
-                s.pageUrl,
-                s.createInsightProps,
-                s.combinedMetricsQuery,
-                s.dateFilter,
-                () => webAnalyticsLogic.values.compareFilter,
-            ],
+            (s) => [s.queries, s.pageUrl, s.createInsightProps, s.combinedMetricsQuery, s.dateFilter],
             (
                 queries: Record<string, QuerySchema | undefined>,
                 pageUrl: string | null,
                 createInsightProps: (tileId: TileId, tabId?: string) => InsightLogicProps,
                 combinedMetricsQuery: (
-                    dateFilter: typeof webAnalyticsLogic.values.dateFilter,
-                    compareFilter: CompareFilter
+                    dateFilter: typeof webAnalyticsLogic.values.dateFilter
                 ) => InsightVizNode<TrendsQuery>,
-                dateFilter: typeof webAnalyticsLogic.values.dateFilter,
-                compareFilter: CompareFilter
+                dateFilter: typeof webAnalyticsLogic.values.dateFilter
             ): SectionTile[] => {
                 if (!pageUrl) {
                     return []
@@ -366,7 +353,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 kind: 'query',
                                 tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
                                 title: 'Trends over time',
-                                query: combinedMetricsQuery(dateFilter, compareFilter),
+                                query: combinedMetricsQuery(dateFilter),
                                 showIntervalSelect: true,
                                 insightProps: createInsightProps(
                                     TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
@@ -533,14 +520,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 actions.setPageUrl(searchParams.pageURL)
             }
 
-            if (searchParams.stripQueryParams !== values.stripQueryParams) {
+            // Only toggle stripQueryParams if it's explicitly present in the URL
+            if ('stripQueryParams' in searchParams && !!searchParams.stripQueryParams !== values.stripQueryParams) {
                 actions.toggleStripQueryParams()
             }
         },
     }),
 
     actionToUrl: ({ values }) => ({
-        // So far we don't need to do anything for dateFilters because webAnalyticsLogic handles it.
         setPageUrl: () => {
             const searchParams = { ...router.values.searchParams }
 
@@ -550,7 +537,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 delete searchParams.pageURL
             }
 
-            searchParams.stripQueryParams = values.stripQueryParams
+            // Only include stripQueryParams if it's different from the URL
+            if (!!router.values.searchParams.stripQueryParams !== values.stripQueryParams) {
+                searchParams.stripQueryParams = values.stripQueryParams
+            }
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },

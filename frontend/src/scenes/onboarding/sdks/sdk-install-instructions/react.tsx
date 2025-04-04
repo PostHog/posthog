@@ -1,8 +1,12 @@
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import SetupWizardBanner from './components/SetupWizardBanner'
 import { JSInstallSnippet } from './js-web'
 
 function ReactEnvVarsSnippet(): JSX.Element {
@@ -47,9 +51,19 @@ root.render(
     )
 }
 
-export function SDKInstallReactInstructions(): JSX.Element {
+export function SDKInstallReactInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
     return (
         <>
+            {showSetupWizard && (
+                <>
+                    <h2>Automated Installation</h2>
+                    <SetupWizardBanner integrationName="React" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual Installation</h2>
+                </>
+            )}
             <h3>Install the package</h3>
             <JSInstallSnippet />
             <h3>Add environment variables</h3>

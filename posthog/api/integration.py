@@ -21,6 +21,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
+    MailIntegration,
 )
 
 
@@ -45,6 +46,18 @@ class IntegrationSerializer(serializers.ModelSerializer):
             key_info = json.loads(key_file.read().decode("utf-8"))
             instance = GoogleCloudIntegration.integration_from_key(
                 validated_data["kind"], key_info, team_id, request.user
+            )
+            return instance
+
+        elif validated_data["kind"] == "email":
+            config = validated_data.get("config", {})
+            if config.get("vendor") == "mailjet" and not (config.get("api_key") and config.get("secret_key")):
+                raise ValidationError("Both api_key and secret_key are required for Mail integration")
+            instance = MailIntegration.integration_from_keys(
+                config["api_key"],
+                config["secret_key"],
+                team_id,
+                request.user,
             )
             return instance
 
@@ -94,13 +107,29 @@ class IntegrationViewSet(
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         slack = SlackIntegration(instance)
-        authed_user = instance.config["authed_user"]["id"]
+        should_include_private_channels: bool = instance.created_by_id == request.user.id
+        authed_user: str = instance.config.get("authed_user", {}).get("id") if instance.config else None
+        if not authed_user:
+            raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
 
         channel_id = request.query_params.get("channel_id")
         if channel_id:
-            channel = slack.get_channel_by_id(channel_id)
+            channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             if channel:
-                return Response({"channels": [channel]})
+                return Response(
+                    {
+                        "channels": [
+                            {
+                                "id": channel["id"],
+                                "name": channel["name"],
+                                "is_private": channel["is_private"],
+                                "is_member": channel.get("is_member", True),
+                                "is_ext_shared": channel["is_ext_shared"],
+                                "is_private_without_access": channel["is_private_without_access"],
+                            }
+                        ]
+                    }
+                )
             else:
                 return Response({"channels": []})
 
@@ -111,8 +140,9 @@ class IntegrationViewSet(
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
+                "is_private_without_access": channel.get("is_private_without_access", False),
             }
-            for channel in slack.list_channels(authed_user)
+            for channel in slack.list_channels(should_include_private_channels, authed_user)
         ]
 
         return Response({"channels": channels})

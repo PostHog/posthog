@@ -220,7 +220,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         updateDataWarehouseSavedQuerySuccess: async ({ payload }) => {
             lemonToast.success(`${payload?.name ?? 'View'} successfully updated`)
             if (payload) {
-                router.actions.push(urls.dataWarehouseView(payload.id))
+                router.actions.push(urls.sqlEditor(undefined, payload.id))
             }
         },
         saveSchema: async () => {

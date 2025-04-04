@@ -171,6 +171,7 @@ export function filterInspectorListItems({
     allowMatchingEventsFilter,
     showOnlyMatching,
     trackedWindow,
+    hasEventsToDisplay,
 }: {
     allItems: InspectorListItem[]
     miniFiltersByKey:
@@ -181,6 +182,7 @@ export function filterInspectorListItems({
     allowMatchingEventsFilter: boolean
     showOnlyMatching: boolean
     trackedWindow: string | null
+    hasEventsToDisplay: boolean
 }): InspectorListItem[] {
     const items: InspectorListItem[] = []
 
@@ -201,9 +203,7 @@ export function filterInspectorListItems({
         const itemFilter = itemToMiniFilter(item, miniFiltersByKey)
         include = isContextItem(item) || !!itemFilter?.enabled
 
-        // what about isOfflineStatusChange(item) || isBrowserVisibilityEvent(item) || isComment(item)
-
-        if (allowMatchingEventsFilter && showOnlyMatching) {
+        if (allowMatchingEventsFilter && showOnlyMatching && hasEventsToDisplay) {
             // Special case - overrides the others
             include = include && item.highlightColor === 'primary'
         }

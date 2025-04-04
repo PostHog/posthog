@@ -59,6 +59,9 @@ DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CH
 # if `true` we disable feature flags if over quota
 DECIDE_FEATURE_FLAG_QUOTA_CHECK = get_from_env("DECIDE_FEATURE_FLAG_QUOTA_CHECK", False, type_cast=str_to_bool)
 
+# if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
+API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -153,7 +156,7 @@ ROOT_URLCONF = "posthog.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["frontend/dist", "posthog/templates", "posthog/year_in_posthog"],
+        "DIRS": ["frontend/dist", "posthog/templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -246,7 +249,6 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
-    os.path.join(BASE_DIR, "posthog/year_in_posthog/images"),
 ]
 STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
@@ -352,7 +354,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/\\d+/activity_log/important_changes/?$",
                 "^/?api/projects/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
-                "^/year_in_posthog/.*$",
                 "^/api/element/stats/?$",
                 "^/api/projects/\\d+/groups/property_definitions/?$",
                 "^/api/projects/\\d+/cohorts/?$",
@@ -419,9 +420,6 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DO
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
 HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
 CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
-
-# temporary setting to control if a cluster has person_properties_map_custom column optimization
-USE_PERSON_PROPERTIES_MAP_CUSTOM = get_from_env("USE_PERSON_PROPERTIES_MAP_CUSTOM", False, type_cast=bool)
 
 # Passed to the frontend for the web app to know where to connect to
 LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")

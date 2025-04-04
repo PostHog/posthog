@@ -108,7 +108,7 @@ impl Issue {
             r#"
             INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)
             VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (id) DO NOTHING
+            ON CONFLICT (id) DO UPDATE SET team_id = EXCLUDED.team_id -- a no-op update to force a returned row
             RETURNING (xmax = 0) AS was_inserted
             "#,
             self.id,
@@ -118,7 +118,7 @@ impl Issue {
             self.description
         )
         .fetch_one(executor)
-        .await?
+        .await.expect("Got at least one row back")
         // TODO - I'm fairly sure the Option here is a bug in sqlx, so the unwrap will
         // never be hit, but nonetheless I'm not 100% sure the "no rows" case actually
         // means the insert was not done.
@@ -206,7 +206,7 @@ impl IssueFingerprintOverride {
             r#"
             INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)
             VALUES ($1, $2, $3, $4, 0, $5, NOW())
-            ON CONFLICT (team_id, fingerprint) DO NOTHING
+            ON CONFLICT (team_id, fingerprint) DO UPDATE SET team_id = EXCLUDED.team_id -- a no-op update to force a returned row
             RETURNING id, team_id, issue_id, fingerprint, version
             "#,
             Uuid::new_v4(),
@@ -214,7 +214,7 @@ impl IssueFingerprintOverride {
             issue.id,
             fingerprint,
             first_seen
-        ).fetch_one(executor).await?;
+        ).fetch_one(executor).await.expect("Got at least one row back");
 
         Ok(res)
     }

@@ -10,12 +10,17 @@ export enum ProductIntentContext {
 
     // Data Warehouse
     SELECTED_CONNECTOR = 'selected connector',
+    SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
 
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',
+
+    // Error Tracking
+    ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
+    ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
 
     /*
     Cross Sells

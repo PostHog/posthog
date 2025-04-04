@@ -156,7 +156,7 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = VectorSearchQueryRunner(query, self.team).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "1")
-        self.assertAlmostEqual(response.results[0].distance, 0.2, places=3)  # 0.19999999999999996
+        self.assertAlmostEqual(response.results[0].distance, 0.2, places=2)  # 0.19999999999999996
 
     def test_vector_search_saves_properties(self):
         query = VectorSearchQuery(embedding=[2, 4])

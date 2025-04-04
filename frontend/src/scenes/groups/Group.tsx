@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -13,7 +14,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { GroupDashboard } from 'scenes/groups/GroupDashboard'
 import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -27,6 +27,7 @@ import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import {
     ActionFilter,
+    ActivityScope,
     FilterLogicalOperator,
     Group as IGroup,
     NotebookNodeType,
@@ -35,6 +36,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import { GroupOverview } from './GroupOverview'
 
 interface GroupSceneProps {
     groupTypeIndex?: string
@@ -75,18 +78,10 @@ export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; 
 }
 
 export function Group(): JSX.Element {
-    const {
-        logicProps,
-        groupData,
-        groupDataLoading,
-        groupTypeName,
-        groupType,
-        groupTab,
-        groupEventsQuery,
-        showCustomerSuccessDashboards,
-    } = useValues(groupLogic)
+    const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
+        useValues(groupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery } = useActions(groupLogic)
+    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -118,6 +113,11 @@ export function Group(): JSX.Element {
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
                     {
+                        key: 'overview',
+                        label: 'Overview',
+                        content: <GroupOverview />,
+                    },
+                    {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="groups-properties-tab">Properties</span>,
                         content: (
@@ -125,6 +125,8 @@ export function Group(): JSX.Element {
                                 type={PropertyDefinitionType.Group}
                                 properties={groupData.group_properties || {}}
                                 embedded={false}
+                                onEdit={editProperty}
+                                onDelete={deleteProperty}
                                 searchable
                             />
                         ),
@@ -136,7 +138,7 @@ export function Group(): JSX.Element {
                             <Query
                                 query={groupEventsQuery}
                                 setQuery={setGroupEventsQuery}
-                                context={{ refresh: true }}
+                                context={{ refresh: 'force_blocking' }}
                             />
                         ) : (
                             <Spinner />
@@ -235,13 +237,22 @@ export function Group(): JSX.Element {
                             />
                         ),
                     },
-                    showCustomerSuccessDashboards
-                        ? {
-                              key: PersonsTabType.DASHBOARD,
-                              label: 'Dashboard',
-                              content: <GroupDashboard groupData={groupData} />,
-                          }
-                        : null,
+                    {
+                        key: PersonsTabType.HISTORY,
+                        label: 'History',
+                        content: (
+                            <ActivityLog
+                                scope={ActivityScope.GROUP}
+                                id={`${groupTypeIndex}-${groupKey}`}
+                                caption={
+                                    <LemonBanner type="info">
+                                        This page only shows changes made by users in the PostHog site. Automatic
+                                        changes from the API aren't shown here.
+                                    </LemonBanner>
+                                }
+                            />
+                        ),
+                    },
                 ]}
             />
         </>

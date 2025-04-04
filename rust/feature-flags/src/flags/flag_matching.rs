@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{FlagValue, FlagsResponse};
+use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
 use crate::client::database::Client as DatabaseClient;
 use crate::cohort::cohort_cache_manager::CohortCacheManager;
 use crate::cohort::cohort_models::{Cohort, CohortId};
@@ -7,20 +7,25 @@ use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
 use crate::metrics::metrics_consts::{
     DB_GROUP_PROPERTIES_READS_COUNTER, DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
-    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_EVALUATION_ERROR_COUNTER,
-    FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
+    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_COHORT_FILTER_TIME, FLAG_DB_PROPERTIES_FETCH_TIME,
+    FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
+    FLAG_GET_MATCH_TIME, FLAG_GROUP_TYPE_INDEX_MATCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
+    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_EVALUATION_TIME,
+    FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, PROPERTY_CACHE_HITS_COUNTER,
+    PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::{OperatorType, PropertyFilter};
-use crate::team::team_models::{ProjectId, TeamId};
 use anyhow::Result;
 use common_metrics::inc;
+use common_types::{ProjectId, TeamId};
 use petgraph::algo::{is_cyclic_directed, toposort};
 use petgraph::graph::DiGraph;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, FromRow, Row};
+use std::collections::hash_map::Entry;
 use std::fmt::Write;
 use std::sync::Arc;
 use std::{
@@ -30,7 +35,10 @@ use std::{
 use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
-pub type PersonId = i32;
+#[cfg(test)]
+use crate::api::types::{FlagValue, LegacyFlagsResponse}; // Only used in the tests
+
+pub type PersonId = i64;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 pub type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
@@ -42,7 +50,7 @@ struct SuperConditionEvaluation {
     reason: FeatureFlagMatchReason,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FeatureFlagMatch {
     pub matches: bool,
     pub variant: Option<String>,
@@ -266,12 +274,15 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_override: Option<String>,
     ) -> FlagsResponse {
+        let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
+
         let flags_have_experience_continuity_enabled = feature_flags
             .flags
             .iter()
             .any(|flag| flag.ensure_experience_continuity);
 
         // Process any hash key overrides
+        let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
         let (hash_key_overrides, initial_error) = if flags_have_experience_continuity_enabled {
             match hash_key_override {
                 Some(hash_key) => {
@@ -287,6 +298,9 @@ impl FeatureFlagMatcher {
             // if experience continuity is not enabled, we don't need to worry about hash key overrides
             (None, false)
         };
+        hash_key_timer
+            .label("outcome", if initial_error { "error" } else { "success" })
+            .fin();
 
         // If there was an initial error in processing hash key overrides, increment the error counter
         if initial_error {
@@ -298,6 +312,7 @@ impl FeatureFlagMatcher {
             );
         }
 
+        let local_eval_timer = common_metrics::timing_guard(FLAG_LOCAL_EVALUATION_TIME, &[]);
         let flags_response = self
             .evaluate_flags_with_overrides(
                 feature_flags,
@@ -307,13 +322,33 @@ impl FeatureFlagMatcher {
             )
             .await;
 
-        FlagsResponse {
-            errors_while_computing_flags: initial_error
-                || flags_response.errors_while_computing_flags,
-            feature_flags: flags_response.feature_flags,
-            feature_flag_payloads: flags_response.feature_flag_payloads,
-            quota_limited: None,
-        }
+        local_eval_timer
+            .label(
+                "outcome",
+                if flags_response.errors_while_computing_flags {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
+            .fin();
+
+        eval_timer
+            .label(
+                "outcome",
+                if flags_response.errors_while_computing_flags || initial_error {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
+            .fin();
+
+        FlagsResponse::new(
+            initial_error || flags_response.errors_while_computing_flags,
+            flags_response.flags,
+            None,
+        )
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -433,15 +468,18 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = false;
-        let mut feature_flags_map = HashMap::new();
-        let mut feature_flag_payloads_map = HashMap::new();
+        let mut flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
 
         // Step 1: Evaluate flags with locally computable property overrides first
         for flag in &feature_flags.flags {
+            // we shouldn't have any disabled or deleted flags (the query should filter them out), but just in case, we skip them here
             if !flag.active || flag.deleted {
                 continue;
             }
+
+            let property_override_match_timer =
+                common_metrics::timing_guard(FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, &[]);
 
             match self
                 .match_flag_with_property_overrides(
@@ -453,12 +491,8 @@ impl FeatureFlagMatcher {
                 .await
             {
                 Ok(Some(flag_match)) => {
-                    let flag_value = self.flag_match_to_value(&flag_match);
-                    feature_flags_map.insert(flag.key.clone(), flag_value);
-
-                    if let Some(payload) = flag_match.payload {
-                        feature_flag_payloads_map.insert(flag.key.clone(), payload);
-                    }
+                    flag_details_map
+                        .insert(flag.key.clone(), FlagDetails::create(flag, &flag_match));
                 }
                 Ok(None) => {
                     flags_needing_db_properties.push(flag.clone());
@@ -477,10 +511,23 @@ impl FeatureFlagMatcher {
                     );
                 }
             }
+            property_override_match_timer
+                .label(
+                    "outcome",
+                    if errors_while_computing_flags {
+                        "error"
+                    } else {
+                        "success"
+                    },
+                )
+                .fin();
         }
 
         // Step 2: Fetch and cache properties for remaining flags (just one DB lookup for all of relevant properties)
         if !flags_needing_db_properties.is_empty() {
+            let group_type_index_match_timer =
+                common_metrics::timing_guard(FLAG_GROUP_TYPE_INDEX_MATCH_TIME, &[]);
+
             let group_type_indexes_required: HashSet<GroupTypeIndex> = flags_needing_db_properties
                 .iter()
                 .filter_map(|flag| flag.get_group_type_index())
@@ -515,11 +562,16 @@ impl FeatureFlagMatcher {
             // Extract group_type_indexes for the required flags
             let group_type_indexes: HashSet<GroupTypeIndex> = group_type_indexes_required.clone();
 
+            group_type_index_match_timer
+                .label("outcome", "success")
+                .fin();
+
             let reader = self.reader.clone();
             let distinct_id = self.distinct_id.clone();
             let team_id = self.team_id;
 
-            match fetch_and_locally_cache_all_relevant_properties(
+            let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
+            let fetch_result = fetch_and_locally_cache_all_relevant_properties(
                 &mut self.properties_cache,
                 reader,
                 distinct_id,
@@ -527,14 +579,16 @@ impl FeatureFlagMatcher {
                 &group_type_indexes,
                 &group_keys,
             )
-            .await
-            {
+            .await;
+
+            match fetch_result {
                 Ok(_) => {
                     inc(
                         DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
                         &[("team_id".to_string(), team_id.to_string())],
                         1,
                     );
+                    db_fetch_timer.label("outcome", "success").fin();
                 }
                 Err(e) => {
                     errors_while_computing_flags = true;
@@ -546,22 +600,20 @@ impl FeatureFlagMatcher {
                         &[("reason".to_string(), reason.to_string())],
                         1,
                     );
+                    db_fetch_timer.label("outcome", "error").fin();
                 }
-            }
+            };
 
             // Step 3: Evaluate remaining flags with cached properties
+            let flag_get_match_timer = common_metrics::timing_guard(FLAG_GET_MATCH_TIME, &[]);
             for flag in flags_needing_db_properties {
                 match self
                     .get_match(&flag, None, hash_key_overrides.clone())
                     .await
                 {
                     Ok(flag_match) => {
-                        let flag_value = self.flag_match_to_value(&flag_match);
-                        feature_flags_map.insert(flag.key.clone(), flag_value);
-
-                        if let Some(payload) = flag_match.payload {
-                            feature_flag_payloads_map.insert(flag.key.clone(), payload);
-                        }
+                        flag_details_map
+                            .insert(flag.key.clone(), FlagDetails::create(&flag, &flag_match));
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
@@ -576,18 +628,24 @@ impl FeatureFlagMatcher {
                             &[("reason".to_string(), reason.to_string())],
                             1,
                         );
-                        feature_flags_map.insert(flag.key.clone(), FlagValue::Boolean(false));
+                        flag_details_map
+                            .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                     }
                 }
             }
+            flag_get_match_timer
+                .label(
+                    "outcome",
+                    if errors_while_computing_flags {
+                        "error"
+                    } else {
+                        "success"
+                    },
+                )
+                .fin();
         }
 
-        FlagsResponse {
-            errors_while_computing_flags,
-            feature_flags: feature_flags_map,
-            feature_flag_payloads: feature_flag_payloads_map,
-            quota_limited: None,
-        }
+        FlagsResponse::new(errors_while_computing_flags, flag_details_map, None)
     }
 
     /// Matches a feature flag with property overrides.
@@ -675,17 +733,6 @@ impl FeatureFlagMatcher {
         })
     }
 
-    fn flag_match_to_value(&self, flag_match: &FeatureFlagMatch) -> FlagValue {
-        if flag_match.matches {
-            match &flag_match.variant {
-                Some(variant) => FlagValue::String(variant.clone()),
-                None => FlagValue::Boolean(true),
-            }
-        } else {
-            FlagValue::Boolean(false)
-        }
-    }
-
     /// Determines if a feature flag matches for the current context.
     ///
     /// This method evaluates the conditions of a feature flag to determine if it should be enabled,
@@ -746,6 +793,32 @@ impl FeatureFlagMatcher {
             }
         }
 
+        // Match for holdout super condition
+        // TODO: Flags shouldn't have both super_groups and holdout_groups
+        // TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
+        // this will shoot ourselves in the foot when we extend early access to support variants as well.
+        // TODO: Validate holdout variant should have 0% default rollout %?
+        // TODO: All this validation we need to do suggests the modelling is imperfect here. Carrying forward for now, we'll only enable
+        // in beta, and potentially rework representation before rolling out to everyone. Probably the problem is holdout groups are an
+        // experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
+        // Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
+        // a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
+        if let Some(holdout_groups) = &flag.filters.holdout_groups {
+            if !holdout_groups.is_empty() {
+                let (is_match, holdout_value, evaluation_reason) =
+                    self.is_holdout_condition_match(flag).await?;
+                if is_match {
+                    let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
+                    return Ok(FeatureFlagMatch {
+                        matches: true,
+                        variant: holdout_value,
+                        reason: evaluation_reason,
+                        condition_index: None,
+                        payload,
+                    });
+                }
+            }
+        }
         // Sort conditions with variant overrides to the top so that we can evaluate them first
         let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
             flag.get_conditions().iter().enumerate().collect();
@@ -753,6 +826,7 @@ impl FeatureFlagMatcher {
         sorted_conditions
             .sort_by_key(|(_, condition)| if condition.variant.is_some() { 0 } else { 1 });
 
+        let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in sorted_conditions {
             let (is_match, reason) = self
                 .is_condition_match(
@@ -810,6 +884,7 @@ impl FeatureFlagMatcher {
             }
         }
 
+        condition_timer.label("outcome", "success").fin();
         // Return with the highest_match reason and index even if no conditions matched
         Ok(FeatureFlagMatch {
             matches: false,
@@ -824,7 +899,7 @@ impl FeatureFlagMatcher {
     /// It compares the current match reason with a new match reason and returns the higher priority one.
     /// The priority is determined by the ordering of FeatureFlagMatchReason variants.
     /// It's used to keep track of the most significant reason why a flag matched or didn't match,
-    /// which is especially useful when multiple conditions are evaluated.
+    /// especially useful when multiple conditions are evaluated.
     fn get_highest_priority_match_evaluation(
         &self,
         current_match: FeatureFlagMatchReason,
@@ -880,8 +955,10 @@ impl FeatureFlagMatcher {
 
             // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
-                // Get the person ID for the current distinct ID – this value should be cached at this point, but as a fallback we fetch from the database
+                // Get the person ID for the current distinct ID – this value should be cached at this point, and if we can't get it we return false.
                 let person_id = self.get_person_id().await?;
+                let cohort_filter_timer =
+                    common_metrics::timing_guard(FLAG_COHORT_FILTER_TIME, &[]);
                 if !self
                     .evaluate_cohort_filters(
                         &cohort_filters,
@@ -892,6 +969,7 @@ impl FeatureFlagMatcher {
                 {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
+                cohort_filter_timer.fin();
             }
         }
 
@@ -958,27 +1036,9 @@ impl FeatureFlagMatcher {
                     &[("type".to_string(), "person_id".to_string())],
                     1,
                 );
-                let id = self.get_person_id_from_db().await?;
-                inc(
-                    DB_PERSON_PROPERTIES_READS_COUNTER,
-                    &[("team_id".to_string(), self.team_id.to_string())],
-                    1,
-                );
-                self.properties_cache.person_id = Some(id);
-                Ok(id)
+                Err(FlagError::PersonNotFound)
             }
         }
-    }
-
-    /// Fetches the `PersonId` from the database based on the current `distinct_id` and `team_id`.
-    /// This method is called when the `PersonId` is not present in the properties cache.
-    async fn get_person_id_from_db(&mut self) -> Result<PersonId, FlagError> {
-        let reader = self.reader.clone();
-        let distinct_id = self.distinct_id.clone();
-        let team_id = self.team_id;
-        fetch_person_properties_from_db(reader, distinct_id, team_id)
-            .await
-            .map(|(_, person_id)| person_id)
     }
 
     /// Get person properties from overrides, cache or database.
@@ -1022,13 +1082,13 @@ impl FeatureFlagMatcher {
         // Split the cohorts into static and dynamic, since the dynamic ones have property filters
         // and we need to evaluate them based on the target properties, whereas the static ones are
         // purely based on person properties and are membership-based.
-        let (static_cohorts, dynamic_cohorts): (Vec<_>, Vec<_>) =
-            cohorts.iter().partition(|c| c.is_static);
+        let (static_cohorts, _): (Vec<_>, Vec<_>) = cohorts.iter().partition(|c| c.is_static);
 
         // Store all cohort match results in a HashMap to avoid re-evaluating the same cohort multiple times,
         // since the same cohort could appear in multiple property filters.
         let mut cohort_matches = HashMap::new();
 
+        // Always evaluate static cohorts first
         if !static_cohorts.is_empty() {
             let results = evaluate_static_cohorts(
                 self.reader.clone(),
@@ -1039,19 +1099,69 @@ impl FeatureFlagMatcher {
             cohort_matches.extend(results);
         }
 
-        if !dynamic_cohorts.is_empty() {
-            for filter in cohort_property_filters {
-                let cohort_id = filter
-                    .get_cohort_id()
-                    .ok_or(FlagError::CohortFiltersParsingError)?;
+        // For any cohorts not yet evaluated (i.e., dynamic ones), evaluate them
+        for filter in cohort_property_filters {
+            let cohort_id = filter
+                .get_cohort_id()
+                .ok_or(FlagError::CohortFiltersParsingError)?;
+
+            if let Entry::Vacant(e) = cohort_matches.entry(cohort_id) {
                 let match_result =
                     evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
-                cohort_matches.insert(cohort_id, match_result);
+                e.insert(match_result);
             }
         }
 
         // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
         apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+    }
+
+    async fn is_holdout_condition_match(
+        &mut self,
+        flag: &FeatureFlag,
+    ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
+        // TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
+
+        if let Some(holdout_groups) = &flag.filters.holdout_groups {
+            if !holdout_groups.is_empty() {
+                let condition = &holdout_groups[0];
+                // TODO: Check properties and match based on them
+
+                if condition
+                    .properties
+                    .as_ref()
+                    .map_or(false, |p| !p.is_empty())
+                {
+                    return Ok((false, None, FeatureFlagMatchReason::NoConditionMatch));
+                }
+
+                let rollout_percentage = condition.rollout_percentage;
+
+                if let Some(percentage) = rollout_percentage {
+                    if self.get_holdout_hash(flag, None).await? > (percentage / 100.0) {
+                        // If hash is greater than percentage, we're OUT of holdout
+                        return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
+                    }
+                }
+
+                // rollout_percentage is None (=100%), or we are inside holdout rollout bound.
+                // Thus, we match. Now get the variant override for the holdout condition.
+                let variant = if let Some(variant_override) = condition.variant.as_ref() {
+                    variant_override.clone()
+                } else {
+                    self.get_matching_variant(flag, None)
+                        .await?
+                        .unwrap_or_else(|| "holdout".to_string())
+                };
+
+                return Ok((
+                    true,
+                    Some(variant),
+                    FeatureFlagMatchReason::HoldoutConditionValue,
+                ));
+            }
+        }
+        Ok((false, None, FeatureFlagMatchReason::NoConditionMatch))
     }
 
     /// Check if a super condition matches for a feature flag.
@@ -1307,19 +1417,18 @@ impl FeatureFlagMatcher {
             // can't evaluate a flag without an identifier.
             return Ok(0.0); // NB: A flag with 0.0 hash will always evaluate to false
         }
-        let hash_key = format!("{}.{}{}", feature_flag.key, hashed_identifier, salt);
-        let mut hasher = Sha1::new();
-        hasher.update(hash_key.as_bytes());
-        let result = hasher.finalize();
-        // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
-        let hex_str: String = result.iter().fold(String::new(), |mut acc, byte| {
-            let _ = write!(acc, "{:02x}", byte);
-            acc
-        })[..15]
-            .to_string();
-        let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
 
-        Ok(hash_val as f64 / LONG_SCALE as f64)
+        calculate_hash(&format!("{}.", feature_flag.key), &hashed_identifier, salt).await
+    }
+
+    async fn get_holdout_hash(
+        &mut self,
+        feature_flag: &FeatureFlag,
+        salt: Option<&str>,
+    ) -> Result<f64, FlagError> {
+        let hashed_identifier = self.hashed_identifier(feature_flag, None).await?;
+        let hash = calculate_hash("holdout-", &hashed_identifier, salt.unwrap_or("")).await?;
+        Ok(hash)
     }
 
     /// Check if a feature flag should be shown based on its rollout percentage.
@@ -1376,10 +1485,29 @@ impl FeatureFlagMatcher {
     }
 }
 
+pub async fn calculate_hash(
+    prefix: &str,
+    hashed_identifier: &str,
+    salt: &str,
+) -> Result<f64, FlagError> {
+    let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
+    let mut hasher = Sha1::new();
+    hasher.update(hash_key.as_bytes());
+    let result = hasher.finalize();
+    // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
+    let hex_str = result.iter().fold(String::new(), |mut acc, byte| {
+        let _ = write!(acc, "{:02x}", byte);
+        acc
+    })[..15]
+        .to_string();
+    let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
+    Ok(hash_val as f64 / LONG_SCALE as f64)
+}
+
 /// Evaluate static cohort filters by checking if the person is in each cohort.
 async fn evaluate_static_cohorts(
     reader: PostgresReader,
-    person_id: i32,
+    person_id: PersonId,
     cohort_ids: Vec<CohortId>,
 ) -> Result<Vec<(CohortId, bool)>, FlagError> {
     let mut conn = reader.get_connection().await?;
@@ -1423,6 +1551,18 @@ fn evaluate_dynamic_cohorts(
     target_properties: &HashMap<String, Value>,
     cohorts: &[Cohort],
 ) -> Result<bool, FlagError> {
+    // First check if this is a static cohort
+    let initial_cohort = cohorts
+        .iter()
+        .find(|c| c.id == initial_cohort_id)
+        .ok_or(FlagError::CohortNotFound(initial_cohort_id.to_string()))?;
+
+    // If it's static, we don't need to evaluate dependencies - the membership was already
+    // checked in evaluate_static_cohorts and stored in cohort_matches
+    if initial_cohort.is_static {
+        return Ok(false); // Static cohorts are handled by evaluate_static_cohorts
+    }
+
     let cohort_dependency_graph = build_cohort_dependency_graph(initial_cohort_id, cohorts)?;
 
     // We need to sort cohorts topologically to ensure we evaluate dependencies before the cohorts that depend on them.
@@ -1644,7 +1784,7 @@ async fn fetch_and_locally_cache_all_relevant_properties(
     let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
     let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
-    let row: (Option<i32>, Option<Value>, Option<Value>) = sqlx::query_as(query)
+    let row: (Option<PersonId>, Option<Value>, Option<Value>) = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .bind(&group_type_indexes_vec)
@@ -1701,7 +1841,7 @@ async fn fetch_person_properties_from_db(
     reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
-) -> Result<(HashMap<String, Value>, i32), FlagError> {
+) -> Result<(HashMap<String, Value>, PersonId), FlagError> {
     let mut conn = reader.as_ref().get_connection().await?;
 
     let query = r#"
@@ -1714,7 +1854,7 @@ async fn fetch_person_properties_from_db(
            LIMIT 1
        "#;
 
-    let row: Option<(i32, Value)> = sqlx::query_as(query)
+    let row: Option<(PersonId, Value)> = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .fetch_optional(&mut *conn)
@@ -1814,15 +1954,16 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND distinct_id = ANY($2)
         "#;
 
-    let person_and_distinct_ids: Vec<(i32, String)> = sqlx::query_as(person_and_distinct_id_query)
-        .bind(team_id)
-        .bind(&distinct_id_and_hash_key_override)
-        .fetch_all(&mut *conn)
-        .await?;
+    let person_and_distinct_ids: Vec<(PersonId, String)> =
+        sqlx::query_as(person_and_distinct_id_query)
+            .bind(team_id)
+            .bind(&distinct_id_and_hash_key_override)
+            .fetch_all(&mut *conn)
+            .await?;
 
-    let person_id_to_distinct_id: HashMap<i32, String> =
+    let person_id_to_distinct_id: HashMap<PersonId, String> =
         person_and_distinct_ids.into_iter().collect();
-    let person_ids: Vec<i32> = person_id_to_distinct_id.keys().cloned().collect();
+    let person_ids: Vec<PersonId> = person_id_to_distinct_id.keys().cloned().collect();
 
     // Get hash key overrides
     let hash_key_override_query = r#"
@@ -1831,7 +1972,7 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND person_id = ANY($2)
         "#;
 
-    let overrides: Vec<(String, String, i32)> = sqlx::query_as(hash_key_override_query)
+    let overrides: Vec<(String, String, PersonId)> = sqlx::query_as(hash_key_override_query)
         .bind(team_id)
         .bind(&person_ids)
         .fetch_all(&mut *conn)
@@ -2017,10 +2158,11 @@ async fn should_write_hash_key_override(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use rstest::rstest;
     use serde_json::json;
     use std::collections::HashMap;
 
-    use super::*;
     use crate::{
         flags::flag_models::{
             FeatureFlagRow, FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant,
@@ -2059,10 +2201,12 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             deleted: deleted.unwrap_or(false),
             active: active.unwrap_or(true),
             ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
+            version: Some(1),
         }
     }
 
@@ -2191,6 +2335,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -2218,8 +2363,8 @@ mod tests {
             .await;
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
-            result.feature_flags.get("test_flag"),
-            Some(&FlagValue::Boolean(true))
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true)
         );
     }
 
@@ -2252,6 +2397,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -2293,9 +2439,10 @@ mod tests {
             .evaluate_all_feature_flags(flags, None, Some(group_overrides), None)
             .await;
 
-        assert!(!result.errors_while_computing_flags);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
-            result.feature_flags.get("test_flag"),
+            legacy_response.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
         );
     }
@@ -2379,6 +2526,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -2443,10 +2591,12 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             },
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
+            version: Some(1),
         }
     }
 
@@ -2479,6 +2629,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -2510,9 +2661,10 @@ mod tests {
             )
             .await;
 
-        assert!(!result.errors_while_computing_flags);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
-            result.feature_flags.get("test_flag"),
+            legacy_response.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
         );
 
@@ -2559,6 +2711,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -2814,6 +2967,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -2890,6 +3044,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -2941,6 +3096,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -2983,6 +3139,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -3109,6 +3266,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -3170,6 +3328,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -3232,6 +3391,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -3291,6 +3451,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -3360,6 +3521,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             Some(false),
             Some(true),
@@ -3450,6 +3612,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                 }]),
+                holdout_groups: None,
             }),
             None,
             None,
@@ -3592,6 +3755,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                 }]),
+                holdout_groups: None,
             }),
             None,
             None,
@@ -3692,6 +3856,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                 }]),
+                holdout_groups: None,
             }),
             None,
             None,
@@ -3828,6 +3993,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -3915,6 +4081,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4002,6 +4169,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4115,6 +4283,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4202,6 +4371,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4287,6 +4457,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4366,6 +4537,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4445,6 +4617,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4532,6 +4705,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4581,6 +4755,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             Some(false), // not deleted
             Some(true),  // active
@@ -4597,6 +4772,7 @@ mod tests {
             deleted: flag.deleted,
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
+            version: flag.version,
         };
 
         // Insert the feature flag into the database
@@ -4652,6 +4828,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             Some(false), // not deleted
             Some(true),  // active
@@ -4668,6 +4845,7 @@ mod tests {
             deleted: flag.deleted,
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
+            version: flag.version,
         };
 
         // Insert the feature flag into the database
@@ -4740,6 +4918,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4774,12 +4953,13 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
         .await;
 
+        let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
-            !result.errors_while_computing_flags,
+            !legacy_response.errors_while_computing_flags,
             "No error should occur"
         );
         assert_eq!(
-            result.feature_flags.get("flag_continuity"),
+            legacy_response.feature_flags.get("flag_continuity"),
             Some(&FlagValue::Boolean(true)),
             "Flag should be evaluated as true with continuity"
         );
@@ -4825,6 +5005,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4848,12 +5029,15 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, None)
         .await;
 
+        assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
+
+        let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
-            !result.errors_while_computing_flags,
+            !legacy_response.errors_while_computing_flags,
             "No error should occur"
         );
         assert_eq!(
-            result.feature_flags.get("flag_continuity_missing"),
+            legacy_response.feature_flags.get("flag_continuity_missing"),
             Some(&FlagValue::Boolean(true)),
             "Flag should be evaluated as true even without continuity override"
         );
@@ -4899,6 +5083,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4928,6 +5113,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -4967,17 +5153,18 @@ mod tests {
         )
         .await;
 
+        let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
-            !result.errors_while_computing_flags,
+            !legacy_response.errors_while_computing_flags,
             "No error should occur"
         );
         assert_eq!(
-            result.feature_flags.get("flag_continuity_mix"),
+            legacy_response.feature_flags.get("flag_continuity_mix"),
             Some(&FlagValue::Boolean(true)),
             "Continuity flag should be evaluated as true"
         );
         assert_eq!(
-            result.feature_flags.get("flag_no_continuity_mix"),
+            legacy_response.feature_flags.get("flag_no_continuity_mix"),
             Some(&FlagValue::Boolean(true)),
             "Non-continuity flag should be evaluated based on properties"
         );
@@ -5042,6 +5229,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -5102,6 +5290,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             }),
             None,
             None,
@@ -5117,5 +5306,451 @@ mod tests {
         // so it should fall back to hash-based variant computation
         assert!(result_invalid.matches);
         assert!(result_invalid.variant.is_some()); // Will be either "control" or "test" based on hash
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_with_holdout_filter() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        // example_id is outside 70% holdout
+        let _person1 = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "example_id".to_string(),
+            Some(json!({"$some_prop": 5})),
+        )
+        .await
+        .unwrap();
+
+        // example_id2 is within 70% holdout
+        let _person2 = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "example_id2".to_string(),
+            Some(json!({"$some_prop": 5})),
+        )
+        .await
+        .unwrap();
+
+        let multivariate_json = MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "first-variant".to_string(),
+                    name: Some("First Variant".to_string()),
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    key: "second-variant".to_string(),
+                    name: Some("Second Variant".to_string()),
+                    rollout_percentage: 25.0,
+                },
+                MultivariateFlagVariant {
+                    key: "third-variant".to_string(),
+                    name: Some("Third Variant".to_string()),
+                    rollout_percentage: 25.0,
+                },
+            ],
+        };
+
+        let flag_with_holdout = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Flag with holdout".to_string()),
+            Some("flag-with-gt-filter".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: json!(4),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(70.0),
+                    variant: Some("holdout".to_string()),
+                }]),
+                multivariate: Some(multivariate_json.clone()),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        let other_flag_with_holdout = create_test_flag(
+            Some(2),
+            Some(team.id),
+            Some("Other flag with holdout".to_string()),
+            Some("other-flag-with-gt-filter".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: json!(4),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(70.0),
+                    variant: Some("holdout".to_string()),
+                }]),
+                multivariate: Some(multivariate_json.clone()),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        let flag_without_holdout = create_test_flag(
+            Some(3),
+            Some(team.id),
+            Some("Flag".to_string()),
+            Some("other-flag-without-holdout-with-gt-filter".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: json!(4),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(0.0),
+                    variant: Some("holdout".to_string()),
+                }]),
+                multivariate: Some(multivariate_json),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        // regular flag evaluation when outside holdout
+        let mut matcher = FeatureFlagMatcher::new(
+            "example_id".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result = matcher
+            .get_match(&flag_with_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("second-variant".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+
+        // Test inside holdout behavior - should get holdout variant override
+        let mut matcher2 = FeatureFlagMatcher::new(
+            "example_id2".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result = matcher2
+            .get_match(&flag_with_holdout, None, None)
+            .await
+            .unwrap();
+
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("holdout".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
+
+        // same should hold true for a different feature flag when within holdout
+        let result = matcher2
+            .get_match(&other_flag_with_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("holdout".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
+
+        // Test with matcher1 (outside holdout) to verify different variants
+        let result = matcher
+            .get_match(&other_flag_with_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("third-variant".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+
+        // when holdout exists but is zero, should default to regular flag evaluation
+        let result = matcher
+            .get_match(&flag_without_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("second-variant".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+
+        let result = matcher2
+            .get_match(&flag_without_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("second-variant".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    #[rstest]
+    #[case("some_distinct_id", 0.7270002403585725)]
+    #[case("test-identifier", 0.4493881716040236)]
+    #[case("example_id", 0.9402003475831224)]
+    #[case("example_id2", 0.6292740389966519)]
+    #[tokio::test]
+    async fn test_calculate_hash(#[case] hashed_identifier: &str, #[case] expected_hash: f64) {
+        let hash = calculate_hash("holdout-", hashed_identifier, "")
+            .await
+            .unwrap();
+        assert!(
+            (hash - expected_hash).abs() < f64::EPSILON,
+            "Hash {} should equal expected value {} within floating point precision",
+            hash,
+            expected_hash
+        );
+    }
+
+    #[tokio::test]
+    async fn test_variants() {
+        // Ported from posthog/test/test_feature_flag.py test_variants
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let flag = FeatureFlag {
+            id: 1,
+            team_id: team.id,
+            name: Some("Beta feature".to_string()),
+            key: "beta-feature".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: None,
+                    rollout_percentage: None,
+                    variant: None,
+                }],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            name: Some("First Variant".to_string()),
+                            key: "first-variant".to_string(),
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            name: Some("Second Variant".to_string()),
+                            key: "second-variant".to_string(),
+                            rollout_percentage: 25.0,
+                        },
+                        MultivariateFlagVariant {
+                            name: Some("Third Variant".to_string()),
+                            key: "third-variant".to_string(),
+                            rollout_percentage: 25.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: Some(1),
+        };
+
+        // Test user "11" - should get first-variant
+        let mut matcher = FeatureFlagMatcher::new(
+            "11".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        assert_eq!(
+            result,
+            FeatureFlagMatch {
+                matches: true,
+                variant: Some("first-variant".to_string()),
+                reason: FeatureFlagMatchReason::ConditionMatch,
+                condition_index: Some(0),
+                payload: None,
+            }
+        );
+
+        // Test user "example_id" - should get second-variant
+        let mut matcher = FeatureFlagMatcher::new(
+            "example_id".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        assert_eq!(
+            result,
+            FeatureFlagMatch {
+                matches: true,
+                variant: Some("second-variant".to_string()),
+                reason: FeatureFlagMatchReason::ConditionMatch,
+                condition_index: Some(0),
+                payload: None,
+            }
+        );
+
+        // Test user "3" - should get third-variant
+        let mut matcher = FeatureFlagMatcher::new(
+            "3".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        assert_eq!(
+            result,
+            FeatureFlagMatch {
+                matches: true,
+                variant: Some("third-variant".to_string()),
+                reason: FeatureFlagMatchReason::ConditionMatch,
+                condition_index: Some(0),
+                payload: None,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_static_cohort_evaluation_skips_dependency_graph() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        // Insert a static cohort
+        let cohort = insert_cohort_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            Some("Static Cohort".to_string()),
+            json!({}), // Static cohorts don't have property filters
+            true,      // is_static = true
+        )
+        .await
+        .unwrap();
+
+        // Insert a person
+        let distinct_id = "static_user".to_string();
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "static@user.com"})),
+        )
+        .await
+        .unwrap();
+
+        // Get person ID and add to cohort
+        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
+            .await
+            .unwrap();
+        add_person_to_cohort(reader.clone(), person_id, cohort.id)
+            .await
+            .unwrap();
+
+        // Define a flag that references the static cohort
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort.id),
+                        operator: Some(OperatorType::In),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        // This should not throw CohortNotFound because we skip dependency graph evaluation for static cohorts
+        let result = matcher.get_match(&flag, None, None).await;
+        assert!(result.is_ok(), "Should not throw CohortNotFound error");
+
+        let match_result = result.unwrap();
+        assert!(match_result.matches, "User should match the static cohort");
     }
 }

@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
@@ -7,7 +7,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'
 
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
-import { isRetentionQuery } from '~/queries/utils'
+import { isRetentionQuery, isValidBreakdown } from '~/queries/utils'
 import { DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'
@@ -21,11 +21,23 @@ export const retentionLogic = kea<retentionLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['insightQuery', 'insightData', 'querySource', 'dateRange', 'retentionFilter'],
+            ['breakdownFilter', 'dateRange', 'insightQuery', 'insightData', 'querySource', 'retentionFilter'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange']],
     })),
+    actions({
+        setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
+    }),
+    reducers({
+        selectedBreakdownValue: [
+            null as string | number | boolean | null,
+            {
+                setSelectedBreakdownValue: (_, { value }) => value,
+            },
+        ],
+    }),
     selectors({
+        hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => isValidBreakdown(breakdownFilter)],
         results: [
             (s) => [s.insightQuery, s.insightData, s.retentionFilter],
             (insightQuery, insightData, retentionFilter): ProcessedRetentionPayload[] => {
@@ -100,6 +112,20 @@ export const retentionLogic = kea<retentionLogicType>([
                         defaultInterval: 'month',
                     },
                 ]
+            },
+        ],
+        breakdownValues: [
+            (s) => [s.results],
+            (results) => {
+                if (!results || results.length === 0) {
+                    return []
+                }
+                // Extract unique breakdown values from results
+                const valueSet = new Set(
+                    results.filter((result) => 'breakdown_value' in result).map((result) => result.breakdown_value)
+                )
+
+                return Array.from(valueSet)
             },
         ],
     }),

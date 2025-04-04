@@ -23,7 +23,7 @@ function IconWithBadge({ icon, verified, hidden, tooltipTitle, className }: Icon
         <div className="relative inline-flex">
             {React.cloneElement(icon, { className: className || icon.props.className })}
             {(verified || hidden) && (
-                <div className="absolute -bottom-1 -left-2 flex items-center justify-center rounded-full bg-white shadow-md p-[1px]">
+                <div className="absolute -bottom-1 -left-2 flex items-center justify-center rounded-full bg-primary-light shadow-md p-[1px]">
                     {hidden ? (
                         <IconEyeHidden className="text-danger text-xs" />
                     ) : (
@@ -127,6 +127,13 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             className="taxonomy-icon taxonomy-icon-muted"
         />
     )
+}
+
+export function getEventMetadataDefinitionIcon(definition: PropertyDefinition): JSX.Element {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[definition.id]) {
+        return <IconLogomark />
+    }
+    return <IconList />
 }
 
 export function DefinitionHeader({

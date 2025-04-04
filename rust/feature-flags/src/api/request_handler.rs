@@ -1,6 +1,6 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    client::{database::Client, geoip::GeoIpClient},
+    client::database::Client,
     cohort::cohort_cache_manager::CohortCacheManager,
     flags::{
         flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
@@ -9,10 +9,17 @@ use crate::{
         flag_service::FlagService,
     },
     router,
+    team::team_models::Team,
 };
-use axum::{extract::State, http::HeaderMap};
+use axum::{
+    extract::State,
+    http::{header::CONTENT_TYPE, header::ORIGIN, header::USER_AGENT, HeaderMap},
+};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use chrono;
+use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
+use common_geoip::GeoIpClient;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
 use serde::{Deserialize, Serialize};
@@ -90,16 +97,16 @@ pub type RequestPropertyOverrides = (
     Option<String>,                 // hash_key_override
 );
 
-/// Primary entry point for feature flag requests.  
-/// 1) Parses and authenticates the request,  
-/// 2) Fetches the team and feature flags,  
-/// 3) Prepares property overrides,  
-/// 4) Evaluates the requested flags,  
-/// 5) Returns a [`FlagsResponse`] or an error.
+/// Primary entry point for feature flag requests.
+/// 1) Parses and authenticates the request,
+/// 2) Fetches the team and feature flags,
+/// 3) Prepares property overrides,
+/// 4) Evaluates the requested flags,
+/// 5) Returns a [`ServiceResponse`] or an error.
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
-    let (distinct_id, verified_token, request) =
+    let (original_distinct_id, verified_token, request) =
         parse_and_authenticate_request(&context, &flag_service).await?;
 
     // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
@@ -112,8 +119,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         // return an empty FlagsResponse with a quotaLimited field called "feature_flags"
         // TODO docs
         return Ok(FlagsResponse {
-            feature_flags: HashMap::new(),
-            feature_flag_payloads: HashMap::new(),
+            flags: HashMap::new(),
             errors_while_computing_flags: false,
             quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
         });
@@ -126,6 +132,10 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .await?;
     let team_id = team.id;
     let project_id = team.project_id;
+
+    let distinct_id =
+        handle_cookieless_distinct_id(&context, &request, &team, original_distinct_id.clone())
+            .await?;
 
     let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
 
@@ -268,7 +278,7 @@ pub fn decode_request(
     query: &FlagsQueryParams,
 ) -> Result<FlagRequest, FlagError> {
     let content_type = headers
-        .get("content-type")
+        .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
 
@@ -325,21 +335,23 @@ pub fn get_person_property_overrides(
 ) -> Option<HashMap<String, Value>> {
     match (geoip_enabled, person_properties) {
         (true, Some(mut props)) => {
-            let geoip_props = geoip_service.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
+            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
                 props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
             }
             Some(props)
         }
         (true, None) => {
-            let geoip_props = geoip_service.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
-                Some(
-                    geoip_props
-                        .into_iter()
-                        .map(|(k, v)| (k, Value::String(v)))
-                        .collect(),
-                )
+            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
+                if !geoip_props.is_empty() {
+                    Some(
+                        geoip_props
+                            .into_iter()
+                            .map(|(k, v)| (k, Value::String(v)))
+                            .collect(),
+                    )
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -377,8 +389,9 @@ pub fn process_group_property_overrides(
     }
 }
 
-/// Decompresses GZIP data into raw bytes.  
-/// Security note: ensure you have proper limits for data size to prevent zip bombs.
+// TODO: Make sure this protects against zip bombs, etc.  `/capture` does this
+// and it's a good idea to do that here as well, probably worth extracting that method into
+// /common given that it's used in multiple places
 fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
     let mut decoder = GzDecoder::new(&compressed[..]);
     let mut decompressed = Vec::new();
@@ -445,10 +458,55 @@ fn decode_form_data(
     }
 }
 
+async fn handle_cookieless_distinct_id(
+    context: &RequestContext,
+    request: &FlagRequest,
+    team: &Team,
+    distinct_id: String,
+) -> Result<String, FlagError> {
+    let event_data = EventData {
+        ip: &context.ip.to_string(),
+        timestamp_ms: context
+            .meta
+            .sent_at
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()) as u64,
+        host: context
+            .headers
+            .get(ORIGIN)
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or(""),
+        user_agent: context
+            .headers
+            .get(USER_AGENT)
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or(""),
+        event_time_zone: request.timezone.as_deref(),
+        hash_extra: request.cookieless_hash_extra.as_deref(),
+        distinct_id: &distinct_id,
+    };
+
+    let team_data = TeamData {
+        team_id: team.id,
+        timezone: team.timezone.clone(),
+        cookieless_server_hash_mode: CookielessServerHashMode::from(
+            team.cookieless_server_hash_mode,
+        ),
+    };
+
+    context
+        .state
+        .cookieless_manager
+        .compute_cookieless_distinct_id(event_data, team_data)
+        .await
+        .map_err(FlagError::CookielessError)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::types::FlagValue,
+        api::types::{
+            FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagValue, LegacyFlagsResponse,
+        },
         config::Config,
         flags::flag_models::{FeatureFlag, FlagFilters, FlagGroupType},
         properties::property_models::{OperatorType, PropertyFilter},
@@ -464,7 +522,8 @@ mod tests {
 
     fn create_test_geoip_service() -> GeoIpClient {
         let config = Config::default_test_config();
-        GeoIpClient::new(&config).expect("Failed to create GeoIpService for testing")
+        GeoIpClient::new(config.get_maxmind_db_path())
+            .expect("Failed to create GeoIpService for testing")
     }
 
     #[test]
@@ -582,8 +641,10 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             },
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -608,14 +669,103 @@ mod tests {
         let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(!result.errors_while_computing_flags);
-        assert!(result.feature_flags.contains_key("test_flag"));
-        assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
+        assert!(result.flags.contains_key("test_flag"));
+        assert!(result.flags["test_flag"].enabled);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
+        assert!(legacy_response.feature_flags.contains_key("test_flag"));
+        assert_eq!(
+            legacy_response.feature_flags["test_flag"],
+            FlagValue::Boolean(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags_with_errors() {
+        // Set up test dependencies
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+
+        // Create a feature flag with conditions that will cause an error
+        let flags = vec![FeatureFlag {
+            name: Some("Error Flag".to_string()),
+            id: 1,
+            key: "error-flag".to_string(),
+            active: true,
+            deleted: false,
+            team_id: 1,
+            filters: FlagFilters {
+                groups: vec![FlagGroupType {
+                    // Reference a non-existent cohort
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(999999999), // Very large cohort ID that doesn't exist
+                        operator: None,
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            ensure_experience_continuity: false,
+            version: Some(1),
+        }];
+
+        let feature_flag_list = FeatureFlagList { flags };
+
+        // Set up evaluation context
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: 1,
+            project_id: 1,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: Some(HashMap::new()),
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
+
+        let result = evaluate_feature_flags(evaluation_context).await;
+        let error_flag = result.flags.get("error-flag");
+        assert!(error_flag.is_some());
+        assert_eq!(
+            error_flag.unwrap(),
+            &FlagDetails {
+                key: "error-flag".to_string(),
+                enabled: false,
+                variant: "".to_string(),
+                reason: FlagEvaluationReason {
+                    code: "unknown".to_string(),
+                    condition_index: None,
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 1,
+                    version: 1,
+                    description: Some("Error Flag".to_string()),
+                    payload: None,
+                },
+            }
+        );
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(legacy_response.errors_while_computing_flags);
     }
 
     #[test]
     fn test_decode_request() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
         let meta = FlagsQueryParams::default();
 
@@ -630,7 +780,7 @@ mod tests {
     #[test]
     fn test_decode_request_unsupported_content_encoding() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{\"token\": \"test_token\", \"distinct_id\": \"user123\"}");
         let meta = FlagsQueryParams {
             compression: Some(Compression::Unsupported),
@@ -644,7 +794,7 @@ mod tests {
     #[test]
     fn test_decode_request_invalid_base64() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"invalid_base64==");
         let meta = FlagsQueryParams {
             compression: Some(Compression::Base64),
@@ -692,7 +842,7 @@ mod tests {
     #[test]
     fn test_decode_request_unsupported_content_type() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "text/plain".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
         let body = Bytes::from_static(b"test");
         let meta = FlagsQueryParams::default();
 
@@ -703,7 +853,7 @@ mod tests {
     #[test]
     fn test_decode_request_malformed_json() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{invalid json}");
         let meta = FlagsQueryParams::default();
 
@@ -715,7 +865,7 @@ mod tests {
     fn test_decode_request_form_urlencoded() {
         let mut headers = HeaderMap::new();
         headers.insert(
-            "content-type",
+            CONTENT_TYPE,
             "application/x-www-form-urlencoded".parse().unwrap(),
         );
         let body = Bytes::from(
@@ -753,8 +903,10 @@ mod tests {
                     aggregation_group_type_index: None,
                     payloads: None,
                     super_groups: None,
+                    holdout_groups: None,
                 },
                 ensure_experience_continuity: false,
+                version: Some(1),
             },
             FeatureFlag {
                 name: Some("Flag 2".to_string()),
@@ -773,8 +925,10 @@ mod tests {
                     aggregation_group_type_index: None,
                     payloads: None,
                     super_groups: None,
+                    holdout_groups: None,
                 },
                 ensure_experience_continuity: false,
+                version: Some(1),
             },
         ];
 
@@ -797,8 +951,130 @@ mod tests {
         let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(!result.errors_while_computing_flags);
-        assert_eq!(result.feature_flags["flag_1"], FlagValue::Boolean(true));
-        assert_eq!(result.feature_flags["flag_2"], FlagValue::Boolean(false));
+        assert!(result.flags["flag_1"].enabled);
+        assert!(!result.flags["flag_2"].enabled);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
+        assert_eq!(
+            legacy_response.feature_flags["flag_1"],
+            FlagValue::Boolean(true)
+        );
+        assert_eq!(
+            legacy_response.feature_flags["flag_2"],
+            FlagValue::Boolean(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags_details() {
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let flags = vec![
+            FeatureFlag {
+                name: Some("Flag 1".to_string()),
+                id: 1,
+                key: "flag_1".to_string(),
+                active: true,
+                deleted: false,
+                team_id: 1,
+                filters: FlagFilters {
+                    groups: vec![FlagGroupType {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    holdout_groups: None,
+                },
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+            FeatureFlag {
+                name: Some("Flag 2".to_string()),
+                id: 2,
+                key: "flag_2".to_string(),
+                active: true,
+                deleted: false,
+                team_id: 1,
+                filters: FlagFilters {
+                    groups: vec![FlagGroupType {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(0.0),
+                        variant: None,
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    holdout_groups: None,
+                },
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+        ];
+
+        let feature_flag_list = FeatureFlagList { flags };
+
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: 1,
+            project_id: 1,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: None,
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
+
+        let result = evaluate_feature_flags(evaluation_context).await;
+
+        assert!(!result.errors_while_computing_flags);
+
+        assert_eq!(
+            result.flags["flag_1"],
+            FlagDetails {
+                key: "flag_1".to_string(),
+                enabled: true,
+                variant: "".to_string(),
+                reason: FlagEvaluationReason {
+                    code: "condition_match".to_string(),
+                    condition_index: Some(0),
+                    description: Some("Matched condition set 1".to_string()),
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 1,
+                    version: 1,
+                    description: Some("Flag 1".to_string()),
+                    payload: None,
+                },
+            }
+        );
+        assert_eq!(
+            result.flags["flag_2"],
+            FlagDetails {
+                key: "flag_2".to_string(),
+                enabled: false,
+                variant: "".to_string(),
+                reason: FlagEvaluationReason {
+                    code: "out_of_rollout_bound".to_string(),
+                    condition_index: Some(0),
+                    description: Some("Out of rollout bound".to_string()),
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 2,
+                    version: 1,
+                    description: Some("Flag 2".to_string()),
+                    payload: None,
+                },
+            }
+        );
     }
 
     #[test]
@@ -870,8 +1146,10 @@ mod tests {
                 aggregation_group_type_index: Some(0),
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             },
             ensure_experience_continuity: false,
+            version: Some(1),
         };
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
@@ -903,15 +1181,20 @@ mod tests {
         println!("result: {:?}", result);
 
         assert!(
-            !result.errors_while_computing_flags,
+            result.flags.contains_key("test_flag"),
+            "test_flag not found in result flags"
+        );
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(
+            !legacy_response.errors_while_computing_flags,
             "Error while computing flags"
         );
         assert!(
-            result.feature_flags.contains_key("test_flag"),
-            "test_flag not found in result"
+            legacy_response.feature_flags.contains_key("test_flag"),
+            "test_flag not found in result feature_flags"
         );
 
-        let flag_value = result
+        let flag_value = legacy_response
             .feature_flags
             .get("test_flag")
             .expect("test_flag not found");
@@ -946,8 +1229,10 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             },
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -968,8 +1253,12 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        assert!(!result.errors_while_computing_flags);
-        assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
+        assert_eq!(
+            legacy_response.feature_flags["test_flag"],
+            FlagValue::Boolean(true)
+        );
     }
 
     #[test]

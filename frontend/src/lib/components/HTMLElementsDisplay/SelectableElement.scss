@@ -6,7 +6,7 @@
     &.SelectableElement--selected {
         color: var(--text-primary);
         text-decoration: underline;
-        background: var(--accent-primary);
+        background: var(--accent);
 
         [theme='dark'] & {
             color: var(--text-primary-inverse);
@@ -15,7 +15,7 @@
 
     &:hover {
         color: var(--text-primary);
-        background: var(--accent-primary-hover);
+        background: var(--accent-hover);
 
         [theme='dark'] & {
             color: var(--text-primary-inverse);
@@ -24,7 +24,7 @@
 
     &:active {
         color: var(--text-primary);
-        background: var(--accent-primary-active);
+        background: var(--accent-active);
 
         [theme='dark'] & {
             color: var(--text-primary-inverse);

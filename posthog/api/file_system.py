@@ -1,16 +1,34 @@
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import QuerySet
+import posthoganalytics
 from rest_framework import filters, serializers, viewsets, pagination, status
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.file_system import FileSystem, save_unfiled_files, split_path
+from posthog.models.file_system.file_system import FileSystem, split_path, join_path
+from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.user import User
 from posthog.models.team import Team
+
+
+def has_permissions_to_access_tree_view(user, team):
+    tree_view_enabled = posthoganalytics.feature_enabled(
+        "tree-view",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+    if user.is_staff or tree_view_enabled:
+        return
+
+    raise PermissionDenied("You must have the 'tree-view' flag enabled, or be a staff user to access this resource.")
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -86,13 +104,20 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = FileSystemSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
-    search_fields = ["path"]
+    search_fields = ["path", "ref", "type"]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        has_permissions_to_access_tree_view(request.user, self.team)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team=self.team)
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
+        type_param = self.request.query_params.get("type")
+        type__startswith_param = self.request.query_params.get("type__startswith")
+        ref_param = self.request.query_params.get("ref")
 
         if depth_param is not None:
             try:
@@ -103,11 +128,24 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
+        if type_param:
+            queryset = queryset.filter(type=type_param)
+        if type__startswith_param:
+            queryset = queryset.filter(type__startswith=type__startswith_param)
+        if ref_param:
+            queryset = queryset.filter(ref=ref_param)
 
         if self.action == "list":
             queryset = queryset.order_by("path")
 
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.type == "folder":
+            FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").delete()
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["GET"], detail=False)
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -125,6 +163,52 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(methods=["POST"], detail=True)
+    def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        new_path = request.data.get("new_path")
+        if not new_path:
+            return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if instance.type == "folder":
+            if new_path == instance.path:
+                return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+
+            with transaction.atomic():
+                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                    file.path = new_path + file.path[len(instance.path) :]
+                    file.depth = len(split_path(file.path))
+                    file.save()
+
+                targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+                # We're a folder, and we're moving into a folder with the same name. Delete one.
+                if any(target.type == "folder" for target in targets):
+                    # TODO: merge access controls once those are in place
+                    instance.delete()
+                else:
+                    instance.path = new_path
+                    instance.depth = len(split_path(instance.path))
+                    instance.save()
+
+        else:
+            instance.path = new_path
+            instance.depth = len(split_path(instance.path))
+            instance.save()
+
+        return Response(
+            "OK",
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["POST"], detail=True)
+    def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get count of all files in a folder."""
+        instance = self.get_object()
+        if instance.type != "folder":
+            return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
+        count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
+        return Response({"count": count}, status=status.HTTP_200_OK)
 
 
 def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
@@ -154,7 +238,7 @@ def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
         # e.g. for path "a/b/c/d/e", the parent folders are:
         #  "a" (depth=1), "a/b" (depth=2), "a/b/c" (depth=3), "a/b/c/d" (depth=4)
         for depth_index in range(1, len(segments)):
-            parent_path = "/".join(segments[:depth_index])
+            parent_path = join_path(segments[:depth_index])
             if parent_path not in existing_paths:
                 # Mark that we have it now (so we don't create duplicates)
                 existing_paths.add(parent_path)
