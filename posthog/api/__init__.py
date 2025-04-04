@@ -290,7 +290,7 @@ projects_router.register(
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
 
-projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
+projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources
@@ -419,7 +419,7 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
 register_grandfathered_environment_nested_viewset(r"events", EventViewSet, "environment_events", ["team_id"])
-projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
+projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
 projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 register_grandfathered_environment_nested_viewset(
@@ -556,7 +556,7 @@ projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
-    ["project_id"],
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(
