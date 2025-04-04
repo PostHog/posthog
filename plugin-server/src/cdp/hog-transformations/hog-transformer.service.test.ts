@@ -1417,14 +1417,14 @@ describe('HogTransformer', () => {
             hogTransformer.clearHogFunctionStates()
 
             // Verify state is not in cache initially
-            expect(hogTransformer['getHogFunctionState'](hogFunctionId)).toBeNull()
+            expect(hogTransformer['cachedStates'][hogFunctionId] || null).toBeNull()
 
             // Create the expected error message
             const expectedErrorMessage = `Critical error: Missing HogFunction state in cache for function ${hogFunctionId} - this should never happen`
 
             // Define a function that will throw the error
             const throwingFunction = () => {
-                if (!hogTransformer['getHogFunctionState'](hogFunctionId)) {
+                if (!hogTransformer['cachedStates'][hogFunctionId]) {
                     throw new Error(expectedErrorMessage)
                 }
                 return 'This should not be returned'

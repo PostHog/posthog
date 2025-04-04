@@ -176,7 +176,7 @@ export class HogTransformerService {
 
                     if (shouldRunHogWatcher) {
                         // Check if function is in a degraded state
-                        const functionState = this.getHogFunctionState(hogFunction.id)
+                        const functionState = this.cachedStates[hogFunction.id] || null
                         if (!functionState) {
                             const errorMessage = `Critical error: Missing HogFunction state in cache for function ${hogFunction.id} - this should never happen`
                             logger.error('⚠️', errorMessage)
@@ -371,9 +371,5 @@ export class HogTransformerService {
             // Clear all states if no IDs provided
             this.cachedStates = {}
         }
-    }
-
-    private getHogFunctionState(hogFunctionId: string): HogWatcherState | null {
-        return this.cachedStates[hogFunctionId] || null
     }
 }
