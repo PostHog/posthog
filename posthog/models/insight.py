@@ -168,7 +168,9 @@ class Insight(FileSystemSyncMixin, models.Model):
                 **(
                     dashboard_filters_override
                     if dashboard_filters_override is not None
-                    else dashboard.filters if dashboard else {}
+                    else dashboard.filters
+                    if dashboard
+                    else {}
                 )
             }
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
@@ -241,7 +243,9 @@ class Insight(FileSystemSyncMixin, models.Model):
             (
                 dashboard_filters_override
                 if dashboard_filters_override is not None
-                else dashboard.filters if dashboard else {}
+                else dashboard.filters
+                if dashboard
+                else {}
             ),
             self.team,
         )
