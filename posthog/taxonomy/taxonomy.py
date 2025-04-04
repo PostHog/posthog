@@ -160,7 +160,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_enrollment_update": {
             "label": "Feature Enrollment",
-            "description": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
+            "description": "When a user enrolls with a feature.",
+            "description_llm": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
         },
         "$capture_metrics": {
             "label": "Capture Metrics",
@@ -499,7 +500,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["/e/"],
         },
         "$exception_capture_endpoint_suffix": {
-            "label": "Exception capture endpoint",
+            "label": "Exception capture endpoint suffix",
             "description": "Endpoint used by posthog-js exception autocapture.",
             "examples": ["/e/"],
         },
@@ -1544,7 +1545,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_latency": {
             "label": "AI Latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds",
-            "examples": [1000],
+            "examples": [0.361],
         },
         "$ai_model": {
             "label": "AI Model (LLM)",
@@ -1661,26 +1662,26 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
         },
         "$end_current_url": {
-            "label": "Entry URL",
-            "description": "The first URL visited in this session.",
+            "label": "End URL",
+            "description": "The last URL visited in this session.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$end_pathname": {
-            "label": "Entry pathname",
-            "description": "The first pathname visited in this session.",
+            "label": "End pathname",
+            "description": "The last pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
         "$exit_current_url": {
             "label": "Exit URL",
-            "description": "The last URL visited in this session",
+            "description": "The last URL visited in this session. (deprecated, use $end_current_url)",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$exit_pathname": {
             "label": "Exit pathname",
-            "description": "The last pathname visited in this session",
+            "description": "The last pathname visited in this session. (deprecated, use $end_pathname)",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
