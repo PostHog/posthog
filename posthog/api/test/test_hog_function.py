@@ -2155,10 +2155,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 [f for f in results if f["type"] == "transformation"], key=lambda x: x["execution_order"] or 999
             )
 
-            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
-            assert fn_orders["Transform A"] == 1
-            assert fn_orders["Transform C"] == 3
-            assert fn_orders["Transform B"] == 4  # It's now at the end
+            fn_orders = {f["name"]: int(f["execution_order"]) for f in transformations}
+            assert fn_orders["Transform A"] == 1, "A should still have order 1"
+            assert fn_orders["Transform C"] == 3, "C should remain at order 3"
+            assert fn_orders["Transform B"] == 4, "B should now be at the end (order 4)"
 
     def test_transformation_normal_execution_order_update(self, *args):
         """Test updating execution_order for a transformation function directly."""
@@ -2215,7 +2215,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             transformations = [f for f in results if f["type"] == "transformation"]
             assert len(transformations) == 3
 
-            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            fn_orders = {f["name"]: int(f["execution_order"]) for f in transformations}
             assert fn_orders["Transform A"] == 1
             assert fn_orders["Transform B"] == 2
             assert fn_orders["Transform C"] == 3
@@ -2233,7 +2233,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             transformations = [f for f in results if f["type"] == "transformation"]
 
             # Order by function name for verification
-            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            fn_orders = {f["name"]: int(f["execution_order"]) for f in transformations}
             assert fn_orders["Transform A"] == 1, "A should still have order 1"
             assert fn_orders["Transform B"] == 1, "B should now have order 1"
             assert fn_orders["Transform C"] == 3, "C should remain at order 3"
