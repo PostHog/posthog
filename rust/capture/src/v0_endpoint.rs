@@ -1,6 +1,5 @@
 use std::ops::Deref;
 use std::sync::Arc;
-use uuid::Uuid;
 
 use axum::{debug_handler, Json};
 use bytes::Bytes;
@@ -355,7 +354,9 @@ pub async fn process_replay_events<'a>(
 
     // Validate session_id is a valid UUID
     let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
-    if Uuid::parse_str(session_id_str).is_err() {
+
+    // Reject session_ids that are too long
+    if session_id_str.len() > 100 {
         return Err(CaptureError::InvalidSessionId);
     }
 

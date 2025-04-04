@@ -175,7 +175,7 @@ async fn it_rejects_bad_session_id() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_rejects_non_uuid_session_id() -> Result<()> {
+async fn it_rejects_too_long_session_id() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
@@ -188,9 +188,9 @@ async fn it_rejects_non_uuid_session_id() -> Result<()> {
         "token": token,
         "event": "testing",
         "distinct_id": distinct_id,
-        "$session_id": "not-a-uuid-string",
+        "$session_id": "not-a-uuid-string".repeat(10),
         "properties": {
-            "$session_id": "not-a-uuid-string",
+            "$session_id": "not-a-uuid-string".repeat(10),
             "$window_id": window_id,
             "$snapshot_data": [],
         }
