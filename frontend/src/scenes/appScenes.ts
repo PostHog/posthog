@@ -85,7 +85,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.MessagingBroadcasts]: () => import('products/messaging/frontend/Broadcasts'),
-    [Scene.MessagingAutomations]: () => import('products/messaging/frontend/Automations'),
+    [Scene.MessagingCampaigns]: () => import('products/messaging/frontend/Campaigns'),
     [Scene.MessagingLibrary]: () => import('products/messaging/frontend/Library'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
 }
