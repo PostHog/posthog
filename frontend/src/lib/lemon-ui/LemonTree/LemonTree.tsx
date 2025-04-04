@@ -98,9 +98,6 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** Pass true if you need to wait for async events to populate the tree.
      * If present and true will trigger: scrolling to focused item */
     isFinishedBuildingTreeData?: boolean
-
-    /** The function to call when the item is checked. */
-    onSetCheckedItemIds?: (ids: string[]) => void
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -127,8 +124,6 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     depth?: number
     /** Whether the context menu is open */
     onContextMenuOpen?: (open: boolean) => void
-    /** The checked items. */
-    checkedItems?: string[]
 }
 
 export interface LemonTreeRef {
@@ -455,7 +450,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
-        const [checkedItemsState, setCheckedItemsState] = useState<string[]>([...(defaultCheckedItems ?? [])])
 
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')

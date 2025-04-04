@@ -9,7 +9,6 @@ import { TreeDataItem } from './LemonTree'
 type IconProps = {
     item: TreeDataItem
     expandedItemIds: string[]
-    checkedItems: string[]
     defaultNodeIcon?: React.ReactNode
     enableMultiSelection?: boolean
     handleCheckedChange?: (checked: boolean) => void
