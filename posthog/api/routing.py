@@ -104,7 +104,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         # override the entire method.
         permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
 
-        if self._is_team_view or self._is_project_view:
+        if self._is_team_view:
             permission_classes.append(TeamMemberAccessPermission)
         else:
             permission_classes.append(OrganizationMemberPermissions)
@@ -267,14 +267,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             return self.parents_query_dict["organization_id"]
         except KeyError:
             user = cast(User, self.request.user)
-            current_organization_id: Optional[UUID]
-            if self._is_team_view:
-                # TODO: self.team.project.organization_id when project environments are rolled out
-                current_organization_id = self.team.organization_id
-            if self._is_project_view:
-                current_organization_id = self.project.organization_id
-            elif user:
-                current_organization_id = user.current_organization_id
+            current_organization_id = self.team.organization_id if self._is_team_view else user.current_organization_id
 
             if not current_organization_id:
                 raise NotFound("You need to belong to an organization.")
