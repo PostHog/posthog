@@ -272,7 +272,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "metadata": {
         "distinct_id": {
             "label": "Distinct ID",
-            "description": "The current distinct ID of the user",
+            "description": "The current distinct ID of the user.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
         "timestamp": {
@@ -604,7 +604,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$cymbal_errors": {
             "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions",
+            "description": "Errors encountered while trying to process exceptions.",
             "system": True,
         },
         "$geoip_city_name": {
@@ -1649,25 +1649,25 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$entry_current_url": {
             "label": "Entry URL",
-            "description": "The first URL visited in this session",
+            "description": "The first URL visited in this session.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$entry_pathname": {
             "label": "Entry pathname",
-            "description": "The first pathname visited in this session",
+            "description": "The first pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
         "$end_current_url": {
             "label": "Entry URL",
-            "description": "The first URL visited in this session",
+            "description": "The first URL visited in this session.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$end_pathname": {
             "label": "Entry pathname",
-            "description": "The first pathname visited in this session",
+            "description": "The first pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
@@ -1685,19 +1685,19 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$pageview_count": {
             "label": "Pageview count",
-            "description": "The number of page view events in this session",
+            "description": "The number of page view events in this session.",
             "examples": ["123"],
             "type": "Numeric",
         },
         "$autocapture_count": {
             "label": "Autocapture count",
-            "description": "The number of autocapture events in this session",
+            "description": "The number of autocapture events in this session.",
             "examples": ["123"],
             "type": "Numeric",
         },
         "$screen_count": {
             "label": "Screen count",
-            "description": "The number of screen events in this session",
+            "description": "The number of screen events in this session.",
             "examples": ["123"],
             "type": "Numeric",
         },
