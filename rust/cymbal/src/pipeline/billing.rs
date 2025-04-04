@@ -20,9 +20,11 @@ pub async fn apply_billing_limits(
             continue;
         };
 
-        if context.billing_limiter.is_limited(&e.token).await {
-            continue;
-        }
+        // TODO - re-enable quota limiting once we've figure out how billing handles
+        // customers with no plan.
+        // if context.billing_limiter.is_limited(&e.token).await {
+        //     continue;
+        // }
         out.push(IncomingEvent::Captured(e));
     }
 
