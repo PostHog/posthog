@@ -144,6 +144,7 @@ class FlagsMatcherCache:
 
 class FeatureFlagMatcher:
     failed_to_fetch_conditions = False
+    team_id: int
 
     def __init__(
         self,
@@ -168,7 +169,8 @@ class FeatureFlagMatcher:
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
         self.groups = groups
-        self.cache = cache or FlagsMatcherCache(self.feature_flags[0].team_id)
+        self.team_id = self.feature_flags[0].team_id
+        self.cache = cache or FlagsMatcherCache(self.team_id)
         self.hash_key_overrides = hash_key_overrides
         self.property_value_overrides = property_value_overrides
         self.group_property_value_overrides = group_property_value_overrides
@@ -558,7 +560,7 @@ class FeatureFlagMatcher:
                                     )
 
                             expr = properties_to_Q(
-                                self.project_id,
+                                self.team_id,
                                 property_list,
                                 override_property_values=target_properties,
                                 cohorts_cache=self.cohorts_cache,

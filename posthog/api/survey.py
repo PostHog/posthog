@@ -238,7 +238,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if len(action_ids) == 0:
             return value
 
-        project_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
+        project_actions = Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids)
 
         for project_action in project_actions:
             for step in project_action.steps:
@@ -335,7 +335,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if (
             self.context["request"].method == "POST"
-            and Survey.objects.filter(name=data.get("name"), team__project_id=self.context["project_id"]).exists()
+            and Survey.objects.filter(name=data.get("name"), team_id=self.context["team_id"]).exists()
         ):
             raise serializers.ValidationError("There is already a survey with this name.", code="unique")
 
@@ -344,7 +344,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if (
             existing_survey
             and existing_survey.name != data.get("name")
-            and Survey.objects.filter(name=data.get("name"), team__project_id=self.context["project_id"])
+            and Survey.objects.filter(name=data.get("name"), team_id=self.context["team_id"])
             .exclude(id=existing_survey.id)
             .exists()
         ):
@@ -606,7 +606,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         action_ids = (value.get("id") for value in values)
 
-        instance.actions.set(Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids))
+        instance.actions.set(Action.objects.filter(team_id=self.context["team_id"], id__in=action_ids))
         instance.save()
 
     def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
@@ -732,9 +732,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
-        earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
-            Min("start_date")
-        )["start_date__min"]
+        earliest_survey_start_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("start_date"))[
+            "start_date__min"
+        ]
         data = sync_execute(
             f"""
             SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
@@ -767,7 +767,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         item_id = kwargs["pk"]
 
-        if not Survey.objects.filter(id=item_id, team__project_id=self.project_id).exists():
+        if not Survey.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
@@ -788,7 +788,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         survey_id = kwargs["pk"]
 
-        if not Survey.objects.filter(id=survey_id, team__project_id=self.project_id).exists():
+        if not Survey.objects.filter(id=survey_id, team_id=self.team_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         survey = self.get_object()
@@ -918,12 +918,12 @@ def get_surveys_opt_in(team: Team) -> bool:
 
 
 def get_surveys_count(team: Team) -> int:
-    return Survey.objects.filter(team__project_id=team.project_id).exclude(archived=True).count()
+    return Survey.objects.filter(team_id=team.id).exclude(archived=True).count()
 
 
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
-        Survey.objects.filter(team__project_id=team.project_id)
+        Survey.objects.filter(team_id=team.id)
         .exclude(archived=True)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),

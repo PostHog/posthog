@@ -363,6 +363,8 @@ class RootTeamQuerySet(models.QuerySet):
         from posthog.models.team import Team
         from django.db.models import Q, Subquery
 
+        # TODO: Handle team as a an object as well
+
         if "team_id" in kwargs:
             team_id = kwargs.pop("team_id")
             parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]

@@ -1,8 +1,8 @@
 from django.db import models
-from posthog.models.utils import UUIDModel, sane_repr
+from posthog.models.utils import UUIDModel, RootTeamMixin, sane_repr
 
 
-class EarlyAccessFeature(UUIDModel):
+class EarlyAccessFeature(RootTeamMixin, UUIDModel):
     class Meta:
         db_table = "posthog_earlyaccessfeature"
         managed = True
