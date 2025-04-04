@@ -419,7 +419,7 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
 register_grandfathered_environment_nested_viewset(r"events", EventViewSet, "environment_events", ["team_id"])
-projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
+projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
 projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 register_grandfathered_environment_nested_viewset(
