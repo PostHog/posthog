@@ -355,8 +355,13 @@ pub async fn process_replay_events<'a>(
     // Validate session_id is a valid UUID
     let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
 
-    // Reject session_ids that are too long
-    if session_id_str.len() > 100 {
+    // Reject session_ids that are too long, this is a proxy for "not a valid UUID"
+    // versions of PostHog JS in the wild are still pre-version 1.73.0 
+    // when we started sending valid UUIDv7 session_ids
+    // at time of writing they are ~4-5% of all sessions
+    // they'll be having a bad time generally but replay probably works a little for them
+    // so we don't drop non-UUID strings, but we use length as a proxy definitely bad UUIDs
+    if session_id_str.len() > 70 {
         return Err(CaptureError::InvalidSessionId);
     }
 
