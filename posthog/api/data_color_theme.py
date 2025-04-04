@@ -74,7 +74,11 @@ class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     # override the team scope queryset to also include global themes
     def dangerously_get_queryset(self):
-        query_condition = Q(team_id=self.team_id) | Q(team_id=None)
+        if self.request.method in SAFE_METHODS:
+            # You can't write to global themes
+            query_condition = Q(team_id=self.team.root_team.id) | Q(team_id=None)
+        else:
+            query_condition = Q(team_id=self.team.root_team.id)
 
         return DataColorTheme.objects.filter(query_condition)
 
