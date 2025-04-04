@@ -461,12 +461,12 @@ if EE_AVAILABLE:
         LegacyEnterprisePersonViewSet,
     )
 
-    projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
+    projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["team_id"])
     projects_router.register(
-        r"experiment_holdouts", ExperimentHoldoutViewSet, "project_experiment_holdouts", ["project_id"]
+        r"experiment_holdouts", ExperimentHoldoutViewSet, "project_experiment_holdouts", ["team_id"]
     )
     projects_router.register(
-        r"experiment_saved_metrics", ExperimentSavedMetricViewSet, "project_experiment_saved_metrics", ["project_id"]
+        r"experiment_saved_metrics", ExperimentSavedMetricViewSet, "project_experiment_saved_metrics", ["team_id"]
     )
     register_grandfathered_environment_nested_viewset(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
     projects_router.register(r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"])
