@@ -310,7 +310,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 try {
                     await api.create('api/startups/apply', valuesToSubmit)
                     actions.setFormSubmitted(true)
-                    lemonToast.success('Application submitted successfully!')
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to submit application')
                     throw error

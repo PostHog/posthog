@@ -9,16 +9,16 @@ from rest_framework.viewsets import ViewSet
 from posthog.models import Organization
 
 from posthog.models.organization import OrganizationMembership
+from posthog.cloud_utils import get_cached_instance_license
+from ee.billing.billing_manager import BillingManager
 
 
 class StartupApplicationSerializer(serializers.Serializer):
     program = serializers.ChoiceField(
         required=True,
         choices=["startups", "yc"],
-        help_text="Program type - 'startups' for regular startup program, 'yc' for Y Combinator startups",
     )
     organization_id = serializers.CharField(required=True)
-    # add customer_id
 
     # Startup program fields
     raised = serializers.CharField(required=False)
@@ -38,7 +38,18 @@ class StartupApplicationSerializer(serializers.Serializer):
             if not membership or not membership.level >= OrganizationMembership.Level.ADMIN:
                 raise ValidationError("You must be an organization admin or owner to apply")
 
-            # TODO: Check if already in startup program and if has active subscription
+            license = get_cached_instance_license()
+            if not license:
+                raise ValidationError("No license found")
+
+            billing_manager = BillingManager(license, user)
+            billing_info = billing_manager.get_billing(organization)
+
+            if not billing_info.get("has_active_subscription"):
+                raise ValidationError("You need an active subscription to apply for the startup program")
+
+            if billing_info.get("startup_program_label"):
+                raise ValidationError("Your organization is already in the startup program")
 
         except Organization.DoesNotExist:
             raise ValidationError("Organization not found")
@@ -96,15 +107,12 @@ class StartupApplicationSerializer(serializers.Serializer):
         organization = Organization.objects.get(id=validated_data["organization_id"])
 
         submission_data = {
-            # User data
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,
-            # Organization data
             "organization_name": organization.name,
             "organization_id": organization.id,
             "customer_id": organization.customer_id,
-            # Application data
             **validated_data,
         }
 
