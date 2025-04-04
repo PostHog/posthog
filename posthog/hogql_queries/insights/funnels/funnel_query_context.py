@@ -96,6 +96,7 @@ class FunnelQueryContext(QueryContext):
         if isinstance(self.breakdownFilter.breakdown, str) and self.breakdownType in [
             "person",
             "event",
+            "event_metadata",
             "hogql",
             None,
         ]:
