@@ -60,8 +60,8 @@ const UniversalSearch = (): JSX.Element => {
 
     const onClose = (query: string): void => {
         searchInputRef.current?.blur()
-        setSearchQuery(query)
         setVisible(false)
+        setSearchQuery(query)
     }
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
@@ -73,8 +73,9 @@ const UniversalSearch = (): JSX.Element => {
             TaxonomicFilterGroupType.HogQLExpression,
         ],
         onChange: (taxonomicGroup, value, item, originalQuery) => {
-            addGroupFilter(taxonomicGroup, value, item, originalQuery)
+            searchInputRef.current?.blur()
             setVisible(false)
+            addGroupFilter(taxonomicGroup, value, item, originalQuery)
         },
         onEnter: onClose,
         autoSelectItem: false,

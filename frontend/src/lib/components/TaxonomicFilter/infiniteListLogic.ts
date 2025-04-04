@@ -435,7 +435,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             if (values.isExpandableButtonSelected) {
                 actions.expand()
             } else {
-                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem, values.searchQuery)
+                actions.selectItem(
+                    values.group,
+                    values.selectedItemValue,
+                    values.selectedItem,
+                    values.swappedInQuery ? values.searchQuery : undefined
+                )
             }
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
