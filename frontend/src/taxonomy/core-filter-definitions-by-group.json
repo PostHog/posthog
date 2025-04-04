@@ -854,7 +854,7 @@
         },
         "$plugins_succeeded": {
             "label": "Plugins Succeeded",
-            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method processEvent)."
+            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method `processEvent`)."
         },
         "$groups": {
             "label": "Groups",
@@ -904,11 +904,11 @@
         },
         "$plugins_failed": {
             "label": "Plugins Failed",
-            "description": "Plugins that failed to process the event (plugin method processEvent)."
+            "description": "Plugins that failed to process the event (plugin method `processEvent`)."
         },
         "$plugins_deferred": {
             "label": "Plugins Deferred",
-            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method onEvent)."
+            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method `onEvent`)."
         },
         "$$plugin_metrics": {
             "label": "Plugin Metric",
@@ -1178,7 +1178,7 @@
         },
         "$user_id": {
             "label": "User ID",
-            "description": "This variable will be set to the distinct ID if you've called posthog.identify('distinct id'). If the user is anonymous, it'll be empty."
+            "description": "This variable will be set to the distinct ID if you've called `posthog.identify('distinct id')`. If the user is anonymous, it'll be empty."
         },
         "$ip": {
             "label": "IP Address",
@@ -1256,7 +1256,7 @@
         },
         "$feature_flag_request_id": {
             "label": "Feature Flag Request ID",
-            "description": "The unique identifier for the request that retrieved this feature flag result. Primarily used by PostHog support for debugging issues with feature flags.",
+            "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": [
                 "01234567-89ab-cdef-0123-456789abcdef"
             ]
@@ -1959,13 +1959,80 @@
                 "summarize_text"
             ]
         },
+        "$session_entry_dclid": {
+            "label": "Session entry dclid",
+            "description": "DoubleClick ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_li_fat_id": {
+            "label": "Session entry li_fat_id",
+            "description": "LinkedIn First-Party Ad Tracking ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_mc_cid": {
+            "label": "Session entry mc_cid",
+            "description": "Mailchimp Campaign ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_referring_domain": {
+            "label": "Session entry Referring Domain",
+            "description": "Domain of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": [
+                "google.com",
+                "facebook.com"
+            ]
+        },
         "$session_entry_gbraid": {
             "label": "Session entry gbraid",
             "description": "Google Ads, web to app. Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_rdt_cid": {
-            "label": "Session entry rdt_cid",
-            "description": "Reddit Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_ttclid": {
+            "label": "Session entry ttclid",
+            "description": "TikTok Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_igshid": {
+            "label": "Session entry igshid",
+            "description": "Instagram Share ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_gclsrc": {
+            "label": "Session entry gclsrc",
+            "description": "Google Click Source. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry__kx": {
+            "label": "Session entry _kx",
+            "description": "Klaviyo Tracking ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_fbclid": {
+            "label": "Session entry fbclid",
+            "description": "Facebook Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_host": {
+            "label": "Session entry Host",
+            "description": "The hostname of the Current URL.. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ]
+        },
+        "$session_entry_utm_campaign": {
+            "label": "Session entry UTM Campaign",
+            "description": "UTM campaign tag.. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": [
+                "feature launch",
+                "discount"
+            ]
+        },
+        "$session_entry_utm_content": {
+            "label": "Session entry UTM Content",
+            "description": "UTM content tag.. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": [
+                "bottom link",
+                "second button"
+            ]
+        },
+        "$session_entry_utm_term": {
+            "label": "Session entry UTM Term",
+            "description": "UTM term tag.. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": [
+                "free goodies"
+            ]
         },
         "$session_entry_utm_medium": {
             "label": "Session entry UTM Medium",
@@ -1977,80 +2044,28 @@
                 "Email"
             ]
         },
-        "$session_entry_irclid": {
-            "label": "Session entry irclid",
-            "description": "Impact Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_li_fat_id": {
-            "label": "Session entry li_fat_id",
-            "description": "LinkedIn First-Party Ad Tracking ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_twclid": {
-            "label": "Session entry twclid",
-            "description": "Twitter Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_utm_content": {
-            "label": "Session entry UTM Content",
-            "description": "UTM content tag.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": [
-                "bottom link",
-                "second button"
-            ]
-        },
-        "$session_entry_gclsrc": {
-            "label": "Session entry gclsrc",
-            "description": "Google Click Source. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry__kx": {
-            "label": "Session entry _kx",
-            "description": "Klaviyo Tracking ID. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_msclkid": {
+            "label": "Session entry msclkid",
+            "description": "Microsoft Click ID. Captured at the start of the session and remains constant for the duration of the session."
         },
         "$session_entry_gad_source": {
             "label": "Session entry gad_source",
             "description": "Google Ads Source. Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_referring_domain": {
-            "label": "Session entry Referring Domain",
-            "description": "Domain of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
+        "$session_entry_gclid": {
+            "label": "Session entry gclid",
+            "description": "Google Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_twclid": {
+            "label": "Session entry twclid",
+            "description": "Twitter Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_referrer": {
+            "label": "Session entry Referrer URL",
+            "description": "URL of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": [
-                "google.com",
-                "facebook.com"
+                "https://google.com/search?q=posthog&rlz=1C..."
             ]
-        },
-        "$session_entry_wbraid": {
-            "label": "Session entry wbraid",
-            "description": "Google Ads, app to web. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_host": {
-            "label": "Session entry Host",
-            "description": "The hostname of the Current URL.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": [
-                "example.com",
-                "localhost:8000"
-            ]
-        },
-        "$session_entry_igshid": {
-            "label": "Session entry igshid",
-            "description": "Instagram Share ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_fbclid": {
-            "label": "Session entry fbclid",
-            "description": "Facebook Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_url": {
-            "label": "Session entry Current URL",
-            "description": "The URL visited at the time of the event.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": [
-                "https://example.com/interesting-article?parameter=true"
-            ]
-        },
-        "$session_entry_ttclid": {
-            "label": "Session entry ttclid",
-            "description": "TikTok Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_mc_cid": {
-            "label": "Session entry mc_cid",
-            "description": "Mailchimp Campaign ID. Captured at the start of the session and remains constant for the duration of the session."
         },
         "$session_entry_pathname": {
             "label": "Session entry Path Name",
@@ -2060,38 +2075,23 @@
                 "/about-us/team"
             ]
         },
-        "$session_entry_dclid": {
-            "label": "Session entry dclid",
-            "description": "DoubleClick ID. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_wbraid": {
+            "label": "Session entry wbraid",
+            "description": "Google Ads, app to web. Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_msclkid": {
-            "label": "Session entry msclkid",
-            "description": "Microsoft Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_irclid": {
+            "label": "Session entry irclid",
+            "description": "Impact Click ID. Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_utm_term": {
-            "label": "Session entry UTM Term",
-            "description": "UTM term tag.. Captured at the start of the session and remains constant for the duration of the session.",
+        "$session_entry_rdt_cid": {
+            "label": "Session entry rdt_cid",
+            "description": "Reddit Click ID. Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_url": {
+            "label": "Session entry Current URL",
+            "description": "The URL visited at the time of the event.. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": [
-                "free goodies"
-            ]
-        },
-        "$session_entry_utm_campaign": {
-            "label": "Session entry UTM Campaign",
-            "description": "UTM campaign tag.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": [
-                "feature launch",
-                "discount"
-            ]
-        },
-        "$session_entry_gclid": {
-            "label": "Session entry gclid",
-            "description": "Google Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_referrer": {
-            "label": "Session entry Referrer URL",
-            "description": "URL of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": [
-                "https://google.com/search?q=posthog&rlz=1C..."
+                "https://example.com/interesting-article?parameter=true"
             ]
         },
         "$session_entry_utm_source": {
@@ -2941,7 +2941,7 @@
         },
         "$plugins_succeeded": {
             "label": "Plugins Succeeded",
-            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method processEvent)."
+            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method `processEvent`)."
         },
         "$groups": {
             "label": "Groups",
@@ -2991,11 +2991,11 @@
         },
         "$plugins_failed": {
             "label": "Plugins Failed",
-            "description": "Plugins that failed to process the event (plugin method processEvent)."
+            "description": "Plugins that failed to process the event (plugin method `processEvent`)."
         },
         "$plugins_deferred": {
             "label": "Plugins Deferred",
-            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method onEvent)."
+            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method `onEvent`)."
         },
         "$$plugin_metrics": {
             "label": "Plugin Metric",
@@ -3383,7 +3383,7 @@
         },
         "$user_id": {
             "label": "User ID",
-            "description": "This variable will be set to the distinct ID if you've called posthog.identify('distinct id'). If the user is anonymous, it'll be empty."
+            "description": "This variable will be set to the distinct ID if you've called `posthog.identify('distinct id')`. If the user is anonymous, it'll be empty."
         },
         "$ip": {
             "label": "IP Address",
@@ -3469,7 +3469,7 @@
         },
         "$feature_flag_request_id": {
             "label": "Feature Flag Request ID",
-            "description": "The unique identifier for the request that retrieved this feature flag result. Primarily used by PostHog support for debugging issues with feature flags.",
+            "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": [
                 "01234567-89ab-cdef-0123-456789abcdef"
             ]

@@ -266,7 +266,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "href": {
             "label": "Target (href)",
-            "description": "Filter on the href attribute of the element.",
+            "description": "Filter on the `href` attribute of the element.",
             "examples": ["https://posthog.com/about"],
         },
     },
@@ -793,7 +793,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$plugins_succeeded": {
             "label": "Plugins Succeeded",
-            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method processEvent).",
+            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method `processEvent`).",
         },
         "$groups": {
             "label": "Groups",
@@ -843,11 +843,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$plugins_failed": {
             "label": "Plugins Failed",
-            "description": "Plugins that failed to process the event (plugin method processEvent).",
+            "description": "Plugins that failed to process the event (plugin method `processEvent`).",
         },
         "$plugins_deferred": {
             "label": "Plugins Deferred",
-            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method onEvent).",
+            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method `onEvent`).",
         },
         "$$plugin_metrics": {
             "label": "Plugin Metric",
@@ -1033,7 +1033,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$user_id": {
             "label": "User ID",
-            "description": "This variable will be set to the distinct ID if you've called posthog.identify('distinct id'). If the user is anonymous, it'll be empty.",
+            "description": "This variable will be set to the distinct ID if you've called `posthog.identify('distinct id')`. If the user is anonymous, it'll be empty.",
         },
         "$ip": {
             "label": "IP Address",
@@ -1087,7 +1087,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag_request_id": {
             "label": "Feature Flag Request ID",
-            "description": "The unique identifier for the request that retrieved this feature flag result. Primarily used by PostHog support for debugging issues with feature flags.",
+            "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
         },
         "$feature_flag_version": {
