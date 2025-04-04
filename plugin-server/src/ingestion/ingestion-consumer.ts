@@ -175,7 +175,7 @@ export class IngestionConsumer {
 
         // TODO 1. Get all Teams for the events with lazyloader
         // TODO 2. use getHogFunctionIdsForTeams to get the hog function ids for the teams
-        // TODO 3. use hogTransformer.saveHogFunctionStates to save the hog function states for the teams
+        // TODO 3. use hogTransformer.fetchAndCacheHogFunctionStates to save the hog function states for the teams
         // TODO 4. after batch is processed use hogTransformer.clearHogFunctionStates to clear the hog function states
 
         await this.runInstrumented('processBatch', async () => {

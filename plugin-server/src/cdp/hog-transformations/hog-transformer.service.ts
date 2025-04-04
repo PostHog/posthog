@@ -350,7 +350,7 @@ export class HogTransformerService {
         return result
     }
 
-    public async saveHogFunctionStates(functionIds: string[]): Promise<void> {
+    public async fetchAndCacheHogFunctionStates(functionIds: string[]): Promise<void> {
         const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
         const states = await this.hogWatcher.getStates(functionIds)
         timer()

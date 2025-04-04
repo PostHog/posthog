@@ -1385,7 +1385,7 @@ describe('HogTransformer', () => {
             jest.spyOn(hogTransformer['hogWatcher'], 'getStates').mockResolvedValue(Promise.resolve(mockStates))
 
             // Save states
-            await hogTransformer.saveHogFunctionStates(functionIds)
+            await hogTransformer.fetchAndCacheHogFunctionStates(functionIds)
 
             // Verify states were cached
             expect(hogTransformer['cachedStates'][functionIds[0]]).toBe(HogWatcherState.disabledForPeriod)
