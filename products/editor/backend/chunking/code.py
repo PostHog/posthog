@@ -125,10 +125,14 @@ def chunk_code(lang: ProgrammingLanguage, content: str, chunk_size: int, chunk_o
     chunks_with_positions: list[Chunk] = []
     capture_context_for: set[int] = set()
 
+    # In case chunks are exactly the same, but their enclosing context is different.
+    current_pos = 0
+
     for chunk in chunks:
-        pos = content.find(chunk)
-        offset = content[:pos]
-        line_number = offset.count("\n")
+        pos = content.find(chunk, current_pos)
+        current_pos = pos + 1
+
+        line_number = content[:pos].count("\n")
         line_end = line_number + chunk.count("\n")
 
         chunks_with_positions.append(

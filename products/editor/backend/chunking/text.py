@@ -13,10 +13,14 @@ def chunk_text(content: str, chunk_size: int, chunk_overlap: float) -> list[Chun
     chunks = chunker.split_text(content)
     chunks_with_positions: list[Chunk] = []
 
+    # In case chunks are exactly the same, but their enclosing context is different.
+    current_pos = 0
+
     for chunk in chunks:
-        pos = content.find(chunk)
-        offset = content[:pos]
-        line_number = offset.count("\n")
+        pos = content.find(chunk, current_pos)
+        current_pos = pos + 1
+
+        line_number = content[:pos].count("\n")
         line_end = line_number + chunk.count("\n")
 
         chunks_with_positions.append(
