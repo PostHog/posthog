@@ -149,10 +149,10 @@ export function convertFileSystemEntryToTreeDataItem({
                 return -1
             }
             // folders before files
-            if (a.record.type === 'folder' && b.record.type !== 'folder') {
+            if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
                 return -1
             }
-            if (b.record.type === 'folder' && a.record.type !== 'folder') {
+            if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
                 return 1
             }
             return String(a.name).localeCompare(String(b.name))
