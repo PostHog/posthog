@@ -1,7 +1,6 @@
 import json
 import posthoganalytics
 
-from pydantic import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
@@ -15,7 +14,6 @@ from posthog.hogql.database.schema.exchange_rate import (
     currency_expression_for_all_events,
 )
 from posthog.schema import (
-    RevenueTrackingConfig,
     RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
     CachedRevenueExampleEventsQueryResponse,
@@ -43,11 +41,7 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        tracking_config = RevenueTrackingConfig()
-        try:
-            tracking_config = RevenueTrackingConfig.model_validate(self.query.revenueTrackingConfig)
-        except ValidationError:
-            pass  # Use default config set above
+        revenue_config = self.team.revenue_config
 
         select = ast.SelectQuery(
             select=[
@@ -63,14 +57,14 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
                 ast.Field(chain=["event"]),
                 ast.Alias(
                     alias="original_revenue",
-                    expr=revenue_expression_for_events(tracking_config, do_currency_conversion=False),
+                    expr=revenue_expression_for_events(revenue_config, do_currency_conversion=False),
                 ),
-                ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(tracking_config)),
+                ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(revenue_config)),
                 ast.Alias(
-                    alias="revenue", expr=revenue_expression_for_events(tracking_config, self.do_currency_conversion)
+                    alias="revenue", expr=revenue_expression_for_events(revenue_config, self.do_currency_conversion)
                 ),
                 ast.Alias(
-                    alias="currency", expr=ast.Constant(value=(tracking_config.baseCurrency or DEFAULT_CURRENCY).value)
+                    alias="currency", expr=ast.Constant(value=(revenue_config.baseCurrency or DEFAULT_CURRENCY).value)
                 ),
                 ast.Call(
                     name="tuple",
@@ -87,7 +81,7 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
-                    revenue_where_expr_for_events(tracking_config),
+                    revenue_where_expr_for_events(revenue_config),
                     ast.CompareOperation(
                         op=CompareOperationOp.NotEq,
                         left=ast.Field(chain=["revenue"]),  # refers to the Alias above

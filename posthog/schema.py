@@ -6854,7 +6854,6 @@ class RevenueExampleDataWarehouseTablesQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleDataWarehouseTablesQueryResponse] = None
-    revenueTrackingConfig: RevenueTrackingConfig
 
 
 class RevenueExampleEventsQuery(BaseModel):
@@ -6868,7 +6867,6 @@ class RevenueExampleEventsQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleEventsQueryResponse] = None
-    revenueTrackingConfig: RevenueTrackingConfig
 
 
 class SessionAttributionExplorerQuery(BaseModel):

@@ -10,8 +10,6 @@ import {
     DataTableNode,
     NodeKind,
     RevenueCurrencyPropertyConfig,
-    RevenueExampleDataWarehouseTablesQuery,
-    RevenueExampleEventsQuery,
     RevenueTrackingConfig,
     RevenueTrackingEventItem,
 } from '~/queries/schema/schema-general'
@@ -182,16 +180,13 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     return null
                 }
 
-                const source: RevenueExampleEventsQuery = {
-                    kind: NodeKind.RevenueExampleEventsQuery,
-                    revenueTrackingConfig: revenueTrackingConfig,
-                }
-
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     full: true,
                     showPropertyFilter: false,
-                    source,
+                    source: {
+                        kind: NodeKind.RevenueExampleEventsQuery,
+                    },
                 }
 
                 return query
@@ -204,16 +199,13 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     return null
                 }
 
-                const source: RevenueExampleDataWarehouseTablesQuery = {
-                    kind: NodeKind.RevenueExampleDataWarehouseTablesQuery,
-                    revenueTrackingConfig: revenueTrackingConfig,
-                }
-
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     full: true,
                     showPropertyFilter: false,
-                    source,
+                    source: {
+                        kind: NodeKind.RevenueExampleDataWarehouseTablesQuery,
+                    },
                 }
 
                 return query

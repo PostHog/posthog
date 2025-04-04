@@ -15143,12 +15143,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleDataWarehouseTablesQueryResponse": {
@@ -15218,12 +15215,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleEventsQueryResponse": {

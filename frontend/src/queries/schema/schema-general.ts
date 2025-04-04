@@ -1763,7 +1763,6 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
     kind: NodeKind.RevenueExampleEventsQuery
-    revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
@@ -1780,7 +1779,6 @@ export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<Revenu
 export interface RevenueExampleDataWarehouseTablesQuery
     extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
     kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
-    revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
