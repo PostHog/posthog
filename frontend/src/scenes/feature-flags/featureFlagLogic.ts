@@ -981,7 +981,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
                 const response = await api.get(
-                    `api/environments/${values.currentTeamId}/insights/trend/?${toParams(
+                    `api/projects/${values.currentTeamId}/insights/trend/?${toParams(
                         filterTrendsClientSideParams(filters)
                     )}`
                 )

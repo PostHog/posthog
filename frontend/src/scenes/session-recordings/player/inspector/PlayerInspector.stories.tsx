@@ -18,8 +18,8 @@ const meta: Meta<typeof PlayerInspector> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/session_recordings/:id': largeRecordingMetaJson,
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                '/api/projects/:team_id/session_recordings/:id': largeRecordingMetaJson,
+                '/api/projects/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(largeRecordingJSONL))
@@ -41,7 +41,7 @@ const meta: Meta<typeof PlayerInspector> = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/projects/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
                     if (body.query.kind === 'EventsQuery' && body.query.properties.length === 1) {
                         return res(ctx.json(largeRecordingEventsJson))

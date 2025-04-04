@@ -179,7 +179,7 @@ describe('dashboardLogic', () => {
         }
         useMocks({
             get: {
-                '/api/environments/:team_id/query/123/': () => [
+                '/api/projects/:team_id/query/123/': () => [
                     200,
                     {
                         query_status: {
@@ -187,14 +187,14 @@ describe('dashboardLogic', () => {
                         },
                     },
                 ],
-                '/api/environments/:team_id/dashboards/5/': { ...dashboards['5'] },
-                '/api/environments/:team_id/dashboards/6/': { ...dashboards['6'] },
-                '/api/environments/:team_id/dashboards/7/': () => [500, '💣'],
-                '/api/environments/:team_id/dashboards/8/': { ...dashboards['8'] },
-                '/api/environments/:team_id/dashboards/9/': { ...dashboards['9'] },
-                '/api/environments/:team_id/dashboards/10/': { ...dashboards['10'] },
-                '/api/environments/:team_id/dashboards/11/': { ...dashboards['11'] },
-                '/api/environments/:team_id/dashboards/': {
+                '/api/projects/:team_id/dashboards/5/': { ...dashboards['5'] },
+                '/api/projects/:team_id/dashboards/6/': { ...dashboards['6'] },
+                '/api/projects/:team_id/dashboards/7/': () => [500, '💣'],
+                '/api/projects/:team_id/dashboards/8/': { ...dashboards['8'] },
+                '/api/projects/:team_id/dashboards/9/': { ...dashboards['9'] },
+                '/api/projects/:team_id/dashboards/10/': { ...dashboards['10'] },
+                '/api/projects/:team_id/dashboards/11/': { ...dashboards['11'] },
+                '/api/projects/:team_id/dashboards/': {
                     count: 6,
                     next: null,
                     previous: null,
@@ -206,9 +206,9 @@ describe('dashboardLogic', () => {
                         { ...dashboards['10'] },
                     ],
                 },
-                '/api/environments/:team_id/insights/1001/': () => [500, '💣'],
-                '/api/environments/:team_id/insights/800/': () => [200, { ...insights['800'] }],
-                '/api/environments/:team_id/insights/:id/': (req) => {
+                '/api/projects/:team_id/insights/1001/': () => [500, '💣'],
+                '/api/projects/:team_id/insights/800/': () => [200, { ...insights['800'] }],
+                '/api/projects/:team_id/insights/:id/': (req) => {
                     const dashboard = req.url.searchParams.get('from_dashboard')
                     if (!dashboard) {
                         throw new Error('the logic must always add this param')
@@ -221,15 +221,15 @@ describe('dashboardLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team_id/insights/cancel/': [201],
+                '/api/projects/:team_id/insights/cancel/': [201],
             },
             patch: {
-                '/api/environments/:team_id/dashboards/:id/': async (req) => {
+                '/api/projects/:team_id/dashboards/:id/': async (req) => {
                     const dashboardId = typeof req.params['id'] === 'string' ? req.params['id'] : req.params['id'][0]
                     const payload = await req.json()
                     return [200, { ...dashboards[dashboardId], ...payload }]
                 },
-                '/api/environments/:team_id/dashboards/:id/move_tile/': async (req) => {
+                '/api/projects/:team_id/dashboards/:id/move_tile/': async (req) => {
                     // backend updates the two dashboards and the insight
                     const jsonPayload = await req.json()
                     const { toDashboard, tile: tileToUpdate } = jsonPayload
@@ -256,7 +256,7 @@ describe('dashboardLogic', () => {
 
                     return [200, { ...from }]
                 },
-                '/api/environments/:team_id/insights/:id/': async (req) => {
+                '/api/projects/:team_id/insights/:id/': async (req) => {
                     try {
                         const updates = await req.json()
                         if (typeof updates !== 'object') {
@@ -309,7 +309,7 @@ describe('dashboardLogic', () => {
                 logic.actions.updateFiltersAndLayoutsAndVariables()
             }).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
                 tiles: [
                     {
                         id: 0,
@@ -397,7 +397,7 @@ describe('dashboardLogic', () => {
             await expectLogic(dashboardEightlogic).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
                 expect.objectContaining({ tile: sourceTile, toDashboard: 8 })
             )
         })

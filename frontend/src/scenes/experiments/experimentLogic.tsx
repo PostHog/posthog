@@ -1167,7 +1167,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const experimentUrl =
                     window.location.origin + addProjectIdIfMissing(urls.experiment(values.experimentId))
                 const dashboard: DashboardType = await api.create(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
                     {
                         name: 'Experiment: ' + values.experiment.name,
                         description: `Dashboard for [${experimentUrl}](${experimentUrl})`,

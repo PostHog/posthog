@@ -90,7 +90,7 @@ describe('experimentLogic', () => {
 
             useMocks({
                 post: {
-                    '/api/environments/:team/query': (() => {
+                    '/api/projects/:team/query': (() => {
                         let callCount = 0
                         return () => {
                             callCount++
@@ -108,7 +108,7 @@ describe('experimentLogic', () => {
                     })(),
                 },
                 get: {
-                    '/api/environments/:team/query/:id': (() => {
+                    '/api/projects/:team/query/:id': (() => {
                         let callCount = 0
                         return () => {
                             callCount++
@@ -163,7 +163,7 @@ describe('experimentLogic', () => {
 
             useMocks({
                 post: {
-                    '/api/environments/:team/query': (() => {
+                    '/api/projects/:team/query': (() => {
                         let callCount = 0
                         return () => {
                             callCount++
@@ -181,7 +181,7 @@ describe('experimentLogic', () => {
                     })(),
                 },
                 get: {
-                    '/api/environments/:team/query/:id': (() => {
+                    '/api/projects/:team/query/:id': (() => {
                         let callCount = 0
                         return () => {
                             callCount++

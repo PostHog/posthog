@@ -427,7 +427,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Pageview URLs',
                         searchPlaceholder: 'pageview URLs',
                         type: TaxonomicFilterGroupType.PageviewUrls,
-                        endpoint: `api/environments/${teamId}/events/values/?key=$current_url`,
+                        endpoint: `api/projects/${teamId}/events/values/?key=$current_url`,
                         searchAlias: 'value',
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
@@ -437,7 +437,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Screens',
                         searchPlaceholder: 'screens',
                         type: TaxonomicFilterGroupType.Screens,
-                        endpoint: `api/environments/${teamId}/events/values/?key=$screen_name`,
+                        endpoint: `api/projects/${teamId}/events/values/?key=$screen_name`,
                         searchAlias: 'value',
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
@@ -468,7 +468,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Persons',
                         searchPlaceholder: 'persons',
                         type: TaxonomicFilterGroupType.Persons,
-                        endpoint: `api/environments/${teamId}/persons/`,
+                        endpoint: `api/projects/${teamId}/persons/`,
                         getName: (person: PersonType) => person.name || 'Anon user?',
                         getValue: (person: PersonType) => person.distinct_ids[0],
                         getPopoverHeader: () => `Person`,
@@ -477,7 +477,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Insights',
                         searchPlaceholder: 'insights',
                         type: TaxonomicFilterGroupType.Insights,
-                        endpoint: combineUrl(`api/environments/${teamId}/insights/`, {
+                        endpoint: combineUrl(`api/projects/${teamId}/insights/`, {
                             saved: true,
                         }).url,
                         getName: (insight: QueryBasedInsightModel) => insight.name,
@@ -531,7 +531,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
-                        endpoint: `api/environments/${teamId}/sessions/property_definitions`,
+                        endpoint: `api/projects/${teamId}/sessions/property_definitions`,
                         getIcon: getPropertyDefinitionIcon,
                     },
                     {
@@ -550,7 +550,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         valuesEndpoint: (key) => {
                             if (key === 'visited_page') {
                                 return (
-                                    `api/environments/${teamId}/events/values/?key=` +
+                                    `api/projects/${teamId}/events/values/?key=` +
                                     'api/event/values/?key=' +
                                     encodeURIComponent('$current_url') +
                                     '&event_name=' +
@@ -583,7 +583,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural)}`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).plural}`,
                     type: `${TaxonomicFilterGroupType.GroupNamesPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-                    endpoint: combineUrl(`api/environments/${teamId}/groups/`, {
+                    endpoint: combineUrl(`api/projects/${teamId}/groups/`, {
                         group_type_index: type.group_type_index,
                     }).url,
                     getPopoverHeader: () => `Group Names`,

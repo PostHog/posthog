@@ -49,7 +49,7 @@ describe('sessionRecordingDataLogic', () => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
             get: {
-                '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
+                '/api/projects/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
@@ -75,13 +75,13 @@ describe('sessionRecordingDataLogic', () => {
                         },
                     ]
                 },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
+                '/api/projects/:team_id/session_recordings/:id': recordingMetaJson,
             },
             post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
+                '/api/projects/:team_id/query': recordingEventsJson,
             },
             patch: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
+                '/api/projects/:team_id/session_recordings/:id': { success: true },
             },
         })
         initKeaTests()
@@ -145,7 +145,7 @@ describe('sessionRecordingDataLogic', () => {
             logic.unmount()
             useMocks({
                 get: {
-                    '/api/environments/:team_id/session_recordings/:id': () => [500, { status: 0 }],
+                    '/api/projects/:team_id/session_recordings/:id': () => [500, { status: 0 }],
                 },
             })
             logic.mount()
@@ -176,7 +176,7 @@ describe('sessionRecordingDataLogic', () => {
             logic.unmount()
             useMocks({
                 get: {
-                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
+                    '/api/projects/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
             logic.mount()
@@ -230,7 +230,7 @@ describe('sessionRecordingDataLogic', () => {
             }).toDispatchActions(['loadEvents', 'loadEventsSuccess'])
 
             expect(api.create).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/query`,
+                `api/projects/${MOCK_TEAM_ID}/query`,
                 {
                     client_query_id: undefined,
                     query: {

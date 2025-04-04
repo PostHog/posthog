@@ -21,7 +21,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/notebooks/recording_comments': { results: [] },
-                '/api/environments/:team_id/session_recordings': (req) => {
+                '/api/projects/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
                         200,
@@ -86,7 +86,7 @@ const meta: Meta = {
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                '/api/projects/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
@@ -106,7 +106,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/environments/:team_id/session_recordings/:id': (req, res, ctx) => {
+                '/api/projects/:team_id/session_recordings/:id': (req, res, ctx) => {
                     if (req.params.id === '12345') {
                         return res(ctx.json(recordingMetaJson))
                     } else if (req.params.id === 'thirty_others') {
@@ -127,7 +127,7 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/projects/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
                     if (
                         body.query.kind === 'HogQLQuery' &&

@@ -24,7 +24,7 @@ const meta: Meta = {
         // API is set up so that everything except the call to load session recording metadata succeeds
         mswDecorator({
             get: {
-                '/api/environments/:team_id/session_recordings': (req) => {
+                '/api/projects/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
                         200,
@@ -89,7 +89,7 @@ const meta: Meta = {
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                '/api/projects/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
@@ -109,7 +109,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/environments/:team_id/session_recordings/:id': () => {
+                '/api/projects/:team_id/session_recordings/:id': () => {
                     return [404, {}]
                 },
                 'api/projects/:team/notebooks': {
@@ -120,7 +120,7 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
+                '/api/projects/:team_id/query': recordingEventsJson,
             },
         }),
     ],

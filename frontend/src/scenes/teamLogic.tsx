@@ -153,7 +153,7 @@ export const teamLogic = kea<teamLogicType>([
                     }
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
-                resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  */
@@ -161,7 +161,7 @@ export const teamLogic = kea<teamLogicType>([
                 addProductIntentForCrossSell: async (properties: ProductCrossSellProperties) =>
                     await addProductIntentForCrossSell(properties),
                 recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) =>
-                    await api.update(`api/environments/${values.currentTeamId}/complete_product_onboarding`, {
+                    await api.update(`api/projects/${values.currentTeamId}/complete_product_onboarding`, {
                         product_type,
                     }),
             },
@@ -255,7 +255,7 @@ export const teamLogic = kea<teamLogicType>([
         },
         deleteTeam: async ({ team }) => {
             try {
-                await api.delete(`api/environments/${team.id}`)
+                await api.delete(`api/projects/${team.id}`)
                 location.reload()
                 actions.deleteTeamSuccess()
             } catch {

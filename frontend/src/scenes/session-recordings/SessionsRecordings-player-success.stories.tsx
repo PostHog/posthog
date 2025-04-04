@@ -81,7 +81,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/session_recordings': (req) => {
+                '/api/projects/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
                         200,
@@ -103,7 +103,7 @@ const meta: Meta = {
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                '/api/projects/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
@@ -123,7 +123,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
+                '/api/projects/:team_id/session_recordings/:id': recordingMetaJson,
                 'api/projects/:team/notebooks': {
                     count: 0,
                     next: null,
@@ -143,11 +143,11 @@ const meta: Meta = {
                     200,
                     { success: true },
                 ],
-                '/api/environments/:team_id/session_recording_playlists/:playlist_id/playlist_viewed': [
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id/playlist_viewed': [
                     200,
                     { success: true },
                 ],
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/projects/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
                     if (
