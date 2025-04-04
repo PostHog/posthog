@@ -411,8 +411,8 @@ class ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
     }
 
-    public hog(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('hog')
+    public hog(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('hog')
     }
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
@@ -423,29 +423,29 @@ class ApiRequest {
         return this.hogFunctions(teamId).addPathComponent(id)
     }
 
-    public hogFunctionTemplates(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('hog_function_templates')
+    public hogFunctionTemplates(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('hog_function_templates')
     }
 
-    public hogFunctionTemplate(id: HogFunctionTemplateType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.hogFunctionTemplates(teamId).addPathComponent(id)
+    public hogFunctionTemplate(id: HogFunctionTemplateType['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.hogFunctionTemplates(projectId).addPathComponent(id)
     }
 
     // # Actions
-    public actions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('actions')
+    public actions(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('actions')
     }
 
-    public actionsDetail(actionId: ActionType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.actions(teamId).addPathComponent(actionId)
+    public actionsDetail(actionId: ActionType['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.actions(projectId).addPathComponent(actionId)
     }
 
     // # Comments
-    public comments(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('comments')
+    public comments(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('comments')
     }
-    public comment(id: CommentType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.comments(teamId).addPathComponent(id)
+    public comment(id: CommentType['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.comments(projectId).addPathComponent(id)
     }
 
     // # Exports
@@ -485,9 +485,9 @@ class ApiRequest {
 
     public propertyDefinitionDetail(
         propertyDefinitionId: PropertyDefinition['id'],
-        teamId?: TeamType['id']
+        projectId?: ProjectType['id']
     ): ApiRequest {
-        return this.projectsDetail(teamId)
+        return this.projectsDetail(projectId)
             .addPathComponent('property_definitions')
             .addPathComponent(propertyDefinitionId)
     }
@@ -495,34 +495,34 @@ class ApiRequest {
     public propertyDefinitionSeenTogether(
         eventNames: string[],
         propertyDefinitionName: PropertyDefinition['name'],
-        teamId?: TeamType['id']
+        projectId?: ProjectType['id']
     ): ApiRequest {
         const queryParams = toParams({ event_names: eventNames, property_name: propertyDefinitionName }, true)
 
-        return this.projectsDetail(teamId)
+        return this.projectsDetail(projectId)
             .addPathComponent('property_definitions')
             .addPathComponent('seen_together')
             .withQueryString(queryParams)
     }
 
-    public sessionPropertyDefinitions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('sessions').addPathComponent('property_definitions')
+    public sessionPropertyDefinitions(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('sessions').addPathComponent('property_definitions')
     }
 
-    public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
+    public dataManagementActivity(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('data_management').addPathComponent('activity')
     }
 
     // # Cohorts
-    public cohorts(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('cohorts')
+    public cohorts(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('cohorts')
     }
 
-    public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.cohorts(teamId).addPathComponent(cohortId)
+    public cohortsDetail(cohortId: CohortType['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.cohorts(projectId).addPathComponent(cohortId)
     }
-    public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
+    public cohortsDuplicate(cohortId: CohortType['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.cohortsDetail(cohortId, projectId).addPathComponent('duplicate_as_static_cohort')
     }
 
     // Recordings
@@ -537,14 +537,14 @@ class ApiRequest {
             .addPathComponent('session_recordings')
             .addPathComponent('matching_events')
     }
-    public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
+    public recordingPlaylists(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('session_recording_playlists')
     }
     public recordingPlaylist(
         playlistId?: SessionRecordingPlaylistType['short_id'],
-        teamId?: TeamType['id']
+        projectId?: ProjectType['id']
     ): ApiRequest {
-        return this.projectsDetail(teamId)
+        return this.projectsDetail(projectId)
             .addPathComponent('session_recording_playlists')
             .addPathComponent(String(playlistId))
     }
@@ -582,15 +582,15 @@ class ApiRequest {
     }
 
     // # Dashboard templates
-    public dashboardTemplates(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('dashboard_templates')
+    public dashboardTemplates(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('dashboard_templates')
     }
 
     public dashboardTemplatesDetail(
         dashboardTemplateId: DashboardTemplateType['id'],
-        teamId?: TeamType['id']
+        projectId?: ProjectType['id']
     ): ApiRequest {
-        return this.dashboardTemplates(teamId).addPathComponent(dashboardTemplateId)
+        return this.dashboardTemplates(projectId).addPathComponent(dashboardTemplateId)
     }
 
     public dashboardTemplateSchema(): ApiRequest {
@@ -598,16 +598,16 @@ class ApiRequest {
     }
 
     // # Experiments
-    public experiments(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('experiments')
+    public experiments(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('experiments')
     }
 
-    public experimentsDetail(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.experiments(teamId).addPathComponent(experimentId)
+    public experimentsDetail(experimentId: Experiment['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.experiments(projectId).addPathComponent(experimentId)
     }
 
-    public experimentCreateExposureCohort(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.experimentsDetail(experimentId, teamId).addPathComponent('create_exposure_cohort_for_experiment')
+    public experimentCreateExposureCohort(experimentId: Experiment['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.experimentsDetail(experimentId, projectId).addPathComponent('create_exposure_cohort_for_experiment')
     }
 
     // # Roles
@@ -669,47 +669,47 @@ class ApiRequest {
     }
 
     // # Search
-    public search(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('search')
+    public search(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('search')
     }
 
     // # Annotations
-    public annotations(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('annotations')
+    public annotations(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('annotations')
     }
 
-    public annotation(id: RawAnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.annotations(teamId).addPathComponent(id)
+    public annotation(id: RawAnnotationType['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.annotations(projectId).addPathComponent(id)
     }
 
     // # Feature flags
-    public featureFlags(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('feature_flags')
+    public featureFlags(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('feature_flags')
     }
 
-    public featureFlag(id: FeatureFlagType['id'], teamId?: TeamType['id']): ApiRequest {
+    public featureFlag(id: FeatureFlagType['id'], projectId?: ProjectType['id']): ApiRequest {
         if (!id) {
             throw new Error('Must provide an ID for the feature flag to construct the URL')
         }
-        return this.featureFlags(teamId).addPathComponent(id)
+        return this.featureFlags(projectId).addPathComponent(id)
     }
 
-    public featureFlagCreateStaticCohort(id: FeatureFlagType['id'], teamId?: TeamType['id']): ApiRequest {
+    public featureFlagCreateStaticCohort(id: FeatureFlagType['id'], projectId?: ProjectType['id']): ApiRequest {
         if (!id) {
             throw new Error('Must provide an ID for the feature flag to construct the URL')
         }
-        return this.featureFlag(id, teamId).addPathComponent('create_static_cohort_for_flag')
+        return this.featureFlag(id, projectId).addPathComponent('create_static_cohort_for_flag')
     }
 
-    public featureFlagsActivity(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+    public featureFlagsActivity(id: FeatureFlagType['id'], projectId: ProjectType['id']): ApiRequest {
         if (id) {
-            return this.featureFlag(id, teamId).addPathComponent('activity')
+            return this.featureFlag(id, projectId).addPathComponent('activity')
         }
-        return this.featureFlags(teamId).addPathComponent('activity')
+        return this.featureFlags(projectId).addPathComponent('activity')
     }
 
-    public featureFlagScheduledChanges(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
+    public featureFlagScheduledChanges(projectId: ProjectType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
+        return this.projectsDetail(projectId)
             .addPathComponent('scheduled_changes')
             .withQueryString(
                 toParams({
@@ -719,53 +719,53 @@ class ApiRequest {
             )
     }
 
-    public featureFlagStatus(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
+    public featureFlagStatus(projectId: ProjectType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
+        return this.projectsDetail(projectId)
             .addPathComponent('feature_flags')
             .addPathComponent(String(featureFlagId))
             .addPathComponent('status')
     }
 
-    public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
+    public featureFlagCreateScheduledChange(projectId: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('scheduled_changes')
     }
 
     public featureFlagDeleteScheduledChange(
-        teamId: TeamType['id'],
+        projectId: ProjectType['id'],
         scheduledChangeId: ScheduledChangeType['id']
     ): ApiRequest {
-        return this.projectsDetail(teamId)
+        return this.projectsDetail(projectId)
             .addPathComponent('scheduled_changes')
             .addPathComponent(`${scheduledChangeId}`)
     }
 
     // # Features
-    public earlyAccessFeatures(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('early_access_feature')
+    public earlyAccessFeatures(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('early_access_feature')
     }
 
-    public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.earlyAccessFeatures(teamId).addPathComponent(id)
+    public earlyAccessFeature(id: EarlyAccessFeatureType['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.earlyAccessFeatures(projectId).addPathComponent(id)
     }
 
     // # Surveys
-    public surveys(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('surveys')
+    public surveys(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('surveys')
     }
 
-    public surveysResponsesCount(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('surveys/responses_count')
+    public surveysResponsesCount(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('surveys/responses_count')
     }
 
-    public survey(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.surveys(teamId).addPathComponent(id)
+    public survey(id: Survey['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.surveys(projectId).addPathComponent(id)
     }
 
-    public surveyActivity(id: Survey['id'] | undefined, teamId?: TeamType['id']): ApiRequest {
+    public surveyActivity(id: Survey['id'] | undefined, projectId?: ProjectType['id']): ApiRequest {
         if (id) {
-            return this.survey(id, teamId).addPathComponent('activity')
+            return this.survey(id, projectId).addPathComponent('activity')
         }
-        return this.surveys(teamId).addPathComponent('activity')
+        return this.surveys(projectId).addPathComponent('activity')
     }
 
     // Error tracking
@@ -807,7 +807,7 @@ class ApiRequest {
 
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
     }
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
@@ -815,7 +815,7 @@ class ApiRequest {
 
     // # Warehouse view
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_queries')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
@@ -828,28 +828,28 @@ class ApiRequest {
         offset = 0,
         teamId?: TeamType['id']
     ): ApiRequest {
-        return this.projectsDetail(teamId)
+        return this.environmentsDetail(teamId)
             .addPathComponent('data_modeling_jobs')
             .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
     }
 
     // # Warehouse view link
     public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_view_link')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_view_link')
     }
     public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
     }
 
     // # Query Tab State
-    public queryTabState(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('query_tab_state')
+    public queryTabState(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('query_tab_state')
     }
-    public queryTabStateDetail(id: QueryTabState['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.queryTabState(teamId).addPathComponent(id)
+    public queryTabStateDetail(id: QueryTabState['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.queryTabState(projectId).addPathComponent(id)
     }
-    public queryTabStateUser(teamId?: TeamType['id']): ApiRequest {
-        return this.queryTabState(teamId).addPathComponent('user')
+    public queryTabStateUser(projectId?: ProjectType['id']): ApiRequest {
+        return this.queryTabState(projectId).addPathComponent('user')
     }
 
     // # Subscriptions
@@ -915,13 +915,13 @@ class ApiRequest {
             .withQueryString({ accountId })
     }
 
-    public media(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('uploaded_media')
+    public media(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('uploaded_media')
     }
 
     // # UserGroups
-    public userGroups(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('user_groups')
+    public userGroups(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('user_groups')
     }
 
     public userGroup(id: UserGroup['id']): ApiRequest {
@@ -1039,7 +1039,7 @@ class ApiRequest {
 
     // External Data Source
     public externalDataSources(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('external_data_sources')
+        return this.environmentsDetail(teamId).addPathComponent('external_data_sources')
     }
 
     public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1047,7 +1047,7 @@ class ApiRequest {
     }
 
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('external_data_schemas')
+        return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1219,28 +1219,28 @@ const api = {
             return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
         },
         async getScheduledChanges(
-            teamId: TeamType['id'],
+            projectId: ProjectType['id'],
             featureFlagId: FeatureFlagType['id']
         ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
-            return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
+            return await new ApiRequest().featureFlagScheduledChanges(projectId, featureFlagId).get()
         },
         async createScheduledChange(
-            teamId: TeamType['id'],
+            projectId: ProjectType['id'],
             data: any
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
-            return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
+            return await new ApiRequest().featureFlagCreateScheduledChange(projectId).create({ data })
         },
         async deleteScheduledChange(
-            teamId: TeamType['id'],
+            projectId: ProjectType['id'],
             scheduledChangeId: ScheduledChangeType['id']
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
-            return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
+            return await new ApiRequest().featureFlagDeleteScheduledChange(projectId, scheduledChangeId).delete()
         },
         async getStatus(
-            teamId: TeamType['id'],
+            projectId: ProjectType['id'],
             featureFlagId: FeatureFlagType['id']
         ): Promise<FeatureFlagStatusResponse> {
-            return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
+            return await new ApiRequest().featureFlagStatus(projectId, featureFlagId).get()
         },
     },
 
@@ -1451,22 +1451,25 @@ const api = {
         async create(
             data: Partial<CommentType>,
             params: Record<string, any> = {},
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+            projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): Promise<CommentType> {
-            return new ApiRequest().comments(teamId).withQueryString(toParams(params)).create({ data })
+            return new ApiRequest().comments(projectId).withQueryString(toParams(params)).create({ data })
         },
 
         async update(
             id: CommentType['id'],
             data: Partial<CommentType>,
             params: Record<string, any> = {},
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+            projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): Promise<CommentType> {
-            return new ApiRequest().comment(id, teamId).withQueryString(toParams(params)).update({ data })
+            return new ApiRequest().comment(id, projectId).withQueryString(toParams(params)).update({ data })
         },
 
-        async get(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<CommentType> {
-            return new ApiRequest().comment(id, teamId).get()
+        async get(
+            id: CommentType['id'],
+            projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comment(id, projectId).get()
         },
 
         async list(params: Partial<CommentType> = {}): Promise<CountedPaginatedResponse<CommentType>> {
@@ -1625,34 +1628,7 @@ const api = {
         },
         async list({
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-            teamId,
-            ...params
-        }: {
-            event_names?: string[]
-            excluded_properties?: string[]
-            exclude_core_properties?: boolean
-            properties?: string[]
-            filter_by_event_names?: boolean
-            type?: PropertyDefinitionType
-            limit?: number
-            offset?: number
-            search?: string
-            teamId?: TeamType['id']
-        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
-            return new ApiRequest()
-                .propertyDefinitions(teamId)
-                .withQueryString(
-                    toParams({
-                        limit,
-                        ...params,
-                        ...(params.properties ? { properties: params.properties.join(',') } : {}),
-                    })
-                )
-                .get()
-        },
-        determineListEndpoint({
-            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-            teamId,
+            projectId,
             ...params
         }: {
             event_names?: string[]
@@ -1663,12 +1639,39 @@ const api = {
             limit?: number
             offset?: number
             search?: string
-            teamId?: TeamType['id']
+            projectId?: ProjectType['id']
+            type?: PropertyDefinitionType
+            group_type_index?: number
+        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .propertyDefinitions(projectId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .get()
+        },
+        determineListEndpoint({
+            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            projectId,
+            ...params
+        }: {
+            event_names?: string[]
+            excluded_properties?: string[]
+            exclude_core_properties?: boolean
+            filter_by_event_names?: boolean
+            is_feature_flag?: boolean
+            limit?: number
+            offset?: number
+            search?: string
+            projectId?: ProjectType['id']
             type?: PropertyDefinitionType
             group_type_index?: number
         }): string {
             return new ApiRequest()
-                .propertyDefinitions(teamId)
+                .propertyDefinitions(projectId)
                 .withQueryString(
                     toParams({
                         limit,
@@ -1681,16 +1684,16 @@ const api = {
 
     sessions: {
         async propertyDefinitions({
-            teamId,
+            projectId,
             search,
             properties,
         }: {
-            teamId?: TeamType['id']
+            projectId?: ProjectType['id']
             search?: string
             properties?: string[]
         }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
             return new ApiRequest()
-                .sessionPropertyDefinitions(teamId)
+                .sessionPropertyDefinitions(projectId)
                 .withQueryString(toParams({ search, ...(properties ? { properties: properties.join(',') } : {}) }))
                 .get()
         },
