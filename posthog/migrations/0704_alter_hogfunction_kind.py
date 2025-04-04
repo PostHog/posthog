@@ -14,9 +14,6 @@ class Migration(migrations.Migration):
             name="kind",
             field=models.CharField(
                 blank=True,
-                choices=[
-                    ("messaging_campaign", "Messaging Campaign"),
-                ],
                 null=True,
                 max_length=24,
             ),
