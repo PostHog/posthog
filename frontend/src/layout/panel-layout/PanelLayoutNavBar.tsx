@@ -43,7 +43,7 @@ import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelState
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const panelStyles = cva({
-    base: 'z-[var(--z-project-panel-layout)] h-screen left-0',
+    base: 'z-[var(--z-layout-navbar)] h-screen left-0',
     variants: {
         isLayoutPanelVisible: {
             true: 'block',
@@ -208,7 +208,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             <div className="flex gap-0 relative">
                 <nav
                     className={cn(
-                        'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-project-panel-layout)] border-r border-primary',
+                        'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-panel)] border-r border-primary',
                         {
                             'w-[var(--project-navbar-width-collapsed)]': isLayoutNavCollapsed,
                             'w-[var(--project-navbar-width)]': !isLayoutNavCollapsed,
@@ -419,6 +419,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         <ButtonPrimitive
                                                                             sideActionRight
                                                                             tooltip={item.sideAction.tooltip}
+                                                                            href={urls.insightNew()}
                                                                         >
                                                                             {item.sideAction.icon}
                                                                         </ButtonPrimitive>
