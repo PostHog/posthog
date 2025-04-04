@@ -57,8 +57,8 @@ class ReplaySummarizer:
         )
         logger.debug(f"live_session_events: {live_session_events}")
 
-        # Load session events from CSV to load with production data.
         # TODO: Remove before merging, using to test with production data
+        # Load session events from CSV to load with production data.
         session_events_columns, session_events = load_sesssion_recording_events_from_csv(
             "/Users/woutut/Documents/Code/posthog/playground/single-session-csv-export_0195f10e-7c84-7944-9ea2-0303a4b37af7.csv"
         )
@@ -87,13 +87,11 @@ class ReplaySummarizer:
                 "SUMMARY_EXAMPLE": summary_example,
             }
         )
-        # TODO: Remove after testing
-        with open("wakawaka.txt", "w") as f:
-            f.write(rendered_summary_prompt)
         return rendered_summary_prompt
 
     def summarize_recording(self):
         timer = ServerTimingsGathered()
+
         # TODO Learn how to make data collection for prompt as async as possible to improve latency
         with timer("get_metadata"):
             session_metadata = self._get_session_metadata(self.recording.session_id, self.team)
@@ -101,9 +99,11 @@ class ReplaySummarizer:
             session_events_columns, session_events = self._get_session_events(
                 self.recording.session_id, session_metadata, self.team
             )
+
         # TODO Get web analytics data on URLs to better understand what the user was doing
         # related to average visitors of the same pages (left the page too fast, unexpected bounce, etc.).
         # Keep in mind that in-app behavior (like querying insights a lot) differs from the web (visiting a lot of pages).
+
         with timer("generate_prompt"):
             prompt_data = SessionSummaryPromptData()
             simplified_events_mapping = prompt_data.load_session_data(
@@ -130,6 +130,11 @@ class ReplaySummarizer:
             session_start_time=prompt_data.metadata.start_time,
             session_id=self.recording.session_id,
         )
+
+        # TODO: Calculate tag/error stats for the session manually
+        # to use it later for grouping/suggesting (and showing overall stats)
+
         # TODO Make the output streamable (the main reason behing using YAML
         # to keep it partially parsable to avoid waiting for the LLM to finish)
+
         return {"content": session_summary.data, "timings": timer.get_all_timings()}
