@@ -1,5 +1,6 @@
 from functools import cache
 import logging
+import re
 
 from infi.clickhouse_orm import migrations
 
@@ -22,12 +23,18 @@ def run_sql_with_exceptions(sql: str, node_role: NodeRole = NodeRole.DATA, shard
     """
     cluster = get_migrations_cluster()
 
+    def is_alter_on_replicated_table(sql: str) -> bool:
+        return sql.strip().startswith("ALTER TABLE") and re.search(r"replicated\w*mergetree", sql.lower())
+
     def run_migration():
         query = Query(sql)
         if node_role == NodeRole.ALL:
             assert not sharded
             logger.info("       Running migration on coordinators and data nodes")
-            return cluster.map_all_hosts(query).result()
+            if is_alter_on_replicated_table(sql):
+                return cluster.any_host(query).result()
+            else:
+                return cluster.map_all_hosts(query).result()
         else:
             logger.info("       Running migration on %ss", node_role.value.lower())
             if sharded:
