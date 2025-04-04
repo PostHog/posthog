@@ -56,7 +56,7 @@ export interface TransformationResultPure {
 }
 
 export interface TransformationResult extends TransformationResultPure {
-    messagePromises: Promise<void>[]
+    scheduledPromises: Promise<void>[]
 }
 
 export class HogTransformerService {
@@ -132,21 +132,20 @@ export class HogTransformerService {
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
-                const messagePromises: Promise<void>[] = [this.hogFunctionMonitoringService.produceQueuedMessages()]
+                const scheduledPromises: Promise<void>[] = [this.hogFunctionMonitoringService.produceQueuedMessages()]
 
                 const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
                 if (shouldRunHogWatcher) {
                     const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
-                    messagePromises.push(
+                    scheduledPromises.push(
                         this.hogWatcher
                             .observeResults(transformationResult.invocationResults)
-                            .then(() => {
-                                timer() // Stop the timer when the promise resolves
-                            })
                             .catch((error) => {
-                                timer() // Make sure to stop the timer even if there's an error
                                 logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
+                            })
+                            .finally(() => {
+                                timer() // Stop the timer regardless of success or failure
                             })
                     )
                 }
@@ -154,7 +153,7 @@ export class HogTransformerService {
                 hogTransformationCompleted.inc({ type: 'with_messages' })
                 return {
                     ...transformationResult,
-                    messagePromises,
+                    scheduledPromises,
                 }
             },
         })
