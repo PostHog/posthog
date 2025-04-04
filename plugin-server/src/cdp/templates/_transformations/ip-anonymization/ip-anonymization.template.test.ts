@@ -19,10 +19,7 @@ describe('ip-anonymization.template', () => {
             },
         })
 
-        const responses = await tester.invoke({}, mockGlobals)
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
+        const response = await tester.invoke({}, mockGlobals)
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -40,10 +37,7 @@ describe('ip-anonymization.template', () => {
             },
         })
 
-        const responses = await tester.invoke({}, mockGlobals)
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
+        const response = await tester.invoke({}, mockGlobals)
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
@@ -71,10 +65,7 @@ describe('ip-anonymization.template', () => {
                 },
             })
 
-            const responses = await tester.invoke({}, mockGlobals)
-
-            expect(responses.length).toBe(1)
-            const response = responses[0]
+            const response = await tester.invoke({}, mockGlobals)
 
             expect(response.finished).toBe(true)
             expect(response.error).toBeUndefined()
@@ -102,10 +93,7 @@ describe('ip-anonymization.template', () => {
                 },
             })
 
-            const responses = await tester.invoke({}, mockGlobals)
-
-            expect(responses.length).toBe(1)
-            const response = responses[0]
+            const response = await tester.invoke({}, mockGlobals)
 
             expect(response.finished).toBe(true)
             expect(response.error).toBeUndefined()

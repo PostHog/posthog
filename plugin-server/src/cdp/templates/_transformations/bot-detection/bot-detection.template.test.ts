@@ -27,10 +27,7 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
@@ -46,10 +43,7 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
@@ -63,10 +57,7 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
@@ -82,10 +73,7 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
@@ -101,10 +89,7 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
@@ -120,16 +105,13 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 ...DEFAULT_INPUTS,
                 customBotPatterns: 'mycustombot,other-bot',
             },
             mockGlobals
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
@@ -145,16 +127,13 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 ...DEFAULT_INPUTS,
                 customBotPatterns: '',
             },
             mockGlobals
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
@@ -172,10 +151,7 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
@@ -193,10 +169,7 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
@@ -214,16 +187,13 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 ...DEFAULT_INPUTS,
                 customIpPrefixes: '1.2.3.0/24',
             },
             mockGlobals
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
