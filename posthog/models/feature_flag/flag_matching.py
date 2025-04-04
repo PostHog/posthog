@@ -542,7 +542,7 @@ class FeatureFlagMatcher:
 
                         property_list = Filter(data=condition).property_groups.flat
                         properties_with_math_operators = get_all_properties_with_math_operators(
-                            property_list, self.cohorts_cache, self.project_id
+                            property_list, self.cohorts_cache, self.team_id
                         )
 
                         if len(condition.get("properties", {})) > 0:
@@ -632,7 +632,7 @@ class FeatureFlagMatcher:
                         all_cohorts = {
                             cohort.pk: cohort
                             for cohort in Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                                team__project_id=self.project_id, deleted=False
+                                team_id=self.team_id, deleted=False
                             )
                         }
                         self.cohorts_cache.update(all_cohorts)
@@ -869,7 +869,7 @@ def get_all_feature_flags(
     flag_keys: Optional[list[str]] = None,
 ) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
     all_flags, reasons, payloads, errors, _ = get_all_feature_flags_with_details(
-        team,
+        team_id,
         distinct_id,
         groups,
         hash_key_override,
@@ -881,7 +881,7 @@ def get_all_feature_flags(
 
 
 def get_all_feature_flags_with_details(
-    team: Team,
+    team_id: int,
     distinct_id: str,
     groups: Optional[dict[GroupTypeName, str]] = None,
     hash_key_override: Optional[str] = None,
