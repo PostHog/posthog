@@ -73,6 +73,7 @@
         "@posthog/products-persons": "workspace:*",
         "@posthog/products-product-analytics": "workspace:*",
         "@posthog/products-replay": "workspace:*",
+        "@posthog/products-revenue-analytics": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
         "@posthog/rrweb": "0.0.13",
         "@posthog/rrweb-plugin-console-record": "0.0.13",

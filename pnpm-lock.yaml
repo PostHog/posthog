@@ -601,6 +601,9 @@ importers:
       '@posthog/products-replay':
         specifier: workspace:*
         version: link:../products/replay
+      '@posthog/products-revenue-analytics':
+        specifier: workspace:*
+        version: link:../products/revenue_analytics
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
