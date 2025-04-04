@@ -363,7 +363,11 @@ pub async fn process_replay_events<'a>(
     // at time of writing they are ~4-5% of all sessions
     // they'll be having a bad time generally but replay probably works a little for them
     // so we don't drop non-UUID strings, but we use length as a proxy definitely bad UUIDs
-    if session_id_str.len() > 70 || !session_id_str.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    if session_id_str.len() > 70
+        || !session_id_str
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
         return Err(CaptureError::InvalidSessionId);
     }
 

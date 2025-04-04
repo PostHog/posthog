@@ -231,9 +231,9 @@ async fn it_validates_session_id_formats() -> Result<()> {
         });
         let res = server.capture_recording(event.to_string(), None).await;
         assert_eq!(
-            StatusCode::OK, 
-            res.status(), 
-            "Expected session ID '{}' to be accepted, but got error status", 
+            StatusCode::OK,
+            res.status(),
+            "Expected session ID '{}' to be accepted, but got error status",
             session_id
         );
     }
@@ -253,9 +253,9 @@ async fn it_validates_session_id_formats() -> Result<()> {
         });
         let res = server.capture_recording(event.to_string(), None).await;
         assert_eq!(
-            StatusCode::BAD_REQUEST, 
-            res.status(), 
-            "Expected session ID '{}' to be rejected, but was accepted", 
+            StatusCode::BAD_REQUEST,
+            res.status(),
+            "Expected session ID '{}' to be rejected, but was accepted",
             session_id
         );
     }
