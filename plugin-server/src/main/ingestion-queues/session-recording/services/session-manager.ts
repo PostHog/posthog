@@ -454,9 +454,10 @@ export class SessionManager {
     private createBuffer(): SessionBuffer {
         try {
             const id = randomUUID()
+            const encodedSessionId = Buffer.from(`${this.sessionId}`, 'utf-8').toString('base64')
             const fileBase = path.join(
                 bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                Buffer.from(`${this.teamId}.${this.sessionId}.${id}`, 'utf-8').toString('base64')
+                `${this.teamId}.${encodedSessionId}.${id}`
             )
 
             const file = (type: 'jsonl' | 'gz') => `${fileBase}.${type}`
