@@ -669,13 +669,12 @@ export const billingLogic = kea<billingLogicType>([
                 return x.percentage_usage > 1 && x.usage_key
             })
 
-            const hideProductFlag = `billing_hide_product_${productOverLimit?.type}`
-            const isHidden = values.featureFlags[hideProductFlag] === true
-            if (isHidden) {
-                return
-            }
-
             if (productOverLimit) {
+                const hideProductFlag = `billing_hide_product_${productOverLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Usage limit exceeded',
@@ -700,6 +699,11 @@ export const billingLogic = kea<billingLogicType>([
             )
 
             if (productApproachingLimit) {
+                const hideProductFlag = `billing_hide_product_${productApproachingLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
                 actions.setBillingAlert({
                     status: 'info',
                     title: 'You will soon hit your usage limit',
