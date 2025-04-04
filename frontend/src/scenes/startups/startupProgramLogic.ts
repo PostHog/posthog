@@ -63,7 +63,7 @@ export interface StartupProgramFormValues {
     startup_domain: string
     organization_name: string
     organization_id: string
-    raised: string
+    raised: string | null
     incorporation_date: Dayjs | null
     yc_batch?: string
     yc_proof_screenshot_url?: string
@@ -94,7 +94,7 @@ function validateIncorporationDate(date: Dayjs | null, isYC: boolean): string | 
     return undefined
 }
 
-function validateFunding(raised: string | undefined, isYC: boolean): string | undefined {
+function validateFunding(raised: string | null, isYC: boolean): string | undefined {
     if (isYC) {
         return undefined
     }
@@ -258,7 +258,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 organization_name: values.currentOrganization?.name || '',
                 organization_id: values.currentOrganization?.id || '',
                 customer_id: values.billing?.customer_id || '',
-                raised: '',
+                raised: null,
                 incorporation_date: null,
                 yc_batch: props.isYC ? '' : undefined,
                 yc_proof_screenshot_url: undefined,
@@ -293,24 +293,35 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
             submit: async (formValues: StartupProgramFormValues) => {
                 // eslint-disable-next-line no-console
                 console.log('📝 Form values before submission:', formValues)
-                const valuesToSubmit = {
+                const valuesToSubmit: Record<string, any> = {
                     program: props.isYC ? 'yc' : 'startups',
                     organization_id: formValues.organization_id,
-                    raised: formValues.raised,
-                    incorporation_date: dayjs.isDayjs(formValues.incorporation_date)
-                        ? formValues.incorporation_date.format('YYYY-MM-DD')
-                        : null,
-                    yc_batch: formValues.yc_batch,
-                    yc_proof_screenshot_url: formValues.yc_proof_screenshot_url,
                     yc_merch_count: formValues.yc_merch_count,
                 }
+
+                if (props.isYC) {
+                    valuesToSubmit.yc_batch = formValues.yc_batch
+                    valuesToSubmit.yc_proof_screenshot_url = formValues.yc_proof_screenshot_url
+                }
+
+                if (!props.isYC) {
+                    valuesToSubmit.raised = formValues.raised
+                    valuesToSubmit.incorporation_date = dayjs.isDayjs(formValues.incorporation_date)
+                        ? formValues.incorporation_date.format('YYYY-MM-DD')
+                        : undefined
+                }
+
                 // eslint-disable-next-line no-console
                 console.log('📤 Submitting form with values:', valuesToSubmit)
 
                 try {
-                    await api.create('api/startups/apply', valuesToSubmit)
+                    const response = await api.create('api/startups/apply', valuesToSubmit)
                     actions.setFormSubmitted(true)
+                    // eslint-disable-next-line no-console
+                    console.log('✅ Application submitted successfully with response:', response)
                 } catch (error: any) {
+                    // eslint-disable-next-line no-console
+                    console.log('🚨 Error submitting application:', JSON.stringify(error, null, 2))
                     lemonToast.error(error.detail || 'Failed to submit application')
                     throw error
                 }
