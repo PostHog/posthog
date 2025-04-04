@@ -127,6 +127,7 @@ class TestSlackIntegration:
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
         mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
 
+        assert channel is not None
         assert channel["id"] == "C123"
         assert channel["name"] == "general"
         assert channel["is_private"]
@@ -149,6 +150,7 @@ class TestSlackIntegration:
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
         mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
 
+        assert channel is not None
         assert channel["id"] == "C123"
         assert channel["name"] == PRIVATE_CHANNEL_WITHOUT_ACCESS
         assert channel["is_private"]
@@ -171,6 +173,7 @@ class TestSlackIntegration:
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
         mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
 
+        assert channel is not None
         assert channel["id"] == "C123"
         assert channel["name"] == "general"
         assert not channel["is_private"]
@@ -193,6 +196,7 @@ class TestSlackIntegration:
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
         mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
 
+        assert channel is not None
         assert channel["id"] == "C123"
         assert channel["name"] == "general"
         assert not channel["is_private"]
