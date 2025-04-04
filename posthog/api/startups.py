@@ -1,6 +1,5 @@
 from typing import Any
 
-import structlog
 from django.utils import timezone
 from rest_framework import response, serializers, status
 from rest_framework.decorators import action
@@ -10,8 +9,6 @@ from rest_framework.viewsets import ViewSet
 from posthog.models import Organization
 
 from posthog.models.organization import OrganizationMembership
-
-logger = structlog.get_logger(__name__)
 
 
 class StartupApplicationSerializer(serializers.Serializer):
@@ -135,12 +132,5 @@ class StartupsViewSet(ViewSet):
         try:
             result = serializer.save()
             return response.Response(result, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            logger.error(
-                "startups.apply.error",
-                error=str(e),
-                exc_info=True,
-                user_id=request.user.id,
-                organization_id=request.data.get("organization_id"),
-            )
+        except Exception:
             raise ValidationError("Failed to submit application")

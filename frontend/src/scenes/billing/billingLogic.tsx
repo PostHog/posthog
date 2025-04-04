@@ -83,7 +83,7 @@ const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     }
 
     // TODO(pawel): Remove after testing
-    data.has_active_subscription = false
+    // data.has_active_subscription = false
 
     return data as BillingType
 }

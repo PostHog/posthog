@@ -1,5 +1,7 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -66,6 +68,7 @@ export interface StartupProgramFormValues {
     yc_batch?: string
     yc_proof_screenshot_url?: string
     customer_id?: string
+    yc_merch_count?: number
 }
 
 export interface StartupProgramLogicProps {
@@ -291,15 +294,27 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 // eslint-disable-next-line no-console
                 console.log('📝 Form values before submission:', formValues)
                 const valuesToSubmit = {
-                    ...formValues,
+                    program: props.isYC ? 'yc' : 'startups',
+                    organization_id: formValues.organization_id,
+                    raised: formValues.raised,
                     incorporation_date: dayjs.isDayjs(formValues.incorporation_date)
                         ? formValues.incorporation_date.format('YYYY-MM-DD')
                         : null,
+                    yc_batch: formValues.yc_batch,
+                    yc_proof_screenshot_url: formValues.yc_proof_screenshot_url,
+                    yc_merch_count: formValues.yc_merch_count,
                 }
                 // eslint-disable-next-line no-console
                 console.log('📤 Submitting form with values:', valuesToSubmit)
 
-                actions.setFormSubmitted(true)
+                try {
+                    await api.create('api/startups/apply', valuesToSubmit)
+                    actions.setFormSubmitted(true)
+                    lemonToast.success('Application submitted successfully!')
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to submit application')
+                    throw error
+                }
             },
         },
     })),
