@@ -68,7 +68,10 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
             "export_format": "image/png",
             "expires_after": now() + timedelta(hours=3),
         },
-        context={"team_id": cast(Team, resource.team).pk},
+        context={
+            "team_id": cast(Team, resource.team).pk,
+            "get_team": lambda: resource.team,
+        },
     )
     serializer.is_valid(raise_exception=True)
     export_asset = serializer.synthetic_create("opengraph image")
@@ -108,12 +111,12 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         if dashboard_id:
             try:
-                context["dashboard"] = Dashboard.objects.get(id=dashboard_id, team__project_id=self.team.project_id)
+                context["dashboard"] = Dashboard.objects.get(id=dashboard_id, team=self.team.root_team)
             except Dashboard.DoesNotExist:
                 raise NotFound("Dashboard not found.")
         if insight_id:
             try:
-                context["insight"] = Insight.objects.get(id=insight_id, team__project_id=self.team.project_id)
+                context["insight"] = Insight.objects.get(id=insight_id, team=self.team.root_team)
             except Insight.DoesNotExist:
                 raise NotFound("Insight not found.")
         if recording_id:
