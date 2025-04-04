@@ -89,8 +89,9 @@ class SessionSummaryPromptData:
             if ef not in raw_session_metadata:
                 continue
             del raw_session_metadata[ef]
-        start_time = prepare_datetime(raw_session_metadata.get("start_time"))
-        end_time = prepare_datetime(raw_session_metadata.get("end_time"))
+        # Assuming start/end times are always present
+        start_time = prepare_datetime(raw_session_metadata["start_time"])
+        end_time = prepare_datetime(raw_session_metadata["end_time"])
         return SessionSummaryMetadata(
             active_seconds=raw_session_metadata.get("active_seconds"),
             inactive_seconds=raw_session_metadata.get("inactive_seconds"),

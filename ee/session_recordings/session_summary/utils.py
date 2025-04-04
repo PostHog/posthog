@@ -5,13 +5,23 @@ from typing import Any
 from urllib.parse import urlparse
 
 
-def load_sesssion_recording_events_from_csv(file_path: str) -> tuple[list[str], list[list[str | None]]]:
+def load_sesssion_recording_events_from_csv(file_path: str) -> tuple[list[str], list[list[str | datetime]]]:
     headers = []
-    rows = []
+    rows: list[list[str | datetime]] = []
     with open(file_path) as f:
         reader = csv.reader(f)
         headers = next(reader)
-        rows = [list(row) for row in reader]
+        # Ensure chronolical order of the events
+        timestamp_index = get_column_index(headers, "timestamp")
+        if not timestamp_index:
+            raise ValueError("Timestamp column not found in the CSV")
+        for raw_row in reader:
+            row: list[str | datetime] = []
+            timestamp_str = raw_row[timestamp_index]
+            timestamp = prepare_datetime(timestamp_str)
+            row = [*raw_row[:timestamp_index], timestamp, *raw_row[timestamp_index + 1 :]]
+            rows.append(row)
+        rows.sort(key=lambda x: x[timestamp_index])
     # Replace the headers with custom one to replicate DB response for recordings
     override_headers = [
         "event",
@@ -27,12 +37,6 @@ def load_sesssion_recording_events_from_csv(file_path: str) -> tuple[list[str], 
         raise ValueError(
             f"Headers length mismatch when loading session recording events from CSV: {len(headers)} != {len(override_headers)}"
         )
-    # Ensure chronolical order of the events
-    timestamp_index = get_column_index(override_headers, "timestamp")
-    if timestamp_index is not None:
-        for i, row in enumerate(rows):
-            rows[i][timestamp_index] = prepare_datetime(row[timestamp_index])
-        rows.sort(key=lambda x: x[timestamp_index])
     return override_headers, rows
 
 
@@ -51,9 +55,8 @@ def get_column_index(columns: list[str], column_name: str) -> int | None:
     return None
 
 
-def prepare_datetime(raw_time: datetime | str | None) -> datetime | None:
-    if not raw_time:
-        return None
+def prepare_datetime(raw_time: datetime | str) -> datetime:
+    # Assuming that timestamps are always present and follow ISO format
     if isinstance(raw_time, str):
         return datetime.fromisoformat(raw_time)
     return raw_time
