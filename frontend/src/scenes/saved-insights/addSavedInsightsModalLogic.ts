@@ -73,7 +73,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 }
 
                 const response = await api.get(
-                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
 
                 return {
