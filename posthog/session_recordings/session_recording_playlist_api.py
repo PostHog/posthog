@@ -274,6 +274,11 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         for key in filters:
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "type" and filters["type"] == "saved_filters":
+                # Filter for playlists that have filters and no items
+                queryset = queryset.exclude(
+                    Q(filters={}) | Q(id__in=SessionRecordingPlaylistItem.objects.values_list("playlist_id", flat=True))
+                )
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
             elif key == "date_from":

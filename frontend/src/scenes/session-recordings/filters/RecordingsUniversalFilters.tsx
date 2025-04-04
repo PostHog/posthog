@@ -1,5 +1,5 @@
 import { IconClock, IconEye, IconFilter, IconHide, IconRevert } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonButtonProps, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -17,10 +17,11 @@ import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
+import { RecordingUniversalFilters, ReplayTabs, UniversalFiltersGroup } from '~/types'
 
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
+import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { DurationFilter } from './DurationFilter'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -101,6 +102,9 @@ export const RecordingsUniversalFilters = ({
     if (allowReplayFlagsFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.EventFeatureFlags)
     }
+
+    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const { savedFilters, savedFiltersLoading } = useValues(savedFiltersLogic)
 
     return (
         <>
@@ -227,19 +231,46 @@ export const RecordingsUniversalFilters = ({
                     </div>
                 </>
             </MaxTool>
-            {resetFilters && (totalFiltersCount ?? 0) > 0 && (
-                <div className="flex justify-start mt-2">
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        onClick={resetFilters}
-                        icon={<IconRevert />}
-                        tooltip="Reset any changes you've made to the filters"
-                    >
-                        Reset filters
-                    </LemonButton>
-                </div>
-            )}
+            <div className="flex justify-between mt-2">
+                <LemonSelect
+                    options={savedFilters.results?.map((filter) => {
+                        const counter = filter.recordings_counts?.saved_filters?.count ?? 0
+                        const label = filter.name ? filter.name : 'Unnamed'
+                        const badgeContent = counter === 1 ? '1 recording' : `${counter} recordings`
+                        return {
+                            label: (
+                                <div className="flex items-center gap-2">
+                                    {label}
+                                    {counter > 0 && <LemonBadge content={badgeContent} />}
+                                </div>
+                            ),
+                            value: filter.short_id,
+                        }
+                    })}
+                    type="secondary"
+                    size="xsmall"
+                    disabledReason={savedFiltersLoading ? 'Loading...' : undefined}
+                    placeholder={`Apply saved filter ${
+                        savedFilters.results?.length > 0 ? `(${savedFilters.results?.length})` : ''
+                    }`}
+                    onChange={(value) => {
+                        const filter = savedFilters.results.find((filter) => filter.short_id === value)
+                        if (filter && filter.filters) {
+                            setFilters(filter.filters)
+                        }
+                    }}
+                />
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={resetFilters}
+                    icon={<IconRevert />}
+                    tooltip="Reset any changes you've made to the filters"
+                    disabledReason={!(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined}
+                >
+                    Reset filters
+                </LemonButton>
+            </div>
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
