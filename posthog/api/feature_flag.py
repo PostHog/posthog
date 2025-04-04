@@ -230,7 +230,7 @@ class FeatureFlagSerializer(
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"], deleted=False)
+            FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False)
             .exclude(**exclude_kwargs)
             .exists()
         ):
@@ -291,9 +291,7 @@ class FeatureFlagSerializer(
 
                 if prop.type == "cohort":
                     try:
-                        initial_cohort: Cohort = Cohort.objects.get(
-                            pk=prop.value, team__project_id=self.context["project_id"]
-                        )
+                        initial_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
                         dependent_cohorts = get_dependent_cohorts(initial_cohort)
                         for cohort in [initial_cohort, *dependent_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
@@ -359,10 +357,10 @@ class FeatureFlagSerializer(
         # TODO: Once we move to no DB level evaluation, can get rid of this.
 
         temporary_flag = FeatureFlag(**data)
-        project_id = self.context["project_id"]
+        team_id = self.context["team_id"]
 
         try:
-            check_flag_evaluation_query_is_ok(temporary_flag, project_id)
+            check_flag_evaluation_query_is_ok(temporary_flag, team_id)
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
@@ -392,7 +390,7 @@ class FeatureFlagSerializer(
 
         try:
             FeatureFlag.objects.filter(
-                key=validated_data["key"], team__project_id=self.context["project_id"], deleted=True
+                key=validated_data["key"], team_id=self.context["team_id"], deleted=True
             ).delete()
         except deletion.RestrictedError:
             raise exceptions.ValidationError(
@@ -453,9 +451,7 @@ class FeatureFlagSerializer(
 
             if validated_key:
                 # Delete any soft deleted feature flags with the same key to prevent conflicts
-                FeatureFlag.objects.filter(
-                    key=validated_key, team__project_id=instance.team.project_id, deleted=True
-                ).delete()
+                FeatureFlag.objects.filter(key=validated_key, team_id=instance.team.id, deleted=True).delete()
 
             # NOW check for conflicts after all transformations
             if version != -1 and version != locked_version:
@@ -583,7 +579,7 @@ class FeatureFlagSerializer(
             # Fallback to database query if cohorts weren't prefetched
             cohorts = {
                 str(cohort.id): cohort.name
-                for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
+                for cohort in Cohort.objects.filter(id__in=cohort_ids, team_id=self.context["team_id"])
             }
 
         # Add cohort names to the response
@@ -711,10 +707,10 @@ class FeatureFlagViewSet(
             )
 
             survey_targeting_flags = Survey.objects.filter(
-                team__project_id=self.project_id, targeting_flag__isnull=False
+                team_id=self.team_id, targeting_flag__isnull=False
             ).values_list("targeting_flag_id", flat=True)
             survey_internal_targeting_flags = Survey.objects.filter(
-                team__project_id=self.project_id, internal_targeting_flag__isnull=False
+                team_id=self.team_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
             queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
                 Q(id__in=survey_internal_targeting_flags)
@@ -863,9 +859,7 @@ class FeatureFlagViewSet(
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
-        feature_flags = list(
-            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False).order_by("-created_at")
-        )
+        feature_flags = list(FeatureFlag.objects.filter(team_id=self.team_id, deleted=False).order_by("-created_at"))
 
         if not feature_flags:
             return Response([])
@@ -907,7 +901,7 @@ class FeatureFlagViewSet(
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
             ~Q(is_remote_configuration=True),
-            team__project_id=self.project_id,
+            team_id=self.team_id,
             deleted=False,
         )
 
@@ -920,7 +914,7 @@ class FeatureFlagViewSet(
             seen_cohorts_cache = {
                 cohort.pk: cohort
                 for cohort in Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                    team__project_id=self.project_id, deleted=False
+                    team_id=self.team_id, deleted=False
                 )
             }
 
@@ -963,7 +957,7 @@ class FeatureFlagViewSet(
                         else:
                             cohort = (
                                 Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-                                .filter(id=id, team__project_id=self.project_id, deleted=False)
+                                .filter(id=id, team_id=self.team_id, deleted=False)
                                 .first()
                             )
                             seen_cohorts_cache[id] = cohort or ""
@@ -983,7 +977,7 @@ class FeatureFlagViewSet(
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                        project_id=self.project_id
+                        team_id=self.team_id
                     )
                 },
                 "cohorts": cohorts,
@@ -1008,9 +1002,9 @@ class FeatureFlagViewSet(
                 "evaluation": reasons[flag_key],
             }
 
-        disabled_flags = FeatureFlag.objects.filter(
-            team__project_id=self.project_id, active=False, deleted=False
-        ).values_list("key", flat=True)
+        disabled_flags = FeatureFlag.objects.filter(team_id=self.team_id, active=False, deleted=False).values_list(
+            "key", flat=True
+        )
 
         for flag_key in disabled_flags:
             flags_with_evaluation_reasons[flag_key] = {
@@ -1098,7 +1092,7 @@ class FeatureFlagViewSet(
         feature_flag = (
             FeatureFlag.objects.get(pk=kwargs["pk"])
             if is_flag_id_provided
-            else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
+            else FeatureFlag.objects.get(key=kwargs["pk"], team_id=self.team_id)
         )
 
         if not feature_flag.is_remote_configuration:
@@ -1124,7 +1118,7 @@ class FeatureFlagViewSet(
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
+        if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
@@ -1154,4 +1148,4 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
-    param_derived_from_user_current_team = "project_id"
+    param_derived_from_user_current_team = "team_id"

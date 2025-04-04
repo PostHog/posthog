@@ -167,15 +167,15 @@ project_feature_flags_router = projects_router.register(
     r"feature_flags",
     feature_flag.FeatureFlagViewSet,
     "project_feature_flags",
-    ["project_id"],
+    ["team_id"],
 )
 project_features_router = projects_router.register(
     r"early_access_feature",
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
-    ["project_id"],
+    ["team_id"],
 )
-projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
+projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
 
 projects_router.register(
     r"dashboard_templates",

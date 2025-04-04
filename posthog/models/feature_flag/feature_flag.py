@@ -22,6 +22,7 @@ from posthog.constants import (
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
+from posthog.models.utils import RootTeamMixin
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, models.Model):
+class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
     name = models.TextField(

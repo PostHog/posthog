@@ -54,7 +54,7 @@ def extend_api_router() -> None:
         r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
         "project_feature_flag_role_access",
-        ["project_id", "feature_flag_id"],
+        ["team_id", "feature_flag_id"],
     )
     organizations_router.register(
         r"resource_access",
