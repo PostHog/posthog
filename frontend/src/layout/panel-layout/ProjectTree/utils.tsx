@@ -41,7 +41,9 @@ export function convertFileSystemEntryToTreeDataItem({
 
     // Helper to find an existing folder node or create one if it doesn't exist.
     const findOrCreateFolder = (nodes: TreeDataItem[], folderName: string, fullPath: string): TreeDataItem => {
-        let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
+        let folderNode: TreeDataItem | undefined = nodes.find(
+            (node) => node.record?.path === fullPath && node.record?.type === 'folder'
+        )
         if (!folderNode) {
             const id = `${root}-folder/${fullPath}`
             folderNode = {
@@ -85,7 +87,10 @@ export function convertFileSystemEntryToTreeDataItem({
             currentLevel = folderNode.children!
         }
 
-        if (item.type === 'folder' && currentLevel.find((node) => node.record?.path === item.path)) {
+        if (
+            item.type === 'folder' &&
+            currentLevel.find((node) => node.record?.path === item.path && node.record?.type === 'folder')
+        ) {
             continue
         }
 

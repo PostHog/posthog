@@ -812,7 +812,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
         addFolder: ({ folder }) => {
-            if (values.viableItems.find((item) => item.path === folder)) {
+            if (values.viableItems.find((item) => item.path === folder && item.type === 'folder')) {
                 return
             }
             actions.queueAction({
