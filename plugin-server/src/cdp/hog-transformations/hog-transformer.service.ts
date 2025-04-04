@@ -176,9 +176,11 @@ export class HogTransformerService {
 
                     if (shouldRunHogWatcher) {
                         // Check if function is in a degraded state
-                        let functionState = this.getHogFunctionState(hogFunction.id)
+                        const functionState = this.getHogFunctionState(hogFunction.id)
                         if (!functionState) {
-                            functionState = await this.fetchMissingHogFunctionState(hogFunction.id)
+                            const errorMessage = `Critical error: Missing HogFunction state in cache for function ${hogFunction.id} - this should never happen`
+                            logger.error('⚠️', errorMessage)
+                            throw new Error(errorMessage)
                         }
 
                         // If the function is in a degraded state, skip it
@@ -346,19 +348,6 @@ export class HogTransformerService {
             ? await this.pluginExecutor.execute(invocation)
             : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
         return result
-    }
-
-    private async fetchMissingHogFunctionState(hogFunctionId: string): Promise<HogWatcherState | null> {
-        logger.error('⚠️', 'Missing HogFunction state in cache - this should not happen', { hogFunctionId })
-        const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
-        const states = await this.hogWatcher.getStates([hogFunctionId])
-        timer()
-
-        if (states[hogFunctionId]) {
-            this.cachedStates[hogFunctionId] = states[hogFunctionId].state
-            return states[hogFunctionId].state
-        }
-        return null
     }
 
     public async saveHogFunctionStates(functionIds: string[]): Promise<void> {
