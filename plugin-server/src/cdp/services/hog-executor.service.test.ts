@@ -171,7 +171,7 @@ describe('Hog Executor', () => {
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('fetch')
-            expect(result.invocation.vmState).toBeDefined()
+            expect(result.invocation.vmState).toBeTruthy()
 
             // Simulate what the callback does
             setupFetchResponse(result.invocation)
@@ -652,6 +652,28 @@ describe('Hog Executor', () => {
             expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
                 {
                   "version": "v=1.2.3",
+                }
+            `)
+        })
+
+        it('crafts a mailjet request', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.send_email,
+                ...HOG_INPUTS_EXAMPLES.email,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const result = executor.execute(createInvocation(fn))
+            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
+                {
+                  "body": "{"Messages":[{"From":{"Email":"info@posthog.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
+                  "headers": {
+                    "Authorization": "Basic dGVzdF9hcGlfa2V5OnRlc3Rfc2VjcmV0X2tleQ==",
+                    "Content-Type": "application/json",
+                  },
+                  "method": "POST",
+                  "return_queue": "hog",
+                  "url": "https://api.mailjet.com/v3.1/send",
                 }
             `)
         })

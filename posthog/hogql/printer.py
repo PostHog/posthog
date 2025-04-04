@@ -791,7 +791,14 @@ class _Printer(Visitor):
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
         # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and ".timestamp" in left) or ("toTimeZone(" in right and ".timestamp" in right):
+        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
+            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
+        ):
+            not_nullable = True
+        hack_sessions_timestamp = (
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+        )
+        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
             not_nullable = True
 
         constant_lambda = None
@@ -820,8 +827,10 @@ class _Printer(Visitor):
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.In:
             op = f"in({left}, {right})"
+            return op
         elif node.op == ast.CompareOperationOp.NotIn:
             op = f"notIn({left}, {right})"
+            return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
             op = f"globalIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
@@ -916,11 +925,6 @@ class _Printer(Visitor):
             # Only the left side is null. Return a value only if the right side doesn't matter.
             if value_if_both_sides_are_null == value_if_one_side_is_null:
                 return "1" if value_if_one_side_is_null is True else "0"
-
-        # "in" and "not in" return 0/1 when the right operator is null, so optimize if the left operand is not nullable
-        if node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn:
-            if not nullable_left or (isinstance(node.left, ast.Constant) and node.left.value is not None):
-                return op
 
         # No constants, so check for nulls in SQL
         if value_if_one_side_is_null is True and value_if_both_sides_are_null is True:
@@ -1137,8 +1141,12 @@ class _Printer(Visitor):
                         ):
                             raise QueryError("getSurveyResponse first argument must be a valid integer")
                         second_arg = node_args[1] if len(node_args) > 1 else None
+                        third_arg = node_args[2] if len(node_args) > 2 else None
                         question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                        return get_survey_response_clickhouse_query(int(question_index_obj.value), question_id)
+                        is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
+                        return get_survey_response_clickhouse_query(
+                            int(question_index_obj.value), question_id, is_multiple_choice
+                        )
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []

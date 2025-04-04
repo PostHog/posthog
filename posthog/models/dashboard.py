@@ -56,6 +56,13 @@ class Dashboard(FileSystemSyncMixin, models.Model):
     last_accessed_at = models.DateTimeField(blank=True, null=True)
     filters = models.JSONField(default=dict)
     variables = models.JSONField(default=dict, null=True, blank=True)
+    breakdown_colors = models.JSONField(default=list, null=True, blank=True)
+    data_color_theme = models.ForeignKey(
+        "posthog.DataColorTheme",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
     restriction_level = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,

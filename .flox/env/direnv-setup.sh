@@ -46,8 +46,6 @@ case "$shell_name" in
     ;;
 esac
 
-echo "🐚 Configuring your default shell, $SHELL, for direnv"
-
 # Add hook to shell config if not already present
 if ! grep -q "direnv hook" "$config_file" 2>/dev/null; then
     echo -e "\n# Initialize direnv - added by PostHog's Flox activation hook (../posthog/.flox/env/manifest.toml)\n$hook_command" >> "$config_file"

@@ -14,7 +14,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { GroupDashboard } from 'scenes/groups/GroupDashboard'
 import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -79,16 +78,8 @@ export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; 
 }
 
 export function Group(): JSX.Element {
-    const {
-        logicProps,
-        groupData,
-        groupDataLoading,
-        groupTypeName,
-        groupType,
-        groupTab,
-        groupEventsQuery,
-        showCustomerSuccessDashboards,
-    } = useValues(groupLogic)
+    const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
+        useValues(groupLogic)
     const { groupKey, groupTypeIndex } = logicProps
     const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -121,13 +112,11 @@ export function Group(): JSX.Element {
                 activeKey={groupTab ?? PersonsTabType.PROPERTIES}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
-                    featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
-                        ? {
-                              key: 'overview',
-                              label: 'Overview',
-                              content: <GroupOverview />,
-                          }
-                        : null,
+                    {
+                        key: 'overview',
+                        label: 'Overview',
+                        content: <GroupOverview />,
+                    },
                     {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="groups-properties-tab">Properties</span>,
@@ -264,13 +253,6 @@ export function Group(): JSX.Element {
                             />
                         ),
                     },
-                    showCustomerSuccessDashboards
-                        ? {
-                              key: PersonsTabType.DASHBOARD,
-                              label: 'Dashboard',
-                              content: <GroupDashboard groupData={groupData} />,
-                          }
-                        : null,
                 ]}
             />
         </>

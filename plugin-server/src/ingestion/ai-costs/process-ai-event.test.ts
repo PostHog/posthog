@@ -28,16 +28,16 @@ describe('processAiEvent()', () => {
     describe('event matching', () => {
         it('matches $ai_generation events', () => {
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
-            expect(result.properties!.$ai_input_cost_usd).toBeDefined()
-            expect(result.properties!.$ai_output_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_total_cost_usd).toBeTruthy()
+            expect(result.properties!.$ai_input_cost_usd).toBeTruthy()
+            expect(result.properties!.$ai_output_cost_usd).toBeTruthy()
         })
 
         it('matches $ai_embedding events', () => {
             event.event = '$ai_embedding'
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
-            expect(result.properties!.$ai_input_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_total_cost_usd).toBeTruthy()
+            expect(result.properties!.$ai_input_cost_usd).toBeTruthy()
             expect(result.properties!.$ai_output_cost_usd).toBeDefined()
         })
 

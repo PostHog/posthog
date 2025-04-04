@@ -6,14 +6,8 @@ import posthog from 'posthog-js'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
-    chunkMutationSnapshot,
-    clearThrottle,
-    deduplicateSnapshots,
-    MUTATION_CHUNK_SIZE,
     parseEncodedSnapshots,
-    patchMetaEventIntoWebData,
     sessionRecordingDataLogic,
-    ViewportResolution,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -27,6 +21,11 @@ import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } f
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
+import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
+import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
+import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
+import { patchMetaEventIntoWebData, ViewportResolution } from './snapshot-processing/patch-meta-event'
+import { clearThrottle } from './snapshot-processing/throttle-capturing'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
