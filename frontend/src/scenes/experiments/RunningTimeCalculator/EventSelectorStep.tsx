@@ -42,7 +42,7 @@ export const EventSelectorStep = (): JSX.Element => {
                 entitiesLimit={1}
                 mathAvailability={MathAvailability.None}
                 setFilters={({ events }: Partial<FilterType>) => {
-                    if (!events) {
+                    if (!events || events.length === 0) {
                         return
                     }
                     setEventConfig({
