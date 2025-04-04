@@ -546,7 +546,7 @@ async fn write_event_definitions_batch(
                 batch.cache_batch(&cache);
 
                 // don't report success if the batch cache insertions failed!
-                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "retry")]).increment(1);
+                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "success")]).increment(1);
                 metrics::counter!(V2_EVENT_DEFS_BATCH_SIZE).increment(batch.len() as u64);
                 metrics::counter!(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED).increment(count);
                 info!(
