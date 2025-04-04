@@ -11,7 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.file_system.file_system import FileSystem, split_path
+from posthog.models.file_system.file_system import FileSystem, split_path, join_path
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.user import User
 from posthog.models.team import Team
@@ -233,7 +233,7 @@ def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
         # e.g. for path "a/b/c/d/e", the parent folders are:
         #  "a" (depth=1), "a/b" (depth=2), "a/b/c" (depth=3), "a/b/c/d" (depth=4)
         for depth_index in range(1, len(segments)):
-            parent_path = "/".join(segments[:depth_index])
+            parent_path = join_path(segments[:depth_index])
             if parent_path not in existing_paths:
                 # Mark that we have it now (so we don't create duplicates)
                 existing_paths.add(parent_path)
