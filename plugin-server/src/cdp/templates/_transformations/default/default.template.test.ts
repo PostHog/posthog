@@ -23,21 +23,13 @@ describe('default.template.ts', () => {
 
     describe('transformation', () => {
         it('should execute successfully', async () => {
-            const responses = await tester.invoke({}, mockGlobals)
-
-            expect(responses.length).toBe(1)
-            const response = responses[0]
-
+            const response = await tester.invoke({}, mockGlobals)
             expect(response.finished).toBe(true)
             expect(response.error).toBeUndefined()
         })
 
         it('should return the transformed event', async () => {
-            const responses = await tester.invoke({}, mockGlobals)
-
-            expect(responses.length).toBe(1)
-            const response = responses[0]
-
+            const response = await tester.invoke({}, mockGlobals)
             expect(response.execResult).toEqual({
                 distinct_id: 'distinct-id',
                 elements_chain: '',
