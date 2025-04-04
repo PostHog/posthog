@@ -199,9 +199,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.save()
 
         return Response(
-            {
-                "result": FileSystemSerializer(instance).data,
-            },
+            FileSystemSerializer(instance).data,
             status=status.HTTP_200_OK,
         )
 
@@ -242,9 +240,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.save()  # A new instance is created with a new id
 
         return Response(
-            {
-                "result": FileSystemSerializer(instance).data,
-            },
+            FileSystemSerializer(instance).data,
             status=status.HTTP_200_OK,
         )
 

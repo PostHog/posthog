@@ -171,9 +171,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     } else if (action.type === 'link' && action.newPath) {
                         try {
                             const newPath = action.newPath
-                            const response = await api.fileSystem.link(action.item.id, newPath)
-                            if (response.result) {
-                                actions.createSavedItem(response.result)
+                            const newItem = await api.fileSystem.link(action.item.id, newPath)
+                            if (newItem) {
+                                actions.createSavedItem(newItem)
                             }
                             if (action.item.type === 'folder') {
                                 actions.loadFolder(newPath)
