@@ -1938,7 +1938,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert "Your function is taking too long to run (over 0.1 seconds)" in response.json()["detail"]
-
             # Test that the same code is allowed for destinations
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
@@ -2155,10 +2154,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 [f for f in results if f["type"] == "transformation"], key=lambda x: x["execution_order"] or 999
             )
 
-            fn_orders = {f["name"]: int(f["execution_order"]) for f in transformations}
-            assert fn_orders["Transform A"] == 1, "A should still have order 1"
-            assert fn_orders["Transform C"] == 3, "C should remain at order 3"
-            assert fn_orders["Transform B"] == 4, "B should now be at the end (order 4)"
+            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            assert str(fn_orders["Transform A"]) == "1", "A should still have order 1"
+            assert str(fn_orders["Transform C"]) == "3", "C should remain at order 3"
+            assert str(fn_orders["Transform B"]) == "4", "B should now be at the end (order 4)"
 
     def test_transformation_normal_execution_order_update(self, *args):
         """Test updating execution_order for a transformation function directly."""
@@ -2215,10 +2214,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             transformations = [f for f in results if f["type"] == "transformation"]
             assert len(transformations) == 3
 
-            fn_orders = {f["name"]: int(f["execution_order"]) for f in transformations}
-            assert fn_orders["Transform A"] == 1
-            assert fn_orders["Transform B"] == 2
-            assert fn_orders["Transform C"] == 3
+            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            assert str(fn_orders["Transform A"]) == "1"
+            assert str(fn_orders["Transform B"]) == "2"
+            assert str(fn_orders["Transform C"]) == "3"
 
             # Test 1: Update B's execution_order to match A (both will have order 1)
             update_response = self.client.patch(
@@ -2233,10 +2232,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             transformations = [f for f in results if f["type"] == "transformation"]
 
             # Order by function name for verification
-            fn_orders = {f["name"]: int(f["execution_order"]) for f in transformations}
-            assert fn_orders["Transform A"] == 1, "A should still have order 1"
-            assert fn_orders["Transform B"] == 1, "B should now have order 1"
-            assert fn_orders["Transform C"] == 3, "C should remain at order 3"
+            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            assert str(fn_orders["Transform A"]) == "1", "A should still have order 1"
+            assert str(fn_orders["Transform B"]) == "1", "B should now have order 1"
+            assert str(fn_orders["Transform C"]) == "3", "C should remain at order 3"
 
             # In results, B should be first because it was most recently updated
             names_in_order = [f["name"] for f in transformations]
