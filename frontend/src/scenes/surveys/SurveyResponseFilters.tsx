@@ -116,7 +116,7 @@ function _SurveyResponseFilters(): JSX.Element {
     return (
         <div className="deprecated-space-y-2">
             <div className="flex justify-between items-center">
-                <div className="text-sm font-medium">Filter survey results</div>
+                <h3 className="m-0">Filter survey results</h3>
                 <LemonButton size="small" type="secondary" icon={<IconCode />} onClick={() => setSqlHelperOpen(true)}>
                     Get SQL Query
                 </LemonButton>
