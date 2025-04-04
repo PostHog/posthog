@@ -22,7 +22,6 @@ export type HogFunctionSubTemplate = {
     description?: string
     filters?: HogFunctionFilters
     masking?: HogFunctionMasking
-    mapping_templates?: HogFunctionMappingTemplate[]
     input_schema_overrides?: Record<string, Partial<HogFunctionInputSchemaType>>
     type?: HogFunctionTypeType
 }
@@ -58,82 +57,33 @@ export const SUB_TEMPLATE_COMMON: Record<SubTemplateId, HogFunctionSubTemplate> 
     'survey-response': {
         id: 'survey-response',
         name: 'Survey Response',
-        mapping_templates: [
-            {
-                name: 'survey_response',
-                include_by_default: true,
-                filters: {
-                    events: [
+        filters: {
+            events: [
+                {
+                    id: 'survey sent',
+                    type: 'events',
+                    properties: [
                         {
-                            id: 'survey sent',
-                            type: 'events',
-                            properties: [
-                                {
-                                    key: '$survey_response',
-                                    type: 'event',
-                                    value: 'is_set',
-                                    operator: PropertyOperator.IsSet,
-                                },
-                            ],
+                            key: '$survey_response',
+                            type: 'event',
+                            value: 'is_set',
+                            operator: PropertyOperator.IsSet,
                         },
                     ],
                 },
-                inputs_schema: [
-                    {
-                        key: 'body',
-                        type: 'json',
-                        label: 'JSON Body',
-                        default: { event: '{event}', person: '{person}' },
-                        secret: false,
-                        required: false,
-                    },
-                    {
-                        key: 'additional_headers',
-                        type: 'dictionary',
-                        label: 'Additional headers',
-                        secret: false,
-                        required: false,
-                        default: {},
-                    },
-                ],
-            },
-        ],
+            ],
+        },
     },
     'early-access-feature-enrollment': {
         id: 'early-access-feature-enrollment',
         name: 'Early Access Feature Enrollment',
-        mapping_templates: [
-            {
-                name: 'feature_enrollment_update',
-                include_by_default: true,
-                filters: { events: [{ id: '$feature_enrollment_update', type: 'events' }] },
-                inputs_schema: [
-                    {
-                        key: 'body',
-                        type: 'json',
-                        label: 'JSON Body',
-                        default: { event: '{event}', person: '{person}' },
-                        secret: false,
-                        required: false,
-                    },
-                    {
-                        key: 'additional_headers',
-                        type: 'dictionary',
-                        label: 'Additional headers',
-                        secret: false,
-                        required: false,
-                        default: {},
-                    },
-                ],
-            },
-        ],
+        filters: { events: [{ id: '$feature_enrollment_update', type: 'events' }] },
     },
     'activity-log': {
         id: 'activity-log',
         name: 'Team Activity',
         type: 'internal_destination',
         filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
-        mapping_templates: undefined,
     },
     'error-tracking-issue-created': {
         id: 'error-tracking-issue-created',
@@ -141,7 +91,6 @@ export const SUB_TEMPLATE_COMMON: Record<SubTemplateId, HogFunctionSubTemplate> 
         type: 'internal_destination',
         free: true,
         filters: { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
-        mapping_templates: undefined,
     },
     'error-tracking-issue-reopened': {
         id: 'error-tracking-issue-reopened',
@@ -149,6 +98,5 @@ export const SUB_TEMPLATE_COMMON: Record<SubTemplateId, HogFunctionSubTemplate> 
         type: 'internal_destination',
         free: true,
         filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
-        mapping_templates: undefined,
     },
 }
