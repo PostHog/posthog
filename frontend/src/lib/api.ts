@@ -1103,11 +1103,11 @@ class ApiRequest {
 
     // Data color themes
     public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
+        return this.projectsDetail(teamId).addPathComponent('data_color_themes')
     }
 
     public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
+        return this.projectsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
     }
 
     public addProductIntent(): ApiRequest {
