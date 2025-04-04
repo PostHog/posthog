@@ -1,11 +1,15 @@
 import { Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKInstallNodeInstructions } from '../sdk-install-instructions'
 import { SDKInstallSvelteJSInstructions } from '../sdk-install-instructions/svelte'
 import { JSManualCapture, NodeManualCapture } from './FinalSteps'
 
 export function SvelteInstructions(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <>
             <p>
@@ -26,7 +30,9 @@ export function SvelteInstructions(): JSX.Element {
                 To capture exceptions on the server-side, you will also need to implement the <code>handleError</code>{' '}
                 callback
             </p>
-            <CodeSnippet language={Language.JavaScript}>{serverSideHooks}</CodeSnippet>
+            <CodeSnippet language={Language.JavaScript}>
+                {serverSideHooks(currentTeam?.api_token ?? '<API_TOKEN>')}
+            </CodeSnippet>
             <NodeManualCapture />
         </>
     )
