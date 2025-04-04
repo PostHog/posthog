@@ -1786,6 +1786,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     },
 }
 
+# copy distinct_id to event properties (needs to be done before copying to person properties, so it exists in person properties as well)
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["distinct_id"] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][
+    "distinct_id"
+]
+
+# copy meta properties to event_metadata
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"] = {}
+for key in ["distinct_id", "timestamp", "event", "person_id"]:
+    CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
+
+
 for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
     if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):
         CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = {
@@ -1831,25 +1842,6 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
             f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']}. Captured at the start of the session and remains constant for the duration of the session."
         ),
     }
-
-# add distinct_id to event properties before copying to person properties so it exists in person properties as well
-CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["distinct_id"] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][
-    "distinct_id"
-]
-
-
-# We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
-CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["$session_duration"] = CORE_FILTER_DEFINITIONS_BY_GROUP[
-    "session_properties"
-]["$session_duration"]
-
-
-# copy meta properties to event_metadata
-CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"] = {}
-for key in ["distinct_id", "timestamp", "event", "person_id"]:
-    CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
-
-CORE_FILTER_DEFINITIONS_BY_GROUP["numerical_event_properties"] = CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]
 
 
 PROPERTY_NAME_ALIASES = {
