@@ -36,3 +36,5 @@ pub const FLAG_GROUP_TYPE_INDEX_MATCH_TIME: &str = "flags_group_type_index_match
 pub const FLAG_GET_MATCH_TIME: &str = "flags_get_match_time";
 pub const FLAG_EVALUATE_ALL_CONDITIONS_TIME: &str = "flags_evaluate_all_conditions_time";
 pub const FLAG_COHORT_FILTER_TIME: &str = "flags_cohort_filter_time";
+pub const FLAG_GET_INDIVIDUAL_FLAG_TIME: &str = "flags_get_individual_flag_time";
+pub const FLAG_EVALUATE_STATIC_COHORTS_TIME: &str = "flags_evaluate_static_cohorts_time";
