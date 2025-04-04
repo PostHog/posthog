@@ -340,20 +340,12 @@ async fn write_event_properties_batch(
         match result {
             Err(e) => {
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
-                    common_metrics::inc(
-                        V2_EVENT_PROPS_BATCH_ATTEMPT,
-                        &[(String::from("result"), String::from("failed"))],
-                        1,
-                    );
+                    metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")]).increment(1);
                     total_time.fin();
                     return Err(e);
                 }
 
-                common_metrics::inc(
-                    V2_EVENT_PROPS_BATCH_ATTEMPT,
-                    &[(String::from("result"), String::from("retry"))],
-                    1,
-                );
+                metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "retry")]).increment(1);
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * V2_BATCH_RETRY_DELAY_MS + jitter;
                 tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -369,12 +361,8 @@ async fn write_event_properties_batch(
                 batch.cache_batch(&mut cache);
 
                 // don't report success if the batch cache insetions failed!
-                common_metrics::inc(
-                    V2_EVENT_PROPS_BATCH_ATTEMPT,
-                    &[(String::from("result"), String::from("success"))],
-                    1,
-                );
-                common_metrics::inc(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, &[], count);
+                metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "success")]).increment(1);
+                metrics::counter!(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED).increment(count);
                 info!(
                     "Event properties batch of size {} written successfully",
                     count
@@ -426,20 +414,12 @@ async fn write_property_definitions_batch(
         match result {
             Err(e) => {
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
-                    common_metrics::inc(
-                        V2_PROP_DEFS_BATCH_ATTEMPT,
-                        &[(String::from("result"), String::from("failed"))],
-                        1,
-                    );
+                    metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")]).increment(1);
                     total_time.fin();
                     return Err(e);
                 }
 
-                common_metrics::inc(
-                    V2_PROP_DEFS_BATCH_ATTEMPT,
-                    &[(String::from("result"), String::from("retry"))],
-                    1,
-                );
+                metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "retry")]).increment(1);
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * V2_BATCH_RETRY_DELAY_MS + jitter;
                 tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -454,12 +434,8 @@ async fn write_property_definitions_batch(
                 batch.cache_batch(&mut cache);
 
                 // don't report success if the batch cache insetions failed!
-                common_metrics::inc(
-                    V2_PROP_DEFS_BATCH_ATTEMPT,
-                    &[(String::from("result"), String::from("success"))],
-                    1,
-                );
-                common_metrics::inc(V2_PROP_DEFS_BATCH_ROWS_AFFECTED, &[], count);
+                metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "success")]).increment(1);
+                metrics::counter!(V2_PROP_DEFS_BATCH_ROWS_AFFECTED).increment(count);
                 info!(
                     "Property definitions batch of size {} written successfully",
                     count
@@ -506,20 +482,12 @@ async fn write_event_definitions_batch(
         match result {
             Err(e) => {
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
-                    common_metrics::inc(
-                        V2_EVENT_DEFS_BATCH_ATTEMPT,
-                        &[(String::from("result"), String::from("failed"))],
-                        1,
-                    );
+                    metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")]).increment(1);
                     total_time.fin();
                     return Err(e);
                 }
 
-                common_metrics::inc(
-                    V2_EVENT_DEFS_BATCH_ATTEMPT,
-                    &[(String::from("result"), String::from("retry"))],
-                    1,
-                );
+                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "retry")]).increment(1);
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * V2_BATCH_RETRY_DELAY_MS + jitter;
                 tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -533,12 +501,8 @@ async fn write_event_definitions_batch(
                 batch.cache_batch(&mut cache);
 
                 // don't report success if the batch cache insertions failed!
-                common_metrics::inc(
-                    V2_EVENT_DEFS_BATCH_ATTEMPT,
-                    &[(String::from("result"), String::from("success"))],
-                    1,
-                );
-                common_metrics::inc(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, &[], count);
+                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "retry")]).increment(1);
+                metrics::counter!(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED).increment(count);
                 info!(
                     "Event definitions batch of size {} written successfully",
                     count
