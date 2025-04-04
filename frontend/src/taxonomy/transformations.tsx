@@ -1,3 +1,5 @@
+import { Link } from 'lib/lemon-ui/Link'
+
 type RawCoreFilterDefinition = {
     label: string
     description?: string
@@ -13,13 +15,13 @@ type CoreFilterDefinition = {
 }
 
 function transformDescription(description: string): React.ReactNode {
-    if (!description.includes('\n') && !description.includes('`')) {
+    if (!description.includes('\n') && !description.includes('`') && !description.includes('[')) {
         return description
     }
 
-    const parts = description.split(/(`[^`]+`|\n)/)
+    const parts = description.split(/(\[.*?\]\(.*?\)|`[^`]+`|\n)/)
     return (
-        <>
+        <span>
             {parts.map((part, i) => {
                 if (part === '\n') {
                     return <br key={i} />
@@ -27,9 +29,18 @@ function transformDescription(description: string): React.ReactNode {
                 if (part.startsWith('`') && part.endsWith('`')) {
                     return <code key={i}>{part.slice(1, -1)}</code>
                 }
+                const linkMatch = part.match(/\[(.*?)\]\((.*?)\)/)
+                if (linkMatch) {
+                    const [_, text, url] = linkMatch
+                    return (
+                        <Link key={i} to={url}>
+                            {text}
+                        </Link>
+                    )
+                }
                 return part
             })}
-        </>
+        </span>
     )
 }
 
