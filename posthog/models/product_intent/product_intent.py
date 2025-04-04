@@ -145,6 +145,8 @@ class ProductIntent(UUIDModel):
             "data_warehouse": self.has_activated_data_warehouse,
             "experiments": self.has_activated_experiments,
             "feature_flags": self.has_activated_feature_flags,
+            "session_replay": self.has_activated_session_replay,
+            "error_tracking": self.has_activated_error_tracking,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():
