@@ -76,7 +76,7 @@ Steps:
   * Type: string
   * Required: Yes
 
-* posthog_organization_name - prefilled based on organizationLogic
+* organization_name - prefilled based on organizationLogic
   * Label: PostHog organization name
   * Type: string
   * Required: Yes

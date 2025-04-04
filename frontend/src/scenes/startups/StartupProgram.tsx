@@ -278,14 +278,14 @@ export function StartupProgram(): JSX.Element {
                                 </div>
 
                                 <LemonField
-                                    name="posthog_organization_name"
+                                    name="organization_name"
                                     label="PostHog organization"
                                     info="To apply for a different organization, switch to that organization first"
                                 >
                                     <LemonInput placeholder="Your PostHog organization" disabled />
                                 </LemonField>
 
-                                <LemonField name="posthog_organization_id" className="hidden">
+                                <LemonField name="organization_id" className="hidden">
                                     <LemonInput />
                                 </LemonField>
 

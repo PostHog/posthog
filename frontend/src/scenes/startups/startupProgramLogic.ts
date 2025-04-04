@@ -55,13 +55,12 @@ export const YC_BATCH_OPTIONS = [
 
 export interface StartupProgramFormValues {
     type: string
-    source: string
     email: string
     first_name: string
     last_name: string
     startup_domain: string
-    posthog_organization_name: string
-    posthog_organization_id: string
+    organization_name: string
+    organization_id: string
     raised: string
     incorporation_date: Dayjs | null
     yc_batch?: string
@@ -161,7 +160,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     }),
     listeners(({ actions, values }) => ({
         validateYCBatch: async () => {
-            const { yc_batch, startup_domain, posthog_organization_name } = values.startupProgram
+            const { yc_batch, startup_domain, organization_name } = values.startupProgram
 
             if (!yc_batch || yc_batch === 'Earlier') {
                 actions.setYCValidationState('valid')
@@ -179,7 +178,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
 
                 const companies = await response.json()
                 const normalizedDomain = extractDomain(startup_domain)
-                const normalizedOrgName = posthog_organization_name.toLowerCase().trim()
+                const normalizedOrgName = organization_name.toLowerCase().trim()
 
                 const foundCompany = companies.find((company: any) => {
                     if (!company.website && !company.name) {
@@ -248,14 +247,13 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     forms(({ values, actions, props }) => ({
         startupProgram: {
             defaults: {
-                type: 'contact',
-                source: props.isYC ? 'YC' : 'startup',
+                type: props.isYC ? 'YC' : 'startup',
                 email: values.user?.email || '',
                 first_name: values.user?.first_name || '',
                 last_name: values.user?.last_name || '',
                 startup_domain: values.domainFromEmail || '',
-                posthog_organization_name: values.currentOrganization?.name || '',
-                posthog_organization_id: values.currentOrganization?.id || '',
+                organization_name: values.currentOrganization?.name || '',
+                organization_id: values.currentOrganization?.id || '',
                 customer_id: values.billing?.customer_id || '',
                 raised: '',
                 incorporation_date: null,
@@ -264,8 +262,8 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 yc_merch_count: props.isYC ? 1 : undefined,
             },
             errors: ({
-                posthog_organization_name,
-                posthog_organization_id,
+                organization_name,
+                organization_id,
                 raised,
                 incorporation_date,
                 yc_batch,
@@ -278,10 +276,8 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 }
 
                 return {
-                    posthog_organization_name: !posthog_organization_name
-                        ? 'Please enter your PostHog organization name'
-                        : undefined,
-                    posthog_organization_id: !posthog_organization_id ? 'Please select an organization' : undefined,
+                    organization_name: !organization_name ? 'Please enter your PostHog organization name' : undefined,
+                    organization_id: !organization_id ? 'Please select an organization' : undefined,
                     raised: validateFunding(raised, props.isYC),
                     incorporation_date: validateIncorporationDate(incorporation_date, props.isYC),
                     yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
