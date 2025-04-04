@@ -1,13 +1,13 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery } from '~/types'
+import { DataModelingJob, DataWarehouseSavedQuery } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
 
@@ -76,6 +76,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         }
                         return savedQuery
                     })
+                },
+            },
+        ],
+        dataModelingJobs: [
+            null as PaginatedResponse<DataModelingJob> | null,
+            {
+                loadDataModelingJobs: async (savedQueryId: string) => {
+                    return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(savedQueryId, 10, 0)
                 },
             },
         ],

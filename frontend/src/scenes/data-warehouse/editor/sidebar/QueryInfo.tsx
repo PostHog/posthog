@@ -5,10 +5,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
+import { useEffect } from 'react'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { DataWarehouseSyncInterval, OrNever } from '~/types'
+import { DataModelingJob, DataWarehouseSyncInterval, OrNever } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
@@ -61,12 +62,22 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { editingView, isValidView } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
 
-    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
-        useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const {
+        dataWarehouseSavedQueryMapById,
+        updatingDataWarehouseSavedQuery,
+        initialDataWarehouseSavedQueryLoading,
+        dataModelingJobs,
+    } = useValues(dataWarehouseViewsLogic)
+    const { updateDataWarehouseSavedQuery, loadDataModelingJobs } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
+
+    useEffect(() => {
+        if (editingView) {
+            loadDataModelingJobs(editingView.id)
+        }
+    }, [editingView, loadDataModelingJobs])
 
     if (initialDataWarehouseSavedQueryLoading) {
         return (
@@ -165,6 +176,68 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         )}
                     </div>
                 </div>
+                {savedQuery && dataModelingJobs?.results && dataModelingJobs.results.length > 0 && (
+                    <>
+                        <div>
+                            <h3>Materialization Runs</h3>
+                            <p>
+                                Materialization runs are the process of updating a materialized view. This can be done
+                                on a schedule or on demand.
+                            </p>
+                        </div>
+                        <LemonTable
+                            dataSource={dataModelingJobs?.results || []}
+                            columns={[
+                                {
+                                    title: 'Status',
+                                    dataIndex: 'status',
+                                    render: (_, { status, error }: DataModelingJob) => {
+                                        const type =
+                                            status === 'Completed'
+                                                ? 'success'
+                                                : status === 'Failed'
+                                                ? 'danger'
+                                                : 'warning'
+
+                                        return error ? (
+                                            <Tooltip title={error}>
+                                                <LemonTag type={type} className="cursor-help">
+                                                    {status} ⚠️
+                                                </LemonTag>
+                                            </Tooltip>
+                                        ) : (
+                                            <LemonTag type={type}>{status}</LemonTag>
+                                        )
+                                    },
+                                },
+                                {
+                                    title: 'Rows',
+                                    dataIndex: 'rows_materialized',
+                                },
+                                {
+                                    title: 'Last updated',
+                                    dataIndex: 'last_run_at',
+                                    render: (_, { last_run_at }: DataModelingJob) =>
+                                        humanFriendlyDetailedTime(last_run_at),
+                                },
+                                {
+                                    title: 'Duration',
+                                    render: (_, job: DataModelingJob) => {
+                                        if (job.status === 'Running') {
+                                            return 'In progress'
+                                        }
+                                        // Convert date strings to timestamps before subtraction
+                                        const start = new Date(job.created_at).getTime()
+                                        const end = new Date(job.last_run_at).getTime()
+                                        return humanFriendlyDuration((end - start) / 1000)
+                                    },
+                                },
+                            ]}
+                            nouns={['run', 'runs']}
+                            emptyState="No runs available"
+                        />
+                    </>
+                )}
                 <div>
                     <h3>Columns</h3>
                     <p>Columns that are available in the materialized view.</p>
