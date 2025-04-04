@@ -39,7 +39,7 @@ class UUIDT(uuid.UUID):
     to UUID v4 (as the complete randomness of v4 makes its indexing performance suboptimal),
     and to UUID v1 (as despite being time-based it can't be used practically for sorting by generation time).
 
-    Order can be messed up if system clock is changed or if more than 65 536 IDs are generated per millisecond
+    Order can be messed up if system clock is changed or if more than 65 536 IDs are generated per millisecond
     (that's over 5 trillion events per day), but it should be largely safe to assume that these are time-sortable.
 
     Anatomy:
@@ -381,11 +381,36 @@ class TeamProjectMixin(models.Model):
         super().save(*args, **kwargs)
 
 
+class RootTeamQuerySet(models.QuerySet):
+    def filter(self, *args, **kwargs):
+        from posthog.models.team import Team
+        from django.db.models import Q, Subquery
+
+        if "team_id" in kwargs:
+            team_id = kwargs.pop("team_id")
+            parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
+            team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
+                team_id=team_id, team__parent_team_id__isnull=True
+            )
+            return super().filter(team_filter, *args, **kwargs)
+        return super().filter(*args, **kwargs)
+
+
+class RootTeamManager(models.Manager):
+    def get_queryset(self):
+        return RootTeamQuerySet(self.model, using=self._db)
+
+    def filter(self, *args, **kwargs):
+        return self.get_queryset().filter(*args, **kwargs)
+
+
 class RootTeamMixin(models.Model):
     """
     This ensures that when the related team has a parent team, the model will use the parent team instead.
     This should apply to all models that should be "Project" scoped instead of "Environment" scoped.
     """
+
+    objects = RootTeamManager()
 
     class Meta:
         abstract = True

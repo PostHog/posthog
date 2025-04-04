@@ -23,7 +23,6 @@ from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import RootTeamMixin
 from posthog.permissions import (
     APIScopePermission,
     AccessControlPermission,
@@ -336,9 +335,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         # then filter to ensure that it checks the team__parent_team id if set otherwise its own id
         model = cast(Model, queryset.model)
 
-        if RootTeamMixin in model.__bases__:
-            # TODO: This might not be the right way of doing this...
-            parents_query_dict["team_id"] = self.team.root_team.id
+        # if RootTeamMixin in model.__bases__:
+        #     # TODO: This might not be the right way of doing this...
+        #     parents_query_dict["team_id"] = self.team.root_team.id
 
         for source, destination in self.filter_rewrite_rules.items():
             # TODO: Can we make this more clear and repeatable?

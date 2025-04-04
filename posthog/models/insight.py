@@ -14,7 +14,7 @@ from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.utils import get_filter
-from posthog.models.utils import RootTeamMixin, sane_repr
+from posthog.models.utils import RootTeamMixin, sane_repr, RootTeamManager
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class InsightManager(models.Manager):
+class InsightManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)
 
@@ -103,7 +103,7 @@ class Insight(FileSystemSyncMixin, RootTeamMixin, models.Model):
     __repr__ = sane_repr("team_id", "id", "short_id", "name")
 
     objects = InsightManager()
-    objects_including_soft_deleted: models.Manager["Insight"] = models.Manager()
+    objects_including_soft_deleted = RootTeamManager()
 
     class Meta:
         db_table = "posthog_dashboarditem"
