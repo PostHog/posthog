@@ -62,6 +62,10 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
     // here we iterate over the object and replace the bytecode with the actual values
     // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
 
+    if (bytecode === null || bytecode === undefined) {
+        return bytecode // Preserve null and undefined values
+    }
+
     if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
         const res = execHog(bytecode, { globals })
         if (res.error) {
@@ -76,7 +80,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
 
     if (Array.isArray(bytecode)) {
         return bytecode.map((item) => formatInput(item, globals, key))
-    } else if (typeof bytecode === 'object') {
+    } else if (typeof bytecode === 'object' && bytecode !== null) {
         return Object.fromEntries(
             Object.entries(bytecode).map(([key2, value]) => [
                 key2,
