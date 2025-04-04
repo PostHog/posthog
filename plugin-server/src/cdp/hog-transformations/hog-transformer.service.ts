@@ -178,7 +178,7 @@ export class HogTransformerService {
                         // Check if function is in a degraded state
                         let functionState = this.getHogFunctionState(hogFunction.id)
                         if (!functionState) {
-                            functionState = await this.handleCacheMiss(hogFunction.id)
+                            functionState = await this.fetchMissingHogFunctionState(hogFunction.id)
                         }
 
                         // If the function is in a degraded state, skip it
@@ -348,8 +348,8 @@ export class HogTransformerService {
         return result
     }
 
-    private async handleCacheMiss(hogFunctionId: string): Promise<HogWatcherState | null> {
-        logger.error('⚠️', 'HogFunction state cache miss - this should not happen', { hogFunctionId })
+    private async fetchMissingHogFunctionState(hogFunctionId: string): Promise<HogWatcherState | null> {
+        logger.error('⚠️', 'Missing HogFunction state in cache - this should not happen', { hogFunctionId })
         const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
         const states = await this.hogWatcher.getStates([hogFunctionId])
         timer()
