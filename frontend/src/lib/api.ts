@@ -404,7 +404,7 @@ class ApiRequest {
     }
 
     public pluginConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('plugin_configs')
+        return this.projectsDetail(teamId).addPathComponent('plugin_configs')
     }
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
