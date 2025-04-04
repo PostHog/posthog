@@ -26,6 +26,7 @@ import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
@@ -1990,6 +1991,8 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
+    breakdown_colors?: BreakdownColorConfig[]
+    data_color_theme_id?: number | null
 }
 
 export enum TemplateAvailabilityContext {
