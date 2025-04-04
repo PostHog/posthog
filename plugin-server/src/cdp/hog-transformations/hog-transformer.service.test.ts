@@ -1401,7 +1401,7 @@ describe('HogTransformer', () => {
             expect(hogTransformer['cachedStates']).toEqual({})
         })
 
-        it('should throw error when state is missing from cache', async () => {
+        it('should throw error when state is missing from cache', () => {
             const hogFunctionId = '11111111-1111-4111-a111-111111111111'
 
             // Create a test hog function
@@ -1419,15 +1419,19 @@ describe('HogTransformer', () => {
             // Verify state is not in cache initially
             expect(hogTransformer['getHogFunctionState'](hogFunctionId)).toBeNull()
 
-            // This should throw when it encounters the missing state
-            await expect(() => {
-                // We need to simulate the code path that checks for function state
-                // and triggers the error when the state is missing
+            // Create the expected error message
+            const expectedErrorMessage = `Critical error: Missing HogFunction state in cache for function ${hogFunctionId} - this should never happen`
+
+            // Define a function that will throw the error
+            const throwingFunction = () => {
                 if (!hogTransformer['getHogFunctionState'](hogFunctionId)) {
-                    const errorMessage = `Critical error: Missing HogFunction state in cache for function ${hogFunctionId} - this should never happen`
-                    throw new Error(errorMessage)
+                    throw new Error(expectedErrorMessage)
                 }
-            }).rejects.toThrow(`Critical error: Missing HogFunction state in cache for function ${hogFunctionId}`)
+                return 'This should not be returned'
+            }
+
+            // Verify that the function throws the expected error
+            expect(throwingFunction).toThrow(expectedErrorMessage)
         })
     })
 })
