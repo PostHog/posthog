@@ -33,7 +33,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
         # so we'll reuse this database for the query once it eventually runs
         self.hogql_context = HogQLContext(
             team_id=self.team.pk,
-            database=create_hogql_database(0, team_arg=self.team),
+            database=create_hogql_database(team=self.team),
         )
 
     def to_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
@@ -51,9 +51,9 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
                         select=[
                             ast.Alias(alias="table_name", expr=ast.Constant(value=table.name)),
                             ast.Alias(alias="distinct_id", expr=ast.Field(chain=["distinct_id"])),
-                            ast.Alias(alias="original_amount", expr=ast.Field(chain=["original_amount"])),
+                            ast.Alias(alias="original_revenue", expr=ast.Field(chain=["original_amount"])),
                             ast.Alias(alias="original_currency", expr=ast.Field(chain=["original_currency"])),
-                            ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
+                            ast.Alias(alias="revenue", expr=ast.Field(chain=["amount"])),
                             ast.Alias(alias="currency", expr=ast.Field(chain=["currency"])),
                         ],
                         select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),

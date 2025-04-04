@@ -14,7 +14,7 @@ from posthog.warehouse.models.table import DataWarehouseTable
 
 class TestS3Table(BaseTest):
     def _init_database(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(team=self.team)
         self.database.add_warehouse_tables(
             aapl_stock=create_aapl_stock_s3_table(), aapl_stock_2=create_aapl_stock_s3_table(name="aapl_stock_2")
         )

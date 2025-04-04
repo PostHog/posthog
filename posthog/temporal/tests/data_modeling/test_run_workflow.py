@@ -52,7 +52,7 @@ TEST_TIME = dt.datetime.now(dt.UTC)
 @pytest_asyncio.fixture
 async def posthog_tables(ateam):
     team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)
-    hogql_db = await database_sync_to_async(create_hogql_database)(team_id=ateam.pk, team_arg=team)
+    hogql_db = await database_sync_to_async(create_hogql_database)(team=team)
     posthog_tables = hogql_db.get_posthog_tables()
 
     return posthog_tables

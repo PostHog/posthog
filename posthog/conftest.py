@@ -1,4 +1,4 @@
-# NOTE: This file is hardlinked both on posthog/conftest.py and products/conftest.py
+# NOTE: This file should be kept in sync with products/conftest.py
 
 import pytest
 from django.conf import settings

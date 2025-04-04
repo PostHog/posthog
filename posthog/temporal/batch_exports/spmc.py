@@ -503,7 +503,7 @@ class RecordBatchModel(abc.ABC):
             enable_select_queries=True,
             limit_top_select=False,
         )
-        context.database = await database_sync_to_async(create_hogql_database)(team.id, context.modifiers)
+        context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
         return context
 
@@ -1090,7 +1090,7 @@ def compose_filters_clause(
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
-    context.database = create_hogql_database(team.id, context.modifiers)
+    context.database = create_hogql_database(team=team, modifiers=context.modifiers)
 
     exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
     and_expr = ast.And(exprs=exprs)

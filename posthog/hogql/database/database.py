@@ -250,8 +250,9 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
 
 def create_hogql_database(
     team_id: Optional[int] = None,
+    *,
+    team: Optional["Team"] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    team_arg: Optional["Team"] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> Database:
     from posthog.hogql.database.s3_table import S3Table
@@ -263,10 +264,10 @@ def create_hogql_database(
         DataWarehouseTable,
     )
 
-    if not team_arg and not team_id:
-        raise ValueError("Either team_arg or team_id must be provided")
+    if team_id is None and team is None:
+        raise ValueError("Either team or team_id must be provided")
 
-    team = team_arg or Team.objects.get(pk=team_id)
+    team = team or Team.objects.get(pk=team_id)
 
     if timings is None:
         timings = HogQLTimings()
@@ -396,7 +397,7 @@ def create_hogql_database(
             )
 
         for stripe_source in stripe_sources:
-            with timings.measure(f"for_schema_source_{stripe_source.prefix}"):
+            with timings.measure(f"for_schema_source_{stripe_source.prefix or stripe_source.id}"):
                 view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
                 if view is not None:
                     views[f"stripe_{stripe_source.prefix or stripe_source.id}_revenue"] = view
@@ -526,13 +527,13 @@ def create_hogql_database(
                         for chain in person_field.chain:
                             if isinstance(table_or_field, ast.LazyJoin):
                                 table_or_field = table_or_field.resolve_table(
-                                    HogQLContext(team_id=team_id, database=database)
+                                    HogQLContext(team_id=team.pk, database=database)
                                 )
                                 if table_or_field.has_field(chain):
                                     table_or_field = table_or_field.get_field(chain)
                                     if isinstance(table_or_field, ast.LazyJoin):
                                         table_or_field = table_or_field.resolve_table(
-                                            HogQLContext(team_id=team_id, database=database)
+                                            HogQLContext(team_id=team.pk, database=database)
                                         )
                             elif isinstance(table_or_field, ast.Table):
                                 table_or_field = table_or_field.get_field(chain)
