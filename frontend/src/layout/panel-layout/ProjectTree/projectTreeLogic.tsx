@@ -630,11 +630,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 let hasFolder = false
                 let sum = 0
                 for (const [key, value] of Object.entries(checkedItems)) {
-                    if (viableItemsById[key]?.type === 'folder') {
-                        hasFolder = true
-                    }
                     if (value) {
                         sum += 1
+                        if (viableItemsById[key]?.type === 'folder') {
+                            hasFolder = true
+                        }
                     }
                 }
 

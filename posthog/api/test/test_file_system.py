@@ -128,6 +128,23 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
+    def test_delete_folder_obj(self):
+        """
+        Test deleting a FileSystem folder.
+        """
+        folder_obj = FileSystem.objects.create(team=self.team, path="DeleteMe", type="folder", created_by=self.user)
+        file1_obj = FileSystem.objects.create(
+            team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
+        )
+        file2_obj = FileSystem.objects.create(
+            team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
+        )
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
     def test_unfiled_endpoint_no_content(self):
         """
         If there are no relevant items to create (e.g. no FeatureFlags, Experiments, etc.),

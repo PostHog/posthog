@@ -140,6 +140,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.type == "folder":
+            FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").delete()
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(methods=["GET"], detail=False)
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query_serializer = UnfiledFilesQuerySerializer(data=request.query_params)
