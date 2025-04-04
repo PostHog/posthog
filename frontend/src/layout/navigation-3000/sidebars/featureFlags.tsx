@@ -8,7 +8,6 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,6 +20,7 @@ import { navigation3000Logic } from '../navigationLogic'
 import { ExtendedListItem, SidebarCategory } from '../types'
 import type { featureFlagsSidebarLogicType } from './featureFlagsType'
 import { FuseSearchMatch } from './utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 const fuse = new Fuse<FeatureFlagType>([], {
     // Note: For feature flags `name` is the description field
@@ -36,8 +36,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
         values: [
             featureFlagsLogic,
             ['featureFlags', 'featureFlagsLoading'],
-            projectLogic,
-            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
             groupsModel,
@@ -47,8 +47,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
     }),
     selectors(({ actions }) => ({
         contents: [
-            (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentProjectId, s.aggregationLabel],
-            (relevantFeatureFlags, featureFlagsLoading, currentProjectId, aggregationLabel) => [
+            (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentTeamId, s.aggregationLabel],
+            (relevantFeatureFlags, featureFlagsLoading, currentTeamId, aggregationLabel) => [
                 {
                     key: 'feature-flags',
                     noun: 'feature flag',
@@ -148,7 +148,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                             label: 'Delete feature flag',
                                             onClick: () => {
                                                 void deleteWithUndo({
-                                                    endpoint: `projects/${currentProjectId}/feature_flags`,
+                                                    endpoint: `projects/${currentTeamId}/feature_flags`,
                                                     object: { name: featureFlag.key, id: featureFlag.id },
                                                     callback: () => {
                                                         actions.loadFeatureFlags()

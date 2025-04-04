@@ -1,13 +1,11 @@
 import { Tooltip } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -35,8 +33,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             ['user', 'otherOrganizations'],
             organizationLogic,
             ['currentOrganization'],
-            projectLogic,
-            ['currentProject'],
             teamLogic,
             ['currentTeam'],
             featureFlagLogic,
@@ -127,26 +123,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             { equalityCheck: objectsEqual },
         ],
         appBreadcrumbs: [
-            (s) => [
-                s.preflight,
-                s.sceneConfig,
-                s.activeScene,
-                s.user,
-                s.currentOrganization,
-                s.currentProject,
-                s.currentTeam,
-                s.featureFlags,
-            ],
-            (
-                preflight,
-                sceneConfig,
-                activeScene,
-                user,
-                currentOrganization,
-                currentProject,
-                currentTeam,
-                featureFlags
-            ) => {
+            (s) => [s.preflight, s.sceneConfig, s.activeScene, s.user, s.currentOrganization, s.currentTeam],
+            (preflight, sceneConfig, activeScene, user, currentOrganization, currentTeam) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene || !sceneConfig) {
                     return breadcrumbs
@@ -195,13 +173,13 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 }
                 // Project
                 if (sceneConfig.projectBased) {
-                    if (!currentProject || !currentTeam) {
+                    if (!currentTeam) {
                         return breadcrumbs
                     }
                     breadcrumbs.push({
                         key: 'project',
-                        name: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentProject.name : currentTeam.name,
-                        tag: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentTeam.name : null,
+                        name: currentTeam.name,
+                        tag: currentTeam.name,
                         popover: {
                             overlay: <ProjectSwitcherOverlay />,
                         },

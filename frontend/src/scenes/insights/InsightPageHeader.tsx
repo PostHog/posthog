@@ -32,8 +32,8 @@ import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { projectLogic } from 'scenes/projectLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -85,7 +85,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { tags: allExistingTags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { currentProjectId } = useValues(projectLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
     const [tags, setTags] = useState(insight.tags)
 
@@ -147,7 +147,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
             )}
             <PageHeader
                 buttons={
-                    <div className="flex justify-between items-center gap-2">
+                    <div className="flex items-center justify-between gap-2">
                         <More
                             overlay={
                                 <>
@@ -322,7 +322,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 onClick={() =>
                                                     void deleteInsightWithUndo({
                                                         object: insight as QueryBasedInsightModel,
-                                                        endpoint: `projects/${currentProjectId}/insights`,
+                                                        endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()
                                                             push(urls.savedInsights())

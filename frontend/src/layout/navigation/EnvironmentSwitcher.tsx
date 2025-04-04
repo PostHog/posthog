@@ -48,7 +48,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
             currentProjectItems.push({
                 label: projectNameWithoutEmoji,
                 icon: projectNameEmojiMatch ? (
-                    <div className="size-5 text-xl leading-5 text-center">{projectNameEmojiMatch}</div>
+                    <div className="text-xl leading-5 text-center size-5">{projectNameEmojiMatch}</div>
                 ) : (
                     <UploadedLogo
                         name={projectName}
@@ -106,7 +106,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                     </>
                 ),
                 icon: projectNameEmojiMatch ? (
-                    <div className="size-6 text-xl leading-6 text-center">{projectNameEmojiMatch}</div>
+                    <div className="text-xl leading-6 text-center size-6">{projectNameEmojiMatch}</div>
                 ) : (
                     <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark size="small" />
                 ),
@@ -184,7 +184,7 @@ function convertTeamToMenuItem(
     return {
         label: (
             <>
-                <LemonTag size="small" className="border-text-3000 uppercase">
+                <LemonTag size="small" className="uppercase border-text-3000">
                     {team.name}
                 </LemonTag>
             </>

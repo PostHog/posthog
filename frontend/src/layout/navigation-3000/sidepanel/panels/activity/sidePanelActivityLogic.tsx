@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
 
@@ -46,7 +46,7 @@ export enum SidePanelActivityTab {
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
+        values: [sidePanelContextLogic, ['sceneSidePanelContext'], teamLogic, ['currentTeamId']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     }),
     actions({
@@ -110,7 +110,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                     }
 
                     await api.create(
-                        `api/projects/${values.currentProjectId}/activity_log/bookmark_activity_notification`,
+                        `api/projects/${values.currentTeamId}/activity_log/bookmark_activity_notification`,
                         {
                             bookmark: latestNotification.created_at.toISOString(),
                         }
@@ -129,7 +129,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
                     try {
                         const response = await api.get<ChangesResponse>(
-                            `api/projects/${values.currentProjectId}/activity_log/important_changes?` +
+                            `api/projects/${values.currentTeamId}/activity_log/important_changes?` +
                                 toParams({ unread: onlyUnread })
                         )
 

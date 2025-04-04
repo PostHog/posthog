@@ -3,7 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -23,8 +23,8 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
     path((key) => ['scenes', 'insights', 'insightUsageLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [
-            projectLogic,
-            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
             insightLogic(props),
             ['insight'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
@@ -60,7 +60,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
 
             // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights".
             if (values.insight.id) {
-                void api.create(`api/projects/${values.currentProjectId}/insights/${values.insight.id}/viewed`)
+                void api.create(`api/projects/${values.currentTeamId}/insights/${values.insight.id}/viewed`)
             }
 
             // Debounce to avoid noisy events from the query changing multiple times.

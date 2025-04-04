@@ -7,8 +7,8 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { projectLogic } from 'scenes/projectLogic'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { actionsModel } from '~/models/actionsModel'
@@ -57,8 +57,8 @@ export const maxLogic = kea<maxLogicType>([
     key(({ conversationId }) => conversationId || 'new-conversation'),
     connect({
         values: [
-            projectLogic,
-            ['currentProject'],
+            teamLogic,
+            ['currentTeam'],
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxSettingsLogic,

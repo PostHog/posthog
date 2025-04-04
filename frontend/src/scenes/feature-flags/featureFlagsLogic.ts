@@ -4,8 +4,8 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { objectsEqual, toParams } from 'lib/utils'
-import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
@@ -62,7 +62,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     props({} as FlagLogicProps),
     path(['scenes', 'feature-flags', 'featureFlagsLogic']),
     connect({
-        values: [projectLogic, ['currentProjectId']],
+        values: [teamLogic, ['currentTeamId']],
     }),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
@@ -77,7 +77,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             {
                 loadFeatureFlags: async () => {
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(values.paramsFromFilters)}`
+                        `api/projects/${values.currentTeamId}/feature_flags/?${toParams(values.paramsFromFilters)}`
                     )
 
                     return {
@@ -87,7 +87,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
                     const response = await api.update(
-                        `api/projects/${values.currentProjectId}/feature_flags/${id}`,
+                        `api/projects/${values.currentTeamId}/feature_flags/${id}`,
                         payload
                     )
                     const updatedFlags = [...values.featureFlags.results].map((flag) =>

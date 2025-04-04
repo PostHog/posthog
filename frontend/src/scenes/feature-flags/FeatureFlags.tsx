@@ -21,8 +21,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -55,7 +55,7 @@ export function OverViewTab({
     searchPlaceholder?: string
     nouns?: [string, string]
 }): JSX.Element {
-    const { currentProjectId } = useValues(projectLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
@@ -287,7 +287,7 @@ export function OverViewTab({
                                         status="danger"
                                         onClick={() => {
                                             void deleteWithUndo({
-                                                endpoint: `projects/${currentProjectId}/feature_flags`,
+                                                endpoint: `projects/${currentTeamId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
                                                 callback: loadFeatureFlags,
                                             }).catch((e) => {

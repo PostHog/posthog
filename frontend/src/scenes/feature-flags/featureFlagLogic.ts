@@ -17,7 +17,6 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
@@ -258,8 +257,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         values: [
             teamLogic,
             ['currentTeam', 'currentTeamId'],
-            projectLogic,
-            ['currentProjectId'],
             groupsModel,
             ['aggregationLabel'],
             userLogic,
@@ -656,10 +653,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
                         // Creating a new flag
-                        savedFlag = await api.create(
-                            `api/projects/${values.currentProjectId}/feature_flags`,
-                            preparedFlag
-                        )
+                        savedFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, preparedFlag)
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
@@ -684,7 +678,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
 
                         savedFlag = await api.update(
-                            `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
+                            `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
                             {
                                 ...preparedFlag,
                                 original_flag: values.originalFeatureFlag,
@@ -709,16 +703,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
                         // Creating a new flag
-                        savedFlag = await api.create(
-                            `api/projects/${values.currentProjectId}/feature_flags`,
-                            preparedFlag
-                        )
+                        savedFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, preparedFlag)
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
                     } else {
                         savedFlag = await api.update(
-                            `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
+                            `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
                             {
                                 ...preparedFlag,
                                 original_flag: values.originalFeatureFlag,
@@ -813,7 +804,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const organizationFeatureFlags = await api.organizationFeatureFlags.get(orgId, flagKey)
                 const teamIdsInCurrentProject =
                     values.currentOrganization?.teams
-                        .filter((t) => t.project_id === values.currentProjectId)
+                        .filter((t) => t.project_id === values.currentTeamId)
                         .map((t) => t.id) || []
 
                 // Put current project first. We need teamIdsInCurrentProject here, because as of Feb 2025,
@@ -833,12 +824,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             copyFlag: async () => {
                 const orgId = values.currentOrganization?.id
                 const featureFlagKey = values.featureFlag.key
-                const { copyDestinationProject, currentProjectId } = values
+                const { copyDestinationProject, currentTeamId } = values
 
-                if (currentProjectId && copyDestinationProject) {
+                if (currentTeamId && copyDestinationProject) {
                     return await api.organizationFeatureFlags.copy(orgId, {
                         feature_flag_key: featureFlagKey,
-                        from_project: currentProjectId,
+                        from_project: currentTeamId,
                         target_project_ids: [copyDestinationProject],
                     })
                 }
@@ -847,9 +838,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         scheduledChanges: {
             __default: [] as ScheduledChangeType[],
             loadScheduledChanges: async () => {
-                const { currentProjectId } = values
-                if (currentProjectId) {
-                    const response = await api.featureFlags.getScheduledChanges(currentProjectId, values.featureFlag.id)
+                const { currentTeamId } = values
+                if (currentTeamId) {
+                    const response = await api.featureFlags.getScheduledChanges(currentTeamId, values.featureFlag.id)
                     return response.results || []
                 }
             },
@@ -857,14 +848,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         scheduledChange: {
             __default: {} as ScheduledChangeType,
             createScheduledChange: async () => {
-                const { scheduledChangeOperation, scheduleDateMarker, currentProjectId, schedulePayload } = values
+                const { scheduledChangeOperation, scheduleDateMarker, currentTeamId, schedulePayload } = values
 
                 const fields: Record<ScheduledChangeOperationType, keyof ScheduleFlagPayload> = {
                     [ScheduledChangeOperationType.UpdateStatus]: 'active',
                     [ScheduledChangeOperationType.AddReleaseCondition]: 'filters',
                 }
 
-                if (currentProjectId && scheduledChangeOperation) {
+                if (currentTeamId && scheduledChangeOperation) {
                     const data = {
                         record_id: values.featureFlag.id,
                         model_name: 'FeatureFlag',
@@ -875,13 +866,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         scheduled_at: scheduleDateMarker.toISOString(),
                     }
 
-                    return await api.featureFlags.createScheduledChange(currentProjectId, data)
+                    return await api.featureFlags.createScheduledChange(currentTeamId, data)
                 }
             },
             deleteScheduledChange: async (scheduledChangeId) => {
-                const { currentProjectId } = values
-                if (currentProjectId) {
-                    return await api.featureFlags.deleteScheduledChange(currentProjectId, scheduledChangeId)
+                const { currentTeamId } = values
+                if (currentTeamId) {
+                    return await api.featureFlags.deleteScheduledChange(currentTeamId, scheduledChangeId)
                 }
             },
         },
@@ -889,9 +880,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as FeatureFlagStatusResponse | null,
             {
                 loadFeatureFlagStatus: () => {
-                    const { currentProjectId } = values
-                    if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        return api.featureFlags.getStatus(currentProjectId, props.id)
+                    const { currentTeamId } = values
+                    if (currentTeamId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        return api.featureFlags.getStatus(currentTeamId, props.id)
                     }
                     return null
                 },
@@ -907,13 +898,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
-            await api.update(`api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`, {
+            await api.update(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`, {
                 analytics_dashboards: [result.id],
             })
         },
         generateUsageDashboard: async () => {
             if (props.id) {
-                await api.create(`api/projects/${values.currentProjectId}/feature_flags/${props.id}/dashboard`)
+                await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
                 actions.loadFeatureFlag()
             }
         },
@@ -921,7 +912,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (props.id) {
                 await breakpoint(1000) // in ms
                 await api.create(
-                    `api/projects/${values.currentProjectId}/feature_flags/${props.id}/enrich_usage_dashboard`
+                    `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
                 )
             }
         },
@@ -955,7 +946,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
-                endpoint: `projects/${values.currentProjectId}/feature_flags`,
+                endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
@@ -967,7 +958,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         restoreFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
-                endpoint: `projects/${values.currentProjectId}/feature_flags`,
+                endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 undo: true,
                 callback: () => {
@@ -990,7 +981,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
                 const response = await api.get(
-                    `api/environments/${values.currentProjectId}/insights/trend/?${toParams(
+                    `api/environments/${values.currentTeamId}/insights/trend/?${toParams(
                         filterTrendsClientSideParams(filters)
                     )}`
                 )

@@ -8,7 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
@@ -39,8 +39,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
     path(['scenes', 'experiments', 'experimentsLogic']),
     connect({
         values: [
-            projectLogic,
-            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             featureFlagLogic,
@@ -93,16 +93,16 @@ export const experimentsLogic = kea<experimentsLogicType>([
             [] as Experiment[],
             {
                 loadExperiments: async () => {
-                    const response = await api.get(`api/projects/${values.currentProjectId}/experiments?limit=1000`)
+                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments?limit=1000`)
                     return response.results as Experiment[]
                 },
                 deleteExperiment: async (id: number) => {
-                    await api.delete(`api/projects/${values.currentProjectId}/experiments/${id}`)
+                    await api.delete(`api/projects/${values.currentTeamId}/experiments/${id}`)
                     lemonToast.info('Experiment removed')
                     return values.experiments.filter((experiment) => experiment.id !== id)
                 },
                 archiveExperiment: async (id: number) => {
-                    await api.update(`api/projects/${values.currentProjectId}/experiments/${id}`, { archived: true })
+                    await api.update(`api/projects/${values.currentTeamId}/experiments/${id}`, { archived: true })
                     lemonToast.info('Experiment archived')
                     return values.experiments.filter((experiment) => experiment.id !== id)
                 },

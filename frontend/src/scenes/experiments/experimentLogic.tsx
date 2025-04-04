@@ -20,9 +20,9 @@ import {
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -190,8 +190,8 @@ export const experimentLogic = kea<experimentLogicType>([
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [
-            projectLogic,
-            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             sceneLogic,
@@ -829,7 +829,7 @@ export const experimentLogic = kea<experimentLogicType>([
             try {
                 if (isUpdate) {
                     response = await api.update(
-                        `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                         {
                             ...values.experiment,
                             parameters: {
@@ -858,7 +858,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
-                    response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
+                    response = await api.create(`api/projects/${values.currentTeamId}/experiments`, {
                         ...values.experiment,
                         parameters: {
                             ...values.experiment?.parameters,
@@ -1053,9 +1053,9 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             if (experimentEntitiesChanged) {
-                const url = `/api/projects/${
-                    values.currentProjectId
-                }/experiments/requires_flag_implementation?${toParams(experiment.filters || {})}`
+                const url = `/api/projects/${values.currentTeamId}/experiments/requires_flag_implementation?${toParams(
+                    experiment.filters || {}
+                )}`
                 await breakpoint(100)
 
                 try {
@@ -1099,7 +1099,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment.parameters,
                     variant_screenshot_media_ids: variantPreviewMediaIds,
                 }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
                     parameters: updatedParameters,
                 })
                 actions.setExperiment({
@@ -1114,10 +1114,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
 
-            const savedFlag = await api.update(
-                `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                preparedFlag
-            )
+            const savedFlag = await api.update(`api/projects/${values.currentTeamId}/feature_flags/${id}`, preparedFlag)
 
             const updatedFlag = variantKeyToIndexFeatureFlagPayloads(savedFlag)
             actions.updateFlag(updatedFlag)
@@ -1141,7 +1138,7 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
-            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+            await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: combinedMetricsIds,
             })
 
@@ -1154,7 +1151,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     id: sharedMetric.saved_metric,
                     metadata: sharedMetric.metadata,
                 }))
-            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+            await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: sharedMetricsIds,
             })
 
@@ -1205,7 +1202,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 ? query.count_query
                                 : query.funnels_query) as InsightQueryNode,
                         }
-                        await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
+                        await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, {
                             name: query.name || undefined,
                             query: insightQuery,
                             dashboards: [dashboard.id],
@@ -1244,7 +1241,7 @@ export const experimentLogic = kea<experimentLogicType>([
         validateFeatureFlag: async ({ featureFlagKey }: { featureFlagKey: string }, breakpoint) => {
             await breakpoint(200)
             const response = await api.get(
-                `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: featureFlagKey })}`
+                `api/projects/${values.currentTeamId}/feature_flags/?${toParams({ search: featureFlagKey })}`
             )
             const existingErrors = {
                 // :KLUDGE: If there is no name error, we don't want to trigger the 'required' error early
@@ -1349,7 +1346,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (props.experimentId && props.experimentId !== 'new') {
                     try {
                         const response: Experiment = await api.get(
-                            `api/projects/${values.currentProjectId}/experiments/${props.experimentId}`
+                            `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
                         )
                         actions.setUnmodifiedExperiment(structuredClone(response))
                         return response
@@ -1365,7 +1362,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
             updateExperiment: async (update: Partial<Experiment>) => {
                 const response: Experiment = await api.update(
-                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                     update
                 )
                 actions.setUnmodifiedExperiment(structuredClone(response))
@@ -1395,7 +1392,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     const newFilters = transformFiltersForWinningVariant(currentFlagFilters, selectedVariantKey)
 
                     await api.update(
-                        `api/projects/${values.currentProjectId}/feature_flags/${values.experiment.feature_flag?.id}`,
+                        `api/projects/${values.currentTeamId}/feature_flags/${values.experiment.feature_flag?.id}`,
                         { filters: newFilters }
                     )
 
