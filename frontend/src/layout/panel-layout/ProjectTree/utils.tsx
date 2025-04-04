@@ -89,7 +89,8 @@ export function convertFileSystemEntryToTreeDataItem({
 
         let accumulatedChildren: TreeDataItem[] = []
         if (item.type === 'folder') {
-            const folderMatch = (node): boolean => node.record?.path === item.path && node.record?.type === 'folder'
+            const folderMatch = (node: TreeDataItem): boolean =>
+                node.record?.path === item.path && node.record?.type === 'folder'
             const existingFolder = currentLevel.find(folderMatch)
             if (existingFolder) {
                 if (existingFolder.id) {
