@@ -690,7 +690,7 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             assert response.status_code == 400
-            assert "Stripe API key lacks permissions for: Account, Invoice" in response.json()["message"]
+            assert "Stripe API key lacks permissions for Account, Invoice" in response.json()["message"]
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
