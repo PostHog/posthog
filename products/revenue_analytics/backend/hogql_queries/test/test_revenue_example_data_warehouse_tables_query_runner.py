@@ -1,6 +1,6 @@
 from freezegun import freeze_time
-from unittest.case import skip
-from unittest.mock import patch
+from pathlib import Path
+from decimal import Decimal
 
 from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
     RevenueExampleDataWarehouseTablesQueryRunner,
@@ -18,14 +18,48 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     snapshot_clickhouse_queries,
 )
-from posthog.warehouse.models import (
-    DataWarehouseTable,
-    DataWarehouseCredential,
-    ExternalDataSource,
-    ExternalDataSchema,
-)
+from posthog.warehouse.models import ExternalDataSchema
+
+from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
+
+STRIPE_CHARGE_COLUMNS = {
+    "id": "String",
+    "paid": "Int8",
+    "amount": "Int64",
+    "object": "String",
+    "status": "String",
+    "created": "DateTime",
+    "invoice": "String",
+    "captured": "Int8",
+    "currency": "String",
+    "customer": "String",
+    "disputed": "Int8",
+    "livemode": "Int8",
+    "metadata": "String",
+    "refunded": "Int8",
+    "description": "String",
+    "receipt_url": "String",
+    "failure_code": "String",
+    "fraud_details": "String",
+    "radar_options": "String",
+    "receipt_email": "String",
+    "payment_intent": "String",
+    "payment_method": "String",
+    "amount_captured": "Int64",
+    "amount_refunded": "Int64",
+    "billing_details": "String",
+    "failure_message": "String",
+    "balance_transaction": "String",
+    "statement_descriptor": "String",
+    "calculated_statement_descriptor": "String",
+    "source": "String",
+    "outcome": "String",
+    "payment_method_details": "String",
+}
 
 REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(baseCurrency=CurrencyCode.GBP, events=[])
+TEST_BUCKET = "test_storage_bucket-posthog.revenue.stripe_charges"
 
 
 @snapshot_clickhouse_queries
@@ -35,33 +69,23 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
     def setUp(self):
         super().setUp()
 
-        self.source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="source_id",
-            connection_id="connection_id",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+        # Get path to test data file and read CSV
+        self.csv_path = Path(__file__).parent / "data" / "test_stripe_charges.csv"
+        if not self.csv_path.exists():
+            raise FileNotFoundError(f"Test data file not found at {self.csv_path}")
+
+        self.table, self.source, self.credential, self.csv_data, self.cleanUpFilesystem = (
+            create_data_warehouse_table_from_csv(
+                self.csv_path,
+                "stripe_charge",
+                STRIPE_CHARGE_COLUMNS,
+                TEST_BUCKET,
+                self.team,
+            )
         )
 
-        self.credential = DataWarehouseCredential.objects.create(
-            team=self.team,
-            access_key="test",
-            access_secret="test",
-        )
-
-        self.table = DataWarehouseTable.objects.create(
-            name="stripe_charge",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            credential=self.credential,
-            url_pattern="test://localhost",
-            columns={
-                "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                "revenue": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
-                "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "schema_valid": True},
-            },
-        )
-
+        # Besides the default creations above, also create the external data schema
+        # because this is required by the `RevenueAnalyticsRevenueView` to find the right tables
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
             name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
@@ -71,9 +95,16 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             last_synced_at="2024-01-01",
         )
 
+        self.team.revenue_tracking_config = REVENUE_TRACKING_CONFIG.model_dump()
+        self.team.save()
+
+    def tearDown(self):
+        self.cleanUpFilesystem()
+        super().tearDown()
+
     def _run_revenue_example_external_tables_query(self):
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueExampleDataWarehouseTablesQuery(revenueTrackingConfig=REVENUE_TRACKING_CONFIG)
+            query = RevenueExampleDataWarehouseTablesQuery()
             runner = RevenueExampleDataWarehouseTablesQueryRunner(team=self.team, query=query)
 
             response = runner.calculate()
@@ -87,24 +118,17 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
 
         assert len(results) == 0
 
-    # TODO: These fail because it'll complain the table doesn't exist
-    # posthog.errors.CHQueryErrorUnknownTable: Code: 60.
-    # DB::Exception: Unknown table expression identifier 'stripe_charge'
-    @skip("Skipping because it's not implemented in tests")
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_database_query(self, feature_enabled_mock):
+    def test_database_query(self):
         response = self._run_revenue_example_external_tables_query()
         results = response.results
 
-        assert len(results) == 3
+        assert len(results) == len(self.csv_data)  # Same amount os rows inside the CSV
 
-    # TODO: These fail because it'll complain the table doesn't exist
-    # posthog.errors.CHQueryErrorUnknownTable: Code: 60.
-    # DB::Exception: Unknown table expression identifier 'stripe_charge'
-    @skip("Skipping because it's not implemented in tests")
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_database_query_with_currency_conversion(self, feature_enabled_mock):
-        response = self._run_revenue_example_external_tables_query()
-        results = response.results
+        # Proper conversions for some of the rows
+        assert results[0][2:] == (Decimal("220"), "EUR", Decimal("182.247167654"), "GBP")
+        assert results[1][2:] == (Decimal("90"), "USD", Decimal("71.73"), "GBP")
+        assert results[2][2:] == (Decimal("180"), "GBP", Decimal("180"), "GBP")
 
-        assert len(results) == 3
+        # Test JPY where there are no decimals, and an input of 500 implies 500 Yen
+        # rather than the above where we had 22000 for 220 EUR (and etc.)
+        assert results[4][2:] == (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP")

@@ -1,5 +1,4 @@
 from decimal import Decimal
-from typing import Optional
 
 from freezegun import freeze_time
 from unittest.mock import patch
@@ -8,7 +7,6 @@ from products.revenue_analytics.backend.hogql_queries.revenue_example_events_que
     RevenueExampleEventsQueryRunner,
 )
 
-from posthog.hogql.constants import LimitContext
 from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
@@ -113,22 +111,20 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             person_result.append((person, event_ids))
         return person_result
 
-    def _run_revenue_example_events_query(
-        self,
-        revenue_tracking_config: RevenueTrackingConfig,
-        limit_context: Optional[LimitContext] = None,
-    ):
+    def _run_revenue_example_events_query(self):
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueExampleEventsQuery(
-                revenueTrackingConfig=revenue_tracking_config,
-            )
-            runner = RevenueExampleEventsQueryRunner(team=self.team, query=query, limit_context=limit_context)
+            runner = RevenueExampleEventsQueryRunner(team=self.team, query=RevenueExampleEventsQuery())
             response = runner.calculate()
             RevenueExampleEventsQueryResponse.model_validate(response)
             return response
 
     def test_no_crash_when_no_data(self):
-        self._run_revenue_example_events_query(EMPTY_REVENUE_TRACKING_CONFIG)
+        self.team.revenue_tracking_config = EMPTY_REVENUE_TRACKING_CONFIG.model_dump()
+        self.team.save()
+
+        results = self._run_revenue_example_events_query().results
+
+        assert len(results) == 0
 
     def test_single_event(self):
         s11 = str(uuid7("2023-12-02"))
@@ -140,7 +136,10 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase",
         )
 
-        results = self._run_revenue_example_events_query(SINGLE_EVENT_REVENUE_TRACKING_CONFIG).results
+        self.team.revenue_tracking_config = SINGLE_EVENT_REVENUE_TRACKING_CONFIG.model_dump()
+        self.team.save()
+
+        results = self._run_revenue_example_events_query().results
 
         assert len(results) == 1
         assert results[0][1] == "purchase"
@@ -162,7 +161,10 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase_b",
         )
 
-        results = self._run_revenue_example_events_query(MULTIPLE_EVENT_REVENUE_TRACKING_CONFIG).results
+        self.team.revenue_tracking_config = MULTIPLE_EVENT_REVENUE_TRACKING_CONFIG.model_dump()
+        self.team.save()
+
+        results = self._run_revenue_example_events_query().results
 
         assert len(results) == 2
         assert results[0][1] == "purchase_b"
@@ -187,7 +189,10 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase_b",
         )
 
-        results = self._run_revenue_example_events_query(REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY).results
+        self.team.revenue_tracking_config = REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY.model_dump()
+        self.team.save()
+
+        results = self._run_revenue_example_events_query().results
 
         assert len(results) == 2
 
@@ -223,7 +228,10 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase_b",
         )
 
-        results = self._run_revenue_example_events_query(REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY).results
+        self.team.revenue_tracking_config = REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY.model_dump()
+        self.team.save()
+
+        results = self._run_revenue_example_events_query().results
 
         # Keep in the original revenue values
         assert len(results) == 2

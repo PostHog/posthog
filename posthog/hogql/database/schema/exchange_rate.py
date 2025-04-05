@@ -91,7 +91,7 @@ def currency_expression_for_all_events(config: RevenueTrackingConfig) -> ast.Exp
 def revenue_comparison_and_value_exprs_for_events(
     config: RevenueTrackingConfig,
     event_config: RevenueTrackingEventItem,
-    do_currency_conversion: bool = False,
+    do_currency_conversion: bool = True,
 ) -> tuple[ast.Expr, ast.Expr]:
     # Check whether the event is the one we're looking for
     comparison_expr = ast.CompareOperation(
@@ -139,7 +139,7 @@ def revenue_comparison_and_value_exprs_for_events(
 # selecting from the `events` table to get the revenue for it
 def revenue_expression_for_events(
     config: Union[RevenueTrackingConfig, dict, None],
-    do_currency_conversion: bool = False,
+    do_currency_conversion: bool = True,
 ) -> ast.Expr:
     if isinstance(config, dict):
         config = RevenueTrackingConfig.model_validate(config)
@@ -163,7 +163,7 @@ def revenue_expression_for_events(
 # This sums up the revenue from all events in the group
 def revenue_sum_expression_for_events(
     config: Union[RevenueTrackingConfig, dict, None],
-    do_currency_conversion: bool = False,
+    do_currency_conversion: bool = True,
 ) -> ast.Expr:
     if isinstance(config, dict):
         config = RevenueTrackingConfig.model_validate(config)

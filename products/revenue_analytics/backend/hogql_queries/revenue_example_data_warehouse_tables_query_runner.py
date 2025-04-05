@@ -12,7 +12,6 @@ from posthog.schema import (
     CachedRevenueExampleDataWarehouseTablesQueryResponse,
 )
 from ..models import RevenueAnalyticsRevenueView
-from posthog.warehouse.models import DataWarehouseTable
 
 
 class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
@@ -38,25 +37,28 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
     def to_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         queries = []
 
-        # UNION ALL for all of the RevenueAnalyticsRevenueView
+        # UNION ALL for all of the `RevenueAnalyticsRevenueView`s
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
             if isinstance(view, RevenueAnalyticsRevenueView):
                 view = cast(RevenueAnalyticsRevenueView, view)
-                table = cast(DataWarehouseTable, view.data_warehouse_table)
 
                 queries.append(
                     ast.SelectQuery(
                         select=[
-                            ast.Alias(alias="table_name", expr=ast.Constant(value=table.name)),
-                            ast.Alias(alias="distinct_id", expr=ast.Field(chain=["distinct_id"])),
-                            ast.Alias(alias="original_revenue", expr=ast.Field(chain=["original_amount"])),
-                            ast.Alias(alias="original_currency", expr=ast.Field(chain=["original_currency"])),
-                            ast.Alias(alias="revenue", expr=ast.Field(chain=["amount"])),
-                            ast.Alias(alias="currency", expr=ast.Field(chain=["currency"])),
+                            ast.Alias(alias="view_name", expr=ast.Constant(value=view_name)),
+                            ast.Alias(alias="distinct_id", expr=ast.Field(chain=[view_name, "id"])),
+                            ast.Alias(
+                                alias="original_revenue", expr=ast.Field(chain=[view_name, "adjusted_original_amount"])
+                            ),
+                            ast.Alias(
+                                alias="original_currency", expr=ast.Field(chain=[view_name, "original_currency"])
+                            ),
+                            ast.Alias(alias="revenue", expr=ast.Field(chain=[view_name, "amount"])),
+                            ast.Alias(alias="currency", expr=ast.Field(chain=[view_name, "currency"])),
                         ],
                         select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
-                        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                        order_by=[ast.OrderExpr(expr=ast.Field(chain=[view_name, "timestamp"]), order="DESC")],
                     )
                 )
 
@@ -80,7 +82,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
         )
 
         return RevenueExampleDataWarehouseTablesQueryResponse(
-            columns=["table_name", "distinct_id", "original_revenue", "original_currency", "revenue", "currency"],
+            columns=response.columns,
             results=response.results,
             timings=response.timings,
             types=response.types,

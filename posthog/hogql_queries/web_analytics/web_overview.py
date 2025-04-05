@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
@@ -145,7 +146,7 @@ HAVING {inside_start_timestamp_period}
                 parsed_select.select.append(
                     ast.Alias(
                         alias="session_revenue",
-                        expr=self.revenue_sum_expression,
+                        expr=revenue_sum_expression_for_events(self.team.revenue_config),
                     )
                 )
 

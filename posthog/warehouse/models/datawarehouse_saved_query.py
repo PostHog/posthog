@@ -171,13 +171,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
-        structure = []
         for column, type in columns.items():
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type
-            else:
+            elif isinstance(type, dict):
                 clickhouse_type = type["clickhouse"]
+            else:
+                raise Exception(f"Unknown column type: {type}")  # Never reached
 
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
@@ -186,20 +187,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if clickhouse_type.startswith("Array("):
                 clickhouse_type = remove_named_tuples(clickhouse_type)
 
-            if isinstance(type, dict):
-                column_invalid = not type.get("valid", True)
-            else:
-                column_invalid = False
-
-            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                structure.append(f"`{column}` {clickhouse_type}")
-
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
                 hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
-            else:
+            elif isinstance(type, dict):
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+            else:
+                raise Exception(f"Unknown column type: {type}")  # Never reached
 
             fields[column] = hogql_type(name=column)
 
