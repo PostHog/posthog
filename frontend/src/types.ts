@@ -1154,6 +1154,8 @@ export interface LegacyRecordingFilters {
     operand?: FilterLogicalOperator
 }
 
+export type RecordingDirection = 'newer' | 'older'
+
 export interface RecordingUniversalFilters {
     date_from?: string | null
     date_to?: string | null
@@ -1161,6 +1163,7 @@ export interface RecordingUniversalFilters {
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
     order?: RecordingsQuery['order']
+    direction?: RecordingDirection
 }
 
 export interface UniversalFiltersGroup {

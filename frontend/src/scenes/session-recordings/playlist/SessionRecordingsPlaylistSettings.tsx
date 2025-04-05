@@ -19,6 +19,13 @@ const SortingKeyToLabel = {
     mouse_activity_count: 'Mouse activity',
 }
 
+function getLabel(filters: RecordingUniversalFilters): string {
+    if (filters.order === 'start_time') {
+        return filters.direction === 'newer' ? 'Latest' : 'Oldest'
+    }
+    return SortingKeyToLabel[filters.order || 'start_time']
+}
+
 function SortedBy({
     filters,
     setFilters,
@@ -31,9 +38,19 @@ function SortedBy({
             highlightWhenActive={false}
             items={[
                 {
-                    label: SortingKeyToLabel['start_time'],
-                    onClick: () => setFilters({ order: 'start_time' }),
-                    active: filters.order === 'start_time',
+                    label: 'Date',
+                    items: [
+                        {
+                            label: 'Latest',
+                            onClick: () => setFilters({ order: 'start_time', direction: 'newer' }),
+                            active: filters.order === 'start_time' && filters.direction === 'newer',
+                        },
+                        {
+                            label: 'Oldest',
+                            onClick: () => setFilters({ order: 'start_time', direction: 'older' }),
+                            active: filters.order === 'start_time' && filters.direction === 'older',
+                        },
+                    ],
                 },
                 {
                     label: SortingKeyToLabel['activity_score'],
@@ -87,7 +104,7 @@ function SortedBy({
                 },
             ]}
             icon={<IconSort className="text-lg" />}
-            label={SortingKeyToLabel[filters.order || 'start_time']}
+            label={getLabel(filters)}
         />
     )
 }
