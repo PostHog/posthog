@@ -32,6 +32,7 @@ import {
     isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
+    isPathsV2Query,
     isPersonsNode,
     isRetentionQuery,
     isStickinessQuery,
@@ -198,6 +199,9 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             summary += `${query.pathsFilter?.startPoint ? ' and' : ''} ending at ${query.pathsFilter?.endPoint}`
         }
         return summary
+    } else if (isPathsV2Query(query)) {
+        // TODO: Implement query summary for paths-v2
+        return ''
     } else if (isStickinessQuery(query)) {
         return capitalizeFirstLetter(
             query.series

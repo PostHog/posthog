@@ -73,6 +73,7 @@ const insightTypeToNodeKind: Record<
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
     [InsightType.RETENTION]: NodeKind.RetentionQuery,
     [InsightType.PATHS]: NodeKind.PathsQuery,
+    [InsightType.PATHS_V2]: NodeKind.PathsV2Query,
     [InsightType.STICKINESS]: NodeKind.StickinessQuery,
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
 }

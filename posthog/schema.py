@@ -501,6 +501,15 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
+class ConversionWindowIntervalUnit(StrEnum):
+    SECOND = "second"
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -1290,6 +1299,7 @@ class InsightFilterProperty(StrEnum):
     FUNNELS_FILTER = "funnelsFilter"
     RETENTION_FILTER = "retentionFilter"
     PATHS_FILTER = "pathsFilter"
+    PATHS_V2_FILTER = "pathsV2Filter"
     STICKINESS_FILTER = "stickinessFilter"
     LIFECYCLE_FILTER = "lifecycleFilter"
 
@@ -1299,6 +1309,7 @@ class InsightNodeKind(StrEnum):
     FUNNELS_QUERY = "FunnelsQuery"
     RETENTION_QUERY = "RetentionQuery"
     PATHS_QUERY = "PathsQuery"
+    PATHS_V2_QUERY = "PathsV2Query"
     STICKINESS_QUERY = "StickinessQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
 
@@ -1396,6 +1407,7 @@ class NodeKind(StrEnum):
     FUNNELS_QUERY = "FunnelsQuery"
     RETENTION_QUERY = "RetentionQuery"
     PATHS_QUERY = "PathsQuery"
+    PATHS_V2_QUERY = "PathsV2Query"
     STICKINESS_QUERY = "StickinessQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
     INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
@@ -1466,6 +1478,16 @@ class PathsLink(BaseModel):
     average_conversion_time: float
     source: str
     target: str
+    value: float
+
+
+class PathsV2Item(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source_step: Optional[str] = None
+    step_index: float
+    target_step: Optional[str] = None
     value: float
 
 
@@ -1563,7 +1585,7 @@ class QueryResponseAlternative17(BaseModel):
     total_exposures: dict[str, float]
 
 
-class QueryResponseAlternative47(BaseModel):
+class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2928,6 +2950,17 @@ class PathsFilter(BaseModel):
     pathsHogQLExpression: Optional[str] = None
     startPoint: Optional[str] = None
     stepLimit: Optional[int] = 5
+
+
+class PathsV2Filter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    collapseEvents: Optional[bool] = False
+    maxRowsPerStep: Optional[int] = 3
+    maxSteps: Optional[int] = 5
+    windowInterval: Optional[int] = 14
+    windowIntervalUnit: Optional[ConversionWindowIntervalUnit] = ConversionWindowIntervalUnit.DAY
 
 
 class PersonPropertyFilter(BaseModel):
@@ -4399,6 +4432,36 @@ class CachedPathsQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[PathsLink]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedPathsV2QueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[PathsV2Item]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5932,6 +5995,27 @@ class PathsQueryResponse(BaseModel):
     )
 
 
+class PathsV2QueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[PathsV2Item]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6625,13 +6709,34 @@ class QueryResponseAlternative43(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    results: list[PathsV2Item]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative44(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative45(BaseModel):
+class QueryResponseAlternative46(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6657,7 +6762,7 @@ class QueryResponseAlternative45(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative48(BaseModel):
+class QueryResponseAlternative49(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6678,7 +6783,7 @@ class QueryResponseAlternative48(BaseModel):
     )
 
 
-class QueryResponseAlternative49(BaseModel):
+class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6699,7 +6804,7 @@ class QueryResponseAlternative49(BaseModel):
     )
 
 
-class QueryResponseAlternative50(BaseModel):
+class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6720,7 +6825,7 @@ class QueryResponseAlternative50(BaseModel):
     )
 
 
-class QueryResponseAlternative51(BaseModel):
+class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6745,7 +6850,7 @@ class QueryResponseAlternative51(BaseModel):
     )
 
 
-class QueryResponseAlternative52(BaseModel):
+class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7595,9 +7700,15 @@ class InsightActorsQueryOptionsResponse(BaseModel):
 
 
 class InsightFilter(
-    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
+    RootModel[
+        Union[
+            TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, PathsV2Filter, StickinessFilter, LifecycleFilter
+        ]
+    ]
 ):
-    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
+    root: Union[
+        TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, PathsV2Filter, StickinessFilter, LifecycleFilter
+    ]
 
 
 class MaxInnerUniversalFiltersGroup(BaseModel):
@@ -8260,6 +8371,47 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
+class InsightsQueryBasePathsV2QueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: Optional[
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    response: Optional[PathsV2QueryResponse] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
 class InsightsQueryBaseRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8391,6 +8543,49 @@ class LifecycleQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+
+
+class PathsV2Query(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    kind: Literal["PathsV2Query"] = "PathsV2Query"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    pathsV2Filter: Optional[PathsV2Filter] = None
+    properties: Optional[
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    response: Optional[PathsV2QueryResponse] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    series: Optional[list[Union[EventsNode, ActionsNode, DataWarehouseNode]]] = None
 
 
 class QueryResponseAlternative14(BaseModel):
@@ -8727,7 +8922,7 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class QueryResponseAlternative46(BaseModel):
+class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8783,7 +8978,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative41,
             QueryResponseAlternative42,
             QueryResponseAlternative43,
-            QueryResponseAlternative45,
+            QueryResponseAlternative44,
             QueryResponseAlternative46,
             QueryResponseAlternative47,
             QueryResponseAlternative48,
@@ -8791,6 +8986,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative50,
             QueryResponseAlternative51,
             QueryResponseAlternative52,
+            QueryResponseAlternative53,
         ]
     ]
 ):
@@ -8832,7 +9028,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative41,
         QueryResponseAlternative42,
         QueryResponseAlternative43,
-        QueryResponseAlternative45,
+        QueryResponseAlternative44,
         QueryResponseAlternative46,
         QueryResponseAlternative47,
         QueryResponseAlternative48,
@@ -8840,6 +9036,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative50,
         QueryResponseAlternative51,
         QueryResponseAlternative52,
+        QueryResponseAlternative53,
     ]
 
 
@@ -8906,9 +9103,9 @@ class InsightVizNode(BaseModel):
     showLastComputationRefresh: Optional[bool] = None
     showResults: Optional[bool] = None
     showTable: Optional[bool] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
+    source: Union[
+        TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, PathsV2Query, StickinessQuery, LifecycleQuery
+    ] = Field(..., discriminator="kind")
     suppressSessionAnalysisWarning: Optional[bool] = None
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
@@ -8931,9 +9128,9 @@ class StickinessActorsQuery(BaseModel):
     operator: Optional[StickinessOperator] = None
     response: Optional[ActorsQueryResponse] = None
     series: Optional[int] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
+    source: Union[
+        TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, PathsV2Query, StickinessQuery, LifecycleQuery
+    ] = Field(..., discriminator="kind")
     status: Optional[str] = None
 
 
@@ -8955,9 +9152,9 @@ class WebVitalsQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[Sampling] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
+    source: Union[
+        TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, PathsV2Query, StickinessQuery, LifecycleQuery
+    ] = Field(..., discriminator="kind")
     useSessionsTable: Optional[bool] = None
 
 
@@ -9024,9 +9221,9 @@ class InsightActorsQuery(BaseModel):
     )
     response: Optional[ActorsQueryResponse] = None
     series: Optional[int] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
+    source: Union[
+        TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, PathsV2Query, StickinessQuery, LifecycleQuery
+    ] = Field(..., discriminator="kind")
     status: Optional[str] = None
 
 
@@ -9393,6 +9590,7 @@ class QueryRequest(BaseModel):
         FunnelsQuery,
         RetentionQuery,
         PathsQuery,
+        PathsV2Query,
         StickinessQuery,
         LifecycleQuery,
         FunnelCorrelationQuery,
@@ -9469,6 +9667,7 @@ class QuerySchemaRoot(
             FunnelsQuery,
             RetentionQuery,
             PathsQuery,
+            PathsV2Query,
             StickinessQuery,
             LifecycleQuery,
             FunnelCorrelationQuery,
@@ -9519,6 +9718,7 @@ class QuerySchemaRoot(
         FunnelsQuery,
         RetentionQuery,
         PathsQuery,
+        PathsV2Query,
         StickinessQuery,
         LifecycleQuery,
         FunnelCorrelationQuery,

@@ -42,6 +42,8 @@ import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
+import { PathsV2SessionWindow } from 'scenes/insights/EditorFilters/PathsV2SessionWindow'
+import { PathsV2Steps } from 'scenes/insights/EditorFilters/PathsV2Steps'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -58,6 +60,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isFunnels,
         isRetention,
         isPaths,
+        isPathsV2,
         isLifecycle,
         isStickiness,
         isTrendsLike,
@@ -147,6 +150,12 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               label: 'Ends at',
                               component: PathsTargetEnd,
                           },
+                      ]
+                    : []),
+                ...(isPathsV2
+                    ? [
+                          { key: 'session-window', label: 'Session Window', component: PathsV2SessionWindow },
+                          { key: 'steps', label: 'Steps', component: PathsV2Steps },
                       ]
                     : []),
             ]),

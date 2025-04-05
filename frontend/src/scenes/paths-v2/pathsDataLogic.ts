@@ -14,7 +14,7 @@ import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } f
 import { isPathsQuery } from '~/queries/utils'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { pathsDataLogicType } from './pathsDataLogicType'
+import type { pathsV2DataLogicType } from './pathsDataLogicType'
 import { PathNodeData } from './pathUtils'
 import { Paths, PathsNode } from './types'
 
@@ -22,7 +22,7 @@ export const DEFAULT_STEP_LIMIT = 5
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
 
-export const pathsDataLogic = kea<pathsDataLogicType>([
+export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
     path((key) => ['scenes', 'paths', 'pathsDataLogic', key]),
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY)),
