@@ -2076,7 +2076,9 @@ class SendUsageNoLicenseTest(APIBaseTest):
 
 
 class TestQuerySplitting(ClickhouseTestMixin, TestCase):
-    """Tests for the query splitting functionality in usage_report.py."""
+    team: Team = None  # type: ignore
+    begin: datetime = None  # type: ignore
+    end: datetime = None  # type: ignore
 
     @classmethod
     def setUpTestData(cls) -> None:
