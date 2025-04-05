@@ -40,6 +40,10 @@ const Caption = (): JSX.Element => (
             here
         </Link>
         .
+        <br />
+        Currently, read permissions are required for the following resources:
+        <br />
+        Account, Invoice, Customer, Subscription, Product, Price, BalanceTransaction, Charge.
     </>
 )
 

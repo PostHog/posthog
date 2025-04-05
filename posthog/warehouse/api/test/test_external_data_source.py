@@ -659,18 +659,38 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
         ) as validate_credentials_mock:
-            validate_credentials_mock.return_value = False
+            validate_credentials_mock.side_effect = Exception("Invalid API key")
 
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "client_secret": "blah",
-                    "account_id": "blah",
+                    "stripe_secret_key": "invalid_key",
                 },
             )
 
             assert response.status_code == 400
+            assert response.json()["message"] == "Invalid credentials: Stripe secret is incorrect"
+
+    def test_database_schema_stripe_permissions_error(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            from posthog.temporal.data_imports.pipelines.stripe import StripePermissionError
+
+            missing_permissions = {"Account": "Error message for Account", "Invoice": "Error message for Invoice"}
+            validate_credentials_mock.side_effect = StripePermissionError(missing_permissions)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "stripe_secret_key": "invalid_key",
+                },
+            )
+
+            assert response.status_code == 400
+            assert "Stripe API key lacks permissions for Account, Invoice" in response.json()["message"]
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
