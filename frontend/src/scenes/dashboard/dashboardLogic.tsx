@@ -1722,10 +1722,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
 
         '/dashboard/:id': (_, searchParams) => {
-            if (values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-                const variables = parseURLVariables(searchParams)
-                actions.setURLVariables(variables)
-            }
+            const variables = parseURLVariables(searchParams)
+            actions.setURLVariables(variables)
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
