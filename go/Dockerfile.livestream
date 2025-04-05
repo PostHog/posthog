@@ -1,0 +1,41 @@
+FROM golang:1.24 AS builder
+WORKDIR /app
+
+# Install build dependencies including librdkafka
+RUN apt-get update && apt-get install -y --no-install-recommends git gcc g++ make pkg-config librdkafka-dev ca-certificates curl brotli && rm -rf /var/lib/apt/lists/*
+
+# Copy go.mod files first for better caching
+COPY services/livestream/go.mod services/livestream/go.sum services/livestream/
+COPY pkg/common/go.mod pkg/common/
+
+# Download dependencies
+RUN cd services/livestream && go mod download
+
+# Copy source code
+COPY pkg/common/ pkg/common/
+COPY services/livestream/ services/livestream/
+
+# Build the binary
+RUN cd services/livestream && CGO_ENABLED=1 GOOS=linux go build -o /livestream
+
+# Download GeoIP database
+RUN mkdir -p /app/share && curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=/app/share/GeoLite2-City.mmdb && chmod -R 755 /app/share/GeoLite2-City.mmdb
+
+FROM ubuntu:24.04
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates librdkafka1 && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the binary, configs, and GeoIP database from builder
+COPY --from=builder /livestream /app/
+COPY --from=builder /etc/ssl/certs /etc/ssl/certs
+COPY --from=builder /usr/share/ca-certificates /usr/share/ca-certificates
+COPY --from=builder /app/services/livestream/configs /app/configs
+COPY --from=builder /app/share /app/share
+
+ENV POSTHOG_HOST=https://app.posthog.com
+EXPOSE 8000
+
+CMD ["/app/livestream"]
