@@ -50,7 +50,7 @@ const SupportResponseTimesTable = ({
     const platformAndSupportProduct = billing?.products?.find((p) => p.type === 'platform_and_support')
     const hasTeamsAddon = platformAndSupportProduct?.addons?.find((a) => a.type === 'teams' && a.subscribed)
     const hasTeamsAddonAlt = supportPlans?.some((plan) => plan.name === 'Teams add-on' && plan.current_plan === true)
-    const teamsAddonActive = !!hasTeamsAddon || hasTeamsAddonAlt
+    const teamsAddonActive = Boolean(hasTeamsAddon || hasTeamsAddonAlt)
 
     // Check for enterprise plan
     const hasEnterprisePlan =
@@ -73,7 +73,13 @@ const SupportResponseTimesTable = ({
     }
 
     // Create plans array from billing data - directly determine current_plan status here
-    const plansToDisplay = [
+    const plansToDisplay: {
+        name: string
+        current_plan: boolean | undefined
+        features: any[]
+        plan_key: string
+        link?: string
+    }[] = [
         {
             name: 'Totally free',
             current_plan: billing?.subscription_level === 'free' && !hasActiveTrial && !hasEnterprisePlan,
@@ -85,7 +91,7 @@ const SupportResponseTimesTable = ({
             name: 'Ridiculously cheap',
             current_plan:
                 billing?.subscription_level === 'paid' && !teamsAddonActive && !hasEnterprisePlan && !hasActiveTrial,
-            features: [{ note: '1 business day' }],
+            features: [{ note: '2 business days' }],
             plan_key: 'paid',
         },
         {
@@ -103,7 +109,7 @@ const SupportResponseTimesTable = ({
             current_plan: hasEnterprisePlan && !hasActiveTrial,
             features: [
                 getResponseTimeFeature('Enterprise plan') || {
-                    note: '2 business days',
+                    note: '1 business day',
                 },
             ],
             plan_key: 'enterprise',
@@ -123,16 +129,14 @@ const SupportResponseTimesTable = ({
             >
                 <strong>Avg support response times</strong>
                 <div>
-                    <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
+                    <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Upgrade</Link>
                 </div>
             </div>
 
             {plansToDisplay.map((plan) => {
                 const isBold = plan.current_plan
 
-                const responseNote = plan.features.find(
-                    (f) => (f as any).key === AvailableFeature.SUPPORT_RESPONSE_TIME || (f as any).note
-                )?.note
+                const responseNote = plan.features.find((f: any) => f.note)?.note
 
                 const formattedResponseTime = responseNote
                     ? responseNote === '2 days' || responseNote === '24 hours'
@@ -151,7 +155,7 @@ const SupportResponseTimesTable = ({
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
                                 {plan.name}
                                 {isBold && ' '}
-                                {isBold && <span className="text-muted text-xs font-normal">(Your plan)</span>}
+                                {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
                             </span>
                         </div>
                         <div
@@ -173,8 +177,7 @@ const SupportResponseTimesTable = ({
             {/* Display expired trial information */}
             {!hasActiveTrial && hasExpiredTrial && expiredTrialDate && (
                 <>
-                    <div className="border-t text-muted">Trial expired</div>
-                    <div className="border-t text-muted">{expiredTrialDate.format('MMMM D, YYYY')}</div>
+                    <div className="border-t text-muted col-span-2">Trial expired</div>
                 </>
             )}
 
@@ -182,9 +185,7 @@ const SupportResponseTimesTable = ({
             {hasActiveTrial && (
                 <>
                     <div className="font-bold border-t">Your trial</div>
-                    <div className="font-bold border-t text-right">
-                        {billing?.trial?.target === 'enterprise' ? '2 business days' : '1 business day'}
-                    </div>
+                    <div className="font-bold border-t text-right">1 business day</div>
                     {billing?.trial?.expires_at && (
                         <div className="col-span-2 text-sm">
                             (Trial expires {dayjs(billing.trial.expires_at).format('MMMM D, YYYY')})
@@ -208,154 +209,14 @@ export function SidePanelSupport(): JSX.Element {
     // Add isDevelopment check for debug purposes
     const isDevelopment = process.env.NODE_ENV === 'development'
 
-    // -----------------------------------------------------------------------------
-    // TEMPORARY DEBUG - REMOVE BEFORE COMMITTING !!!
-    // -----------------------------------------------------------------------------
-    // HOW TO ADD to frontend/src/layout/navigation-3000/sidepanel/panels/SidePanelSupport.tsx :
-    // 1. This block should be placed after the isDevelopment definition and before any references to billing.
-    // 2. Replace the original canEmail and hasActiveTrial definitions with debugBilling versions:
-    //    const canEmail = debugBilling?.subscription_level !== 'free' || (!!debugBilling?.trial?.status && debugBilling.trial.status === 'active')
-    //    const hasActiveTrial = !!debugBilling?.trial?.status && debugBilling.trial.status === 'active'
-    // 3. Replace all other billing references with debugBilling, particularly in:
-    //    - SupportFormBlock component: billing={debugBilling}
-    //    - SupportResponseTimesTable component: billing={debugBilling}
-    // 4. Uncomment ONE of the scenario blocks below to test specific conditions.
-    //
-    // HOW TO REMOVE:
-    // 1. Delete everything between "TEMPORARY DEBUG" and "END TEMPORARY DEBUG" markers.
-    // 2. Make sure these lines are present and using the original billing variable:
-    //    const canEmail = billing?.subscription_level !== 'free' || (!!billing?.trial?.status && billing.trial.status === 'active')
-    //    const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'
-    // 3. Check all instances of debugBilling are restored to billing:
-    //    - In SupportFormBlock: billing={billing}
-    //    - In SupportResponseTimesTable: billing={billing}
-    //
-    // SECURITY NOTE: This debug code should NEVER be committed to production as it could potentially
-    // allow free users to access support features they shouldn't have access to.
-    //
-
-    const debugBilling = isDevelopment
-        ? ({
-              ...(billing || {}),
-
-              // -----------------------------------------------------------------------------
-              // SCENARIO 1: New-style trial (ACTIVE)
-              // -----------------------------------------------------------------------------
-              // trial: {
-              //   status: 'active' as const,
-              //   type: 'standard' as const,
-              //   target: 'teams' as const,
-              //   expires_at: dayjs().add(30, 'day').toISOString()
-              // },
-              // subscription_level: 'free' as const,
-
-              // -----------------------------------------------------------------------------
-              // SCENARIO 2: New-style trial (EXPIRED)
-              // -----------------------------------------------------------------------------
-              // trial: {
-              //   status: 'expired' as const,
-              //   type: 'standard' as const,
-              //   target: 'teams' as const,
-              //   expires_at: dayjs().subtract(10, 'day').toISOString()
-              // },
-              // subscription_level: 'free' as const,
-
-              // -----------------------------------------------------------------------------
-              // SCENARIO 3: Paid account (no trial)
-              // Use the UI instead for Ridiculously cheap + Teams add-on
-              // -----------------------------------------------------------------------------
-              trial: undefined, // No trial
-              subscription_level: 'paid' as const,
-
-              // -----------------------------------------------------------------------------
-              // SCENARIO 4: Enterprise trial (ACTIVE)
-              // -----------------------------------------------------------------------------
-              // trial: {
-              //   status: 'active' as const,
-              //   type: 'standard' as const,
-              //   target: 'enterprise' as const,
-              //   expires_at: dayjs().add(30, 'day').toISOString()
-              // },
-              // subscription_level: 'free' as const,
-              // products: [
-              //   {
-              //     type: 'enterprise' as const,
-              //     name: 'Enterprise',
-              //     current_usage: 0,
-              //     contact_support: true,
-              //     plans: [
-              //       {
-              //         name: 'Enterprise',
-              //         current_plan: false,
-              //         features: [
-              //           {
-              //             key: 'support_response_time' as AvailableFeature.SUPPORT_RESPONSE_TIME,
-              //             name: 'Support response time',
-              //             note: '12 hours'
-              //           }
-              //         ]
-              //       }
-              //     ]
-              //   }
-              // ],
-              // -----------------------------------------------------------------------------
-              // SCENARIO 5: Enterprise trial (EXPIRED)
-              // -----------------------------------------------------------------------------
-              // trial: {
-              //   status: 'expired' as const,
-              //   type: 'standard' as const,
-              //   target: 'enterprise' as const,
-              //   expires_at: dayjs().subtract(10, 'day').toISOString()
-              // },
-              // subscription_level: 'free' as const,
-              // products: [],  // No products since trial is expired
-
-              // -----------------------------------------------------------------------------
-              // SCENARIO 6: Active Enterprise Plan (post-trial)
-              // -----------------------------------------------------------------------------
-              // trial: undefined, // No trial
-              // subscription_level: 'paid' as const,
-              // products: [
-              //  {
-              //     type: 'enterprise' as const,
-              //     name: 'Enterprise',
-              //     current_usage: 0,
-              //     features: [
-              //       {
-              //         key: 'support_response_time' as AvailableFeature.SUPPORT_RESPONSE_TIME,
-              //         name: 'Support response time',
-              //         note: '12 hours'
-              //       }
-              //     ],
-              //     contact_support: true,
-              //     plans: [
-              //       {
-              //         name: 'Enterprise',
-              //         current_plan: true,
-              //         features: [
-              //           {
-              //             key: 'support_response_time' as AvailableFeature.SUPPORT_RESPONSE_TIME,
-              //             name: 'Support response time',
-              //             note: '12 hours'
-              //           }
-              //         ]
-              //       }
-              //     ]
-              //   }
-              // ]
-          } as BillingType | null)
-        : billing
-    // -----------------------------------------------------------------------------
-    // END TEMPORARY DEBUG
-    // -----------------------------------------------------------------------------
-
     // Check for support access
     const canEmail =
-        debugBilling?.subscription_level !== 'free' ||
-        (!!debugBilling?.trial?.status && debugBilling.trial.status === 'active')
+        billing?.subscription_level === 'paid' ||
+        billing?.subscription_level === 'custom' ||
+        (!!billing?.trial?.status && billing.trial.status === 'active')
 
     // Check if we're on a paid plan or active trial
-    const hasActiveTrial = !!debugBilling?.trial?.status && debugBilling.trial.status === 'active'
+    const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'
 
     // Conditionally show email support based on development mode and cloud status
     const showEmailSupport = isDevelopment ? canEmail : preflight?.cloud && canEmail
@@ -415,15 +276,11 @@ export function SidePanelSupport(): JSX.Element {
                 ) : (
                     <>
                         <div className="mb-2">
-                            <strong>Support is open Monday - Friday:</strong>
+                            <strong>Support is open Monday - Friday</strong>
                         </div>
 
                         {/* Show response time information from billing plans */}
-                        <SupportResponseTimesTable
-                            billing={debugBilling}
-                            hasActiveTrial={hasActiveTrial}
-                            isCompact={true}
-                        />
+                        <SupportResponseTimesTable billing={billing} hasActiveTrial={hasActiveTrial} isCompact={true} />
                     </>
                 )}
             </Section>
@@ -522,10 +379,10 @@ export function SidePanelSupport(): JSX.Element {
 
                             {/* Add support hours and table */}
                             <div className="mb-2">
-                                <strong>Support is open Monday - Friday:</strong>
+                                <strong>Support is open Monday - Friday</strong>
                             </div>
                             <SupportResponseTimesTable
-                                billing={debugBilling}
+                                billing={billing}
                                 hasActiveTrial={hasActiveTrial}
                                 isCompact={true}
                             />

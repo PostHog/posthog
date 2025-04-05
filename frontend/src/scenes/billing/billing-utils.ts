@@ -264,7 +264,7 @@ export const formatPlanStatus = (billing: BillingType | null): string => {
 
     // Check for expired trial
     if (billing.trial?.status === 'expired' && billing.trial.expires_at) {
-        return `(trial expired ${dayjs(billing.trial.expires_at).format('MM/DD/YYYY')})`
+        return `(trial expired)`
     }
 
     // Regular paid plan
