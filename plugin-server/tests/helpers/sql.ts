@@ -293,6 +293,11 @@ export async function getTeams(hub: Hub): Promise<Team[]> {
     return selectResult.rows
 }
 
+export async function getTeam(hub: Hub, teamId: Team['id']): Promise<Team | null> {
+    const teams = await getTeams(hub)
+    return teams.find((team) => team.id === teamId) ?? null
+}
+
 export async function getFirstTeam(hub: Hub): Promise<Team> {
     return (await getTeams(hub))[0]
 }
