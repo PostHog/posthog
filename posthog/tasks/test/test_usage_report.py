@@ -2140,6 +2140,12 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
 
         flush_persons_and_events()
 
+    def setUp(self) -> None:
+        # Copy class attributes to instance attributes
+        self.team = self.__class__.team
+        self.begin = self.__class__.begin
+        self.end = self.__class__.end
+
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
         """Test that _execute_split_query correctly splits the time period and combines results."""
