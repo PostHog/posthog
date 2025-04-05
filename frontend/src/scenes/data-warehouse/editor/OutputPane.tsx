@@ -7,6 +7,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
@@ -347,6 +348,21 @@ export function OutputPane(): JSX.Element {
                                                 disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
                                                 type="primary"
                                                 onClick={() => updateInsight()}
+                                                sideAction={{
+                                                    dropdown: {
+                                                        placement: 'bottom-end',
+                                                        overlay: (
+                                                            <LemonMenuOverlay
+                                                                items={[
+                                                                    {
+                                                                        label: 'Save as...',
+                                                                        onClick: () => saveAsInsight(),
+                                                                    },
+                                                                ]}
+                                                            />
+                                                        ),
+                                                    },
+                                                }}
                                             >
                                                 Save insight
                                             </LemonButton>
