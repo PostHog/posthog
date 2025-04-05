@@ -1,144 +1,140 @@
-import openai
+from typing import Any
 
-from prometheus_client import Histogram
-
+import structlog
+from ee.session_recordings.ai.llm import get_raw_llm_session_summary
+from ee.session_recordings.ai.output_data import enrich_raw_session_summary_with_events_meta
+from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData
+from ee.session_recordings.session_summary.utils import (
+    load_session_metadata_from_json,
+    load_sesssion_recording_events_from_csv,
+    shorten_url,
+)
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
 from posthog.session_recordings.models.session_recording import SessionRecording
+from django.template.loader import get_template
 
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
-from posthog.utils import get_instance_region
-
-from ee.session_recordings.ai.utils import (
-    SessionSummaryPromptData,
-    simplify_window_id,
-    deduplicate_urls,
-    format_dates,
-    collapse_sequence_of_events,
-)
-
-TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
-    "posthog_session_summary_tokens_in_prompt_histogram",
-    "histogram of the number of tokens in the prompt used to generate a session summary",
-    buckets=[
-        0,
-        10,
-        50,
-        100,
-        500,
-        1000,
-        2000,
-        3000,
-        4000,
-        5000,
-        6000,
-        7000,
-        8000,
-        10000,
-        20000,
-        30000,
-        40000,
-        50000,
-        100000,
-        128000,
-        float("inf"),
-    ],
-)
+logger = structlog.get_logger(__name__)
 
 
-def summarize_recording(recording: SessionRecording, user: User, team: Team):
-    timer = ServerTimingsGathered()
+class ReplaySummarizer:
+    def __init__(self, recording: SessionRecording, user: User, team: Team):
+        self.recording = recording
+        self.user = user
+        self.team = team
 
-    with timer("get_metadata"):
-        session_metadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=team)
-        if not session_metadata:
-            raise ValueError(f"no session metadata found for session_id {recording.session_id}")
+    @staticmethod
+    def _get_session_metadata(session_id: str, team: Team) -> dict[str, Any]:
+        # TODO: Switch to using it after testing with production data
+        live_session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
+        if not live_session_metadata:
+            raise ValueError(f"no session metadata found for session_id {session_id}")
+        # Convert to a dict, so that we can amend its values freely
+        live_session_metadata_dict = dict(live_session_metadata)
+        logger.debug(f"live_session_metadata: {live_session_metadata_dict}")
 
-    with timer("get_events"):
-        session_events = SessionReplayEvents().get_events(
-            session_id=str(recording.session_id),
+        # TODO: Remove before merging, using to test with production data
+        # Load session metadata from JSON to load with production data.
+        session_metadata_dict = load_session_metadata_from_json(
+            "/Users/woutut/Documents/Code/posthog/playground/single-session-metadata_0195f10e-7c84-7944-9ea2-0303a4b37af7.json"
+        )
+        return session_metadata_dict
+
+    @staticmethod
+    def _get_session_events(
+        session_id: str, session_metadata: dict, team: Team
+    ) -> tuple[list[str], list[tuple[str | None, ...]]]:
+        # TODO: Switch to using it after testing with production data
+        live_session_events = SessionReplayEvents().get_events(
+            session_id=str(session_id),
             team=team,
             metadata=session_metadata,
             events_to_ignore=[
                 "$feature_flag_called",
             ],
         )
-        if not session_events or not session_events[0] or not session_events[1]:
-            raise ValueError(f"no events found for session_id {recording.session_id}")
+        logger.debug(f"live_session_events: {live_session_events}")
 
-    # convert session_metadata to a Dict from a TypedDict
-    # so that we can amend its values freely
-    session_metadata_dict = dict(session_metadata)
+        # TODO: Remove before merging, using to test with production data
+        # Load session events from CSV to load with production data.
+        session_events_columns, session_events = load_sesssion_recording_events_from_csv(
+            "/Users/woutut/Documents/Code/posthog/playground/single-session-csv-export_0195f10e-7c84-7944-9ea2-0303a4b37af7.csv"
+        )
+        if not session_events_columns or not session_events:
+            raise ValueError(f"no events found for session_id {session_id}")
+        return session_events_columns, session_events
 
-    del session_metadata_dict["distinct_id"]
-    start_time = session_metadata["start_time"]
-    session_metadata_dict["start_time"] = start_time.isoformat()
-    session_metadata_dict["end_time"] = session_metadata["end_time"].isoformat()
+    def _generate_prompt(
+        self,
+        prompt_data: SessionSummaryPromptData,
+        url_mapping_reversed: dict[str, str],
+        window_mapping_reversed: dict[str, str],
+    ) -> str:
+        # Keep shortened URLs for the prompt to reduce the number of tokens
+        short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
+        # Render all templates
+        summary_template = get_template(f"session_summaries/single-replay_base-prompt.djt")
+        summary_example = get_template(f"session_summaries/single-replay_example.yml").render()
+        rendered_summary_prompt = summary_template.render(
+            {
+                "EVENTS_COLUMNS": prompt_data.columns,
+                "EVENTS_DATA": prompt_data.results,
+                "SESSION_METADATA": prompt_data.metadata.to_dict(),
+                "URL_MAPPING": short_url_mapping_reversed,
+                "WINDOW_ID_MAPPING": window_mapping_reversed,
+                "SUMMARY_EXAMPLE": summary_example,
+            }
+        )
+        return rendered_summary_prompt
 
-    with timer("generate_prompt"):
-        prompt_data = deduplicate_urls(
-            collapse_sequence_of_events(
-                format_dates(
-                    simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1])),
-                    start=start_time,
-                )
+    def summarize_recording(self):
+        timer = ServerTimingsGathered()
+
+        # TODO Learn how to make data collection for prompt as async as possible to improve latency
+        with timer("get_metadata"):
+            session_metadata = self._get_session_metadata(self.recording.session_id, self.team)
+        with timer("get_events"):
+            session_events_columns, session_events = self._get_session_events(
+                self.recording.session_id, session_metadata, self.team
             )
+
+        # TODO Get web analytics data on URLs to better understand what the user was doing
+        # related to average visitors of the same pages (left the page too fast, unexpected bounce, etc.).
+        # Keep in mind that in-app behavior (like querying insights a lot) differs from the web (visiting a lot of pages).
+
+        with timer("generate_prompt"):
+            prompt_data = SessionSummaryPromptData()
+            simplified_events_mapping = prompt_data.load_session_data(
+                session_events, session_metadata, session_events_columns
+            )
+            # Reverse mappings for easier reference in the prompt.
+            url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
+            window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
+            rendered_summary_prompt = self._generate_prompt(prompt_data, url_mapping_reversed, window_mapping_reversed)
+        with timer("openai_completion"):
+            raw_session_summary = get_raw_llm_session_summary(
+                rendered_summary_template=rendered_summary_prompt,
+                user=self.user,
+                allowed_event_ids=list(simplified_events_mapping.keys()),
+                session_id=self.recording.session_id,
+            )
+        # Enrich the session summary with events metadata
+        session_summary = enrich_raw_session_summary_with_events_meta(
+            raw_session_summary=raw_session_summary,
+            simplified_events_mapping=simplified_events_mapping,
+            simplified_events_columns=prompt_data.columns,
+            url_mapping_reversed=url_mapping_reversed,
+            window_mapping_reversed=window_mapping_reversed,
+            session_start_time=prompt_data.metadata.start_time,
+            session_id=self.recording.session_id,
         )
 
-    instance_region = get_instance_region() or "HOBBY"
+        # TODO: Calculate tag/error stats for the session manually
+        # to use it later for grouping/suggesting (and showing overall stats)
 
-    with timer("openai_completion"):
-        result = openai.chat.completions.create(
-            model="gpt-4o-mini",  # allows 128k tokens
-            temperature=0.7,
-            messages=[
-                {
-                    "role": "system",
-                    "content": """
-            Session Replay is PostHog's tool to record visits to web sites and apps.
-            We also gather events that occur like mouse clicks and key presses.
-            You write two or three sentence concise and simple summaries of those sessions based on a prompt.
-            You are more likely to mention errors or things that look like business success such as checkout events.
-            You always try to make the summary actionable. E.g. mentioning what someone clicked on, or summarizing errors they experienced.
-            You don't help with other knowledge.""",
-                },
-                {
-                    "role": "user",
-                    "content": f"""the session metadata I have is {session_metadata_dict}.
-            it gives an overview of activity and duration""",
-                },
-                {
-                    "role": "user",
-                    "content": f"""
-            URLs associated with the events can be found in this mapping {prompt_data.url_mapping}. You never refer to URLs by their placeholder. Always refer to the URL with the simplest version e.g. posthog.com or posthog.com/replay
-            """,
-                },
-                {
-                    "role": "user",
-                    "content": f"""the session events I have are {prompt_data.results}.
-            with columns {prompt_data.columns}.
-            they give an idea of what happened and when,
-            if present the elements_chain_texts, elements_chain_elements, and elements_chain_href extracted from the html can aid in understanding what a user interacted with
-            but should not be directly used in your response""",
-                },
-                {
-                    "role": "user",
-                    "content": """
-            generate a two or three sentence summary of the session.
-            only summarize, don't offer advice.
-            use as concise and simple language as is possible.
-            Dont' refer to the session length unless it is notable for some reason.
-            assume a reading age of around 12 years old.
-            generate no text other than the summary.""",
-                },
-            ],
-            user=f"{instance_region}/{user.pk}",  # allows 8k tokens
-        )
+        # TODO Make the output streamable (the main reason behing using YAML
+        # to keep it partially parsable to avoid waiting for the LLM to finish)
 
-        usage = result.usage.prompt_tokens if result.usage else None
-        if usage:
-            TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
-
-    content: str = result.choices[0].message.content or ""
-    return {"content": content, "timings": timer.get_all_timings()}
+        return {"content": session_summary.data, "timings": timer.get_all_timings()}
