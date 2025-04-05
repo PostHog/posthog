@@ -224,10 +224,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         index: [
-            (props.selectFirstItem === false ? NO_ITEM_SELECTED : 0) as number,
+            (props.selectFirstItem === false || props.autoSelectItem === false ? NO_ITEM_SELECTED : 0) as number,
             {
                 setIndex: (_, { index }) => index,
-                loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
+                loadRemoteItemsSuccess: (state, { remoteItems }) =>
+                    remoteItems.queryChanged ? (props.autoSelectItem === false ? NO_ITEM_SELECTED : 0) : state,
             },
         ],
         showPopover: [props.popoverEnabled !== false, {}],
@@ -418,7 +419,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         setSearchQuery: async () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else {
+            } else if (props.autoSelectItem) {
                 actions.setIndex(0)
             }
         },
@@ -434,7 +435,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             if (values.isExpandableButtonSelected) {
                 actions.expand()
             } else {
-                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem, values.searchQuery)
+                actions.selectItem(
+                    values.group,
+                    values.selectedItemValue,
+                    values.selectedItem,
+                    values.swappedInQuery ? values.searchQuery : undefined
+                )
             }
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
