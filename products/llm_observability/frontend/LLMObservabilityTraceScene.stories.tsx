@@ -22,7 +22,7 @@ export default meta
 const Template: StoryFn<{ trace: LLMTrace; eventId?: string }> = ({ trace, eventId }) => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [trace] }],
+            '/api/projects/:team_id/query/': () => [200, { results: [trace] }],
         },
     })
 

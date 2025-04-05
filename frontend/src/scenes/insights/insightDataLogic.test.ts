@@ -20,7 +20,7 @@ describe('insightDataLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/trend': [],
+                '/api/projects/:team_id/insights/trend': [],
             },
         })
         initKeaTests()

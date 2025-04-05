@@ -31,7 +31,7 @@ describe('PersonsManagementScene', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/environments/:team_id/query': async (req, res, ctx) => {
+                '/api/projects/:team_id/query': async (req, res, ctx) => {
                     const payload = await req.json()
                     if (payload.query.search) {
                         if (payload.query.search !== 'test@example.com') {

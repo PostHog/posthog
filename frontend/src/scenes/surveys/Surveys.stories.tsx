@@ -225,7 +225,7 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/environments/:team_id/query/': async (req, res, ctx) => {
+                '/api/projects/:team_id/query/': async (req, res, ctx) => {
                     const body = await req.json()
                     if (body.kind == 'EventsQuery') {
                         return res(ctx.json(MOCK_SURVEY_RESULTS))
