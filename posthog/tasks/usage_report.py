@@ -355,8 +355,6 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         raise
 
 
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def _execute_split_query(
     begin: datetime, end: datetime, query_template: str, params: dict, num_splits: int = 2, combine_results_func=None
 ) -> Any:

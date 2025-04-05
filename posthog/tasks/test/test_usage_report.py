@@ -2279,7 +2279,7 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
         self.assertEqual(first_call_kwargs["num_splits"], 2)
 
-        # Second call (get_all_event_metrics_in_period) should use 4 splits
+        # Second call (get_all_event_metrics_in_period) should use 2 splits
         second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
         self.assertEqual(second_call_kwargs["num_splits"], 2)
 
