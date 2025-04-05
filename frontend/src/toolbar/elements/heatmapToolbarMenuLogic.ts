@@ -343,6 +343,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         disableHeatmap: () => {
             actions.resetElementStats()
+            actions.resetHeatmapData()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
 
@@ -366,11 +367,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         setHref: ({ href }) => {
-            actions.setDataHref(href, 'exact')
+            actions.setDataHref(href)
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
-            actions.setDataHref(href, 'regex')
+            actions.setDataHref(href)
             actions.maybeLoadClickmap()
         },
         setCommonFilters: () => {
@@ -405,10 +406,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.setHeatmapScrollY(scrollY)
             }
         }, 100)
+        // need to set the href at least once to get the heatmap to load
+        actions.setDataHref(values.href)
     }),
     beforeUnmount(({ cache }) => {
-        window.removeEventListener('keydown', cache.keyDownListener)
-        window.removeEventListener('keyup', cache.keyUpListener)
         clearInterval(cache.scrollCheckTimer)
     }),
 ])
