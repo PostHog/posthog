@@ -1,6 +1,20 @@
 .TZLabelPopover {
     margin: -0.25rem;
 
+    .TZLabelPopover__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        h3 {
+            margin-bottom: 0;
+        }
+    }
+
+    .TZLabelPopover__rows {
+        margin-top: 0.5rem;
+    }
+
     .TZLabelPopover__row {
         display: flex;
         align-items: center;
@@ -32,6 +46,10 @@
                 min-width: 12rem;
             }
         }
+
+        > :nth-child(5) {
+            margin-left: 8px;
+        }
     }
 
     .TZLabelPopover__row--muted {
@@ -41,5 +59,11 @@
         > :nth-child(2):not(:empty) {
             color: var(--text-secondary);
         }
+    }
+
+    .TZLabelPopover__datetime {
+        display: flex;
+        gap: 4px;
+        align-items: center;
     }
 }
