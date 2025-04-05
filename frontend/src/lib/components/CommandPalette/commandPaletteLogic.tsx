@@ -47,7 +47,6 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFlare } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -557,17 +556,11 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                             push(urls.sqlEditor())
                         },
                     },
-                    ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
-                        ? [
-                              {
-                                  icon: IconWarning,
-                                  display: 'Go to Error tracking',
-                                  executor: () => {
-                                      push(urls.errorTracking())
-                                  },
-                              },
-                          ]
-                        : []),
+                    {
+                        icon: IconWarning,
+                        display: 'Go to Error tracking',
+                        executor: () => push(urls.errorTracking()),
+                    },
                     {
                         display: 'Go to Session replay',
                         icon: IconRewindPlay,

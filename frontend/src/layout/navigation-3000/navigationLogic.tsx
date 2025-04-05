@@ -521,15 +521,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                           : undefined,
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
-                            ? {
-                                  identifier: 'LLMObservability',
-                                  label: 'LLM observability',
-                                  icon: <IconAI />,
-                                  to: urls.llmObservabilityDashboard(),
-                                  tag: 'beta' as const,
-                              }
-                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -576,24 +567,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 },
                             },
                         },
-                        featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
-                            ? {
-                                  identifier: Scene.ErrorTracking,
-                                  label: 'Error tracking',
-                                  icon: <IconWarning />,
-                                  to: urls.errorTracking(),
-                                  tag: 'beta' as const,
-                              }
-                            : null,
-                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
-                            ? {
-                                  identifier: Scene.Heatmaps,
-                                  label: 'Heatmaps',
-                                  icon: <IconCursorClick />,
-                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
-                                  tag: 'alpha' as const,
-                              }
-                            : null,
                         {
                             identifier: Scene.FeatureFlags,
                             label: 'Feature flags',
@@ -615,10 +588,25 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.surveys(),
                         },
                         {
-                            identifier: 'EarlyAccessFeatures',
+                            identifier: Scene.EarlyAccessFeatures,
                             label: 'Early access features',
                             icon: <IconRocket />,
                             to: urls.earlyAccessFeatures(),
+                        },
+                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
+                            ? {
+                                  identifier: 'LLMObservability',
+                                  label: 'LLM observability',
+                                  icon: <IconAI />,
+                                  to: urls.llmObservabilityDashboard(),
+                                  tag: 'beta' as const,
+                              }
+                            : null,
+                        {
+                            identifier: Scene.ErrorTracking,
+                            label: 'Error tracking',
+                            icon: <IconWarning />,
+                            to: urls.errorTracking(),
                         },
                         {
                             identifier: Scene.SQLEditor,
@@ -633,6 +621,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Data pipelines',
                                   icon: <IconPlug />,
                                   to: urls.pipeline(),
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
+                            ? {
+                                  identifier: Scene.Heatmaps,
+                                  label: 'Heatmaps',
+                                  icon: <IconCursorClick />,
+                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct

@@ -1,4 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
+import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -58,7 +59,7 @@ export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneL
         <HogFunctionConfiguration
             {...props}
             displayOptions={{ hideTestingConfiguration: true }}
-            logicKey="errorTracking"
+            logicKey={ERROR_TRACKING_LOGIC_KEY}
         />
     )
 }

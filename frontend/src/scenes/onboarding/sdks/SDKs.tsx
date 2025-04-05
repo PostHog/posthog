@@ -8,21 +8,12 @@ import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
-import { SDKInstructionsMap } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { SDKsProps } from './OnboardingInstallStep'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
-
-export type SDKsProps = {
-    sdkInstructionMap: SDKInstructionsMap
-    stepKey?: OnboardingStepKey
-    listeningForName?: string
-    teamPropertyToVerify?: string
-    usersAction?: string
-    subtitle?: string
-}
 
 export function InviteHelpCard(): JSX.Element {
     return (
