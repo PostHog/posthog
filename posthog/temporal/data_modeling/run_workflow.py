@@ -682,7 +682,7 @@ async def build_dag_from_selectors(selector_paths: SelectorPaths, team_id: int) 
 
 async def get_posthog_tables(team_id: int) -> list[str]:
     team = await database_sync_to_async(Team.objects.get)(id=team_id)
-    hogql_db = await database_sync_to_async(create_hogql_database)(team_id=team_id, team_arg=team)
+    hogql_db = await database_sync_to_async(create_hogql_database)(team=team)
     posthog_tables = hogql_db.get_posthog_tables()
     return posthog_tables
 

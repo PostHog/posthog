@@ -12,8 +12,6 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 logger = structlog.get_logger(__name__)
 
 # django-axes settings to lockout after too many attempts
-
-
 AXES_ENABLED = get_from_env("AXES_ENABLED", not TEST, type_cast=str_to_bool)
 AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
@@ -22,7 +20,6 @@ AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
 AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 
 # Decide rate limit setting
-
 DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
 DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
 DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
@@ -32,12 +29,11 @@ DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type
 # This is a list of team-ids that are prevented from using the /decide endpoint
 # until they fix an issue with their feature flags causing instability in posthog.
 DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
-# Decide db settings
 
+# Decide db settings
 DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
 
 # Decide billing analytics
-
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
@@ -64,6 +60,13 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 
 # Application definition
 
+# TODO: Automatically generate these like we do for the frontend
+# NOTE: Add these definitions here and on `tach.toml`
+PRODUCTS_APPS = [
+    "products.early_access_features",
+    "products.revenue_analytics",
+]
+
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     "django.contrib.admin",
@@ -84,14 +87,13 @@ INSTALLED_APPS = [
     "django_otp",
     "django_otp.plugins.otp_static",
     "django_otp.plugins.otp_totp",
-    # 'django_otp.plugins.otp_email',  # <- if you want email capability.
+    *PRODUCTS_APPS,
     "two_factor",
+    # 'django_otp.plugins.otp_email',  # <- if you want email capability.
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
-    "products.early_access_features",  # TODO: add this automatically
 ]
-
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
@@ -128,8 +130,8 @@ MIDDLEWARE = [
     "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
 
+# Add the rebase_migration command
 if DEBUG:
-    # rebase_migration command
     INSTALLED_APPS.append("django_linear_migrations")
 
 # Append Enterprise Edition as an app if available
@@ -232,19 +234,14 @@ PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 # https://docs.djangoproject.com/en/2.2/topics/i18n/
 
 LANGUAGE_CODE = "en-us"
-
 TIME_ZONE = "UTC"
-
 USE_I18N = True
-
 USE_L10N = True
-
 USE_TZ = True
 
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.2/howto/static-files/
-
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [
@@ -307,7 +304,7 @@ SPECTACULAR_SETTINGS = {
 
 EXCEPTIONS_HOG = {"EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting"}
 
-# Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
+# Cookie age in seconds (default 2 weeks) - these are the defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
 # For sensitive actions we have an additional permission (default 1 hour)
@@ -385,8 +382,10 @@ PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""
 
 # The total time allowed for an impersonated session
 IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 60 * 60 * 2, type_cast=int)
+
 # The time allowed for an impersonated session to be idle before it expires
 IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SECONDS", 30 * 60, type_cast=int)
+
 # Impersonation cookie last activity key
 IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"

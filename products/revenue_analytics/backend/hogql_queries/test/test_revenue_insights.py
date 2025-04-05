@@ -1,4 +1,4 @@
-# NOTE: This isn't testing any of the custom Web Analytics code,
+# NOTE: This isn't testing any of the custom Revenue Analytics code,
 # but rather testing the revenue code in insights/trends/aggregation_operations.py
 from decimal import Decimal
 from typing import Any, Optional

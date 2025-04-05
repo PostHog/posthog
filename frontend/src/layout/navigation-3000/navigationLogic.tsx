@@ -14,6 +14,7 @@ import {
     IconNotebook,
     IconPeople,
     IconPieChart,
+    IconPiggyBank,
     IconPlug,
     IconPlusSmall,
     IconRewindPlay,
@@ -633,6 +634,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Data pipelines',
                                   icon: <IconPlug />,
                                   to: urls.pipeline(),
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'beta' as const,
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct

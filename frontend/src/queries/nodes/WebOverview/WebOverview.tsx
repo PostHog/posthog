@@ -8,8 +8,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { revenueEventsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueEventsSettingsLogic'
 import { useState } from 'react'
-import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
@@ -224,7 +224,7 @@ const settingsLinkFromKey = (key: string): string | null => {
     switch (key) {
         case 'revenue':
         case 'conversion revenue':
-            return urls.revenue()
+            return urls.revenueSettings()
         default:
             return null
     }

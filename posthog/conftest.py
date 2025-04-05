@@ -1,3 +1,5 @@
+# NOTE: This file should be kept in sync with products/conftest.py
+
 import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database

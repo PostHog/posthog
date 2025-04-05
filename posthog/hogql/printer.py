@@ -102,6 +102,7 @@ def print_ast(
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     if prepared_ast is None:
         return ""
+
     return print_prepared_ast(
         node=prepared_ast,
         context=context,
@@ -122,7 +123,10 @@ def prepare_ast_for_printing(
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
             context.database = create_hogql_database(
-                context.team_id, context.modifiers, context.team, timings=context.timings
+                context.team_id,
+                team=context.team,
+                modifiers=context.modifiers,
+                timings=context.timings,
             )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
