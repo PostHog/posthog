@@ -2079,7 +2079,7 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
     """Tests for the query splitting functionality in usage_report.py."""
 
     @classmethod
-    def setUpTestData(cls):
+    def setUpTestData(cls) -> None:
         # Clear existing ClickHouse data
         sync_execute("TRUNCATE TABLE events")
         sync_execute("TRUNCATE TABLE person")
@@ -2190,8 +2190,8 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         ]
 
         # Define a custom combiner function similar to what we use in get_all_event_metrics_in_period
-        def custom_combiner(results_list):
-            metrics = {
+        def custom_combiner(results_list: list) -> dict[str, list[tuple[int, int]]]:
+            metrics: dict[str, dict[int, int]] = {
                 "web_events": {},
                 "mobile_events": {},
             }

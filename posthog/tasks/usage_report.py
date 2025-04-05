@@ -7,6 +7,7 @@ from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
+from collections.abc import Callable
 
 import requests
 import structlog
@@ -356,7 +357,12 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
 
 
 def _execute_split_query(
-    begin: datetime, end: datetime, query_template: str, params: dict, num_splits: int = 2, combine_results_func=None
+    begin: datetime,
+    end: datetime,
+    query_template: str,
+    params: dict,
+    num_splits: int = 2,
+    combine_results_func: Optional[Callable[[list], Any]] = None,
 ) -> Any:
     """
     Helper function to execute a query split into multiple parts to reduce load.
@@ -420,7 +426,7 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
     Returns:
         Combined list of (team_id, count) tuples
     """
-    team_counts = {}
+    team_counts: dict[int, int] = {}
 
     # Combine all results
     for results in results_list:
@@ -543,8 +549,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     """
 
     # Define a custom function to combine results from multiple queries
-    def combine_event_metrics_results(results_list):
-        metrics = {
+    def combine_event_metrics_results(results_list: list) -> dict[str, list[tuple[int, int]]]:
+        metrics: dict[str, dict[int, int]] = {
             "helicone_events": {},
             "langfuse_events": {},
             "keywords_ai_events": {},
