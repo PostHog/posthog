@@ -1,5 +1,4 @@
 import json
-import posthoganalytics
 
 from pydantic import ValidationError
 
@@ -27,19 +26,11 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
     response: RevenueExampleEventsQueryResponse
     cached_response: CachedRevenueExampleEventsQueryResponse
     paginator: HogQLHasMorePaginator
-    do_currency_conversion: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
-        )
-
-        self.do_currency_conversion = posthoganalytics.feature_enabled(
-            "web-analytics-revenue-tracking-conversion",
-            str(self.team.organization_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -66,9 +57,7 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
                     expr=revenue_expression_for_events(tracking_config, do_currency_conversion=False),
                 ),
                 ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(tracking_config)),
-                ast.Alias(
-                    alias="revenue", expr=revenue_expression_for_events(tracking_config, self.do_currency_conversion)
-                ),
+                ast.Alias(alias="revenue", expr=revenue_expression_for_events(tracking_config)),
                 ast.Alias(
                     alias="currency", expr=ast.Constant(value=(tracking_config.baseCurrency or DEFAULT_CURRENCY).value)
                 ),

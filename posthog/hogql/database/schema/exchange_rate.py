@@ -92,7 +92,7 @@ def currency_expression_for_all_events(config: RevenueTrackingConfig) -> ast.Exp
 def revenue_comparison_and_value_exprs_for_events(
     config: RevenueTrackingConfig,
     event_config: RevenueTrackingEventItem,
-    do_currency_conversion: bool = False,
+    do_currency_conversion: bool = True,
 ) -> tuple[ast.Expr, ast.Expr]:
     # Check whether the event is the one we're looking for
     comparison_expr = ast.CompareOperation(
@@ -140,7 +140,7 @@ def revenue_comparison_and_value_exprs_for_events(
 # selecting from the `events` table to get the revenue for it
 def revenue_expression_for_events(
     config: Union[RevenueTrackingConfig, dict, None],
-    do_currency_conversion: bool = False,
+    do_currency_conversion: bool = True,
 ) -> ast.Expr:
     if isinstance(config, dict):
         config = RevenueTrackingConfig.model_validate(config)
@@ -162,10 +162,7 @@ def revenue_expression_for_events(
 
 
 # This sums up the revenue from all events in the group
-def revenue_sum_expression_for_events(
-    config: Union[RevenueTrackingConfig, dict, None],
-    do_currency_conversion: bool = False,
-) -> ast.Expr:
+def revenue_sum_expression_for_events(config: Union[RevenueTrackingConfig, dict, None]) -> ast.Expr:
     if isinstance(config, dict):
         config = RevenueTrackingConfig.model_validate(config)
 
@@ -174,9 +171,7 @@ def revenue_sum_expression_for_events(
 
     exprs: list[ast.Expr] = []
     for event in config.events:
-        comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
-            config, event, do_currency_conversion
-        )
+        comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(config, event)
 
         exprs.append(
             ast.Call(
@@ -244,7 +239,7 @@ def currency_expression_for_data_warehouse(
 def revenue_expression_for_data_warehouse(
     config: RevenueTrackingConfig,
     data_warehouse_config: RevenueTrackingDataWarehouseTable,
-    do_currency_conversion: bool = False,
+    do_currency_conversion: bool = True,
 ) -> ast.Expr:
     # Convert the revenue to the base currency based on `data_warehouse_config.revenueCurrencyColumn`
     # Otherwise, assume we're already in the base currency
