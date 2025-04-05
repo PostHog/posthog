@@ -12,13 +12,13 @@ import {
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
+import { isLikelyRegex } from 'lib/utils/regexp'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { FilterType } from '~/types'
 
 import type { heatmapDataLogicType } from './heatmapDataLogicType'
-import { isLikelyRegex } from 'lib/utils/regexp'
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -85,7 +85,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             null as string | null,
             {
                 setHref: (_, { href }) => {
-                    console.log('setHref reducer', href)
                     return href
                 },
             },
@@ -109,8 +108,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             {
                 resetHeatmapData: () => ({ results: [] }),
                 loadHeatmap: async (_, breakpoint) => {
-                    console.log('loadHeatmap started', values.href)
-
                     if (!values.href || !values.href.trim().length) {
                         return null
                     }
@@ -274,8 +271,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapColorPalette: () => {
             actions.loadHeatmap()
         },
-        setHref: (args) => {
-            console.log('setHref listener', args)
+        setHref: () => {
             actions.loadHeatmap()
         },
         setWindowWidthOverride: () => {
