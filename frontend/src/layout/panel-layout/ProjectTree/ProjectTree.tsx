@@ -40,6 +40,7 @@ export function ProjectTree(): JSX.Element {
         setLastNewOperation,
         onItemChecked,
         moveCheckedItems,
+        linkCheckedItems,
         setCheckedItems,
     } = useActions(projectTreeLogic)
 
@@ -80,6 +81,17 @@ export function ProjectTree(): JSX.Element {
                     }}
                 >
                     <ButtonPrimitive menuItem>Move {checkedItemsCount} selected items here</ButtonPrimitive>
+                </MenuItem>
+            ) : null}
+            {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
+                <MenuItem
+                    asChild
+                    onClick={(e: any) => {
+                        e.stopPropagation()
+                        linkCheckedItems(item.record.path)
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Link {checkedItemsCount} selected items here</ButtonPrimitive>
                 </MenuItem>
             ) : null}
             {item.record?.path ? (
