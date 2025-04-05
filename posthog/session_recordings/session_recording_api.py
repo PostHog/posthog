@@ -28,6 +28,7 @@ from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
 
+from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.api.person import MinimalPersonSerializer
@@ -693,6 +694,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 event="recording list filters changed",
                 properties={"$current_url": current_url, "$session_id": session_id, **partial_filters},
                 team=team,
+            )
+
+            ProductIntent.register(
+                team=team,
+                product_type="session_replay",
+                context="session_replay_set_filters",
+                user=cast(User, request.user),
+                metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )
 
     def _gather_session_recording_sources(self, recording: SessionRecording, is_v2_enabled: bool = False) -> Response:
