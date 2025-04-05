@@ -6,7 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { TeamBasicType } from '~/types'
 
-import type { environmentSwitcherLogicType } from './environmentsSwitcherLogicType'
+import type { projectSwitcherLogicType } from './projectSwitcherLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse<T> extends FuseClass<T> {}
@@ -20,19 +20,19 @@ export interface TeamBasicTypeWithProjectName extends TeamBasicType {
     project_name: string
 }
 
-export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
-    path(['layout', 'navigation', 'environmentsSwitcherLogic']),
+export const projectSwitcherLogic = kea<projectSwitcherLogicType>([
+    path(['layout', 'navigation', 'projectSwitcherLogic']),
     connect({
         values: [userLogic, ['user'], teamLogic, ['currentTeam'], organizationLogic, ['currentOrganization']],
     }),
     actions({
-        setEnvironmentSwitcherSearch: (input: string) => ({ input }),
+        setProjectSwitcherSearch: (input: string) => ({ input }),
     }),
     reducers({
-        environmentSwitcherSearch: [
+        projectSwitcherSearch: [
             '',
             {
-                setEnvironmentSwitcherSearch: (_, { input }) => input,
+                setProjectSwitcherSearch: (_, { input }) => input,
             },
         ],
     }),
@@ -105,14 +105,14 @@ export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
             },
         ],
         searchedProjectsMap: [
-            (s) => [s.projectsSorted, s.allTeamsSorted, s.teamsFuse, s.environmentSwitcherSearch, s.currentTeam],
-            (projectsSorted, allTeamsSorted, teamsFuse, environmentSwitcherSearch, currentTeam): ProjectsMap => {
+            (s) => [s.projectsSorted, s.allTeamsSorted, s.teamsFuse, s.projectSwitcherSearch, s.currentTeam],
+            (projectsSorted, allTeamsSorted, teamsFuse, projectSwitcherSearch, currentTeam): ProjectsMap => {
                 // Using a map so that insertion order is preserved
                 // (JS objects don't preserve the order for keys that are numbers)
                 const projectsWithTeamsSorted: ProjectsMap = new Map()
 
-                if (environmentSwitcherSearch) {
-                    const matchingTeams = teamsFuse.search(environmentSwitcherSearch).map((result) => result.item)
+                if (projectSwitcherSearch) {
+                    const matchingTeams = teamsFuse.search(projectSwitcherSearch).map((result) => result.item)
                     matchingTeams.sort(
                         // We must always have the current project first if it's in the search results - crucial!
                         (a, b) =>

@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,7 +19,6 @@ import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { CorrelationConfigType, ProductKey, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
-import { projectLogic } from './projectLogic'
 import type { teamLogicType } from './teamLogicType'
 import { userLogic } from './userLogic'
 
@@ -48,7 +47,7 @@ export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
         actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
-        values: [projectLogic, ['currentProject'], featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -131,13 +130,20 @@ export const teamLogic = kea<teamLogicType>([
 
                     return patchedTeam
                 },
-                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }) => {
-                    if (!values.currentProject) {
-                        throw new Error(
-                            'Environment could not be created, because the parent project has not been loaded yet!'
-                        )
-                    }
-                    return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
+                createTeam: async ({
+                    name,
+                    is_demo,
+                    parent_team_id,
+                }: {
+                    name: string
+                    is_demo?: boolean
+                    parent_team_id?: number
+                }) => {
+                    return await api.create(`api/projects/`, {
+                        name,
+                        is_demo: is_demo ?? false,
+                        parent_team: parent_team_id,
+                    })
                 },
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
                 /**
@@ -252,27 +258,19 @@ export const teamLogic = kea<teamLogicType>([
             lemonToast.success('Project has been deleted')
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         const appContext = getAppContext()
         const currentTeam = appContext?.current_team
-        const currentProject = appContext?.current_project
         const switchedTeam = appContext?.switched_team
         if (switchedTeam) {
-            lemonToast.info(
-                <>
-                    You've switched to&nbsp;project{' '}
-                    {values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
-                        ? `${currentProject?.name}, environment ${currentTeam?.name}`
-                        : currentTeam?.name}
-                </>,
-                {
-                    button: {
-                        label: 'Switch back',
-                        action: () => actions.switchTeam(switchedTeam),
-                    },
-                    icon: <IconSwapHoriz />,
-                }
-            )
+            // TODO: Add back in the project name
+            lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
+                button: {
+                    label: 'Switch back',
+                    action: () => actions.switchTeam(switchedTeam),
+                },
+                icon: <IconSwapHoriz />,
+            })
         }
 
         if (currentTeam) {

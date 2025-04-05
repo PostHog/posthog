@@ -194,6 +194,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "id",
             "uuid",
             "root_team_id",
+            "parent_team",
             "name",
             "access_control",
             "organization",
@@ -218,7 +219,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         read_only_fields = (
             "id",
             "uuid",
-            "root_team_id",
             "organization",
             "project_id",
             "api_token",
@@ -233,7 +233,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "access_control_version",
+            "root_team_id",
         )
+
+        extra_kwargs = {
+            "parent_team": {"write_only": True},
+        }
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -379,9 +384,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
         request = self.context["request"]
-        if self.context["project_id"] not in self.user_permissions.project_ids_visible_for_user:
-            raise exceptions.NotFound("Project not found.")
-        validated_data["project_id"] = self.context["project_id"]
+
+        if "project_id" in validated_data:
+            # Temporarily we just delete this. It results in a project being created which is fine as we will follow up by removing all Projects
+            del validated_data["project_id"]
+
+        if validated_data.get("parent_team", None):
+            parent_team = cast(Team, validated_data["parent_team"])
+            if parent_team.id not in self.user_permissions.team_ids_visible_for_user:
+                # Ensure you can only create teams under other teams you have access to
+                raise exceptions.NotFound("Team not found.")
+
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
 
         if "week_start_day" not in validated_data:

@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { EnvironmentSwitcherOverlay } from '~/layout/navigation/EnvironmentSwitcher'
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
 
@@ -27,7 +27,7 @@ export function MinimalNavigation(): JSX.Element {
             </span>
             {currentOrganization?.teams?.length ?? 0 > 1 ? (
                 <Popover
-                    overlay={<EnvironmentSwitcherOverlay onClickInside={hideProjectSwitcher} />}
+                    overlay={<ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />}
                     visible={isProjectSwitcherShown}
                     onClickOutside={hideProjectSwitcher}
                     placement="bottom"

@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
-import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { organizationLogic } from '../organizationLogic'
@@ -17,8 +16,7 @@ export function CreateEnvironmentModal({
     onClose?: () => void
     inline?: boolean
 }): JSX.Element {
-    const { currentProject } = useValues(projectLogic)
-    const { currentTeamLoading } = useValues(teamLogic)
+    const { currentTeamLoading, currentTeam } = useValues(teamLogic)
     const { createTeam } = useActions(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
@@ -33,19 +31,19 @@ export function CreateEnvironmentModal({
         }
     }
     const handleSubmit = (): void => {
-        createTeam({ name, is_demo: false })
+        createTeam({ name, parent_team_id: currentTeam?.id })
         reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
     }
 
     // Anytime the team changes close the modal as it indicates we have created a new team
     useEffect(() => {
         closeModal()
-    }, [currentProject])
+    }, [currentTeam])
 
     return (
         <LemonModal
             width={560}
-            title={currentProject ? `Create an environment within ${currentProject.name}` : 'Create a environment'}
+            title={currentTeam ? `Create an environment within ${currentTeam.name}` : 'Create a environment'}
             description={
                 <p>
                     Use environments to keep your data completely separate, while sharing the setup (such as dashboards

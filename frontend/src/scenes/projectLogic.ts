@@ -89,7 +89,7 @@ export const projectLogic = kea<projectLogicType>([
                         return await api.create('api/projects/', { name })
                     } catch (error: any) {
                         lemonToast.error('Failed to create project')
-                        return values.currentProject
+                        throw error
                     }
                 },
             },

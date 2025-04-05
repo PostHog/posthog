@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { organizationLogic } from '../organizationLogic'
 
@@ -27,8 +27,8 @@ export function CreateProjectModal({
     onClose?: () => void
     inline?: boolean
 }): JSX.Element {
-    const { currentProject, currentProjectLoading } = useValues(projectLogic)
-    const { createProject } = useActions(projectLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { createTeam } = useActions(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
@@ -42,7 +42,7 @@ export function CreateProjectModal({
         }
     }
     const handleSubmit = (): void => {
-        createProject({ name })
+        createTeam({ name })
         reportProjectCreationSubmitted(
             currentOrganization?.projects ? currentOrganization.projects.length : 0,
             name.length
@@ -52,7 +52,7 @@ export function CreateProjectModal({
     // Anytime the project changes close the modal as it indicates we have created a new project
     useEffect(() => {
         closeModal()
-    }, [currentProject])
+    }, [currentTeam])
 
     return (
         <LemonModal
@@ -89,7 +89,7 @@ export function CreateProjectModal({
                         <LemonButton
                             type="secondary"
                             onClick={onClose}
-                            disabledReason={currentProjectLoading ? 'Creating project...' : undefined}
+                            disabledReason={currentTeamLoading ? 'Creating project...' : undefined}
                         >
                             Cancel
                         </LemonButton>
@@ -97,7 +97,7 @@ export function CreateProjectModal({
                     <LemonButton
                         type="primary"
                         onClick={handleSubmit}
-                        loading={currentProjectLoading}
+                        loading={currentTeamLoading}
                         disabledReason={!name ? 'Think of a name!' : null}
                     >
                         Create project
@@ -107,7 +107,7 @@ export function CreateProjectModal({
             isOpen={isVisible}
             onClose={onClose}
             inline={inline}
-            closable={!currentProjectLoading}
+            closable={!currentTeamLoading}
         >
             <LemonField.Pure label="Project name">
                 <LemonInput
@@ -121,7 +121,7 @@ export function CreateProjectModal({
                             handleSubmit()
                         }
                     }}
-                    disabled={currentProjectLoading}
+                    disabled={currentTeamLoading}
                 />
             </LemonField.Pure>
         </LemonModal>

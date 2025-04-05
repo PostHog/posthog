@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, TeamPublicType } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
-import { environmentSwitcherLogic, TeamBasicTypeWithProjectName } from './environmentsSwitcherLogic'
+import { projectSwitcherLogic, TeamBasicTypeWithProjectName } from './projectSwitcherLogic'
 
 /**
  * Regex matching a possible emoji (any emoji) at the beginning of the string.
@@ -24,8 +24,8 @@ import { environmentSwitcherLogic, TeamBasicTypeWithProjectName } from './enviro
 const EMOJI_INITIAL_REGEX =
     /^(\u00a9|\u00ae|[\u25a0-\u27bf]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]) /
 
-export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
-    const { searchedProjectsMap } = useValues(environmentSwitcherLogic)
+export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
+    const { searchedProjectsMap } = useValues(projectSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -155,7 +155,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
         <LemonMenuOverlay
             items={[
                 {
-                    items: [{ label: EnvironmentSwitcherSearch }],
+                    items: [{ label: ProjectSwitcherSearch }],
                 },
                 currentProjectSection,
                 otherProjectsSection,
@@ -225,14 +225,14 @@ function determineProjectSwitchUrl(pathname: string, newTeamId: number): string 
     return getProjectSwitchTargetUrl(pathname, newTeamId, currentTeam?.root_team_id, targetTeamProjectId)
 }
 
-function EnvironmentSwitcherSearch(): JSX.Element {
-    const { environmentSwitcherSearch } = useValues(environmentSwitcherLogic)
-    const { setEnvironmentSwitcherSearch } = useActions(environmentSwitcherLogic)
+function ProjectSwitcherSearch(): JSX.Element {
+    const { projectSwitcherSearch } = useValues(projectSwitcherLogic)
+    const { setProjectSwitcherSearch } = useActions(projectSwitcherLogic)
 
     return (
         <LemonInput
-            value={environmentSwitcherSearch}
-            onChange={setEnvironmentSwitcherSearch}
+            value={projectSwitcherSearch}
+            onChange={setProjectSwitcherSearch}
             type="search"
             fullWidth
             autoFocus
