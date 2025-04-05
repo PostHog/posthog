@@ -201,6 +201,19 @@ def print_prepared_ast(
         ).visit(node)
 
 
+_non_alnum_re = re.compile(r"[^a-zA-Z0-9]")
+_multi_underscore_re = re.compile(r"_+")
+
+
+def print_ast_call(call: ast.Call, context: HogQLContext) -> str:
+    printed_call = print_prepared_ast(call, context, dialect="hogql")
+
+    printed_call_underscored = re.sub(_non_alnum_re, "_", printed_call)
+    collapsed = re.sub(_multi_underscore_re, "_", printed_call_underscored)
+
+    return f"_{collapsed.strip('_')}"
+
+
 @dataclass
 class JoinExprResponse:
     printed_sql: str
@@ -380,6 +393,9 @@ class _Printer(Visitor):
                         else:
                             # Non-unique hidden alias. Skip.
                             column = column.expr
+                    elif isinstance(column, ast.Call):
+                        column_alias = print_ast_call(column, self.context)
+                        column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
                 columns = [self.visit(column) for column in node.select]
