@@ -2,7 +2,8 @@
 # name: TestGroupsQueryRunner.test_groups_query_runner
   '''
   SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
+         groups.key AS key,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
@@ -29,7 +30,8 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key),
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
@@ -57,7 +59,8 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key),
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
@@ -84,7 +87,8 @@
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_offset
   '''
   SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
+         groups.key AS key,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
@@ -111,7 +115,8 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key),
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
@@ -138,7 +143,8 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key),
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
@@ -164,7 +170,8 @@
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by.2
   '''
   SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
+         groups.key AS key,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             groups.group_type_index AS index,
@@ -190,7 +197,8 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key),
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
@@ -217,7 +225,8 @@
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_search
   '''
   SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
+         groups.key AS key,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
@@ -243,7 +252,8 @@
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_string_property
   '''
   SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
+         groups.key AS key,
+         1
   FROM
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
