@@ -3086,7 +3086,6 @@ const api = {
                 signal: options?.signal,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
-                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                 },
             })
         })
