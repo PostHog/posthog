@@ -12,6 +12,7 @@ from posthog.schema import (
     EventMetadataPropertyFilter,
     EventsQuery,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     PropertyOperator,
 )
 from posthog.test.base import (
@@ -443,3 +444,63 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0]["properties"]["attr"], "no div")
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    def test_presorted_events_table(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    "2020-01-20T12:00:04Z",
+                    {"some_prop": "a"},
+                ),
+                (
+                    "p2",
+                    "2020-01-20T12:00:14Z",
+                    {"some_prop": "b"},
+                ),
+            ]
+        )
+        self._create_events(
+            data=[
+                (
+                    "p3",
+                    "2020-01-20T12:00:04Z",
+                    {"some_prop": "a"},
+                ),
+            ],
+            event="$pageleave",
+        )
+        flush_persons_and_events()
+        query = EventsQuery(
+            after="-7d",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["timestamp ASC"],
+            select=["*"],
+            properties=[
+                EventPropertyFilter(
+                    key="some_prop",
+                    value="a",
+                    operator=PropertyOperator.EXACT,
+                    type="event",
+                )
+            ],
+        )
+
+        runner_regular = EventsQueryRunner(query=query, team=self.team)
+        response_regular = runner_regular.run()
+
+        runner_presorted = EventsQueryRunner(
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(usePresortedEventsTable=True)
+        )
+        response_presorted = runner_presorted.run()
+
+        assert isinstance(response_regular, CachedEventsQueryResponse)
+        assert isinstance(response_presorted, CachedEventsQueryResponse)
+
+        assert "cityHash" not in response_regular.hogql
+        assert "cityHash" in response_presorted.hogql
+
+        assert response_regular.results == response_presorted.results

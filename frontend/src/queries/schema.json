@@ -9951,6 +9951,9 @@
                 },
                 "useMaterializedViews": {
                     "type": "boolean"
+                },
+                "usePresortedEventsTable": {
+                    "type": "boolean"
                 }
             },
             "type": "object"

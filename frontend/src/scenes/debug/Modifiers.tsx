@@ -2,6 +2,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
+import { isEventsQuery, isNodeWithSource } from '~/queries/utils'
 
 export interface ModifiersProps<Q extends { response?: Record<string, any>; modifiers?: HogQLQueryModifiers }> {
     setQuery: (query: Q) => void
@@ -17,6 +18,7 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
     if (query === null) {
         return null
     }
+    const hasEventsQuery = (isNodeWithSource(query) && isEventsQuery(query.source)) || isEventsQuery(query)
     const labelClassName = 'flex flex-col gap-1 items-start'
     return (
         <div className="flex gap-2">
@@ -132,6 +134,25 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                     value={query.modifiers?.propertyGroupsMode ?? response?.modifiers?.propertyGroupsMode}
                 />
             </LemonLabel>
+
+            {hasEventsQuery && (
+                <LemonLabel className={labelClassName}>
+                    <div>Presorted Events Table:</div>
+                    <LemonSelect
+                        options={[
+                            { value: true, label: 'true' },
+                            { value: false, label: 'false' },
+                        ]}
+                        onChange={(value) =>
+                            setQuery({
+                                ...query,
+                                modifiers: { ...query.modifiers, usePresortedEventsTable: value },
+                            })
+                        }
+                        value={query.modifiers?.usePresortedEventsTable ?? response?.modifiers?.usePresortedEventsTable}
+                    />
+                </LemonLabel>
+            )}
         </div>
     )
 }

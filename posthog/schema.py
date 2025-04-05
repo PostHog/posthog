@@ -2823,6 +2823,7 @@ class HogQLQueryModifiers(BaseModel):
     sessionTableVersion: Optional[SessionTableVersion] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     useMaterializedViews: Optional[bool] = None
+    usePresortedEventsTable: Optional[bool] = None
 
 
 class HogQuery(BaseModel):

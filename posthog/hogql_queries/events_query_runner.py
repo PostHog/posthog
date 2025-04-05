@@ -10,7 +10,7 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
-from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -211,6 +211,36 @@ class EventsQueryRunner(QueryRunner):
                     group_by=group_by if has_any_aggregation else None,
                     order_by=order_by,
                 )
+
+                # sorting a large amount of columns is expensive, so we filter by a presorted table if possible
+                if (
+                    self.modifiers.usePresortedEventsTable
+                    and (
+                        order_by is not None
+                        and len(order_by) == 1
+                        and isinstance(order_by[0].expr, ast.Field)
+                        and order_by[0].expr.chain == ["timestamp"]
+                    )
+                    and not has_any_aggregation
+                ):
+                    inner_query = parse_select(
+                        "SELECT timestamp, event, cityHash64(distinct_id) as did, cityHash64(uuid) as uuid FROM events"
+                    )
+                    assert isinstance(inner_query, ast.SelectQuery)
+                    inner_query.where = where
+                    inner_query.order_by = order_by
+                    self.paginator.paginate(inner_query)
+
+                    # prefilter the events table based on the sort order with a narrow set of columns
+                    prefilter_sorted = parse_expr(
+                        "(timestamp, event, cityHash64(distinct_id), cityHash64(uuid)) in ({inner_query})",
+                        {"inner_query": inner_query},
+                    )
+
+                    if where is not None:
+                        stmt.where = ast.And(exprs=[prefilter_sorted, where])
+                    else:
+                        stmt.where = prefilter_sorted
 
                 return stmt
 
