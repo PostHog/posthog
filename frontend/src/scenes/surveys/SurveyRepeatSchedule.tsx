@@ -1,19 +1,29 @@
 import './EditSurvey.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { SurveySchedule, SurveyType } from '~/types'
+import { Survey, SurveySchedule, SurveyType } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
+function doesSurveyHaveDisplayConditions(survey: Pick<Survey, 'conditions'>): boolean {
+    return !!(
+        (survey.conditions?.events?.values?.length ?? 0) > 0 ||
+        survey.conditions?.url ||
+        survey.conditions?.selector ||
+        (survey?.conditions?.deviceTypes?.length ?? 0) > 0 ||
+        (survey?.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0
+    )
+}
+
 function SurveyIterationOptions(): JSX.Element {
     const { showSurveyRepeatSchedule, survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { setSurveyValue, setSelectedSection } = useActions(surveyLogic)
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
 
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
@@ -52,15 +62,44 @@ function SurveyIterationOptions(): JSX.Element {
                         },
                         {
                             value: SurveySchedule.Always,
-                            label: 'Always visible (for feedback surveys)',
+                            label: 'Every time the display conditions are met',
                             'data-attr': 'survey-iteration-frequency-days',
-                            disabledReason:
-                                survey.type !== SurveyType.Widget
-                                    ? 'Only available for feedback surveys. Please change the type in the Presentation tab'
-                                    : undefined,
                         },
                     ]}
                 />
+                {survey.type === SurveyType.Popover && survey.schedule === SurveySchedule.Always && (
+                    <LemonBanner type="warning">
+                        {doesSurveyHaveDisplayConditions(survey) ? (
+                            <>
+                                <p>
+                                    This popover will reappear every time its display conditions are met. This might
+                                    lead to users seeing the survey very frequently.
+                                </p>
+                                <p className="font-normal">
+                                    If this isn't intended, consider changing the schedule or{' '}
+                                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
+                                        adjusting the display conditions
+                                    </Link>
+                                    .
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <p>
+                                    Setting a popover survey to show 'Always' without any display conditions will make
+                                    it appear persistently on matching pages. Ensure this is the desired behavior.
+                                </p>
+                                <p className="font-normal">
+                                    If not,{' '}
+                                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
+                                        add display conditions
+                                    </Link>{' '}
+                                    or change its frequency.
+                                </p>
+                            </>
+                        )}
+                    </LemonBanner>
+                )}
             </LemonField.Pure>
             {showSurveyRepeatSchedule && (
                 <div className="flex flex-row gap-2 items-center mt-2 ml-5">
