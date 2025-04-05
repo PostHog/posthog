@@ -19,6 +19,7 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -40,7 +41,6 @@ import {
     OpenTextViz,
     RatingQuestionBarChart,
     SingleChoiceQuestionPieChart,
-    Summary,
 } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
@@ -327,8 +327,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         survey,
         dataTableQuery,
         surveyLoading,
-        surveyUserStats,
-        surveyUserStatsLoading,
         surveyRatingResults,
         surveyRatingResultsReady,
         surveyRecurringNPSResults,
@@ -353,7 +351,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     <Spinner />
                 </div>
             )}
-            <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            <SurveyStatsSummary />
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
