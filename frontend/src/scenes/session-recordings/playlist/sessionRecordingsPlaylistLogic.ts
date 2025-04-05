@@ -30,6 +30,7 @@ import {
     LogEntryPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
+    RecordingDirection,
     RecordingDurationFilter,
     RecordingUniversalFilters,
     SessionRecordingId,
@@ -289,16 +290,24 @@ function combineLegacyRecordingFilters(
 
 function sortRecordings(
     recordings: SessionRecordingType[],
-    order: RecordingsQuery['order'] | 'duration' = 'start_time'
+    order: RecordingsQuery['order'] | 'duration' = 'start_time',
+    direction: RecordingDirection = 'newer'
 ): SessionRecordingType[] {
     const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
-    return recordings.sort((a, b) => {
+    const compareRecordings = (a: SessionRecordingType, b: SessionRecordingType): number => {
         const orderA = a[orderKey]
         const orderB = b[orderKey]
-        const incomparible = orderA === undefined || orderB === undefined
-        return incomparible ? 0 : orderA > orderB ? -1 : 1
-    })
+
+        if (orderA === undefined || orderB === undefined) {
+            return 0
+        }
+
+        const comparison = orderA > orderB ? -1 : 1
+        return direction === 'newer' ? comparison : -comparison
+    }
+
+    return recordings.sort(compareRecordings)
 }
 
 export interface SessionRecordingPlaylistLogicProps {
@@ -347,11 +356,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
-        loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
+        loadSessionRecordings: (direction?: RecordingDirection, userModifiedFilters?: Record<string, any>) => ({
             direction,
             userModifiedFilters,
         }),
-        maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        maybeLoadSessionRecordings: (direction?: RecordingDirection) => ({ direction }),
         loadNext: true,
         loadPrev: true,
     }),
@@ -391,7 +400,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
             } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
-                loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
+                loadSessionRecordings: async ({ direction = 'newer', userModifiedFilters }, breakpoint) => {
                     const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
@@ -434,6 +443,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 : response.has_next,
                         results: response.results,
                         order: params.order,
+                        direction,
                     }
                 },
             },
@@ -532,7 +542,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return direction ? state : []
                 },
 
-                loadSessionRecordingsSuccess: (state, { sessionRecordingsResponse }) => {
+                loadSessionRecordingsSuccess: (state, { sessionRecordingsResponse, payload }) => {
                     const mergedResults: SessionRecordingType[] = [...state]
 
                     sessionRecordingsResponse.results.forEach((recording) => {
@@ -541,7 +551,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                     })
 
-                    return sortRecordings(mergedResults, sessionRecordingsResponse.order)
+                    return sortRecordings(mergedResults, sessionRecordingsResponse.order, payload?.direction)
                 },
 
                 setSelectedRecordingId: (state, { id }) =>
@@ -580,7 +590,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadPinnedRecordings()
         },
         setFilters: ({ filters }) => {
-            actions.loadSessionRecordings(undefined, filters)
+            actions.loadSessionRecordings(filters.direction, filters)
             props.onFiltersChange?.(values.filters)
             actions.loadEventsHaveSessionId()
         },
@@ -766,7 +776,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return true
                 })
 
-                return sortRecordings(filteredRecordings, filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY)
+                return sortRecordings(
+                    filteredRecordings,
+                    filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    filters.direction
+                )
             },
         ],
 
