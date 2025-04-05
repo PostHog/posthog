@@ -2,6 +2,7 @@
 
 import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 import * as React from 'react'
 
@@ -48,7 +49,7 @@ const ContextMenuSubContent = React.forwardRef<
         <ContextMenuPrimitive.SubContent
             ref={ref}
             className={cn(
-                'z-top relative min-w-[8rem] overflow-hidden rounded-md border bg-surface-primary p-1 text-primary shadow data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+                'z-top relative min-w-[8rem] overflow-hidden rounded-md border border-secondary bg-surface-primary p-1 text-primary shadow data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
                 className
             )}
             {...props}
@@ -61,16 +62,25 @@ const ContextMenuContent = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
 >(
-    ({ className, ...props }, ref): JSX.Element => (
+    ({ className, children, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.Content
                 ref={ref}
                 className={cn(
-                    `z-top relative min-w-[8rem] max-w-[200px] overflow-hidden rounded-md border bg-surface-primary p-1 text-primary shadow`,
+                    `z-top relative overflow-hidden min-w-[8rem] max-w-[200px] rounded-md border border-secondary bg-surface-primary text-primary shadow`,
+                    `max-h-[calc(var(--radix-popper-available-height)-100px)]`,
                     className
                 )}
                 {...props}
-            />
+            >
+                <ScrollableShadows
+                    direction="vertical"
+                    styledScrollbars
+                    innerClassName="p-1 max-h-[calc(var(--radix-popper-available-height)-50px)]"
+                >
+                    {children}
+                </ScrollableShadows>
+            </ContextMenuPrimitive.Content>
         </ContextMenuPrimitive.Portal>
     )
 )
@@ -160,7 +170,11 @@ const ContextMenuSeparator = React.forwardRef<
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>
 >(
     ({ className, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.Separator ref={ref} className={cn('-mx-1 my-1 h-px bg-border', className)} {...props} />
+        <ContextMenuPrimitive.Separator
+            ref={ref}
+            className={cn('-mx-1 my-1 h-px bg-border-primary', className)}
+            {...props}
+        />
     )
 )
 ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName

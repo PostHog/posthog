@@ -67,7 +67,6 @@ export function OrganizationDropdownMenu(): JSX.Element {
                 className={`
                 min-w-[200px] 
                 max-w-[var(--project-panel-inner-width)] 
-                max-h-[calc(var(--radix-dropdown-menu-content-available-height)-100px)]
             `}
             >
                 <DropdownMenuLabel>Organizations</DropdownMenuLabel>
