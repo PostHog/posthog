@@ -62,34 +62,40 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 </>
             )}
             {exceptionWithStack && <StackTrace exceptionList={exceptionList} fingerprintRecords={fingerprintRecords} />}
-            {hasFingerprintRecord && <FingerprintComponents components={fingerprintRecords} />}
+            {hasFingerprintRecord && (
+                <div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-muted">Fingerprinted by:</span>
+                        <div className="flex gap-1 items-center">
+                            <FingerprintComponents components={fingerprintRecords} />
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
 
-const FingerprintComponents = ({ components }: { components: FingerprintRecordPart[] }): JSX.Element => {
+export const FingerprintComponents = ({ components }: { components: FingerprintRecordPart[] }): JSX.Element => {
     const { highlightRecordPart } = useActions(stackFrameLogic)
 
     return (
-        <div className="flex mb-4 items-center gap-2">
-            <span className="font-semibold">Fingerprinted by:</span>
-            <div className="flex flex-wrap gap-1">
-                {components.map((component, index) => {
-                    return (
-                        <Tooltip key={index} title={getPartPieces(component)}>
-                            <LemonTag
-                                type="muted"
-                                className="hover:text-danger hover:border-danger cursor-pointer"
-                                onMouseEnter={() => highlightRecordPart(component)}
-                                onMouseLeave={() => highlightRecordPart(null)}
-                            >
-                                {getPartLabel(component)}
-                            </LemonTag>
-                        </Tooltip>
-                    )
-                })}
-            </div>
-        </div>
+        <>
+            {components.map((component, index) => {
+                return (
+                    <Tooltip key={index} title={getPartPieces(component)}>
+                        <LemonTag
+                            type="muted"
+                            className="hover:text-danger hover:border-danger cursor-pointer"
+                            onMouseEnter={() => highlightRecordPart(component)}
+                            onMouseLeave={() => highlightRecordPart(null)}
+                        >
+                            {getPartLabel(component)}
+                        </LemonTag>
+                    </Tooltip>
+                )
+            })}
+        </>
     )
 }
 

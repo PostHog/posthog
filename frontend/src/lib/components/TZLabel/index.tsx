@@ -26,13 +26,15 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     showPopover?: boolean
     noStyles?: boolean
     className?: string
+    title?: string
     children?: JSX.Element
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     showSeconds,
     time,
-}: Pick<TZLabelProps, 'showSeconds'> & { time: dayjs.Dayjs }): JSX.Element {
+    title,
+}: Pick<TZLabelProps, 'showSeconds' | 'title'> & { time: dayjs.Dayjs }): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
@@ -44,7 +46,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
             <div className="flex justify-between items-center border-b-1 p-1">
-                <h4 className="mb-0 px-1">Timezone conversion</h4>
+                <h4 className="mb-0 px-1">{title || 'Timezone conversion'}</h4>
                 <LemonButton icon={<IconGear />} size="xsmall" to={urls.settings('project', 'date-and-time')} />
             </div>
             <div className="space-y-2 p-2">
@@ -93,6 +95,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         formatTime,
         showPopover = true,
         noStyles = false,
+        title,
         className,
         children,
         ...dropdownProps
@@ -139,7 +142,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
                 showArrow
                 {...dropdownProps}
                 trigger="hover"
-                overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} />}
+                overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} title={title} />}
             >
                 {innerContent}
             </LemonDropdown>

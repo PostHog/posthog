@@ -18,6 +18,7 @@ import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { match } from 'ts-pattern'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -87,9 +88,16 @@ export function ErrorTrackingScene(): JSX.Element {
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
     const { dateRange } = useValues(errorTrackingLogic)
-    const { sparklineSelectedPeriod } = useValues(errorTrackingSceneLogic)
+    const { sparklineSelectedPeriod, volumeResolution } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-    const { values, labels } = useSparklineData(sparklineSelectedPeriod, dateRange, record.aggregations)
+    const { values, labels } = useSparklineData(
+        volumeResolution,
+        dateRange,
+        match(sparklineSelectedPeriod)
+            .with('day', () => record.aggregations.volumeDay)
+            .with('custom', () => record.aggregations.volumeRange)
+            .exhaustive()
+    )
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" values={values} labels={labels} displayXAxis={false} />
@@ -221,7 +229,7 @@ const Header = (): JSX.Element => {
                     {user?.is_staff ? (
                         <LemonButton
                             onClick={() => {
-                                posthog.captureException(new Error('Oh my!'))
+                                posthog.captureException(new Error('Kaboom !'))
                             }}
                         >
                             Send an exception

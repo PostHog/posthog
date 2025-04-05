@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { useEffect, useMemo } from 'react'
+import { match } from 'ts-pattern'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
 import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
@@ -16,12 +17,49 @@ import {
     ErrorTrackingStackFrameContextLine,
 } from './types'
 
+function renderTraceHeaderDefault(
+    id: string | undefined,
+    type: string,
+    value: string,
+    checkers?: FingerprintCheckers
+): JSX.Element {
+    return (
+        <div className="flex flex-col gap-0.5 mb-2">
+            <h3 className="StackTrace__type mb-0" title={type}>
+                {type}
+                {id && checkers && checkers.includesExceptionType(id) && (
+                    <IconFingerprint
+                        className="ml-1"
+                        color={checkers.isExceptionTypeHighlighted(id) ? 'red' : 'gray'}
+                    />
+                )}
+            </h3>
+            <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
+                {value}
+                {id && checkers && checkers.includesExceptionValue(id) && (
+                    <IconFingerprint
+                        className="ml-1"
+                        color={checkers.isExceptionValueHighlighted(id) ? 'red' : 'gray'}
+                    />
+                )}
+            </div>
+        </div>
+    )
+}
+
 export function ChainedStackTraces({
     exceptionList,
     showAllFrames,
+    renderTraceHeader = renderTraceHeaderDefault,
     embedded = false,
     fingerprintRecords = [],
 }: {
+    renderTraceHeader?: (
+        id: string | undefined,
+        type: string,
+        value: string,
+        checkers?: FingerprintCheckers
+    ) => React.ReactNode
     exceptionList: ErrorTrackingException[]
     fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
@@ -46,44 +84,23 @@ export function ChainedStackTraces({
             {exceptionList.map(({ stacktrace, value, type, id }, index) => {
                 if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
-                    if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
-                        // if we're not showing all frames and there are no in_app frames, skip this exception
-                        return null
-                    }
+                    const hasOnlyNonInAppFrames = frames?.every((frame) => !frame.in_app)
                     return (
                         <div
-                            key={index}
-                            className={clsx('StackTrace flex flex-col gap-y-2', embedded && 'StackTrace--embedded')}
+                            key={id ?? index}
+                            className={clsx('StackTrace flex flex-col', embedded && 'StackTrace--embedded')}
                         >
-                            <div className="flex flex-col gap-0.5">
-                                <h3 className="StackTrace__type mb-0" title={type}>
-                                    {type}
-                                    {checkers.includesExceptionType(id) && (
-                                        <IconFingerprint
-                                            className="ml-1"
-                                            color={checkers.isExceptionTypeHighlighted(id) ? 'red' : 'gray'}
-                                        />
-                                    )}
-                                </h3>
-                                <div
-                                    className="StackTrace__value line-clamp-2 text-secondary italic text-xs"
-                                    title={value}
-                                >
-                                    {value}
-                                    {checkers.includesExceptionValue(id) && (
-                                        <IconFingerprint
-                                            className="ml-1"
-                                            color={checkers.isExceptionValueHighlighted(id) ? 'red' : 'gray'}
-                                        />
-                                    )}
-                                </div>
-                            </div>
-                            <Trace
-                                frames={frames || []}
-                                showAllFrames={showAllFrames}
-                                embedded={embedded}
-                                fingerprintRecords={fingerprintRecords}
-                            />
+                            {renderTraceHeader(id, type, value, checkers)}
+                            {match([showAllFrames, hasOnlyNonInAppFrames])
+                                .with([false, true], () => null)
+                                .otherwise(() => (
+                                    <Trace
+                                        frames={frames || []}
+                                        showAllFrames={showAllFrames}
+                                        embedded={embedded}
+                                        fingerprintRecords={fingerprintRecords}
+                                    />
+                                ))}
                         </div>
                     )
                 }
@@ -108,13 +125,13 @@ function Trace({
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     const panels = displayFrames.map(
-        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }, index) => {
+        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }) => {
             const record = stackFrameRecords[raw_id]
             const isUsedInFingerprint = checkers.includesFrame(raw_id)
             const isHighlighted = checkers.isFrameHighlighted(raw_id)
 
             return {
-                key: index,
+                key: raw_id,
                 header: (
                     <div className="flex flex-1 justify-between items-center">
                         <div className="flex flex-wrap gap-x-1">
@@ -150,7 +167,14 @@ function Trace({
                 ),
                 content:
                     record && record.context ? (
-                        <FrameContext context={record.context} language={getLanguage(lang)} />
+                        <div
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                            }}
+                        >
+                            <FrameContext context={record.context} language={getLanguage(lang)} />
+                        </div>
                     ) : null,
                 className: 'p-0',
             }
@@ -160,14 +184,16 @@ function Trace({
     return <LemonCollapse embedded={embedded} multiple panels={panels} size="xsmall" />
 }
 
-function useFingerprintRecords(fingerprintRecords: FingerprintRecordPart[]): {
+export type FingerprintCheckers = {
     includesExceptionType(exc_id: string): boolean
     includesExceptionValue(exc_id: string): boolean
     includesFrame(frame_id: string): boolean
     isExceptionTypeHighlighted(exc_id: string): boolean
     isExceptionValueHighlighted(exc_id: string): boolean
     isFrameHighlighted(frame_id: string): boolean
-} {
+}
+
+function useFingerprintRecords(fingerprintRecords: FingerprintRecordPart[]): FingerprintCheckers {
     const { highlightedRecordPart } = useValues(stackFrameLogic)
     return useMemo(() => {
         return {
