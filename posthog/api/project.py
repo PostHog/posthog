@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from functools import cached_property
 from typing import Any, Optional, cast
 from django.db import transaction
 
@@ -214,7 +213,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def get_product_intents(self, obj):
         project = obj
-        team = project.passthrough_team
+        team = project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user)
         calculate_product_activation.delay(team.id, only_calc_if_days_since_last_checked=1)
         return ProductIntent.objects.filter(team=team).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
@@ -295,7 +294,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return project
 
     def update(self, instance: Project, validated_data: dict[str, Any]) -> Project:
-        team = instance.passthrough_team
+        team = instance.get_passthrough_team(self.user_permissions.team_ids_visible_for_user)
         team_before_update = team.__dict__.copy()
         project_before_update = instance.__dict__.copy()
 
@@ -423,12 +422,11 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
     def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
-        queryset = queryset.filter(id__in=visible_teams_ids)
+        visible_project_ids = UserPermissions(cast(User, self.request.user)).project_ids_visible_for_user
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(organization_id__in=scoped_organizations)
-        return queryset.filter(id__in=visible_teams_ids)
+        return queryset.filter(id__in=visible_project_ids)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
@@ -551,19 +549,21 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             team=teams[0],
         )
 
+    # The reset_token action is for backwards compatibility, as /projects/ previously represented the Team model
     @action(
         methods=["PATCH"],
         detail=True,
-        # Only ADMIN or higher users are allowed to access this project
+        # Only ADMIN or higher users are allowed to access this environment
         permission_classes=[TeamMemberStrictManagementPermission],
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        project.passthrough_team.reset_token_and_save(
+        project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user).reset_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated_session(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
+    # The reset_token is_generating_demo_data is for backwards compatibility, as /projects/ previously represented the Team model
     @action(
         methods=["GET"],
         detail=True,
@@ -571,7 +571,13 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
+        return response.Response(
+            {
+                "is_generating_demo_data": project.get_passthrough_team(
+                    self.user_permissions.team_ids_visible_for_user
+                ).get_is_generating_demo_data()
+            }
+        )
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -597,7 +603,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
-        team = project.passthrough_team
+        team = project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user)
         user = request.user
         product_type = request.data.get("product_type")
         current_url = request.headers.get("Referer")
@@ -640,7 +646,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
-        team = project.passthrough_team
+        team = project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user)
         product_type = request.data.get("product_type")
         user = request.user
         current_url = request.headers.get("Referer")
@@ -798,12 +804,6 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return response.Response(
             ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=200
         )
-
-    @cached_property
-    def user_permissions(self):
-        project = self.get_object() if self.action == "reset_token" else None
-        team = project.passthrough_team if project else None
-        return UserPermissions(cast(User, self.request.user), team)
 
 
 class RootProjectViewSet(ProjectViewSet):

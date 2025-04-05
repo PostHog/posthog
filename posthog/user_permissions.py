@@ -75,12 +75,12 @@ class UserPermissions:
         return [team for team in candidate_teams if self.team(team).effective_membership_level is not None]
 
     @cached_property
-    def team_ids_visible_for_user(self) -> list[int]:
-        return [team.pk for team in self.teams_visible_for_user]
+    def team_ids_visible_for_user(self) -> tuple[int, ...]:
+        return tuple(team.pk for team in self.teams_visible_for_user)
 
     @cached_property
-    def project_ids_visible_for_user(self) -> list[int]:
-        return list({team.project_id for team in self.teams_visible_for_user})
+    def project_ids_visible_for_user(self) -> tuple[int, ...]:
+        return tuple({team.project_id for team in self.teams_visible_for_user})
 
     # Cached properties/functions for efficient lookups in other classes
 
