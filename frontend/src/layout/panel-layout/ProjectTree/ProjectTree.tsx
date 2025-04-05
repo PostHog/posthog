@@ -40,6 +40,7 @@ export function ProjectTree(): JSX.Element {
         setLastNewOperation,
         onItemChecked,
         moveCheckedItems,
+        linkCheckedItems,
         setCheckedItems,
     } = useActions(projectTreeLogic)
 
