@@ -6,8 +6,8 @@ import { ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'Messaging',
     scenes: {
-        MessagingAutomations: {
-            import: () => import('./frontend/Automations'),
+        MessagingCampaigns: {
+            import: () => import('./frontend/Campaigns'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -24,9 +24,9 @@ export const manifest: ProductManifest = {
     },
     routes: {
         // URL: [Scene, SceneKey]
-        '/messaging/automations': ['MessagingAutomations', 'messagingAutomations'],
-        '/messaging/automations/:id': ['MessagingAutomations', 'messagingAutomation'],
-        '/messaging/automations/new': ['MessagingAutomations', 'messagingAutomationNew'],
+        '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
+        '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
+        '/messaging/campaigns/new': ['MessagingCampaigns', 'messagingCampaignNew'],
         '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
         '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
         '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
@@ -38,9 +38,9 @@ export const manifest: ProductManifest = {
         '/messaging': '/messaging/broadcasts',
     },
     urls: {
-        messagingAutomations: (): string => '/messaging/automations',
-        messagingAutomation: (id?: string): string => `/messaging/automations/${id}`,
-        messagingAutomationNew: (): string => '/messaging/automations/new',
+        messagingCampaigns: (): string => '/messaging/campaigns',
+        messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
+        messagingCampaignNew: (): string => '/messaging/campaigns/new',
         messagingBroadcasts: (): string => '/messaging/broadcasts',
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',

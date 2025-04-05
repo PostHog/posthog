@@ -81,6 +81,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
     type = models.CharField(max_length=24, null=True, blank=True)
+    kind = models.CharField(max_length=24, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
 
