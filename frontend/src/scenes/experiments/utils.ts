@@ -97,7 +97,7 @@ export function getMinimumDetectableEffect(
         const targetConversionRate = Math.round(currentConversionRate * (1 + targetConversionRateIncrease))
         const mde = Math.ceil(targetConversionRate - currentConversionRate)
 
-        return mde || 5
+        return mde || 30
     }
 
     // TRENDS
