@@ -31,7 +31,7 @@ export function CreateEnvironmentModal({
         }
     }
     const handleSubmit = (): void => {
-        createTeam({ name, parent_team_id: currentTeam?.id })
+        createTeam({ name, parent_team_id: currentTeam?.root_team_id })
         reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
     }
 

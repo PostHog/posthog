@@ -378,6 +378,23 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    def validate_parent_team(self, value):
+        if value is None:
+            return None
+
+        parent_team = cast(Team, value)
+
+        if parent_team.id not in self.user_permissions.team_ids_visible_for_user:
+            # Ensure you can only create teams under other teams you have access to
+            raise exceptions.NotFound("Team not found.")
+
+        # Finally we need to ensure the team isn't already nested
+
+        if parent_team.parent_team:
+            raise ValidationError({"parent_team": "This project is not a root level project."})
+
+        return value
+
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)
@@ -388,12 +405,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if "project_id" in validated_data:
             # Temporarily we just delete this. It results in a project being created which is fine as we will follow up by removing all Projects
             del validated_data["project_id"]
-
-        if validated_data.get("parent_team", None):
-            parent_team = cast(Team, validated_data["parent_team"])
-            if parent_team.id not in self.user_permissions.team_ids_visible_for_user:
-                # Ensure you can only create teams under other teams you have access to
-                raise exceptions.NotFound("Team not found.")
 
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
 
