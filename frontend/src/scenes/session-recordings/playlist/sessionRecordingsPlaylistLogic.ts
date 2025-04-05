@@ -30,11 +30,11 @@ import {
     LogEntryPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
-    RecordingDirection,
     RecordingDurationFilter,
     RecordingUniversalFilters,
     SessionRecordingId,
     SessionRecordingType,
+    SortDirection,
 } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -291,7 +291,7 @@ function combineLegacyRecordingFilters(
 function sortRecordings(
     recordings: SessionRecordingType[],
     order: RecordingsQuery['order'] | 'duration' = 'start_time',
-    direction: RecordingDirection = 'newer'
+    direction: SortDirection = 'newer'
 ): SessionRecordingType[] {
     const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
@@ -356,11 +356,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
-        loadSessionRecordings: (direction?: RecordingDirection, userModifiedFilters?: Record<string, any>) => ({
+        loadSessionRecordings: (direction?: SortDirection, userModifiedFilters?: Record<string, any>) => ({
             direction,
             userModifiedFilters,
         }),
-        maybeLoadSessionRecordings: (direction?: RecordingDirection) => ({ direction }),
+        maybeLoadSessionRecordings: (direction?: SortDirection) => ({ direction }),
         loadNext: true,
         loadPrev: true,
     }),
