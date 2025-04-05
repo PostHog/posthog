@@ -38,7 +38,7 @@ function SortedBy({
             highlightWhenActive={false}
             items={[
                 {
-                    label: 'Date',
+                    label: 'Start time',
                     items: [
                         {
                             label: 'Latest',
