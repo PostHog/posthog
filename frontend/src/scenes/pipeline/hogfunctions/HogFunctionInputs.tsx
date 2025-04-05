@@ -14,7 +14,7 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -30,6 +30,7 @@ import {
 
 import { EmailTemplater } from './email-templater/EmailTemplater'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { hogFunctionInputLogic } from './HogFunctionInputLogic'
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
 
@@ -61,23 +62,55 @@ function JsonConfigField(props: {
     templating?: boolean
 }): JSX.Element {
     const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    const [key] = useState(`json_field_${Math.random().toString(36).substring(2, 11)}`)
+
+    // Set up validation logic for this JSON field
+    const logic = hogFunctionInputLogic({
+        fieldKey: key,
+        initialValue:
+            props.value === undefined || props.value === null
+                ? '{}'
+                : typeof props.value !== 'string'
+                ? JSON.stringify(props.value, null, 2)
+                : props.value,
+        onChange: props.onChange,
+    })
+
+    const { error } = useValues(logic)
+    const { setJsonValue } = useActions(logic)
+
+    // Format initial value for display
+    const initialValue =
+        props.value === undefined || props.value === null
+            ? '{}'
+            : typeof props.value !== 'string'
+            ? JSON.stringify(props.value, null, 2)
+            : props.value
+
     return (
-        <CodeEditorResizeable
-            language={props.templating ? 'hogJson' : 'json'}
-            value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
-            onChange={(v) => props.onChange?.(v ?? '')}
-            options={{
-                lineNumbers: 'off',
-                minimap: {
-                    enabled: false,
-                },
-                scrollbar: {
-                    vertical: 'hidden',
-                    verticalScrollbarSize: 0,
-                },
-            }}
-            globals={props.templating ? globalsWithInputs : undefined}
-        />
+        <div className="flex flex-col gap-1 w-full">
+            <CodeEditorResizeable
+                language={props.templating ? 'hogJson' : 'json'}
+                value={initialValue}
+                onChange={(value) => setJsonValue(value || '{}')}
+                options={{
+                    lineNumbers: 'off',
+                    minimap: {
+                        enabled: false,
+                    },
+                    scrollbar: {
+                        vertical: 'hidden',
+                        verticalScrollbarSize: 0,
+                    },
+                }}
+                globals={props.templating ? globalsWithInputs : undefined}
+            />
+            {error && (
+                <div className="text-danger text-xs mt-1 px-2 py-2 bg-danger-highlight rounded">
+                    <div className="font-semibold">{error}</div>
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -208,7 +241,14 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
             )
         case 'json':
             return (
-                <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" templating={templating} />
+                <div className="w-full">
+                    <JsonConfigField
+                        value={value}
+                        onChange={onChange}
+                        className="ph-no-capture"
+                        templating={templating}
+                    />
+                </div>
             )
         case 'choice':
             return (
