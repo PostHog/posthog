@@ -218,6 +218,14 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         self.deleted_at = datetime.now()
         self.save()
 
+    def delete_table(self):
+        if self.table is not None:
+            self.table.soft_delete()
+            self.table_id = None
+            self.last_synced_at = None
+            self.status = None
+            self.save()
+
 
 @database_sync_to_async
 def asave_external_data_schema(schema: ExternalDataSchema) -> None:
