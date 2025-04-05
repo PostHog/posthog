@@ -254,20 +254,11 @@ class AlertSerializer(serializers.ModelSerializer):
 
         user_org = self.context["request"].user.organization
 
-        has_alerts_feature = user_org.is_feature_available(AvailableFeature.ALERTS)
-
-        allowed_alerts_count = next(
-            (
-                feature.get("limit")
-                for feature in user_org.available_product_features or []
-                if feature.get("key") == AvailableFeature.ALERTS
-            ),
-            None,
-        )
-
+        alerts_feature = user_org.get_available_feature(AvailableFeature.ALERTS)
         existing_alerts_count = AlertConfiguration.objects.filter(team_id=self.context["team_id"]).count()
 
-        if has_alerts_feature:
+        if alerts_feature:
+            allowed_alerts_count = alerts_feature.get("limit")
             # If allowed_alerts_count is None then the user is allowed unlimited alerts
             if allowed_alerts_count is not None:
                 # Check current count against allowed limit

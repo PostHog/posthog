@@ -831,19 +831,10 @@ class PremiumMultiProjectPermission(BasePermission):
             if organization.teams.filter(is_demo=True).count() > 0:
                 return False
 
-        has_projects_feature = organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
-
-        allowed_project_count = next(
-            (
-                feature.get("limit")
-                for feature in organization.available_product_features or []
-                if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
-            ),
-            None,
-        )
-
-        if has_projects_feature:
+        projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
+        if projects_feature:
+            allowed_project_count = projects_feature.get("limit")
             # If allowed_project_count is None then the user is allowed unlimited projects
             if allowed_project_count is None:
                 return True
