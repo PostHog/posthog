@@ -1,10 +1,10 @@
+import base64
+import gzip
+import json
 from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
-import gzip
-import json
-import base64
 
 import structlog
 from dateutil.relativedelta import relativedelta
@@ -23,13 +23,14 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.dashboard import Dashboard
+from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.models.error_tracking import ErrorTrackingIssue
+from posthog.models.user import User
 from posthog.schema import EventsQuery
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
@@ -1791,6 +1792,8 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         super().setUp()
 
         self.team2 = Team.objects.create(organization=self.organization)
+        self.organization = self.organization
+        self.user = self.user
 
         _create_event(
             event="$pageview",
@@ -2000,6 +2003,48 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             timestamp="2021-10-10T23:01:00.00Z",
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
+
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    def test_update_group_properties_called_correctly(self, mock_client: MagicMock) -> None:
+        from posthog.models.organization import OrganizationMembership
+        from posthog.tasks.usage_report import capture_report
+
+        # Create additional test users in the organization
+        users = [self.user]  # Include existing test user
+        for i in range(2001):  # Create 2001 users to test truncation
+            user = User.objects.create(email=f"test{i}@posthog.com")
+            OrganizationMembership.objects.create(user=user, organization=self.organization)
+            users.append(user)
+
+        mock_pha_client = MagicMock()
+        mock_client.return_value = mock_pha_client
+
+        # Call capture_report
+        capture_report(
+            organization_id=str(self.organization.id),
+            full_report_dict={"some": "metrics"},
+            at_date="2021-10-10T23:01:00Z",
+        )
+
+        # Verify update_group_properties was called with correct member emails
+        mock_pha_client.group_identify.assert_called_once()
+        call_args = mock_pha_client.group_identify.call_args[0]
+        self.assertEqual(call_args[0], "organization")
+        self.assertEqual(call_args[1], str(self.organization.id))
+
+        # Verify the email string format
+        emails_string = call_args[2]["member_emails"]
+        self.assertTrue(emails_string.endswith("..."))  # Should be truncated
+        email_list = emails_string.replace("...", "").split(",")
+        self.assertEqual(len(email_list), 2000)  # Should have exactly 2000 emails
+        self.assertEqual(email_list[0], self.user.email)  # First user should be the test user
+
+        # Verify capture was also called as expected
+        mock_pha_client.capture.assert_called_once()
+        capture_args = mock_pha_client.capture.call_args[0]
+        self.assertEqual(capture_args[1], "organization usage report")
+        self.assertEqual(capture_args[2], {"some": "metrics", "scope": "machine"})
 
 
 class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
