@@ -125,17 +125,17 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             properties: [
                                 wildcardHref === href
                                     ? {
-                                          key: '$current_url',
-                                          value: href,
-                                          operator: PropertyOperator.Exact,
-                                          type: PropertyFilterType.Event,
-                                      }
+                                        key: '$current_url',
+                                        value: href,
+                                        operator: PropertyOperator.Exact,
+                                        type: PropertyFilterType.Event,
+                                    }
                                     : {
-                                          key: '$current_url',
-                                          value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
-                                          operator: PropertyOperator.Regex,
-                                          type: PropertyFilterType.Event,
-                                      },
+                                        key: '$current_url',
+                                        value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
+                                        operator: PropertyOperator.Regex,
+                                        type: PropertyFilterType.Event,
+                                    },
                             ],
                             date_from: values.commonFilters.date_from,
                             date_to: values.commonFilters.date_to,
@@ -266,29 +266,29 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     return []
                 }
                 const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
-                ;(elements || []).forEach((countedElement) => {
-                    const trimmedElement = trimElement(countedElement.element)
-                    if (!trimmedElement) {
-                        return
-                    }
-
-                    if (normalisedElements.has(trimmedElement)) {
-                        const existing = normalisedElements.get(trimmedElement)
-                        if (existing) {
-                            existing.count += countedElement.count
-                            existing.clickCount += countedElement.type === '$rageclick' ? 0 : countedElement.count
-                            existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
+                    ; (elements || []).forEach((countedElement) => {
+                        const trimmedElement = trimElement(countedElement.element)
+                        if (!trimmedElement) {
+                            return
                         }
-                    } else {
-                        normalisedElements.set(trimmedElement, {
-                            ...countedElement,
-                            clickCount: countedElement.type === '$rageclick' ? 0 : countedElement.count,
-                            rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
-                            element: trimmedElement,
-                            actionStep: elementToActionStep(trimmedElement, dataAttributes),
-                        })
-                    }
-                })
+
+                        if (normalisedElements.has(trimmedElement)) {
+                            const existing = normalisedElements.get(trimmedElement)
+                            if (existing) {
+                                existing.count += countedElement.count
+                                existing.clickCount += countedElement.type === '$rageclick' ? 0 : countedElement.count
+                                existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
+                            }
+                        } else {
+                            normalisedElements.set(trimmedElement, {
+                                ...countedElement,
+                                clickCount: countedElement.type === '$rageclick' ? 0 : countedElement.count,
+                                rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
+                                element: trimmedElement,
+                                actionStep: elementToActionStep(trimmedElement, dataAttributes),
+                            })
+                        }
+                    })
 
                 const countedElements = Array.from(normalisedElements.values())
                 countedElements.sort((a, b) => b.count - a.count)
@@ -343,6 +343,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         disableHeatmap: () => {
             actions.resetElementStats()
+            actions.resetHeatmapData()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
 
@@ -366,11 +367,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         setHref: ({ href }) => {
-            actions.setDataHref(href, 'exact')
+            actions.setDataHref(href)
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
-            actions.setDataHref(href, 'regex')
+            actions.setDataHref(href)
             actions.maybeLoadClickmap()
         },
         setCommonFilters: () => {
@@ -405,10 +406,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.setHeatmapScrollY(scrollY)
             }
         }, 100)
+        actions.loadAllEnabled()
     }),
     beforeUnmount(({ cache }) => {
-        window.removeEventListener('keydown', cache.keyDownListener)
-        window.removeEventListener('keyup', cache.keyUpListener)
         clearInterval(cache.scrollCheckTimer)
     }),
 ])

@@ -18,6 +18,7 @@ import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { FilterType } from '~/types'
 
 import type { heatmapDataLogicType } from './heatmapDataLogicType'
+import { isLikelyRegex } from 'lib/utils/regexp'
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -35,7 +36,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
-        setHref: (href: string, match: 'exact' | 'regex') => ({ href, match }),
+        setHref: (href: string) => ({ href }),
         setFetchFn: (fetchFn: 'native' | 'toolbar') => ({ fetchFn }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
@@ -81,9 +82,12 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
         href: [
-            null as { href: string | null; match: 'exact' | 'regex' } | null,
+            null as string | null,
             {
-                setHref: (_, { href, match }) => ({ href, match }),
+                setHref: (_, { href }) => {
+                    console.log('setHref reducer', href)
+                    return href
+                },
             },
         ],
         heatmapScrollY: [
@@ -105,12 +109,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             {
                 resetHeatmapData: () => ({ results: [] }),
                 loadHeatmap: async (_, breakpoint) => {
-                    if (!values.href) {
+                    console.log('loadHeatmap started', values.href)
+
+                    if (!values.href || !values.href.trim().length) {
                         return null
                     }
                     await breakpoint(150)
 
-                    const { href, match } = values.href
                     const { date_from, date_to, filter_test_accounts } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
 
@@ -120,8 +125,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             type,
                             date_from,
                             date_to,
-                            url_exact: match === 'exact' ? href : undefined,
-                            url_pattern: match === 'regex' ? href : undefined,
+                            url_exact: isLikelyRegex(values.href) ? undefined : values.href,
+                            url_pattern: isLikelyRegex(values.href) ? values.href : undefined,
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
@@ -269,7 +274,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapColorPalette: () => {
             actions.loadHeatmap()
         },
-        setHref: () => {
+        setHref: (args) => {
+            console.log('setHref listener', args)
             actions.loadHeatmap()
         },
         setWindowWidthOverride: () => {

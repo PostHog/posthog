@@ -16,7 +16,6 @@ import {
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
-import { isValidRegexPattern } from 'lib/utils/regexp'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -105,8 +104,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                                      WHERE timestamp >= now() - INTERVAL 7 DAY
                                        AND timestamp <= now()
                                        AND properties.$current_url like '%${hogql.identifier(
-                                           values.browserSearchTerm
-                                       )}%'
+                            values.browserSearchTerm
+                        )}%'
                                      ORDER BY timestamp DESC
                                          limit 100`,
                     }
@@ -290,7 +289,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (replayIframeData && replayIframeData.url) {
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
-                actions.setHref(replayIframeData.url, isValidRegexPattern(replayIframeData.url) ? 'regex' : 'exact')
+                actions.setHref(replayIframeData.url)
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
@@ -422,7 +421,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (url?.trim().length) {
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
-                actions.setHref(url, isValidRegexPattern(url) ? 'regex' : 'exact')
+                actions.setHref(url)
             }
         },
 
