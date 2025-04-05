@@ -46,10 +46,13 @@ pub struct AppContext {
     pub skip_reads: bool,
     pub group_type_cache: Cache<String, i32>, // Keyed on group-type name, and team id
 
-    // this will be used to conditionally partition "v2" propdef refactor
-    // codepaths in the property-defs-rs-v2 mirror deployment during the
-    // transition to an isolated DB instance
+    // TEMPORARY: used to gate the process_batch_v2 write path until it becomes the new default
     pub enable_v2: bool,
+
+    // this will gate access to code specifically for use in the new mirror deployment
+    // and is INDEPENDENT of enable_v2. The main thing it gates at first is use of
+    // the new DB client pointed at the isolated Postgres "propdefs" instances in deploy
+    pub enable_mirror: bool,
 }
 
 impl AppContext {
@@ -57,7 +60,7 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let orig_pool = options.connect(&config.database_url).await?;
 
-        let v2_pool = match config.enable_v2 {
+        let v2_pool = match config.enable_mirror {
             true => {
                 let v2_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
                 Some(v2_options.connect(&config.database_propdefs_url).await?)
@@ -84,6 +87,7 @@ impl AppContext {
             skip_reads: config.skip_reads,
             group_type_cache,
             enable_v2: config.enable_v2,
+            enable_mirror: config.enable_mirror,
         })
     }
 
@@ -106,9 +110,9 @@ impl AppContext {
 
         let transaction_time = common_metrics::timing_guard(UPDATE_TRANSACTION_TIME, &[]);
         if !self.skip_writes && !self.skip_reads {
-            // if enable_v2 is TRUE and we are in the mirror deploy, use propdefs write DB.
+            // if enable_mirror is TRUE and we are in the mirror deploy: use propdefs write DB.
             let mut write_pool = &self.pool;
-            if self.enable_v2 {
+            if self.enable_mirror {
                 if let Some(resolved) = &self.propdefs_pool {
                     metrics::counter!(
                         V2_ISOLATED_DB_SELECTED,

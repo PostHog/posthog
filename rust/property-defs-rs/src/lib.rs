@@ -81,11 +81,28 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // conditionally enable new v2 batch write path
-        // ************* IMPORANT ***************************
-        // THIS IS STILL BEING USED BY V2 BATCH WRITE TESTING
-        // AND MUST RELINQUISH OWNERSHIP OF IT BEFORE THE MIRROR
-        // DEPLOYMENT PR YOU SEE HERE CAN LAND SAFELY!
+        // the new mirror deployment should point all Postgres writes
+        // at the new isolated "propdefs" DB instance in all envs.
+        // THE ORIGINAL property-defs-rs deployment should NEVER DO THIS
+        let mut resolved_pool = &context.pool;
+        if config.enable_mirror {
+            // for safely, the original propdefs deploy will not set the
+            // DATABASE_PROPDEFS_URL and local defaults set it the same
+            // as DATABASE_URL (the std posthog Cloud DB) so only if
+            // this context var != None will it be enabled
+            if let Some(resolved) = &context.propdefs_pool {
+                metrics::counter!(
+                    V2_ISOLATED_DB_SELECTED,
+                    &[(String::from("processor"), String::from("v2"))]
+                )
+                .increment(1);
+                resolved_pool = resolved;
+            }
+        }
+
+        // conditionally enable new v2 batch write path. While the new write
+        // path is being tested and not the default, THIS IS INDEPENDENT of
+        // whether config.enable_mirror is set, or which deploy we're in
         if config.enable_v2 {
             // enrich batch group events with resolved group_type_indices
             // before passing along to process_batch_v2. We can refactor this
@@ -99,17 +116,6 @@ pub async fn update_consumer_loop(
                         e
                     )
                 });
-
-            // if enable_v2 is TRUE, we are in the mirror deploy and should use propdefs write DB.
-            let mut resolved_pool = &context.pool;
-            if let Some(resolved) = &context.propdefs_pool {
-                metrics::counter!(
-                    V2_ISOLATED_DB_SELECTED,
-                    &[(String::from("processor"), String::from("v2"))]
-                )
-                .increment(1);
-                resolved_pool = resolved;
-            }
 
             process_batch_v2(&config, cache.clone(), resolved_pool, batch).await;
         } else {
