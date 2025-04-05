@@ -589,7 +589,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         end=end,
         query_template=query_template,
         params={},
-        num_splits=4,
+        num_splits=2,
         combine_results_func=combine_event_metrics_results,
     )
 
