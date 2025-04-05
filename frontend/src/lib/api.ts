@@ -368,6 +368,9 @@ class ApiRequest {
     public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id).addPathComponent('move')
     }
+    public fileSystemLink(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent(id).addPathComponent('link')
+    }
     public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id).addPathComponent('count')
     }
@@ -1256,6 +1259,9 @@ const api = {
         },
         async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
+        },
+        async link(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLink(id).create({ data: { new_path: newPath } })
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
