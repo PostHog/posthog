@@ -16,6 +16,7 @@ from posthog.warehouse.api import (
     query_tab_state,
     data_modeling_job,
 )
+from .sdk_deprecation_warnings import SdkDeprecationWarningsViewSet
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -447,6 +448,8 @@ register_grandfathered_environment_nested_viewset(
 
 register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
+register_grandfathered_environment_nested_viewset(r"sdk_deprecation_warnings", SdkDeprecationWarningsViewSet, "environment_sdk_deprecation_warnings", ["team_id"])
+
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
