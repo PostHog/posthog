@@ -17,7 +17,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events, revenue_where_expr_for_events
+from posthog.hogql.database.schema.exchange_rate import revenue_where_expr_for_events
 
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -44,27 +44,16 @@ WebQueryNode = Union[
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
-    do_currency_conversion: bool = False
     include_data_warehouse_revenue: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        groups = {"organization": str(self.team.organization_id)}
-        group_properties = {"organization": {"id": str(self.team.organization_id)}}
-
-        self.do_currency_conversion = posthoganalytics.feature_enabled(
-            "web-analytics-revenue-tracking-conversion",
-            str(self.team.organization_id),
-            groups=groups,
-            group_properties=group_properties,
-        )
-
         self.include_data_warehouse_revenue = posthoganalytics.feature_enabled(
             "web-analytics-data-warehouse-revenue-settings",
             str(self.team.organization_id),
-            groups=groups,
-            group_properties=group_properties,
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
         )
 
     @cached_property
@@ -238,10 +227,6 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         else:
             # for now, don't support conversion revenue for actions
             return ast.Constant(value=None)
-
-    @cached_property
-    def revenue_sum_expression(self) -> ast.Expr:
-        return revenue_sum_expression_for_events(self.team.revenue_config, self.do_currency_conversion)
 
     @cached_property
     def event_type_expr(self) -> ast.Expr:

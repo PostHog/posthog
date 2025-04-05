@@ -189,14 +189,13 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
 
         assert len(results) == 0
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
     @patch(
         "clickhouse_driver.result.QueryResult.get_result",
         return_value=(
             [
-                ("database_with_revenue_column", "distinct_id_1", 42, "USD", 42, "USD"),
-                ("database_with_revenue_column", "distinct_id_2", 43, "USD", 43, "USD"),
-                ("database_with_revenue_column", "distinct_id_3", 44, "USD", 44, "USD"),
+                ("database_with_revenue_column", "distinct_id_1", 42, "USD", 35, "GBP"),
+                ("database_with_revenue_column", "distinct_id_2", 43, "USD", 36, "GBP"),
+                ("database_with_revenue_column", "distinct_id_3", 44, "USD", 37, "GBP"),
             ],
             (
                 "String",
@@ -208,7 +207,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             ),
         ),
     )
-    def test_single_table_query(self, mock_get_result, feature_enabled_mock):
+    def test_single_table_query(self, mock_get_result):
         response = self._run_revenue_example_external_tables_query(SINGLE_TABLE_REVENUE_TRACKING_CONFIG)
         results = response.results
 
@@ -217,24 +216,22 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         assert len(results[0]) == 6
         assert len(response.columns) == 6
 
-        assert results[0] == ("database_with_revenue_column", "distinct_id_1", 42, "USD", 42, "USD")
-        assert results[1] == ("database_with_revenue_column", "distinct_id_2", 43, "USD", 43, "USD")
-        assert results[2] == ("database_with_revenue_column", "distinct_id_3", 44, "USD", 44, "USD")
+        assert results[0] == ("database_with_revenue_column", "distinct_id_1", 42, "USD", 42, "GBP")
+        assert results[1] == ("database_with_revenue_column", "distinct_id_2", 43, "USD", 43, "GBP")
+        assert results[2] == ("database_with_revenue_column", "distinct_id_3", 44, "USD", 44, "GBP")
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
     @patch(
         "clickhouse_driver.result.QueryResult.get_result",
         return_value=(
             [
-                ("database_with_revenue_column_a", "distinct_id_1", 42, "USD", 42, "USD"),
-                ("database_with_revenue_column_a", "distinct_id_2", 43, "USD", 43, "USD"),
-                ("database_with_revenue_column_a", "distinct_id_3", 44, "USD", 44, "USD"),
-                ("database_with_revenue_column_b", "distinct_id_1", 43, "USD", 43, "USD"),
-                ("database_with_revenue_column_b", "distinct_id_2", 44, "USD", 44, "USD"),
-                ("database_with_revenue_column_b", "distinct_id_3", 45, "USD", 45, "USD"),
+                ("database_with_revenue_column_a", "distinct_id_1", 42, "USD", 42, "GBP"),
+                ("database_with_revenue_column_a", "distinct_id_2", 43, "USD", 43, "GBP"),
+                ("database_with_revenue_column_a", "distinct_id_3", 44, "USD", 44, "GBP"),
+                ("database_with_revenue_column_b", "distinct_id_1", 43, "USD", 43, "GBP"),
+                ("database_with_revenue_column_b", "distinct_id_2", 44, "USD", 44, "GBP"),
+                ("database_with_revenue_column_b", "distinct_id_3", 45, "USD", 45, "GBP"),
             ],
             (
-                "String",
                 "String",
                 "Float64",
                 "String",
@@ -243,7 +240,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             ),
         ),
     )
-    def test_multiple_tables_query(self, mock_get_result, feature_enabled_mock):
+    def test_multiple_tables_query(self, mock_get_result):
         response = self._run_revenue_example_external_tables_query(MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG)
         results = response.results
 
@@ -254,80 +251,9 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
 
         # Results are returned in the order defined by the SQL UNION ALL query
         # The first table from dataWarehouseTables should come first
-        assert results[0] == ("database_with_revenue_column_a", "distinct_id_1", 42, "USD", 42, "USD")
-        assert results[1] == ("database_with_revenue_column_a", "distinct_id_2", 43, "USD", 43, "USD")
-        assert results[2] == ("database_with_revenue_column_a", "distinct_id_3", 44, "USD", 44, "USD")
-        assert results[3] == ("database_with_revenue_column_b", "distinct_id_1", 43, "USD", 43, "USD")
-        assert results[4] == ("database_with_revenue_column_b", "distinct_id_2", 44, "USD", 44, "USD")
-        assert results[5] == ("database_with_revenue_column_b", "distinct_id_3", 45, "USD", 45, "USD")
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    @patch(
-        "clickhouse_driver.result.QueryResult.get_result",
-        return_value=(
-            [
-                ("database_with_revenue_column", "distinct_id_1", 42, "USD", 42, "USD"),
-                ("database_with_revenue_column", "distinct_id_2", 43, "USD", 43, "USD"),
-                ("database_with_revenue_column", "distinct_id_3", 44, "USD", 44, "USD"),
-            ],
-            (
-                "String",
-                "String",
-                "Float64",
-                "String",
-                "Float64",
-                "String",
-            ),
-        ),
-    )
-    def test_single_table_query_with_currency_conversion(self, mock_get_result, feature_enabled_mock):
-        response = self._run_revenue_example_external_tables_query(SINGLE_TABLE_REVENUE_TRACKING_CONFIG)
-        results = response.results
-
-        # 3 rows, 6 columns
-        assert len(results) == 3
-        assert len(results[0]) == 6
-        assert len(response.columns) == 6
-
-        assert results[0] == ("database_with_revenue_column", "distinct_id_1", 42, "USD", 42, "USD")
-        assert results[1] == ("database_with_revenue_column", "distinct_id_2", 43, "USD", 43, "USD")
-        assert results[2] == ("database_with_revenue_column", "distinct_id_3", 44, "USD", 44, "USD")
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    @patch(
-        "clickhouse_driver.result.QueryResult.get_result",
-        return_value=(
-            [
-                ("database_with_revenue_column_a", "distinct_id_1", 42, "USD", 42, "USD"),
-                ("database_with_revenue_column_a", "distinct_id_2", 43, "USD", 43, "USD"),
-                ("database_with_revenue_column_a", "distinct_id_3", 44, "USD", 44, "USD"),
-                ("database_with_revenue_column_b", "distinct_id_1", 43, "USD", 43, "USD"),
-                ("database_with_revenue_column_b", "distinct_id_2", 44, "USD", 44, "USD"),
-                ("database_with_revenue_column_b", "distinct_id_3", 45, "USD", 45, "USD"),
-            ],
-            (
-                "String",
-                "Float64",
-                "String",
-                "Float64",
-                "String",
-            ),
-        ),
-    )
-    def test_multiple_tables_query_with_currency_conversion(self, mock_get_result, feature_enabled_mock):
-        response = self._run_revenue_example_external_tables_query(MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG)
-        results = response.results
-
-        # 6 rows, 6 columns
-        assert len(results) == 6
-        assert len(results[0]) == 6
-        assert len(response.columns) == 6
-
-        # Results are returned in the order defined by the SQL UNION ALL query
-        # The first table from dataWarehouseTables should come first
-        assert results[0] == ("database_with_revenue_column_a", "distinct_id_1", 42, "USD", 42, "USD")
-        assert results[1] == ("database_with_revenue_column_a", "distinct_id_2", 43, "USD", 43, "USD")
-        assert results[2] == ("database_with_revenue_column_a", "distinct_id_3", 44, "USD", 44, "USD")
-        assert results[3] == ("database_with_revenue_column_b", "distinct_id_1", 43, "USD", 43, "USD")
-        assert results[4] == ("database_with_revenue_column_b", "distinct_id_2", 44, "USD", 44, "USD")
-        assert results[5] == ("database_with_revenue_column_b", "distinct_id_3", 45, "USD", 45, "USD")
+        assert results[0] == ("database_with_revenue_column_a", "distinct_id_1", 42, "USD", 42, "GBP")
+        assert results[1] == ("database_with_revenue_column_a", "distinct_id_2", 43, "USD", 43, "GBP")
+        assert results[2] == ("database_with_revenue_column_a", "distinct_id_3", 44, "USD", 44, "GBP")
+        assert results[3] == ("database_with_revenue_column_b", "distinct_id_1", 43, "USD", 43, "GBP")
+        assert results[4] == ("database_with_revenue_column_b", "distinct_id_2", 44, "USD", 44, "GBP")
+        assert results[5] == ("database_with_revenue_column_b", "distinct_id_3", 45, "USD", 45, "GBP")

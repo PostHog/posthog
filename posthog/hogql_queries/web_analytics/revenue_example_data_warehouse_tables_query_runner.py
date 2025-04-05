@@ -1,5 +1,4 @@
 from typing import Union
-import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -23,19 +22,11 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
     response: RevenueExampleDataWarehouseTablesQueryResponse
     cached_response: CachedRevenueExampleDataWarehouseTablesQueryResponse
     paginator: HogQLHasMorePaginator
-    do_currency_conversion: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
-        )
-
-        self.do_currency_conversion = posthoganalytics.feature_enabled(
-            "web-analytics-revenue-tracking-conversion",
-            str(self.team.organization_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
         )
 
     def to_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
@@ -63,9 +54,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
                             ),
                             ast.Alias(
                                 alias="revenue",
-                                expr=revenue_expression_for_data_warehouse(
-                                    tracking_config, table, self.do_currency_conversion
-                                ),
+                                expr=revenue_expression_for_data_warehouse(tracking_config, table),
                             ),
                             ast.Alias(
                                 alias="currency",
