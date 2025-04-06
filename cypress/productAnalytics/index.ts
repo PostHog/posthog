@@ -46,7 +46,7 @@ export const insight = {
         cy.url().should('not.include', '/new')
     },
     clickTab: (tabName: string): void => {
-        cy.intercept('POST', /api\/environments\/\d+\/query\//).as('loadNewQueryInsight')
+        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
 
         cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
         if (tabName !== 'FUNNELS') {
@@ -55,7 +55,7 @@ export const insight = {
         }
     },
     newInsight: (insightType: string = 'TRENDS'): void => {
-        cy.intercept('POST', /api\/environments\/\d+\/query\//).as('loadNewQueryInsight')
+        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
 
         if (insightType === 'JSON') {
             cy.clickNavMenu('savedinsights')
@@ -90,7 +90,7 @@ export const insight = {
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
     },
     addInsightToDashboard: (dashboardName: string, options: { visitAfterAdding: boolean }): void => {
-        cy.intercept('PATCH', /api\/environments\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+        cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
 
         cy.get('[data-attr="save-to-dashboard-button"]').click()
         cy.get('[data-attr="dashboard-searchfield"]').type(dashboardName)
@@ -162,7 +162,7 @@ export const dashboards = {
 
 export const dashboard = {
     addInsightToEmptyDashboard: (insightName: string): void => {
-        cy.intercept('POST', /api\/environments\/\d+\/insights\//).as('postInsight')
+        cy.intercept('POST', /api\/projects\/\d+\/insights\//).as('postInsight')
 
         cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
         cy.get('[data-attr=toast-close-button]').click({ multiple: true })

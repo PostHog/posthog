@@ -1,5 +1,4 @@
 from ee.api.test.test_team import team_enterprise_api_test_factory
-from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.team import Team
@@ -14,14 +13,12 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
     At the same time, this class is where we can continue adding `Project`-specific API tests.
     """
 
-    client_class = EnvironmentToProjectRewriteClient
-
     def test_create_team(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.assertEqual(Team.objects.count(), 1)
         self.assertEqual(Project.objects.count(), 1)
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
+        response = self.client.post("/api/projects/", {"name": "Test"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(Project.objects.count(), 2)
@@ -41,7 +38,7 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         self.organization_membership.save()
         self.assertEqual(Team.objects.count(), 1)
         self.assertEqual(Project.objects.count(), 1)
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Test", "access_control": True})
+        response = self.client.post("/api/projects/", {"name": "Test", "access_control": True})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(Project.objects.count(), 2)

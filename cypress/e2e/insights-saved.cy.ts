@@ -6,7 +6,7 @@ import { createInsight } from '../productAnalytics'
 // insight tests were split up because Cypress was struggling with this many tests in one file🙈
 describe('Insights - saved', () => {
     it('If cache empty, initiate async refresh', () => {
-        cy.intercept('GET', /\/api\/environments\/\d+\/insights\/?\?[^/]*?refresh=async/).as('getInsightsRefreshAsync')
+        cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?[^/]*?refresh=async/).as('getInsightsRefreshAsync')
         let newInsightId: string
         createInsight('saved insight').then((insightId) => {
             newInsightId = insightId

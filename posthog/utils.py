@@ -395,9 +395,8 @@ def render_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.shared import TeamPublicSerializer
+        from posthog.api.shared import TeamPublicSerializer, ProjectSerializer
         from posthog.api.team import TeamSerializer
-        from posthog.api.project import ProjectSerializer
         from posthog.api.user import UserSerializer
         from posthog.rbac.user_access_control import UserAccessControl
         from posthog.user_permissions import UserPermissions
