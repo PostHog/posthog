@@ -37,14 +37,14 @@ export const settingsLogic = kea<settingsLogicType>([
     }),
 
     reducers(({ props }) => ({
-        selectedLevelRaw: [
+        selectedLevel: [
             props.settingLevelId ?? 'project',
             {
                 selectLevel: (_, { level }) => level,
                 selectSection: (_, { level }) => level,
             },
         ],
-        selectedSectionIdRaw: [
+        selectedSectionId: [
             props.sectionId ?? null,
             {
                 selectLevel: () => null,
@@ -85,8 +85,8 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev],
-            (doesMatchFlags, featureFlags, isCloudOrDev): SettingSection[] => {
+            (s) => [s.doesMatchFlags, s.isCloudOrDev],
+            (doesMatchFlags, isCloudOrDev): SettingSection[] => {
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
                         return false
@@ -94,58 +94,7 @@ export const settingsLogic = kea<settingsLogicType>([
 
                     return true
                 })
-                if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-                    return sections
-                        .filter((section) => section.level !== 'project')
-                        .map((section) => ({
-                            ...section,
-                            id: section.id.replace('environment-', 'project-') as SettingSectionId,
-                            level: section.level === 'environment' ? 'project' : section.level,
-                            settings: section.settings.map((setting) => ({
-                                ...setting,
-                                title:
-                                    typeof setting.title === 'string'
-                                        ? setting.title.replace('environment', 'project')
-                                        : setting.title,
-                                id: setting.id.replace('environment-', 'project-') as SettingId,
-                            })),
-                        }))
-                }
                 return sections
-            },
-        ],
-        selectedLevel: [
-            (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.featureFlags],
-            (selectedLevelRaw, selectedSectionIdRaw, featureFlags): SettingLevelId => {
-                // As of middle of September 2024, `details` and `danger-zone` are the only sections present
-                // at both Environment and Project levels. Others we want to redirect based on the feature flag.
-                if (
-                    !selectedSectionIdRaw ||
-                    (!selectedSectionIdRaw.endsWith('-details') && !selectedSectionIdRaw.endsWith('-danger-zone'))
-                ) {
-                    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-                        return selectedLevelRaw === 'project' ? 'environment' : selectedLevelRaw
-                    }
-                    return selectedLevelRaw === 'environment' ? 'project' : selectedLevelRaw
-                }
-                return selectedLevelRaw
-            },
-        ],
-        selectedSectionId: [
-            (s) => [s.selectedSectionIdRaw, s.featureFlags],
-            (selectedSectionIdRaw, featureFlags): SettingSectionId | null => {
-                if (!selectedSectionIdRaw) {
-                    return null
-                }
-                // As of middle of September 2024, `details` and `danger-zone` are the only sections present
-                // at both Environment and Project levels. Others we want to redirect based on the feature flag.
-                if (!selectedSectionIdRaw.endsWith('-details') && !selectedSectionIdRaw.endsWith('-danger-zone')) {
-                    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-                        return selectedSectionIdRaw.replace(/^project/, 'environment') as SettingSectionId
-                    }
-                    return selectedSectionIdRaw.replace(/^environment/, 'project') as SettingSectionId
-                }
-                return selectedSectionIdRaw
             },
         ],
         selectedSection: [

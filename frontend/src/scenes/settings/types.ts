@@ -12,33 +12,24 @@ export type SettingsLogicProps = {
     settingId?: SettingId
 }
 
-export const SettingLevelIds = ['environment', 'project', 'organization', 'user'] as const
+export const SettingLevelIds = ['project', 'organization', 'user'] as const
 export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
-    | 'environment-details'
-    | 'environment-autocapture'
-    | 'environment-product-analytics'
-    | 'environment-web-analytics'
-    | 'environment-replay'
-    | 'environment-surveys'
-    | 'environment-feature-flags'
-    | 'environment-error-tracking'
-    | 'environment-integrations'
-    | 'environment-access-control'
-    | 'environment-role-based-access-control'
-    | 'environment-danger-zone'
-    | 'environment-max'
     | 'project-details'
-    | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-product-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-replay' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-surveys' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-toolbar' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-role-based-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-autocapture'
+    | 'project-product-analytics'
+    | 'project-web-analytics'
+    | 'project-replay'
+    | 'project-surveys'
+    | 'project-feature-flags'
+    | 'project-error-tracking'
+    | 'project-integrations'
+    | 'project-access-control'
+    | 'project-role-based-access-control'
     | 'project-danger-zone'
+    | 'project-max'
+    | 'project-toolbar'
     | 'organization-ai-consent'
     | 'organization-details'
     | 'organization-members'

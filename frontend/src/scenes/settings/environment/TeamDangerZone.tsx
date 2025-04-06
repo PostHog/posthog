@@ -2,14 +2,12 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamType } from '~/types'
-
-import { ProjectDangerZone } from '../project/ProjectDangerZone'
 
 export function DeleteTeamModal({
     isOpen,
@@ -78,9 +76,10 @@ export function TeamDangerZone(): JSX.Element {
         scope: RestrictionScope.Project,
     })
 
-    if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-        return <ProjectDangerZone />
-    }
+    // TODO: Extend with info for deleting sub projects
+    // if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
+    //     return <ProjectDangerZone />
+    // }
 
     // We don't yet allow deleting individual environments, as we still use `team` fields with `on_delete=CASCADE`
     // on many models that conceptually are project-level (such as insights or feature flags). That `on_delete=CASCADE`

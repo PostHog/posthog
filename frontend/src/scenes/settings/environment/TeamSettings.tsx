@@ -7,11 +7,8 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { JSSnippet, JSSnippetV2 } from 'lib/components/JSSnippet'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -24,11 +21,8 @@ import { WeekStartConfig } from './WeekStartConfig'
 export function TeamDisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [name, setName] = useState(currentTeam?.name || '')
-
-    const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <div className="deprecated-space-y-4 max-w-160">
@@ -39,7 +33,7 @@ export function TeamDisplayName(): JSX.Element {
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
             >
-                Rename {displayNoun}
+                Rename project
             </LemonButton>
         </div>
     )
@@ -111,13 +105,12 @@ export function TeamVariables(): JSX.Element {
     const { resetToken } = useActions(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const region = preflight?.region
 
     const openDialog = (): void => {
         LemonDialog.open({
-            title: `Reset ${displayNoun} API key?`,
+            title: 'Reset project API key?',
             description: 'This will invalidate the current API key and cannot be undone.',
             primaryButton: {
                 children: 'Reset',
@@ -131,13 +124,11 @@ export function TeamVariables(): JSX.Element {
         })
     }
 
-    const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-
     return (
         <div className="flex flex-wrap items-start gap-4">
             <div className="flex-1">
                 <h3 id="project-api-key" className="min-w-[25rem]">
-                    {capitalizeFirstLetter(displayNoun)} API key
+                    Project API key
                 </h3>
                 <p>
                     You can use this write-only key in any one of{' '}
@@ -149,7 +140,7 @@ export function TeamVariables(): JSX.Element {
                             <LemonButton icon={<IconRefresh />} noPadding onClick={openDialog} />
                         ) : undefined
                     }
-                    thing={`${displayNoun} API key`}
+                    thing="Project API key"
                 >
                     {currentTeam?.api_token || ''}
                 </CodeSnippet>
@@ -160,21 +151,21 @@ export function TeamVariables(): JSX.Element {
             </div>
             <div className="flex-1">
                 <h3 id="project-id" className="min-w-[25rem]">
-                    {capitalizeFirstLetter(displayNoun)} ID
+                    Project ID
                 </h3>
                 <p>
-                    You can use this ID to reference your {displayNoun} in our{' '}
+                    You can use this ID to reference your project in our{' '}
                     <Link to="https://posthog.com/docs/api">API</Link>.
                 </p>
-                <CodeSnippet thing={`${displayNoun} ID`}>{String(currentTeam?.id || '')}</CodeSnippet>
+                <CodeSnippet thing="Project ID">{String(currentTeam?.id || '')}</CodeSnippet>
             </div>
             {region ? (
                 <div className="flex-1">
                     <h3 id="project-region" className="min-w-[25rem]">
-                        {capitalizeFirstLetter(displayNoun)} region
+                        Project region
                     </h3>
                     <p>This is the region where your PostHog data is hosted.</p>
-                    <CodeSnippet thing={`${displayNoun} region`}>{`${region} Cloud`}</CodeSnippet>
+                    <CodeSnippet thing="Project region">{`${region} Cloud`}</CodeSnippet>
                 </div>
             ) : null}
             {region && currentOrganization && currentTeam ? (
