@@ -190,7 +190,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     access_control_version = serializers.SerializerMethodField()
     revenue_tracking_config = RevenueTrackingConfigSerializer(required=False)
     name = serializers.CharField(max_length=200)
-    environment_name = serializers.CharField(max_length=200)
+    root_name = serializers.CharField(max_length=200, required=False)
 
     class Meta:
         model = Team
@@ -200,7 +200,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "root_team_id",  # Given back always
             "parent_team",  # Only sent on updates
             "name",
-            "environment_name",
+            "root_name",
             "access_control",
             "organization",
             "project_id",
@@ -250,15 +250,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(detail="Project names cannot contain '>>'")
         return value
 
-    def validate_environment_name(self, value):
+    def validate_root_name(self, value):
         if ">>" in value:
             raise exceptions.ValidationError(detail="Project names cannot contain '>>'")
         return value
 
     def to_representation(self, instance: Team) -> dict:
         ret = super().to_representation(instance)
-        # Always use the name from the root team
-        ret["name"] = instance.project_name
+        # Since environments we want to map over the standard name
+        ret["name"] = instance.environment_name
 
         # Fallback to the default posthog data theme id if the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
@@ -422,13 +422,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         view = self.context["view"]
 
         # Derive the appropriate name from the given values
-        if "name" in attrs or "environment_name" in attrs:
+        if "name" in attrs or "root_name" in attrs:
             # Combine the values into one name field
-            name = attrs.get("name", self.instance.project_name if self.instance else "")
-            environment_name = attrs.get("environment_name", self.instance.environment_name if self.instance else "")
+            root_name = attrs.get("root_name", self.instance.root_name if self.instance else "")
+            environment_name = attrs.get("name", self.instance.environment_name if self.instance else "")
 
-            attrs["name"] = f"{name} >> {environment_name}"
-            del attrs["environment_name"]
+            attrs["name"] = f"{root_name} >> {environment_name}"
+            if "root_name" in attrs:
+                del attrs["root_name"]
 
         if "primary_dashboard" in attrs:
             if not instance:

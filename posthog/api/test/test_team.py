@@ -1433,41 +1433,39 @@ class TestTeamAPI(APIBaseTest):
         # Create other project with different env name
         assert self.team.name == "Default project"
         response = self.client.post(
-            "/api/projects", {"name": "Other name", "environment_name": "Sub project 1", "parent_team": self.team.id}
+            "/api/projects", {"name": "Sub project 1", "root_name": "Something else", "parent_team": self.team.id}
         )
         assert response.status_code == 201, response.json()
         sub_team = Team.objects.get(pk=response.json()["id"])
-        assert sub_team.name == "Other name >> Sub project 1"
-        assert response.json()["name"] == "Default project"
-        assert response.json()["environment_name"] == "Sub project 1"
+        assert sub_team.name == "Something else >> Sub project 1"
+        assert response.json()["name"] == "Sub project 1"
+        assert response.json()["root_name"] == "Default project"
 
         root_response = self.client.get(f"/api/projects/{self.team.id}")
         self.team.refresh_from_db()
         assert self.team.name == "Default project"
         assert root_response.json()["name"] == "Default project"
-        assert root_response.json()["environment_name"] == ""  # Without special treatment it remains nameless
+        assert root_response.json()["root_name"] == "Default project"  # Without special treatment it remains nameless
 
         # Rename the root env
-        root_team_json = self.client.patch(
-            f"/api/projects/{self.team.id}", {"environment_name": "Root project env rename"}
-        ).json()
+        root_team_json = self.client.patch(f"/api/projects/{self.team.id}", {"name": "Root project env rename"}).json()
         sub_team_json = self.client.get(f"/api/projects/{sub_team.id}").json()
 
-        assert root_team_json["name"] == "Default project"
-        assert root_team_json["environment_name"] == "Root project env rename"
-        assert sub_team_json["name"] == "Default project"
-        assert sub_team_json["environment_name"] == "Sub project 1"
+        assert root_team_json["root_name"] == "Default project"
+        assert root_team_json["name"] == "Root project env rename"
+        assert sub_team_json["root_name"] == "Default project"
+        assert sub_team_json["name"] == "Sub project 1"
 
         # Rename the root env and name
         root_team_json = self.client.patch(
-            f"/api/projects/{self.team.id}", {"name": "Renamed root", "environment_name": "Root project env rename 2"}
+            f"/api/projects/{self.team.id}", {"root_name": "Renamed root", "name": "Root project env rename 2"}
         ).json()
         sub_team_json = self.client.get(f"/api/projects/{sub_team.id}").json()
 
-        assert root_team_json["name"] == "Renamed root"
-        assert root_team_json["environment_name"] == "Root project env rename 2"
-        assert sub_team_json["name"] == "Renamed root"
-        assert sub_team_json["environment_name"] == "Sub project 1"
+        assert root_team_json["root_name"] == "Renamed root", root_team_json
+        assert root_team_json["name"] == "Root project env rename 2", root_team_json
+        assert sub_team_json["root_name"] == "Renamed root", sub_team_json
+        assert sub_team_json["name"] == "Sub project 1", sub_team_json
 
     def test_child_team_cannot_use_special_chars(self):
         self._setup_projects_feature()
@@ -1478,7 +1476,7 @@ class TestTeamAPI(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["detail"] == "Project names cannot contain '>>'"
 
-        response = self.client.post("/api/projects", {"name": "Allowed", "environment_name": "Not >> allowed"})
+        response = self.client.post("/api/projects", {"name": "Allowed", "root_name": "Not >> allowed"})
         assert response.status_code == 400
         assert response.json()["detail"] == "Project names cannot contain '>>'"
 
