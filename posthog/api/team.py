@@ -866,9 +866,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             raise exceptions.ValidationError("Project is already in the target organization.")
 
         # Get all child teams to be moved
-        teams = list(team.child_teams.all())
+        child_teams = list(team.child_teams.all())
 
         with transaction.atomic():
+            # NOTE: Can be removed once Project model is removed
+            team.project.organization_id = target_organization_id
+            team.project.save()
             team.organization_id = target_organization_id
             team.save()
 
@@ -894,9 +897,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 ),
             )
 
-            for team in teams:
-                team.organization_id = target_organization_id
-                team.save()
+            for child_team in child_teams:
+                # NOTE: Can be removed once Project model is removed
+                child_team.project.organization_id = target_organization_id
+                child_team.project.save()
+                child_team.organization_id = target_organization_id
+                child_team.save()
 
         report_user_action(
             user,
@@ -909,7 +915,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 "new_organization_id": target_organization_id,
                 "new_organization_name": target_organization.name,
             },
-            team=teams[0],
+            team=team,
         )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=200)

@@ -1548,19 +1548,20 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
     def test_can_create_team_with_unlimited_environments_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        # TODO: Move this off of environments. Do we just use the projects thing?
         self.organization.available_product_features = [
             {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
         ]
         self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
+        assert Team.objects.count() == 1
 
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
+        response = self.client.post("/api/projects", {"name": "New environment"})
+        assert response.status_code == 201, response.json()
+        assert Team.objects.count() == 2
 
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment 2"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 3)
+        response = self.client.post("/api/projects", {"name": "New environment 2"})
+        assert response.status_code == 201, response.json()
+        assert Team.objects.count() == 3
 
     def test_team_member_can_write_to_team_config_with_member_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
