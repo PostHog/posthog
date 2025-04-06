@@ -4,9 +4,11 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DashboardTemplateType } from '~/types'
@@ -19,12 +21,23 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
 
     const { user } = useValues(userLogic)
 
+    const { createDashboardFromTemplate } = useActions(newDashboardLogic)
+
     const columns: LemonTableColumns<DashboardTemplateType> = [
         {
             title: 'Name',
             dataIndex: 'template_name',
-            render: (_, { template_name }) => {
-                return <>{template_name}</>
+            render: (_, template) => {
+                const redirectAfterCreation = true
+                return (
+                    <LemonTableLink
+                        onClick={() => {
+                            createDashboardFromTemplate(template, template.variables || [], redirectAfterCreation)
+                        }}
+                        title={template.template_name}
+                        data-attr="create-dashboard-from-template"
+                    />
+                )
             },
         },
         {
@@ -40,9 +53,8 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             render: (_, { scope }) => {
                 if (scope === 'global') {
                     return <LemonSnack>Official</LemonSnack>
-                } else {
-                    return <LemonSnack>Team</LemonSnack>
                 }
+                return <LemonSnack>Team</LemonSnack>
             },
         },
         {
