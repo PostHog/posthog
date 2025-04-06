@@ -4,6 +4,7 @@ from functools import cached_property
 from pydantic import ValidationError
 from typing import Any, Optional, cast
 from uuid import UUID
+from django.db import transaction
 
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
@@ -21,6 +22,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import ProductIntent, Team, User
 from posthog.models.activity_logging.activity_log import (
+    Change,
     Detail,
     dict_changes_between,
     load_activity,
@@ -30,7 +32,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import calculate_product_activation
 from posthog.models.project import Project
 from posthog.models.scopes import APIScopeObjectOrNotSupported
@@ -387,6 +389,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if parent_team.id not in self.user_permissions.team_ids_visible_for_user:
             # Ensure you can only create teams under other teams you have access to
             raise exceptions.NotFound("Team not found.")
+
+        if parent_team.organization_id != self.context["view"].organization.id:
+            raise ValidationError({"parent_team": "This project does not belong to the same organization."})
 
         # Finally we need to ensure the team isn't already nested
 
@@ -823,6 +828,91 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
         return response.Response({"success": True}, status=200)
+
+    @action(methods=["POST"], detail=True)
+    def change_organization(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        user = cast(User, request.user)
+
+        target_organization_id = request.data.get("organization_id")
+        current_organization = team.organization
+
+        if team.parent_team:
+            raise exceptions.ValidationError(
+                "This project is a child of another project and cannot be moved. Please move the parent project instead."
+            )
+
+        try:
+            target_organization = Organization.objects.get(pk=target_organization_id)
+            current_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=current_organization
+            )
+            target_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=target_organization
+            )
+
+            if (
+                current_organization_membership.level < OrganizationMembership.Level.ADMIN
+                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+            ):
+                raise exceptions.ValidationError(
+                    "You must be an admin of both the source and target organizations to move a project."
+                )
+
+        except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+
+        if team.organization_id == target_organization_id:
+            raise exceptions.ValidationError("Project is already in the target organization.")
+
+        # Get all child teams to be moved
+        teams = list(team.child_teams.all())
+
+        with transaction.atomic():
+            team.organization_id = target_organization_id
+            team.save()
+
+            log_activity(
+                organization_id=cast(UUIDT, target_organization_id),
+                team_id=team.pk,
+                user=user,
+                was_impersonated=is_impersonated_session(request),
+                scope="Project",
+                item_id=team.pk,
+                activity="updated",
+                detail=Detail(
+                    name="moved to another organization",
+                    changes=[
+                        Change(
+                            type="Project",
+                            action="changed",
+                            field="organization_id",
+                            before=str(current_organization.id),
+                            after=str(target_organization.id),
+                        )
+                    ],
+                ),
+            )
+
+            for team in teams:
+                team.organization_id = target_organization_id
+                team.save()
+
+        report_user_action(
+            user,
+            f"project moved to another organization",
+            {
+                "project_id": team.id,
+                "project_name": team.name,
+                "old_organization_id": current_organization.id,
+                "old_organization_name": current_organization.name,
+                "new_organization_id": target_organization_id,
+                "new_organization_name": target_organization.name,
+            },
+            team=teams[0],
+        )
+
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=200)
 
     @cached_property
     def user_permissions(self):

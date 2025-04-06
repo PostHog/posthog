@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from posthog.hogql.timings import HogQLTimings

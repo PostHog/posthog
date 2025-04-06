@@ -1,7 +1,6 @@
 from functools import cached_property, lru_cache
 from posthog.clickhouse.query_tagging import tag_queries
 from typing import TYPE_CHECKING, Any, Optional, cast
-from uuid import UUID
 
 from django.db.models.query import QuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
