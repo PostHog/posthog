@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     atomic = False  # Added to support concurrent index creation
-    dependencies = [("posthog", "0702_datacolortheme_project")]
+    dependencies = [("posthog", "0703_dashboard_breakdown_colors_and_more")]
 
     operations = [
         migrations.AddField(
