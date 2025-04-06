@@ -109,7 +109,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertNotIn("event_properties_with_usage", response_data)
 
     def test_retrieve_team_has_group_types(self):
-        other_team = Team.objects.create(organization=self.organization, project=self.project)
+        other_team = Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
 
         response = self.client.get("/api/projects/@current/")
         response_data = response.json()
@@ -117,8 +117,12 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
         self.assertEqual(response_data["has_group_types"], False)
 
-        # Creating a group type in the same project, but different team
-        GroupTypeMapping.objects.create(project=self.project, team=other_team, group_type="person", group_type_index=0)
+        group_type = GroupTypeMapping.objects.create(
+            project=self.project, team=other_team, group_type="person", group_type_index=0
+        )
+
+        # Mixin takes care of associating it with the parent team
+        assert group_type.team == self.team
 
         response = self.client.get("/api/projects/@current/")
         response_data = response.json()
