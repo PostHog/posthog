@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { truth } from '~/tests/helpers/truth'
 
-import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { formatInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
@@ -42,6 +42,72 @@ describe('Hog Executor', () => {
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
         hub = await createHub()
         executor = new HogExecutorService(hub)
+    })
+
+    describe('formatInput', () => {
+        it('can handle null values in input objects', () => {
+            const globals = {
+                ...createHogExecutionGlobals({
+                    event: {
+                        event: 'test',
+                        uuid: 'test-uuid',
+                    } as any,
+                }),
+                inputs: {},
+            }
+
+            // Body with null values that should be preserved
+            const inputWithNulls = {
+                body: {
+                    value: {
+                        event: '{event}',
+                        person: null,
+                        userId: null,
+                    },
+                },
+            }
+
+            // Call formatInput directly to test that it handles null values
+            const result = formatInput(inputWithNulls, globals)
+
+            // Verify that null values are preserved
+            expect(result.body.value.person).toBeNull()
+            expect(result.body.value.userId).toBeNull()
+            expect(result.body.value.event).toBe('{event}')
+        })
+
+        it('can handle deep null and undefined values', () => {
+            const globals = {
+                ...createHogExecutionGlobals({
+                    event: {
+                        event: 'test',
+                        uuid: 'test-uuid',
+                    } as any,
+                }),
+                inputs: {},
+            }
+
+            const complexInput = {
+                body: {
+                    value: {
+                        data: {
+                            first: null,
+                            second: undefined,
+                            third: {
+                                nested: null,
+                            },
+                        },
+                    },
+                },
+            }
+
+            const result = formatInput(complexInput, globals)
+
+            // Verify all null and undefined values are properly preserved
+            expect(result.body.value.data.first).toBeNull()
+            expect(result.body.value.data.second).toBeUndefined()
+            expect(result.body.value.data.third.nested).toBeNull()
+        })
     })
 
     describe('general event processing', () => {
@@ -171,7 +237,7 @@ describe('Hog Executor', () => {
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('fetch')
-            expect(result.invocation.vmState).toBeDefined()
+            expect(result.invocation.vmState).toBeTruthy()
 
             // Simulate what the callback does
             setupFetchResponse(result.invocation)

@@ -3948,6 +3948,59 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[0][1]["breakdown_value"], ["test'123"])
             self.assertEqual(results[0][1]["count"], 1)
 
+        def test_funnel_query_with_event_metadata_breakdown(self):
+            _create_person(
+                distinct_ids=[f"user_1"],
+                team=self.team,
+            )
+            _create_person(
+                distinct_ids=[f"user_2"],
+                team=self.team,
+            )
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 46),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 47),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                ],
+                "user_2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 48),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 49),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+                dateRange=DateRange(
+                    date_from="2024-03-22",
+                    date_to="2024-03-22",
+                ),
+                breakdownFilter=BreakdownFilter(breakdown="distinct_id", breakdown_type=BreakdownType.EVENT_METADATA),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0][1]["breakdown_value"], ["user_1"])
+            self.assertEqual(results[0][1]["count"], 1)
+            self.assertEqual(results[1][1]["breakdown_value"], ["user_2"])
+            self.assertEqual(results[1][1]["count"], 1)
+
         def test_funnel_parses_event_names_correctly(self):
             _create_person(
                 distinct_ids=[f"user_1"],
