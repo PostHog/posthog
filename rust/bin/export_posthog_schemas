@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+set -euxo pipefail
+
+#
+# Only intended to be run/sourced by other scripts!
+#
+# WARNING: This expects Django's setup_test_environment has
+# already been executed by the caller
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+source "$SCRIPT_DIR/util"
+
+# Ensure schema export and migration tools are installed
+check_install_pinned_sqlx_cli
+check_pg_dump_installed
+
+# Export test_posthog schemas into local Rust workspace for sqlx::test
+
+# Step 1: add hardcoded migration to set up GIN index extension
+RUST_MIGRATIONS="$SCRIPT_DIR/../migrations"
+MIGRATION_COUNTER=20250402111111
+
+
+mkdir -p "$RUST_MIGRATIONS"
+echo "CREATE EXTENSION IF NOT EXISTS pg_trgm;" > "${RUST_MIGRATIONS}/${MIGRATION_COUNTER}_posthog_gin_extension.sql"
+MIGRATION_COUNTER=$((MIGRATION_COUNTER + 1))
+
+# Step 2: add a migration file for each table we need to export
+# from the 'public.posthog_*' set of tables. Please add more
+# here as needed rather than harcoding duplicates in the workspace
+POSTHOG_TABLES=( \
+  "posthog_propertydefinition" \
+  "posthog_eventproperty" \
+  "posthog_eventdefinition" \
+  "posthog_posthog_grouptypemapping" \
+  "ee_enterprisepropertydefinition" \
+  "job_queue" \
+  "TODO_MOAR")
+
+for table_name in "${POSTHOG_TABLES[@]}"; do
+  MIGRATION_FILE="$RUST_MIGRATIONS/${MIGRATION_COUNTER}_${table_name}_schema.sql"
+  MIGRATION_COUNTER=$((MIGRATION_COUNTER + 1))
+
+pg_dump -h localhost -p 5432 -U posthog -s -t <TABLE_NAME> test_posthog
+  log "Exporting test_posthog schema for table: ${table_name}..."
+
+  PGPASSWORD=posthog pg_dump \
+    --user posthog \
+    --host localhost \
+    --port 5432 \
+    --dbname test_posthog \
+    --file="$MIGRATION_FILE" \
+    --schema-only \
+    --table "$table_name"
+  #awk '{gsub(/public\./, ""); print}' "$TMP_FILE" > "$MIGRATION_FILE"
+  #rm "$TMP_FILE"
+done

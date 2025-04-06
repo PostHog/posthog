@@ -23,26 +23,10 @@ pushd "$SCRIPT_DIR/../.."
 DEBUG=true TEST=true python manage.py setup_test_environment --only-postgres
 popd
 
-# Ensure schema export and migration tools are installed
-check_install_pinned_sqlx_cli
-check_pg_dump_installed
-
-# Export test_posthog schemas into local Rust workspace for sqlx::test
-RUST_MIGRATIONS="$SCRIPT_DIR/../migrations"
-TMP_FILE="$RUST_MIGRATIONS/test_posthog_dump.sql"
-MIGRATION_FILE="$RUST_MIGRATIONS/20250402111111_posthog_schemas.sql"
-
-mkdir -p "$RUST_MIGRATIONS"
-PGPASSWORD=posthog pg_dump \
-  --user posthog \
-  --host localhost \
-  --port 5432 \
-  --dbname test_posthog \
-  --file="$MIGRATION_FILE" \
-  --schema-only \
-  --table 'posthog_*'
-#awk '{gsub(/public\./, ""); print}' "$TMP_FILE" > "$MIGRATION_FILE"
-#rm "$TMP_FILE"
+# Extract the public.posthog_* table schemas from test_posthog DB that was
+# bootstrapped by the Python command above so SQLX can use them in the
+# Rust workspace 
+export_posthog_schemas
 
 # Allow for overriding DATABASE_URL set by `posthog/rust/.env` in this script
 DB_HOST="${DB_HOST:-postgres://posthog:posthog@localhost:5432}"
@@ -52,6 +36,8 @@ log "Executing Rust workspace migrations with DB_HOST: ${DB_HOST}..."
 # in a test target so we need to accomodate that too
 CYCLOTRON_DB_NAME="${CYCLOTRON_DATABASE_NAME:-test_posthog}"
 CYCLOTRON_DB="$DB_HOST/${CYCLOTRON_DB_NAME}"
+
+check_install_pinned_sqlx_cli
 
 # cyclotron points to it's own DB instance in production, and therefore has its own
 # DB namespace in local dev too.
