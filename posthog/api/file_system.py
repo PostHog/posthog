@@ -171,6 +171,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        assure_parent_folders(new_path, self.team, cast(User, request.user))
+
         if instance.type == "folder":
             if new_path == instance.path:
                 return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
@@ -197,7 +199,48 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.save()
 
         return Response(
-            "OK",
+            FileSystemSerializer(instance).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["POST"], detail=True)
+    def link(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        new_path = request.data.get("new_path")
+        if not new_path:
+            return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        assure_parent_folders(new_path, self.team, cast(User, request.user))
+
+        if instance.type == "folder":
+            if new_path == instance.path:
+                return Response({"detail": "Cannot link folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+
+            with transaction.atomic():
+                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                    file.pk = None  # This removes the id
+                    file.path = new_path + file.path[len(instance.path) :]
+                    file.depth = len(split_path(file.path))
+                    file.save()  # A new instance is created with a new id
+
+                targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+                if any(target.type == "folder" for target in targets):
+                    # We're a folder, and we're link into a folder with the same name. Noop.
+                    pass
+                else:
+                    instance.pk = None  # This removes the id
+                    instance.path = new_path
+                    instance.depth = len(split_path(instance.path))
+                    instance.save()  # A new instance is created with a new id
+
+        else:
+            instance.pk = None  # This removes the id
+            instance.path = new_path + instance.path[len(instance.path) :]
+            instance.depth = len(split_path(instance.path))
+            instance.save()  # A new instance is created with a new id
+
+        return Response(
+            FileSystemSerializer(instance).data,
             status=status.HTTP_200_OK,
         )
 
@@ -209,6 +252,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
         count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
         return Response({"count": count}, status=status.HTTP_200_OK)
+
+
+def assure_parent_folders(path: str, team: Team, created_by: User) -> None:
+    """
+    Ensure that all parent folders for the given path exist for the provided team.
+    For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"
+    all exist as folder type FileSystem entries.
+    """
+    segments = split_path(path)
+    for depth_index in range(1, len(segments)):
+        parent_path = join_path(segments[:depth_index])
+        if not FileSystem.objects.filter(team=team, path=parent_path).exists():
+            FileSystem.objects.create(
+                team=team,
+                path=parent_path,
+                depth=depth_index,
+                type="folder",
+                created_by=created_by,
+            )
 
 
 def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
