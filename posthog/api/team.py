@@ -189,15 +189,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     revenue_tracking_config = RevenueTrackingConfigSerializer(required=False)
+    name = serializers.CharField(max_length=200)
+    environment_name = serializers.CharField(max_length=200)
 
     class Meta:
         model = Team
         fields = (
             "id",
             "uuid",
-            "root_team_id",
-            "parent_team",
+            "root_team_id",  # Given back always
+            "parent_team",  # Only sent on updates
             "name",
+            "environment_name",
             "access_control",
             "organization",
             "project_id",
@@ -242,15 +245,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "parent_team": {"write_only": True},
         }
 
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
+    def validate_name(self, value):
+        if ">>" in value:
+            raise exceptions.ValidationError(detail="Project names cannot contain '>>'")
+        return value
+
+    def validate_environment_name(self, value):
+        if ">>" in value:
+            raise exceptions.ValidationError(detail="Project names cannot contain '>>'")
+        return value
+
+    def to_representation(self, instance: Team) -> dict:
+        ret = super().to_representation(instance)
+        # Always use the name from the root team
+        ret["name"] = instance.project_name
+
+        # Fallback to the default posthog data theme id if the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
-            representation["default_data_theme"] = (
+            ret["default_data_theme"] = (
                 DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
             )
 
-        return representation
+        return ret
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
@@ -391,17 +407,69 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.NotFound("Team not found.")
 
         if parent_team.organization_id != self.context["view"].organization.id:
-            raise ValidationError({"parent_team": "This project does not belong to the same organization."})
+            raise exceptions.ValidationError(detail="This project does not belong to the same organization.")
 
         # Finally we need to ensure the team isn't already nested
 
         if parent_team.parent_team:
-            raise ValidationError({"parent_team": "This project is not a root level project."})
+            raise exceptions.ValidationError(detail="This project is not a root level project.")
 
         return value
 
     def validate(self, attrs: Any) -> Any:
-        attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
+        instance = self.instance
+        request = self.context["request"]
+        view = self.context["view"]
+
+        # Derive the appropriate name from the given values
+        if "name" in attrs or "environment_name" in attrs:
+            # Combine the values into one name field
+            name = attrs.get("name", self.instance.project_name if self.instance else "")
+            environment_name = attrs.get("environment_name", self.instance.environment_name if self.instance else "")
+
+            attrs["name"] = f"{name} >> {environment_name}"
+            del attrs["environment_name"]
+
+        if "primary_dashboard" in attrs:
+            if not instance:
+                raise exceptions.ValidationError(
+                    {"primary_dashboard": "Primary dashboard cannot be set on project creation."}
+                )
+            if attrs["primary_dashboard"].team_id != instance.id:
+                raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
+
+        if "access_control" in attrs:
+            assert isinstance(request.user, User)
+            # We get the instance's organization_id, unless we're handling creation, in which case there's no instance yet
+            organization_id = (
+                instance.organization_id if instance is not None else cast(UUID | str, view.organization_id)
+            )
+            # Only organization-wide admins and above should be allowed to switch the project between open and private
+            # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
+            org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
+                organization_id=organization_id, user=request.user
+            )
+            if org_membership.level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(
+                    "Your organization access level is insufficient to configure project access restrictions."
+                )
+
+        if "autocapture_exceptions_errors_to_ignore" in attrs:
+            if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):
+                raise exceptions.ValidationError(
+                    "Must provide a list for field: autocapture_exceptions_errors_to_ignore."
+                )
+            for error in attrs["autocapture_exceptions_errors_to_ignore"]:
+                if not isinstance(error, str):
+                    raise exceptions.ValidationError(
+                        "Must provide a list of strings to field: autocapture_exceptions_errors_to_ignore."
+                    )
+
+            if len(json.dumps(attrs["autocapture_exceptions_errors_to_ignore"])) > 300:
+                raise exceptions.ValidationError(
+                    "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
+                )
+
         return super().validate(attrs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
@@ -935,47 +1003,6 @@ class RootTeamViewSet(TeamViewSet):
     # NOTE: We don't want people creating environments via the "current_organization"/"current_project" concept, but
     # rather specify the org ID and project ID in the URL - hence this is hidden from the API docs, but used in the app
     hide_api_docs = True
-
-
-def validate_team_attrs(
-    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Optional[Team | Project]
-) -> dict[str, Any]:
-    if "primary_dashboard" in attrs:
-        if not instance:
-            raise exceptions.ValidationError(
-                {"primary_dashboard": "Primary dashboard cannot be set on project creation."}
-            )
-        if attrs["primary_dashboard"].team_id != instance.id:
-            raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
-
-    if "access_control" in attrs:
-        assert isinstance(request.user, User)
-        # We get the instance's organization_id, unless we're handling creation, in which case there's no instance yet
-        organization_id = instance.organization_id if instance is not None else cast(UUID | str, view.organization_id)
-        # Only organization-wide admins and above should be allowed to switch the project between open and private
-        # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
-        org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
-            organization_id=organization_id, user=request.user
-        )
-        if org_membership.level < OrganizationMembership.Level.ADMIN:
-            raise exceptions.PermissionDenied(
-                "Your organization access level is insufficient to configure project access restrictions."
-            )
-
-    if "autocapture_exceptions_errors_to_ignore" in attrs:
-        if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):
-            raise exceptions.ValidationError("Must provide a list for field: autocapture_exceptions_errors_to_ignore.")
-        for error in attrs["autocapture_exceptions_errors_to_ignore"]:
-            if not isinstance(error, str):
-                raise exceptions.ValidationError(
-                    "Must provide a list of strings to field: autocapture_exceptions_errors_to_ignore."
-                )
-
-        if len(json.dumps(attrs["autocapture_exceptions_errors_to_ignore"])) > 300:
-            raise exceptions.ValidationError(
-                "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
-            )
-    return attrs
 
 
 class PremiumMultiProjectPermission(BasePermission):

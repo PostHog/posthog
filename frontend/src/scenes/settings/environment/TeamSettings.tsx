@@ -19,13 +19,14 @@ import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
 
 export function TeamDisplayName(): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading, currentTeamIsSubProject, currentTeamHasSubProjects } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
     const [name, setName] = useState(currentTeam?.name || '')
 
-    // TODO: Detect if there is a parent or sub teams and show two fields - one for the parent and one for the sub.
+    const showSubProjectName = currentTeamIsSubProject || currentTeamHasSubProjects
 
+    console.log({ currentTeam, currentTeamIsSubProject, currentTeamHasSubProjects })
     return (
         <div className="deprecated-space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />

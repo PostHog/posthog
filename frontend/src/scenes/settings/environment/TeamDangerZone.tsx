@@ -65,7 +65,7 @@ export function DeleteTeamModal({
 }
 
 export function TeamDangerZone(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, otherTeams } = useValues(teamLogic)
 
     const [isModalVisible, setIsModalVisible] = useState(false)
 

@@ -16,7 +16,7 @@ import {
 } from 'lib/utils/product-intents'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { CorrelationConfigType, ProductKey, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, ProductKey, TeamBasicType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import type { teamLogicType } from './teamLogicType'
@@ -47,7 +47,7 @@ export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
         actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], organizationLogic, ['currentOrganization']],
     })),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -227,6 +227,21 @@ export const teamLogic = kea<teamLogicType>([
                 }
                 return frequentMistakes
             },
+        ],
+        otherTeams: [
+            (s) => [s.currentOrganization, s.currentTeam],
+            (currentOrganization, currentTeam): TeamBasicType[] =>
+                currentOrganization?.teams.filter((team) => team.id !== currentTeam?.id) || [],
+        ],
+
+        currentTeamIsSubProject: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.root_team_id && currentTeam.root_team_id !== currentTeam.id,
+        ],
+
+        currentTeamHasSubProjects: [
+            (s) => [s.otherTeams, s.currentTeam],
+            (otherTeams, currentTeam): boolean => otherTeams.some((team) => team.root_team_id === currentTeam?.id),
         ],
     })),
     listeners(({ actions }) => ({

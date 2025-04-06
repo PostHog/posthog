@@ -1425,6 +1425,63 @@ class TestTeamAPI(APIBaseTest):
         assert Team.objects.count() == 2
         assert Team.objects.last().parent_team == self.team
 
+    def test_child_team_derived_names(self):
+        self._setup_projects_feature()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Create other project with different env name
+        assert self.team.name == "Default project"
+        response = self.client.post(
+            "/api/projects", {"name": "Other name", "environment_name": "Sub project 1", "parent_team": self.team.id}
+        )
+        assert response.status_code == 201, response.json()
+        sub_team = Team.objects.get(pk=response.json()["id"])
+        assert sub_team.name == "Other name >> Sub project 1"
+        assert response.json()["name"] == "Default project"
+        assert response.json()["environment_name"] == "Sub project 1"
+
+        root_response = self.client.get(f"/api/projects/{self.team.id}")
+        self.team.refresh_from_db()
+        assert self.team.name == "Default project"
+        assert root_response.json()["name"] == "Default project"
+        assert root_response.json()["environment_name"] == ""  # Without special treatment it remains nameless
+
+        # Rename the root env
+        root_team_json = self.client.patch(
+            f"/api/projects/{self.team.id}", {"environment_name": "Root project env rename"}
+        ).json()
+        sub_team_json = self.client.get(f"/api/projects/{sub_team.id}").json()
+
+        assert root_team_json["name"] == "Default project"
+        assert root_team_json["environment_name"] == "Root project env rename"
+        assert sub_team_json["name"] == "Default project"
+        assert sub_team_json["environment_name"] == "Sub project 1"
+
+        # Rename the root env and name
+        root_team_json = self.client.patch(
+            f"/api/projects/{self.team.id}", {"name": "Renamed root", "environment_name": "Root project env rename 2"}
+        ).json()
+        sub_team_json = self.client.get(f"/api/projects/{sub_team.id}").json()
+
+        assert root_team_json["name"] == "Renamed root"
+        assert root_team_json["environment_name"] == "Root project env rename 2"
+        assert sub_team_json["name"] == "Renamed root"
+        assert sub_team_json["environment_name"] == "Sub project 1"
+
+    def test_child_team_cannot_use_special_chars(self):
+        self._setup_projects_feature()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects", {"name": "Not >> allowed"})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Project names cannot contain '>>'"
+
+        response = self.client.post("/api/projects", {"name": "Allowed", "environment_name": "Not >> allowed"})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Project names cannot contain '>>'"
+
     def test_can_create_team_with_valid_environments_limit(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

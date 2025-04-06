@@ -569,6 +569,27 @@ class Team(UUIDClassicModel):
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 
     @property
+    def project_name(self) -> str:
+        # The "project" name is always derived from the root
+        name = self.root_team.name
+        parts = name.split(">>")
+
+        if len(parts) == 2:
+            return parts[0].strip()
+
+        return name
+
+    @property
+    def environment_name(self) -> str:
+        # The "environment" name is optional and is whatever is after the split indicator
+        parts = self.name.split(">>")
+
+        if len(parts) == 2:
+            return parts[1].strip()
+
+        return ""
+
+    @property
     def root_team(self) -> "Team":
         return self.parent_team if self.parent_team else self
 
