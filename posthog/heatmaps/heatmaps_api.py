@@ -255,7 +255,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
         resp["Cache-Control"] = "max-age=30"
-        resp["Vary"] = "Accept, Accept-Encoding, Cookie, Query-String"
+        resp["Vary"] = "Accept, Accept-Encoding, Query-String"
         return resp
 
     @staticmethod
@@ -274,7 +274,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
         resp["Cache-Control"] = "max-age=30"
-        resp["Vary"] = "Accept, Accept-Encoding, Cookie, Query-String"
+        resp["Vary"] = "Accept, Accept-Encoding, Query-String"
         return resp
 
 

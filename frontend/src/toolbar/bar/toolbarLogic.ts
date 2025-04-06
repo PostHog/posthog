@@ -303,7 +303,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.disableInspect()
             actions.disableHeatmap()
             actions.hideButtonActions()
-            actions.selectAction(null)
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
