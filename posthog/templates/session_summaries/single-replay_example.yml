@@ -4,6 +4,7 @@ key_events:
     - event_id: 'ev_123abc'
       description: 'Landed on pricing page from Google Ads enterprise campaign. Direct click-through from search results.'
       error: false
+      importance: 0.3
       tags:
           where: ['pricing_page']
           what: ['plan_selection']
@@ -11,6 +12,7 @@ key_events:
     - event_id: 'ev_456def'
       description: "Clicked 'Compare Plans' button and spent 2 minutes reviewing enterprise vs business tier features."
       error: false
+      importance: 0.8
       tags:
           where: ['pricing_page', 'feature_modal']
           what: ['feature_comparison', 'plan_selection']
@@ -18,6 +20,7 @@ key_events:
     - event_id: 'ev_789ghi'
       description: 'Started trial registration by selecting enterprise plan with annual billing. Filled out company information form.'
       error: false
+      importance: 0.9
       tags:
           where: ['signup_page']
           what: ['signup_start']
@@ -25,6 +28,7 @@ key_events:
     - event_id: 'ev_012jkl'
       description: 'Payment submission failed with error 422. Card validation failed due to API error. User shown validation error message.'
       error: true
+      importance: 1.0
       tags:
           where: ['checkout_page']
           what: ['payment']
@@ -32,6 +36,7 @@ key_events:
     - event_id: 'ev_345mno'
       description: 'Second payment attempt. Payment validation successful after user updated payment information.'
       error: false
+      importance: 1.0
       tags:
           where: ['checkout_page']
           what: ['payment']
@@ -39,6 +44,7 @@ key_events:
     - event_id: 'ev_678pqr'
       description: 'Accessed main dashboard post-payment. Began onboarding flow by selecting initial preferences and workspace settings.'
       error: false
+      importance: 0.7
       tags:
           where: ['dashboard', 'onboarding_flow']
           what: ['onboarding', 'workspace_setup']

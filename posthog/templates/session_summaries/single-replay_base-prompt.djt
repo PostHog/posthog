@@ -67,14 +67,24 @@ Your task is to analyze these events chronologically and create a concise, reada
 3. Pay special attention to:
    - The URLs visited (use url_mapping to find actual URLs)
    - User interactions (clicks, form submissions) in '$autocapture' events
-   - Any error events (mark them as `error: true` in the event list)
+   - Any error of failure events (mark them as `error: true` in the event list)
 
 4. Create a narrative of the user's journey through the site, focusing on:
    - Pages visited (use actual URLs from mapping)
    - Actions taken (clicks, form submissions)
    - Any errors or issues encountered
 
-5. Generate a concise summary of the session, highlighting the key events and user actions.
+5. Assign importance scores (0.0 to 1.0) to each event:
+   - 1.0: Critical events that significantly impact the user journey (signup completion, payment, major errors)
+   - 0.7-0.9: Important user decisions (plan selection, starting signup)
+   - 0.4-0.6: Meaningful interactions (feature exploration, settings changes)
+   - 0.1-0.3: Basic navigation and minor interactions (page views, small UI interactions)
+   - 0.0: Negligible events (mouse movements, unfocused windows)
+
+6. Generate a concise summary of the session:
+   - Highlight the key events and user actions. 
+   - Don't pick more than 10 events. 
+   - Keep the event description short and focused (for example, instead of starting with "User clicked" start with just "Clicked").
 </summary_instructions>
 
 <tag_categorization>

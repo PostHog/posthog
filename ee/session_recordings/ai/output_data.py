@@ -16,6 +16,7 @@ class BaseKeyEventSerializer(serializers.Serializer):
     description = serializers.CharField(min_length=1, max_length=1024)
     error = serializers.BooleanField()
     tags = EventTagSerializer()
+    importance = serializers.FloatField(min_value=0.0, max_value=1.0)
 
 
 class RawKeyEventSerializer(BaseKeyEventSerializer):
@@ -85,7 +86,7 @@ def load_raw_session_summary_from_llm_content(
         if key_event["event_id"] not in allowed_event_ids:
             raise ValueError(
                 f"LLM hallucinated event_id {event_id} when summarizing session_id "
-                f"{session_id} (not in allowed events: {allowed_event_ids}): {raw_session_summary.data}"
+                f"{session_id}: {raw_session_summary.data}"
             )
     return raw_session_summary
 
