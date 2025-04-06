@@ -3,7 +3,6 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -67,7 +66,6 @@ export function DeleteTeamModal({
 
 export function TeamDangerZone(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [isModalVisible, setIsModalVisible] = useState(false)
 

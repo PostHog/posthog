@@ -10,7 +10,6 @@ import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAut
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
-import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -56,14 +55,6 @@ export function Settings({
 
     const showOptions = isCompact ? isCompactNavigationOpen : true
     const settingsInSidebar = props.sectionId && !!selectedSetting
-
-    // Currently environment and project settings do not require periodic re-authentication,
-    // though this is likely to change (see https://github.com/posthog/posthog/pull/22421).
-    // In the meantime, we don't want a needless re-authentication modal:
-    const AuthenticationAreaComponent =
-        selectedLevel !== 'environment' && selectedLevel !== 'project'
-            ? TimeSensitiveAuthenticationArea
-            : React.Fragment
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
@@ -140,8 +131,8 @@ export function Settings({
                 </>
             )}
 
-            <AuthenticationAreaComponent>
-                <div className="flex-1 w-full deprecated-space-y-2 min-w-0">
+            <TimeSensitiveAuthenticationArea>
+                <div className="flex-1 w-full min-w-0 deprecated-space-y-2">
                     {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
                             These settings only apply to the current project{' '}
@@ -156,7 +147,7 @@ export function Settings({
 
                     <SettingsRenderer {...props} handleLocally={handleLocally} />
                 </div>
-            </AuthenticationAreaComponent>
+            </TimeSensitiveAuthenticationArea>
         </div>
     )
 }
@@ -175,7 +166,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                 settings.map((x) => (
                     <div key={x.id} className="relative">
                         {!settingsInSidebar && (
-                            <h2 id={x.id} className="flex gap-2 items-center">
+                            <h2 id={x.id} className="flex items-center gap-2">
                                 {x.title}
                                 {props.logicKey === 'settingsScene' && (
                                     <LemonButton
