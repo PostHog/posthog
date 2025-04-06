@@ -54,6 +54,12 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 class TestTeamAPI(APIBaseTest):
     """Tests for /api/projects/."""
 
+    def _setup_projects_feature(self, limit: Optional[int] = None):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Organizations & Projects", "limit": limit}
+        ]
+        self.organization.save()
+
     def _assert_activity_log(self, expected: list[dict], team_id: Optional[int] = None) -> None:
         if not team_id:
             team_id = self.team.pk
@@ -170,10 +176,10 @@ class TestTeamAPI(APIBaseTest):
 
     def test_cant_create_team_without_license_on_selfhosted(self):
         with self.is_cloud(False):
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
+            response = self.client.post("/api/projects", {"name": "Test"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.count(), 1)
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
+            response = self.client.post("/api/projects", {"name": "Test"})
             self.assertEqual(Team.objects.count(), 1)
 
     def test_cant_create_a_second_team_without_license(self):
@@ -181,7 +187,7 @@ class TestTeamAPI(APIBaseTest):
         self.organization_membership.save()
         self.assertEqual(Team.objects.count(), 1)
 
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": False})
+        response = self.client.post("/api/projects", {"name": "Hedgebox", "is_demo": False})
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
         self.assertEqual(
@@ -193,7 +199,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), 1)
 
         # another request without the is_demo parameter
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox"})
+        response = self.client.post("/api/projects", {"name": "Hedgebox"})
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
         self.assertEqual(
@@ -1394,6 +1400,15 @@ class TestTeamAPI(APIBaseTest):
             {team_in_other_org.id},
             "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
         )
+
+    def test_can_create_a_child_team_environment(self):
+        self._setup_projects_feature()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.post("/api/projects", {"name": "New environment", "parent_team": self.team.id})
+        assert response.status_code == 201, response.json()
+        assert Team.objects.count() == 2
+        assert Team.objects.last().parent_team == self.team
 
     def test_can_create_team_with_valid_environments_limit(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
