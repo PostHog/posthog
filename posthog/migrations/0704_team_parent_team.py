@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0702_datacolortheme_project"),
+        ("posthog", "0703_dashboard_breakdown_colors_and_more"),
     ]
 
     operations = [
