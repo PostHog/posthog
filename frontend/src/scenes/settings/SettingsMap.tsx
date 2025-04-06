@@ -2,7 +2,6 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -431,10 +430,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'project-move',
                 title: 'Move project',
-                flag: '!ENVIRONMENTS',
                 component: <ProjectMove />, // There isn't EnvironmentMove yet
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
             },
             {
                 id: 'project-delete',

@@ -74,16 +74,10 @@ export function TeamDangerZone(): JSX.Element {
         scope: RestrictionScope.Project,
     })
 
-    // TODO: Extend with info for deleting sub projects
-    // if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-    //     return <ProjectDangerZone />
-    // }
+    // TODO: Detect if the team being deleted is a sub project and indicate that only the data and sub-project specific resources will be deleted
 
-    // We don't yet allow deleting individual environments, as we still use `team` fields with `on_delete=CASCADE`
-    // on many models that conceptually are project-level (such as insights or feature flags). That `on_delete=CASCADE`
-    // means currently deleting an environment would also delete resources a user wouldn't expect to disappear.
-    // TODO: Remove once point 15 ("Denormalize models") of https://github.com/PostHog/posthog/issues/13418#issuecomment-2180883524 is resolved
-    return <i>Deletion of individual environments is coming soon.</i>
+    // TODO: Detect if the team has children and if so, indicate that the deletion will also delete all sub-projects...
+    // Indicate that a workaround is coming soon.
 
     return (
         <>
