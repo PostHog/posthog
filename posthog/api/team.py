@@ -618,6 +618,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         organization_id = team.organization_id
         team_name = team.name
 
+        if team.child_teams.exists():
+            # NOTE: Currently this is how we are handling this.
+            # Ideally we need a better solution to separate deletion of the "project" versus deleting the "environment"
+            raise exceptions.ValidationError("You must delete or move all child projects before deleting this project.")
+
         user = cast(User, self.request.user)
 
         delete_bulky_postgres_data(team_ids=[team_id])

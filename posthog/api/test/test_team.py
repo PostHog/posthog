@@ -383,6 +383,21 @@ class TestTeamAPI(APIBaseTest):
         assert mock_capture.call_args_list == expected_capture_calls
         mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
+    def test_delete_with_child_teams_rejects(self):
+        self._setup_projects_feature()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        res = self.client.post("/api/projects", {"name": "Test", "parent_team": self.team.id})
+        assert res.status_code == 201, res.json()
+        assert Team.objects.filter(organization=self.organization).count() == 2
+        response = self.client.delete(f"/api/projects/{self.team.id}")
+
+        assert response.status_code == 400
+        assert response.json() == self.validation_error_response(
+            "You must delete or move all child projects before deleting this project."
+        )
+
     def test_delete_bulky_postgres_data(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
