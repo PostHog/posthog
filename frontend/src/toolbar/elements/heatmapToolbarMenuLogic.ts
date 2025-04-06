@@ -337,6 +337,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     listeners(({ actions, values }) => ({
         enableHeatmap: () => {
+            // need to set the href at least once to get the heatmap to load
+            actions.setDataHref(values.href)
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
@@ -406,8 +408,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.setHeatmapScrollY(scrollY)
             }
         }, 100)
-        // need to set the href at least once to get the heatmap to load
-        actions.setDataHref(values.href)
     }),
     beforeUnmount(({ cache }) => {
         clearInterval(cache.scrollCheckTimer)
