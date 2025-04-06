@@ -21,7 +21,6 @@ from posthog.admin.admins import (
     PersonDistinctIdAdmin,
     SurveyAdmin,
     DataWarehouseTableAdmin,
-    ProjectAdmin,
     HogFunctionAdmin,
     GroupTypeMappingAdmin,
 )
@@ -41,7 +40,6 @@ from posthog.models import (
     PluginConfig,
     Plugin,
     Text,
-    Project,
     Cohort,
     Person,
     PersonDistinctId,
@@ -52,7 +50,6 @@ from posthog.models import (
 )
 
 admin.site.register(Organization, OrganizationAdmin)
-admin.site.register(Project, ProjectAdmin)
 admin.site.register(Team, TeamAdmin)
 admin.site.register(User, UserAdmin)
 

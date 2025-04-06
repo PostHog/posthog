@@ -1,8 +1,6 @@
-from rest_framework import decorators, exceptions, viewsets
-from rest_framework_extensions.routers import NestedRegistryItem
-
+from rest_framework import decorators, exceptions
 import products.early_access_features.backend.api as early_access_feature
-from posthog.api import data_color_theme, metalytics, project, wizard
+from posthog.api import data_color_theme, metalytics, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -90,7 +88,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 
 # Nested endpoints shared
-projects_router = router.register(r"projects", team.TeamViewSet, "projects")
+projects_router = router.register(r"projects", team.RootTeamViewSet, "projects")
 
 
 project_plugins_configs_router = projects_router.register(
@@ -274,7 +272,7 @@ projects_router.register(
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
-organizations_router.register(r"projects", team.TeamViewSet, "projects", ["organization_id"])
+organizations_router.register(r"projects", team.TeamViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
 )

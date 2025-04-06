@@ -580,7 +580,7 @@ class TestTeamAPI(APIBaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_create_data_for_demo_team.assert_called_once()
 
