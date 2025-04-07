@@ -8048,6 +8048,10 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
 
 
+class ExperimentMetric(RootModel[Union[ExperimentMeanMetric, ExperimentFunnelMetric]]):
+    root: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+
+
 class ExperimentMetricTypeProps(RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]]):
     root: Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]
 
@@ -8515,6 +8519,21 @@ class RetentionQuery(BaseModel):
     response: Optional[RetentionQueryResponse] = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
+class NamedArgs1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+
+
+class IsExperimentFunnelMetric(BaseModel):
+    namedArgs: Optional[NamedArgs1] = None
+
+
+class IsExperimentMeanMetric(BaseModel):
+    namedArgs: Optional[NamedArgs1] = None
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
