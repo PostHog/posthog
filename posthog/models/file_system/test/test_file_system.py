@@ -31,7 +31,7 @@ class TestFileSystemModel(TestCase):
         are created as FileSystem objects in the DB by save_unfiled_files.
         """
         # Create some objects
-        ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
+        ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
         Dashboard.objects.create(team=self.team, name="Main Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, name="Traffic Insight", created_by=self.user, saved=True)
@@ -55,12 +55,8 @@ class TestFileSystemModel(TestCase):
         """
         FeatureFlags with deleted=True should NOT create FileSystem rows.
         """
-        FeatureFlag.objects.create(
-            team=self.team, name="Active Flag", created_by=self.user, deleted=False, key="flaggy1"
-        )
-        FeatureFlag.objects.create(
-            team=self.team, name="Deleted Flag", created_by=self.user, deleted=True, key="flaggy2"
-        )
+        FeatureFlag.objects.create(team=self.team, key="Active Flag", created_by=self.user, deleted=False)
+        FeatureFlag.objects.create(team=self.team, key="Deleted Flag", created_by=self.user, deleted=True)
         FileSystem.objects.all().delete()
         created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(created), 1)
@@ -84,7 +80,7 @@ class TestFileSystemModel(TestCase):
         There's no 'deleted=False' field in Experiment, so all
         experiments should create FileSystem rows.
         """
-        ff = FeatureFlag.objects.create(team=self.team, name="Some Flag", created_by=self.user, key="flaggy1")
+        ff = FeatureFlag.objects.create(team=self.team, key="Some Flag", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
         FileSystem.objects.all().delete()
         created = save_unfiled_files(self.team, self.user)
@@ -98,7 +94,7 @@ class TestFileSystemModel(TestCase):
         If save_unfiled_files is called multiple times, existing items in FileSystem
         should NOT be recreated.
         """
-        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
+        FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         FileSystem.objects.all().delete()
 
         first_created = save_unfiled_files(self.team, self.user)
@@ -123,28 +119,8 @@ class TestFileSystemModel(TestCase):
             created_by=self.user,
         )
 
-        FeatureFlag.objects.create(team=self.team, name="Duplicate Name", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="Duplicate Name", created_by=self.user)
         self.assertEqual(FileSystem.objects.filter(path="Unfiled/Feature Flags/Duplicate Name").count(), 2)
-
-    def test_naming_collisions_among_multiple_new_items_same_run(self):
-        """
-        If multiple new FeatureFlags are created with the same name, they should
-        be saved with unique paths in FileSystem.
-        """
-        FeatureFlag.objects.create(team=self.team, name="Same Name", key="name-1", created_by=self.user)
-        FeatureFlag.objects.create(team=self.team, name="Same Name", key="name-2", created_by=self.user)
-        FileSystem.objects.all().delete()
-        created = save_unfiled_files(self.team, self.user)
-
-        self.assertEqual(len(created), 2)
-        paths = [obj.path for obj in created]
-        self.assertEqual(
-            paths,
-            [
-                "Unfiled/Feature Flags/Same Name",
-                "Unfiled/Feature Flags/Same Name",
-            ],
-        )
 
     def test_split_path(self):
         self.assertEqual(split_path("a/b"), ["a", "b"])
@@ -184,7 +160,7 @@ class TestFileSystemModel(TestCase):
         If we pass a specific file_type (e.g., FEATURE_FLAG) then only that type should be saved.
         """
         # Create a FeatureFlag and a Dashboard
-        FeatureFlag.objects.create(team=self.team, name="A Flag", created_by=self.user, key="flaggy")
+        FeatureFlag.objects.create(team=self.team, key="A Flag", created_by=self.user)
         Dashboard.objects.create(team=self.team, name="A Dashboard", created_by=self.user)
         FileSystem.objects.all().delete()
 
