@@ -119,7 +119,7 @@ class SessionRecordingsListingBaseQuery:
 
     def __init__(self, team: Team, query: RecordingsQuery):
         self._team = team
-        self._query = query
+        self._query = query.model_copy(deep=True)
         if self._query.filter_test_accounts:
             self._query.properties = self._query.properties or []
             self._query.properties += self._test_account_filters
