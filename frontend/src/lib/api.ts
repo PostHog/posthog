@@ -17,6 +17,7 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
+    FileSystemCount,
     FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
@@ -47,6 +48,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingJob,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -387,6 +389,12 @@ class ApiRequest {
     }
     public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id).addPathComponent('move')
+    }
+    public fileSystemLink(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('link')
+    }
+    public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
     }
 
     // # Plugins
@@ -816,6 +824,18 @@ class ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
     }
 
+    // # Data Modeling Jobs (ie) materialized view runs
+    public dataWarehouseDataModelingJobs(
+        savedQueryId: DataWarehouseSavedQuery['id'],
+        pageSize = 10,
+        offset = 0,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('data_modeling_jobs')
+            .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
+    }
+
     // # Warehouse view link
     public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_view_link')
@@ -1234,14 +1254,23 @@ const api = {
             limit,
             offset,
             search,
+            ref,
+            type,
+            type__startswith,
         }: {
             parent?: string
             depth?: number
             limit?: number
             offset?: number
             search?: string
+            ref?: string
+            type?: string
+            type__startswith?: string
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset, search }).get()
+            return await new ApiRequest()
+                .fileSystem()
+                .withQueryString({ parent, depth, limit, offset, search, ref, type, type__startswith })
+                .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
@@ -1257,6 +1286,12 @@ const api = {
         },
         async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
+        },
+        async link(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLink(id).create({ data: { new_path: newPath } })
+        },
+        async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
+            return await new ApiRequest().fileSystemCount(id).create()
         },
     },
 
@@ -2046,6 +2081,9 @@ const api = {
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
         },
+        async sendBroadcast(id: HogFunctionType['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).withAction('broadcast').create()
+        },
         async logs(
             id: HogFunctionType['id'],
             params: LogEntryRequestParams = {}
@@ -2627,6 +2665,15 @@ const api = {
                 .dataWarehouseSavedQuery(viewId)
                 .withAction('descendants')
                 .create({ data: { level } })
+        },
+        dataWarehouseDataModelingJobs: {
+            async list(
+                savedQueryId: DataWarehouseSavedQuery['id'],
+                pageSize: number,
+                offset: number
+            ): Promise<PaginatedResponse<DataModelingJob>> {
+                return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
+            },
         },
     },
     externalDataSources: {

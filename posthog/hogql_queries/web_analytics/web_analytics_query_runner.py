@@ -17,7 +17,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression, revenue_events_where_expr
+from posthog.hogql.database.schema.exchange_rate import revenue_where_expr_for_events
 
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -44,12 +44,13 @@ WebQueryNode = Union[
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
-    do_currency_conversion: bool = False
+    include_data_warehouse_revenue: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.do_currency_conversion = posthoganalytics.feature_enabled(
-            "web-analytics-revenue-tracking-conversion",
+
+        self.include_data_warehouse_revenue = posthoganalytics.feature_enabled(
+            "web-analytics-data-warehouse-revenue-settings",
             str(self.team.organization_id),
             groups={"organization": str(self.team.organization_id)},
             group_properties={"organization": {"id": str(self.team.organization_id)}},
@@ -228,10 +229,6 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             return ast.Constant(value=None)
 
     @cached_property
-    def revenue_sum_expression(self) -> ast.Expr:
-        return revenue_sum_expression(self.team.revenue_config, self.do_currency_conversion)
-
-    @cached_property
     def event_type_expr(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -247,32 +244,40 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         elif self.query.includeRevenue:
             # Use elif here, we don't need to include revenue events if we already included conversion events, because
             # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.append(revenue_events_where_expr(self.team.revenue_config))
+            exprs.append(revenue_where_expr_for_events(self.team.revenue_config))
 
         return ast.Or(exprs=exprs)
 
-    def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None):
+    def period_aggregate(
+        self,
+        function_name: str,
+        column_name: str,
+        start: ast.Expr,
+        end: ast.Expr,
+        alias: Optional[str] = None,
+        params: Optional[list[ast.Expr]] = None,
+        extra_args: Optional[list[ast.Expr]] = None,
+    ):
+        and_args: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["start_timestamp"]),
+                right=start,
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["start_timestamp"]),
+                right=end,
+            ),
+        ]
+
+        if extra_args:
+            and_args.extend(extra_args)
+
         expr = ast.Call(
             name=function_name + "If",
             params=params,
-            args=[
-                ast.Field(chain=[column_name]),
-                ast.Call(
-                    name="and",
-                    args=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.GtEq,
-                            left=ast.Field(chain=["start_timestamp"]),
-                            right=start,
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Lt,
-                            left=ast.Field(chain=["start_timestamp"]),
-                            right=end,
-                        ),
-                    ],
-                ),
-            ],
+            args=[ast.Field(chain=[column_name]), ast.Call(name="and", args=and_args)],
         )
 
         if alias is not None:

@@ -109,13 +109,9 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
-    ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
-    ExperimentFunnelMetricConfig = 'ExperimentFunnelMetricConfig',
-    ExperimentFunnelStepConfig = 'ExperimentFunnelStepConfig',
-    ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
-    ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -279,6 +275,7 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
+    usePresortedEventsTable?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -390,6 +387,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
+    distinct_ids?: string[]
     /**
      * @default "start_time"
      * */
@@ -895,6 +893,7 @@ interface InsightVizNodeViewProps {
     embedded?: boolean
     suppressSessionAnalysisWarning?: boolean
     hidePersonsModal?: boolean
+    hideTooltipOnScroll?: boolean
     vizSpecificOptions?: VizSpecificOptions
 }
 
@@ -934,12 +933,21 @@ export enum ResultCustomizationBy {
     Position = 'position',
 }
 
+export type TrendsFormulaNode = {
+    formula: string
+    /** Optional user-defined name for the formula */
+    custom_name?: string
+}
+
 export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
+    /** @deprecated Use formulaNodes instead. */
     formula?: TrendsFilterLegacy['formula']
-    /** List of formulas to apply to the data. Takes precedence over formula if both are set. */
+    /** @deprecated Use formulaNodes instead. */
     formulas?: string[]
+    /** List of formulas with optional custom names. Takes precedence over formula/formulas if set. */
+    formulaNodes?: TrendsFormulaNode[]
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
     /** @default false */
@@ -1799,7 +1807,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
-    customVolume?: ErrorTrackingSparklineConfig | null
+    volumeResolution: integer
     limit?: integer
     offset?: integer
 }
@@ -1809,18 +1817,12 @@ export interface ErrorTrackingIssueAssignee {
     id: integer | string
 }
 
-export type ErrorTrackingSparklineConfig = {
-    value: integer
-    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
-}
-
 export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
     volumeDay: number[]
-    volumeMonth: number[]
-    customVolume: number[] | null
+    volumeRange: number[]
 }
 
 export interface ErrorTrackingRelationalIssue {
@@ -1835,9 +1837,9 @@ export interface ErrorTrackingRelationalIssue {
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
-    last_seen?: string
+    last_seen: string
     earliest?: string
-    aggregations?: ErrorTrackingIssueAggregations
+    aggregations: ErrorTrackingIssueAggregations
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -1848,9 +1850,13 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export interface FileSystemCount {
+    count: number
+}
+
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
-    id?: string
+    id: string
     /** Object's name and folder */
     path: string
     /** Type of object, used for icon, e.g. feature_flag, insight, etc */
@@ -1863,10 +1869,13 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+    /** Used to indicate pending actions, frontend only */
+    _loading?: boolean
 }
 
-export interface FileSystemImport extends Omit<FileSystemEntry, 'href'> {
+export interface FileSystemImport extends Omit<FileSystemEntry, 'href' | 'id'> {
     icon?: any // Setting as "any" to keep Python schema.py in check
+    id?: string
     flag?: string
     href: (ref?: string) => string
 }
@@ -1959,74 +1968,44 @@ export interface ExperimentEventExposureConfig {
     properties: AnyPropertyFilter[]
 }
 
-export enum ExperimentMetricType {
+export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
 }
 
-export interface ExperimentMetric {
+export type ExperimentMetricBaseProperties = {
     kind: NodeKind.ExperimentMetric
     name?: string
-    metric_type: ExperimentMetricType
-    inverse?: boolean
-    metric_config:
-        | ExperimentEventMetricConfig
-        | ExperimentActionMetricConfig
-        | ExperimentDataWarehouseMetricConfig
-        | ExperimentFunnelMetricConfig
     time_window_hours?: number
 }
 
-export interface ExperimentFunnelStepConfig {
-    kind: NodeKind.ExperimentFunnelStepConfig
-    event: string
-    name?: string
-    order: integer
-    properties?: AnyPropertyFilter[]
-}
-
-export interface ExperimentFunnelMetricConfig {
-    kind: NodeKind.ExperimentFunnelMetricConfig
-    funnel: ExperimentFunnelStepConfig[]
-    // NOTE: Just to make the type system happy
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-}
-
-export interface ExperimentEventMetricConfig {
-    kind: NodeKind.ExperimentEventMetricConfig
-    event: string
-    name?: string
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-    /** Properties configurable in the interface */
-    properties?: AnyPropertyFilter[]
-}
-
-export interface ExperimentActionMetricConfig {
-    kind: NodeKind.ExperimentActionMetricConfig
-    action: number
-    name?: string
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-    /** Properties configurable in the interface */
-    properties?: AnyPropertyFilter[]
-}
-
-export interface ExperimentDataWarehouseMetricConfig {
-    kind: NodeKind.ExperimentDataWarehouseMetricConfig
-    name?: string
+export interface ExperimentDataWarehouseNode extends EntityNode {
+    kind: NodeKind.ExperimentDataWarehouseNode
     table_name: string
     timestamp_field: string
     events_join_key: string
     data_warehouse_join_key: string
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
 }
+
+export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
+
+export type ExperimentMeanMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.MEAN
+    source: ExperimentMetricSource
+}
+
+export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.FUNNEL
+    series: ExperimentFunnelMetricStep[]
+}
+
+export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentMetricTypeProps = ExperimentMeanMetricTypeProps | ExperimentFunnelMetricTypeProps
+
+export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
@@ -2349,7 +2328,10 @@ export interface DateRange {
     explicitDate?: boolean | null
 }
 
-export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session' | 'hogql'>
+export type MultipleBreakdownType = Extract<
+    BreakdownType,
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql'
+>
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
@@ -2796,6 +2778,7 @@ export interface RevenueTrackingEventItem {
 
 export interface RevenueTrackingDataWarehouseTable {
     tableName: string
+    distinctIdColumn: string
     timestampColumn: string
     revenueColumn: string
 

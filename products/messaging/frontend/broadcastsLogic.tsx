@@ -3,7 +3,7 @@ import { urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { broadcastsLogicType } from './broadcastsLogicType'
 
@@ -42,13 +42,17 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         ? [
                               {
                                   key: 'edit-broadcast',
-                                  name: 'Edit broadcast',
+                                  name: 'Manage broadcast',
                                   path: urls.messagingBroadcast(broadcastId),
                               },
                           ]
                         : []),
                 ]
             },
+        ],
+        projectTreeRef: [
+            (s) => [s.broadcastId],
+            (id): ProjectTreeRef => ({ type: 'hog_function/broadcast', ref: String(id) }),
         ],
     }),
     urlToAction(({ actions }) => ({

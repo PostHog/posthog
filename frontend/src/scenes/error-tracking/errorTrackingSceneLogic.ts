@@ -14,15 +14,15 @@ import {
 } from './errorTrackingLogic'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
+import { generateDateRangeLabel } from './utils'
+
+export type SparklineSelectedPeriod = 'custom' | 'day'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
     connect({
-        values: [
-            errorTrackingLogic,
-            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig', 'searchQuery'],
-        ],
+        values: [errorTrackingLogic, ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
         actions: [
             errorTrackingLogic,
             ['setAssignee', 'setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
@@ -34,6 +34,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         setOrderDirection: (orderDirection: ErrorTrackingQuery['orderDirection']) => ({ orderDirection }),
         setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
+        setSparklineSelectedPeriod: (period: SparklineSelectedPeriod) => ({ period }),
     }),
 
     reducers({
@@ -64,9 +65,16 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 setSelectedIssueIds: (_, { ids }) => ids,
             },
         ],
+        sparklineSelectedPeriod: [
+            'custom' as SparklineSelectedPeriod,
+            { persist: true },
+            {
+                setSparklineSelectedPeriod: (_, { period }) => period,
+            },
+        ],
     }),
 
-    selectors(({ values }) => ({
+    selectors(() => ({
         query: [
             (s) => [
                 s.orderBy,
@@ -95,13 +103,27 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     assignee,
                     filterTestAccounts,
                     filterGroup,
-                    // we do not want to recompute the query when then sparkline selection changes
-                    // because we have already fetched the alternative option (24h, 30d, custom)
-                    customVolume: values.customSparklineConfig,
+                    volumeResolution: 20,
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
                     orderDirection,
                 }),
+        ],
+        sparklineOptions: [
+            (state) => [state.dateRange],
+            (dateRange) => {
+                const customLabel = generateDateRangeLabel(dateRange)
+                return [
+                    {
+                        value: 'custom',
+                        label: customLabel,
+                    },
+                    {
+                        value: 'day',
+                        label: '24h',
+                    },
+                ] as { value: SparklineSelectedPeriod; label: string }[]
+            },
         ],
     })),
 

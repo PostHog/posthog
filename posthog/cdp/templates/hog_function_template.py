@@ -37,6 +37,7 @@ HogFunctionTemplateType = Literal[
 class HogFunctionSubTemplate:
     id: SubTemplateId
     name: str
+    free: Optional[bool] = None
     description: Optional[str] = None
     filters: Optional[dict] = None
     masking: Optional[dict] = None

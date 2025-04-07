@@ -19,6 +19,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import {
     Breadcrumb,
     LegacyRecordingFilters,
+    ProjectTreeRef,
     RecordingUniversalFilters,
     ReplayTabs,
     SessionRecordingPlaylistType,
@@ -182,6 +183,10 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     },
                 },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: SessionRecordingsPlaylistLogicProps) => props.shortId],
+            (shortId): ProjectTreeRef => ({ type: 'session_recording_playlist', ref: String(shortId) }),
         ],
         hasChanges: [
             (s) => [s.playlist, s.filters],

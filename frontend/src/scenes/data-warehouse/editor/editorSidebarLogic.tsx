@@ -229,7 +229,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
             (activeScene, sceneParams): [string, number] | null => {
-                return activeScene === Scene.DataWarehouse && sceneParams.params.id
+                return activeScene === Scene.SQLEditor && sceneParams.params.id
                     ? ['saved-queries', parseInt(sceneParams.params.id)]
                     : null
             },

@@ -12,25 +12,30 @@ from posthog.hogql_queries.web_analytics.revenue_example_data_warehouse_tables_q
 from posthog.schema import (
     RevenueExampleDataWarehouseTablesQuery,
     RevenueTrackingConfig,
+    RevenueCurrencyPropertyConfig,
     RevenueExampleDataWarehouseTablesQueryResponse,
     RevenueTrackingDataWarehouseTable,
+    CurrencyCode,
 )
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
 )
 from posthog.warehouse.models import (
     DataWarehouseTable,
     DataWarehouseCredential,
 )
 
-EMPTY_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(events=[], dataWarehouseTables=[])
+EMPTY_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(baseCurrency=CurrencyCode.GBP, events=[], dataWarehouseTables=[])
 
 SINGLE_TABLE_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
+    baseCurrency=CurrencyCode.GBP,
     events=[],
     dataWarehouseTables=[
         RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column",
+            distinctIdColumn="id",
             revenueColumn="revenue",
             timestampColumn="timestamp",
         )
@@ -38,17 +43,28 @@ SINGLE_TABLE_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
 )
 
 MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
+    baseCurrency=CurrencyCode.GBP,
     events=[],
     dataWarehouseTables=[
         RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column_a",
+            distinctIdColumn="id",
             revenueColumn="revenue_a",
             timestampColumn="timestamp",
         ),
         RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column_b",
+            distinctIdColumn="id",
             revenueColumn="revenue_b",
             timestampColumn="timestamp",
+            revenueCurrencyColumn=RevenueCurrencyPropertyConfig(static=CurrencyCode.EUR),
+        ),
+        RevenueTrackingDataWarehouseTable(
+            tableName="database_with_revenue_column_c",
+            distinctIdColumn="id",
+            revenueColumn="revenue_c",
+            timestampColumn="timestamp",
+            revenueCurrencyColumn=RevenueCurrencyPropertyConfig(property="currency"),
         ),
     ],
 )
@@ -62,6 +78,7 @@ MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
 #
 # Let's skip it for now until we figure out how to fix it
 @pytest.mark.skipif("CI" in os.environ, reason="Test skipped in CI environment")
+@snapshot_clickhouse_queries
 class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
 
@@ -128,6 +145,22 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         )
         self.tables.append(table_3)
 
+        # Fourth table
+        table_4 = DataWarehouseTable.objects.create(
+            name="database_with_revenue_column_c",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=self.credential,
+            url_pattern="test://localhost",  # Doesn't matter for tests
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                "revenue_c": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                "currency": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "schema_valid": True},
+            },
+        )
+        self.tables.append(table_4)
+
     def _run_revenue_example_external_tables_query(
         self,
         revenue_tracking_config: RevenueTrackingConfig,
@@ -160,53 +193,67 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         "clickhouse_driver.result.QueryResult.get_result",
         return_value=(
             [
-                ("database_with_revenue_column", 42),
-                ("database_with_revenue_column", 43),
-                ("database_with_revenue_column", 44),
+                ("database_with_revenue_column", "distinct_id_1", 42, "USD", 35, "GBP"),
+                ("database_with_revenue_column", "distinct_id_2", 43, "USD", 36, "GBP"),
+                ("database_with_revenue_column", "distinct_id_3", 44, "USD", 37, "GBP"),
             ],
             (
                 "String",
+                "String",
                 "Float64",
+                "String",
+                "Float64",
+                "String",
             ),
         ),
     )
     def test_single_table_query(self, mock_get_result):
-        results = self._run_revenue_example_external_tables_query(SINGLE_TABLE_REVENUE_TRACKING_CONFIG).results
+        response = self._run_revenue_example_external_tables_query(SINGLE_TABLE_REVENUE_TRACKING_CONFIG)
+        results = response.results
 
+        # 3 rows, 6 columns
         assert len(results) == 3
+        assert len(results[0]) == 6
+        assert len(response.columns) == 6
 
-        # table_name, revenue
-        assert results[0] == ("database_with_revenue_column", 42)
-        assert results[1] == ("database_with_revenue_column", 43)
-        assert results[2] == ("database_with_revenue_column", 44)
+        assert results[0] == ("database_with_revenue_column", "distinct_id_1", 42, "USD", 42, "GBP")
+        assert results[1] == ("database_with_revenue_column", "distinct_id_2", 43, "USD", 43, "GBP")
+        assert results[2] == ("database_with_revenue_column", "distinct_id_3", 44, "USD", 44, "GBP")
 
     @patch(
         "clickhouse_driver.result.QueryResult.get_result",
         return_value=(
             [
-                ("database_with_revenue_column_a", 42),
-                ("database_with_revenue_column_a", 43),
-                ("database_with_revenue_column_a", 44),
-                ("database_with_revenue_column_b", 43),
-                ("database_with_revenue_column_b", 44),
-                ("database_with_revenue_column_b", 45),
+                ("database_with_revenue_column_a", "distinct_id_1", 42, "USD", 42, "GBP"),
+                ("database_with_revenue_column_a", "distinct_id_2", 43, "USD", 43, "GBP"),
+                ("database_with_revenue_column_a", "distinct_id_3", 44, "USD", 44, "GBP"),
+                ("database_with_revenue_column_b", "distinct_id_1", 43, "USD", 43, "GBP"),
+                ("database_with_revenue_column_b", "distinct_id_2", 44, "USD", 44, "GBP"),
+                ("database_with_revenue_column_b", "distinct_id_3", 45, "USD", 45, "GBP"),
             ],
             (
                 "String",
                 "Float64",
+                "String",
+                "Float64",
+                "String",
             ),
         ),
     )
     def test_multiple_tables_query(self, mock_get_result):
-        results = self._run_revenue_example_external_tables_query(MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG).results
+        response = self._run_revenue_example_external_tables_query(MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG)
+        results = response.results
 
+        # 6 rows, 6 columns
         assert len(results) == 6
+        assert len(results[0]) == 6
+        assert len(response.columns) == 6
 
         # Results are returned in the order defined by the SQL UNION ALL query
         # The first table from dataWarehouseTables should come first
-        assert results[0] == ("database_with_revenue_column_a", 42)
-        assert results[1] == ("database_with_revenue_column_a", 43)
-        assert results[2] == ("database_with_revenue_column_a", 44)
-        assert results[3] == ("database_with_revenue_column_b", 43)
-        assert results[4] == ("database_with_revenue_column_b", 44)
-        assert results[5] == ("database_with_revenue_column_b", 45)
+        assert results[0] == ("database_with_revenue_column_a", "distinct_id_1", 42, "USD", 42, "GBP")
+        assert results[1] == ("database_with_revenue_column_a", "distinct_id_2", 43, "USD", 43, "GBP")
+        assert results[2] == ("database_with_revenue_column_a", "distinct_id_3", 44, "USD", 44, "GBP")
+        assert results[3] == ("database_with_revenue_column_b", "distinct_id_1", 43, "USD", 43, "GBP")
+        assert results[4] == ("database_with_revenue_column_b", "distinct_id_2", 44, "USD", 44, "GBP")
+        assert results[5] == ("database_with_revenue_column_b", "distinct_id_3", 45, "USD", 45, "GBP")

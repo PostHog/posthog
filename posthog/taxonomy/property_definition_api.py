@@ -1,8 +1,9 @@
 import dataclasses
 import json
-from typing import Any, Optional, Self, cast
+from typing import Any, Optional, Self, cast, Union
 
 from django.db import connection, models
+from django.db.models import QuerySet, Manager
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
@@ -123,7 +124,7 @@ class QueryContext:
     property_definition_fields: str
     property_definition_table: str
 
-    limit: int
+    limit: Optional[int]
     offset: int
 
     should_join_event_property: bool = True
@@ -517,7 +518,7 @@ class PropertyDefinitionViewSet(
     queryset = PropertyDefinition.objects.all()
 
     def dangerously_get_queryset(self):
-        queryset = PropertyDefinition.objects.all()
+        queryset: Union[QuerySet[PropertyDefinition], Manager[PropertyDefinition]] = PropertyDefinition.objects.all()
         property_definition_fields = ", ".join(
             [
                 f'posthog_propertydefinition."{f.column}"'
@@ -526,8 +527,10 @@ class PropertyDefinitionViewSet(
             ]
         )
 
-        use_enterprise_taxonomy = self.request.user.organization.is_feature_available(
-            AvailableFeature.INGESTION_TAXONOMY
+        use_enterprise_taxonomy = (
+            isinstance(self.request.user, User)
+            and self.request.user.organization
+            and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
         )
         order_by_verified = False
         if use_enterprise_taxonomy:
@@ -540,7 +543,9 @@ class PropertyDefinitionViewSet(
                     [
                         f'{f.cached_col.alias}."{f.column}"'
                         for f in EnterprisePropertyDefinition._meta.get_fields()
-                        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
+                        if hasattr(f, "column")
+                        and f.column not in ["deprecated_tags", "tags"]
+                        and hasattr(f, "cached_col")
                     ]
                 )
 
@@ -550,6 +555,7 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 use_enterprise_taxonomy = False
 
+        assert isinstance(self.paginator, NotCountingLimitOffsetPaginator)
         limit = self.paginator.get_limit(self.request)
         offset = self.paginator.get_offset(self.request)
 
@@ -608,8 +614,12 @@ class PropertyDefinitionViewSet(
         return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
-        serializer_class = self.serializer_class
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
+        serializer_class: type[serializers.ModelSerializer] = self.serializer_class
+        if (
+            isinstance(self.request.user, User)
+            and self.request.user.organization
+            and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
+        ):
             try:
                 from ee.api.ee_property_definition import (
                     EnterprisePropertyDefinitionSerializer,
@@ -629,7 +639,11 @@ class PropertyDefinitionViewSet(
             id=id,
             effective_project_id=self.project_id,
         )
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
+        if (
+            isinstance(self.request.user, User)
+            and self.request.user.organization
+            and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
+        ):
             try:
                 # noinspection PyUnresolvedReferences
                 from ee.models.property_definition import EnterprisePropertyDefinition

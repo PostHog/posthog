@@ -4,7 +4,7 @@ import dataclasses
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.db import models
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 from django.db.models import QuerySet
 import posthoganalytics
 
@@ -39,7 +39,14 @@ class FileSystemSyncMixin(models.Model):
         raise NotImplementedError()
 
     @classmethod
-    def _filter_unfiled_queryset(cls, qs: QuerySet, team: "Team", type: str | list[str], ref_field: str) -> QuerySet:
+    def _filter_unfiled_queryset(
+        cls,
+        qs: QuerySet,
+        team: "Team",
+        ref_field: str,
+        type: Optional[str | list[str]] = None,
+        type__startswith: Optional[str] = None,
+    ) -> QuerySet:
         """
         Given a base queryset `qs`, annotate a 'ref_id' from `ref_field`,
         then exclude rows that are already saved to FileSystem for (team, file_type).
@@ -49,10 +56,19 @@ class FileSystemSyncMixin(models.Model):
         from django.db.models import F
         from posthog.models.file_system.file_system import FileSystem
 
-        types = [type] if isinstance(type, str) else type
+        if type:
+            types = [type] if isinstance(type, str) else type
+            already_saved = FileSystem.objects.filter(team=team, type__in=types, ref=OuterRef("ref_id"))
+        elif type__startswith:
+            already_saved = FileSystem.objects.filter(
+                team=team, type__startswith=type__startswith, ref=OuterRef("ref_id")
+            )
+        else:
+            raise ValueError("Either 'type' or 'type__startswith' must be provided")
+
         # Annotate a 'ref_id' from the chosen model field (e.g. 'id', 'short_id')
         annotated_qs = qs.annotate(ref_id=Cast(F(ref_field), output_field=CharField())).annotate(
-            already_saved=Exists(FileSystem.objects.filter(team=team, type__in=types, ref=OuterRef("ref_id")))
+            already_saved=Exists(already_saved)
         )
         return annotated_qs.filter(already_saved=False)
 

@@ -136,6 +136,12 @@ class TestBillingManager(BaseTest):
                 "todays_usage": 10,
                 "quota_limited_until": 1612137599,
             },
+            "exceptions": {
+                "usage": 10,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
             "recordings": {
                 "usage": 15,
                 "limit": 100,
@@ -159,6 +165,7 @@ class TestBillingManager(BaseTest):
             "customer": {
                 "usage_summary": {
                     "events": {"usage": 90, "limit": 1000},
+                    "exceptions": {"usage": 10, "limit": 100},
                     "recordings": {"usage": 15, "limit": 100},
                     "rows_synced": {"usage": 45, "limit": 500},
                     "feature_flag_requests": {"usage": 25, "limit": 300},
@@ -180,6 +187,12 @@ class TestBillingManager(BaseTest):
                 "limit": 1000,
                 "todays_usage": 10,
                 "quota_limited_until": 1612137599,
+            },
+            "exceptions": {
+                "usage": 10,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
             },
             "recordings": {
                 "usage": 15,

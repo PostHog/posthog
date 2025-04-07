@@ -12,11 +12,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import {
+    featureFlagLogic as sceneFeatureFlagLogic,
     indexToVariantKeyFeatureFlagPayloads,
     validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
-import { featureFlagLogic as sceneFeatureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -60,6 +60,7 @@ import {
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
+    ProjectTreeRef,
     PropertyMathType,
     TrendExperimentVariant,
     TrendResult,
@@ -253,6 +254,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
+        changeExperimentEndDate: (endDate: string) => ({ endDate }),
         setExperimentStatsVersion: (version: number) => ({ version }),
         launchExperiment: true,
         endExperiment: true,
@@ -914,6 +916,10 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ start_date: startDate })
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
         },
+        changeExperimentEndDate: async ({ endDate }) => {
+            actions.updateExperiment({ end_date: endDate })
+            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
+        },
         setExperimentStatsVersion: async ({ version }, breakpoint) => {
             actions.updateExperiment({ stats_config: { version } })
             await breakpoint(100)
@@ -1471,6 +1477,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: ExperimentLogicProps) => props.experimentId],
+            (experimentId): ProjectTreeRef => ({ type: 'experiment', ref: String(experimentId) }),
         ],
         variants: [
             (s) => [s.experiment],

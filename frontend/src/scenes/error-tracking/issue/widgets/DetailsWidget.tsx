@@ -7,15 +7,15 @@ import { getSessionId } from 'scenes/error-tracking/utils'
 import { Overview } from '../Overview'
 
 export function DetailsWidget(): JSX.Element {
-    const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
-    const sessionId = getSessionId(issueProperties)
+    const { properties } = useValues(errorTrackingIssueSceneLogic)
+    const sessionId = getSessionId(properties)
     return (
         <LemonWidget
             title="Details"
             actions={
                 <ViewRecordingButton
                     sessionId={sessionId}
-                    timestamp={issueProperties.timestamp}
+                    timestamp={properties.timestamp}
                     inModal={true}
                     size="xsmall"
                     type="primary"

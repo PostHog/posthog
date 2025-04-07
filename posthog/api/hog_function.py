@@ -33,6 +33,7 @@ from posthog.cdp.validation import (
 )
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
 from posthog.models.hog_functions.hog_function import (
     HogFunction,
@@ -327,23 +328,46 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
 
-        # Set execution_order for transformation type
+        # Handle execution_order for transformation type
         if validated_data.get("type") == "transformation":
-            # Get the highest execution_order for existing transformations
-            highest_order = (
-                HogFunction.objects.filter(team_id=validated_data["team"].id, type="transformation", deleted=False)
-                .order_by("-execution_order")
-                .values_list("execution_order", flat=True)
-                .first()
-            )
+            requested_order = validated_data.get("execution_order")
 
-            # Set to 1 if no existing transformations, otherwise increment by 1
-            validated_data["execution_order"] = (highest_order or 0) + 1
+            # For transformations, we need to determine the execution_order
+            if requested_order is None:
+                # If no order specified, add at the end
+                highest_order = self._get_highest_execution_order(validated_data["team"].id)
+                validated_data["execution_order"] = highest_order + 1
 
-        hog_function = super().create(validated_data=validated_data)
-        return hog_function
+            # Create the function with the execution_order
+            return super().create(validated_data=validated_data)
+        else:
+            # For non-transformation types, just create normally
+            return super().create(validated_data=validated_data)
+
+    def _get_highest_execution_order(self, team_id: int) -> int:
+        """Get the highest execution_order for transformations in a team."""
+        highest_order = (
+            HogFunction.objects.filter(team_id=team_id, type="transformation", deleted=False)
+            .order_by("-execution_order")
+            .values_list("execution_order", flat=True)
+            .first()
+        )
+        return highest_order or 0
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
+        # Handle undeletion or re-enabling by placing at the end when needed
+        if instance.type == "transformation" and (
+            (instance.deleted and validated_data.get("deleted") is False)
+            or (
+                not instance.enabled
+                and validated_data.get("enabled") is True
+                and "execution_order" not in validated_data
+            )
+        ):
+            highest_order = self._get_highest_execution_order(instance.team_id)
+            validated_data["execution_order"] = highest_order + 1
+
+        # Standard update
         res: HogFunction = super().update(instance, validated_data)
 
         if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
@@ -393,7 +417,7 @@ class HogFunctionViewSet(
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
-            queryset = queryset.order_by("execution_order", "created_at")
+            queryset = queryset.order_by("execution_order", "-updated_at")
 
         if self.request.GET.get("filters"):
             try:
@@ -464,6 +488,51 @@ class HogFunctionViewSet(
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
+
+    @action(detail=True, methods=["POST"])
+    def broadcast(self, request: Request, *args, **kwargs):
+        hog_function = self.get_object()
+
+        if not hog_function.enabled:
+            return Response({"error": "Cannot broadcast: function is disabled"}, status=400)
+
+        actors_query = {
+            "kind": "ActorsQuery",
+            "properties": hog_function.filters.get("properties", None),
+            "select": ["id", "any(pdi.distinct_id)", "properties", "created_at"],
+        }
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        if not hasattr(response, "results"):
+            return Response({"error": "No results from actors query"}, status=400)
+
+        for result in response.results:
+            globals = {
+                "event": {
+                    "event": "$broadcast",
+                    "elements_chain": "",
+                    "distinct_id": str(result[1]),
+                    "timestamp": result[3].isoformat(),
+                },
+                "person": {
+                    "id": str(result[0]),
+                    "distinct_id": str(result[1]),
+                    "properties": json.loads(result[2]),
+                    "created_at": result[3].isoformat(),
+                },
+            }
+            create_hog_invocation_test(
+                team_id=hog_function.team_id,
+                hog_function_id=hog_function.id,
+                payload={
+                    "globals": globals,
+                    "configuration": HogFunctionSerializer(hog_function).data,
+                    "mock_async_functions": False,
+                },
+            )
+
+        return Response({"success": True})
 
     def perform_create(self, serializer):
         serializer.save()

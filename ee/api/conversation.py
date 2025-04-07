@@ -53,7 +53,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return queryset.filter(user=self.request.user)
 
     def get_throttles(self):
-        return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        if self.action == "create":
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
 
     def get_renderers(self):
         if self.action == "create":

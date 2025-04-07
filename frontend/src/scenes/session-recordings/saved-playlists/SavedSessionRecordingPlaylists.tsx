@@ -129,7 +129,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 )
 
                 return (
-                    <div className="flex items-center justify-center w-full h-full">
+                    <div className="flex items-center justify-start w-full h-full">
                         <Tooltip title={tooltip}>
                             {hasResults ? (
                                 <span className="flex items-center deprecated-space-x-1">

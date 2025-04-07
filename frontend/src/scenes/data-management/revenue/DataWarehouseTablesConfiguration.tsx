@@ -13,7 +13,7 @@ import { databaseTableListLogic } from '../database/databaseTableListLogic'
 import { CurrencyDropdown } from './CurrencyDropdown'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
-type DataWarehousePopoverFieldKey = 'revenueField' | 'currencyField' | 'timestampField'
+type DataWarehousePopoverFieldKey = 'revenueField' | 'currencyField' | 'timestampField' | 'distinctIdColumn'
 
 // NOTE: Not allowing HogQL right now, but we could add it in the future
 const DATA_WAREHOUSE_POPOVER_FIELDS: {
@@ -22,6 +22,11 @@ const DATA_WAREHOUSE_POPOVER_FIELDS: {
     description: string
     optional?: boolean
 }[] = [
+    {
+        key: 'distinctIdColumn' as const,
+        label: 'Distinct ID Column',
+        description: 'The distinct ID column in your table that uniquely identifies a row.',
+    },
     {
         key: 'timestampField' as const,
         label: 'Timestamp Field',
@@ -66,7 +71,7 @@ export function DataWarehouseTablesConfiguration({
     // Restricting to timestampColumn and revenueColumn because currency column
     // is slightly more complicated than that
     const renderPropertyColumn = useCallback(
-        (key: keyof RevenueTrackingDataWarehouseTable & ('timestampColumn' | 'revenueColumn')) =>
+        (key: keyof RevenueTrackingDataWarehouseTable & ('timestampColumn' | 'revenueColumn' | 'distinctIdColumn')) =>
             // eslint-disable-next-line react/display-name
             (_: any, item: RevenueTrackingDataWarehouseTable) => {
                 return (
@@ -91,8 +96,28 @@ export function DataWarehouseTablesConfiguration({
                 columns={[
                     { key: 'tableName', title: 'Data warehouse table name', dataIndex: 'tableName' },
                     {
+                        key: 'distinctIdColumn',
+                        title: (
+                            <span>
+                                Distinct ID column
+                                <Tooltip title="The distinct ID column in your table that uniquely identifies a row.">
+                                    <IconInfo className="ml-1" />
+                                </Tooltip>
+                            </span>
+                        ),
+                        dataIndex: 'distinctIdColumn',
+                        render: renderPropertyColumn('distinctIdColumn'),
+                    },
+                    {
                         key: 'timestampColumn',
-                        title: 'Revenue timestamp column',
+                        title: (
+                            <span>
+                                Timestamp column
+                                <Tooltip title="The timestamp column in your table that identifies when the revenue entry was created. We'll use this to order the revenue entries and properly filter them by timestamp.">
+                                    <IconInfo className="ml-1" />
+                                </Tooltip>
+                            </span>
+                        ),
                         dataIndex: 'timestampColumn',
                         render: renderPropertyColumn('timestampColumn'),
                     },
@@ -172,6 +197,7 @@ export function DataWarehouseTablesConfiguration({
                                             addDataWarehouseTable({
                                                 tableName: tableName as string,
                                                 revenueColumn: typedProperties.revenueField,
+                                                distinctIdColumn: typedProperties.distinctIdColumn,
                                                 revenueCurrencyColumn: typedProperties.currencyField
                                                     ? { property: typedProperties.currencyField }
                                                     : { static: baseCurrency },

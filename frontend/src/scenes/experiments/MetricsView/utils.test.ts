@@ -9,10 +9,10 @@ describe('getMetricTag', () => {
         const experimentMetric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                math: ExperimentMetricMathType.TotalCount,
+            source: {
+                kind: NodeKind.EventsNode,
                 event: 'purchase',
+                math: ExperimentMetricMathType.TotalCount,
             },
         }
 
@@ -43,8 +43,8 @@ describe('getDefaultMetricTitle', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
+            source: {
+                kind: NodeKind.EventsNode,
                 event: 'purchase completed',
             },
         }
@@ -55,13 +55,28 @@ describe('getDefaultMetricTitle', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentActionMetricConfig,
-                action: 1,
+            source: {
+                kind: NodeKind.ActionsNode,
+                id: 1,
                 name: 'purchase',
             },
         }
 
         expect(getDefaultMetricTitle(metric)).toBe('purchase')
+    })
+
+    it('returns table name for ExperimentDataWarehouseMetricConfig', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: 'purchase_events',
+                timestamp_field: 'timestamp',
+                events_join_key: 'person_id',
+                data_warehouse_join_key: 'person_id',
+            },
+        }
+        expect(getDefaultMetricTitle(metric)).toBe('purchase_events')
     })
 })

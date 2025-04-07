@@ -6,7 +6,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
-import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
@@ -18,10 +17,6 @@ import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
-export const scene: SceneExport = {
-    component: NewSourceWizardScene,
-    logic: sourceWizardLogic,
-}
 export function NewSourceWizardScene(): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
 
@@ -131,7 +126,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
 
     const onClick = (sourceConfig: SourceConfig): void => {
         if (sourceConfig.name == 'Hubspot') {
-            window.open(addToHubspotButtonUrl() as string)
+            window.open(addToHubspotButtonUrl() as string, '_self')
         } else {
             selectConnector(sourceConfig)
         }

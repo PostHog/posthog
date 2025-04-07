@@ -2,12 +2,14 @@ import json
 import threading
 import types
 from collections.abc import Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
 
+import posthoganalytics
 import sqlparse
+from cachetools import cached, TTLCache
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from prometheus_client import Counter, Gauge
@@ -16,6 +18,7 @@ from sentry_sdk import set_tag
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
+from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
@@ -87,6 +90,14 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
+@cached(cache=TTLCache(maxsize=1, ttl=600))
+def get_api_queries_online_allow_list() -> set[int]:
+    with suppress(Exception):
+        cfg = json.loads(posthoganalytics.get_remote_config_payload("api-queries-on-online-cluster"))
+        return set(cfg.get("allowed_team_id", [])) if cfg else set[int]()
+    return set[int]()
+
+
 @patchable
 def sync_execute(
     query,
@@ -119,6 +130,16 @@ def sync_execute(
 
     # Make sure we always have process_query_task on the online cluster
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
+        workload = Workload.ONLINE
+
+    # Customer is paying for API
+    if (
+        team_id
+        and workload == Workload.OFFLINE
+        and get_query_tag_value("chargeable")
+        and is_cloud()
+        and team_id in get_api_queries_online_allow_list()
+    ):
         workload = Workload.ONLINE
 
     start_time = perf_counter()
