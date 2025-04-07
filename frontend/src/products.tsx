@@ -253,18 +253,19 @@ export const productUrls = {
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
     action: { icon: <IconRocket />, href: (ref: string) => urls.action(ref) },
-    broadcast: { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
     dashboard: { icon: <IconDashboard />, href: (ref: string) => urls.dashboard(ref) },
+    early_access_feature: { icon: <IconRocket />, href: (ref: string) => urls.earlyAccessFeature(ref) },
     experiment: { icon: <IconTestTube />, href: (ref: string) => urls.experiment(ref) },
     feature_flag: { icon: <IconToggle />, href: (ref: string) => urls.featureFlag(ref) },
+    'hog_function/broadcast': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
     insight: { icon: <IconGraph />, href: (ref: string) => urls.insightView(ref as InsightShortId) },
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
-    replay_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
+    session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
 }
 
 /** This const is auto-generated, as is the whole file */
 export const treeItemsNew = [
-    { path: `Broadcast`, type: 'broadcast', href: () => urls.messagingBroadcastNew() },
+    { path: `Broadcast`, type: 'hog_function/broadcast', href: () => urls.messagingBroadcastNew() },
     { path: `Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
     { path: `Experiment`, type: 'experiment', href: () => urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },

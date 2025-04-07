@@ -44,7 +44,7 @@ class Notebook(FileSystemSyncMixin, UUIDModel):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             base_folder="Unfiled/Notebooks",
-            type="notebook",
+            type="notebook",  # sync with APIScopeObject in scopes.py
             ref=str(self.short_id),
             name=self.title or "Untitled",
             href=f"/notebooks/{self.short_id}",

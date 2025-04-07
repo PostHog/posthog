@@ -1,1 +1,1 @@
-0704_alter_hogfunction_kind
+0706_alter_hogfunction_kind

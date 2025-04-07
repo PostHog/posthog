@@ -49,7 +49,7 @@ export const manifest: ProductManifest = {
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/${id}`,
     },
     fileSystemTypes: {
-        broadcast: {
+        'hog_function/broadcast': {
             icon: <IconMegaphone />,
             href: (ref: string) => urls.messagingBroadcast(ref),
         },
@@ -57,7 +57,7 @@ export const manifest: ProductManifest = {
     treeItemsNew: [
         {
             path: `Broadcast`,
-            type: 'broadcast',
+            type: 'hog_function/broadcast',
             href: () => urls.messagingBroadcastNew(),
         },
     ],
