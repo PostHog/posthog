@@ -33,11 +33,10 @@ export const manifest: ProductManifest = {
             (id: string): string => `/early_access_features/${id}`,
     },
     fileSystemTypes: {
-        // TODO: add to project tree backend
-        // early_access_feature: {
-        //     icon: <IconRocket />,
-        //     href: (ref: string) => urls.earlyAccessFeature(ref),
-        // },
+        early_access_feature: {
+            icon: <IconRocket />,
+            href: (ref: string) => urls.earlyAccessFeature(ref),
+        },
     },
     treeItemsExplore: [
         {

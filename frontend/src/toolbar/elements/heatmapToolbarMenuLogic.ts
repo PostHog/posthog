@@ -29,7 +29,7 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 
 export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     path(['toolbar', 'elements', 'heatmapToolbarMenuLogic']),
-    connect({
+    connect(() => ({
         values: [
             currentPageLogic,
             ['href', 'wildcardHref'],
@@ -66,7 +66,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'setHeatmapScrollY',
             ],
         ],
-    }),
+    })),
     actions({
         getElementStats: (url?: string | null) => ({
             url,
@@ -337,12 +337,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     listeners(({ actions, values }) => ({
         enableHeatmap: () => {
+            // need to set the href at least once to get the heatmap to load
+            actions.setDataHref(values.href)
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
 
         disableHeatmap: () => {
             actions.resetElementStats()
+            actions.resetHeatmapData()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
 
@@ -366,11 +369,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         setHref: ({ href }) => {
-            actions.setDataHref(href, 'exact')
+            actions.setDataHref(href)
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
-            actions.setDataHref(href, 'regex')
+            actions.setDataHref(href)
             actions.maybeLoadClickmap()
         },
         setCommonFilters: () => {
@@ -407,8 +410,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         }, 100)
     }),
     beforeUnmount(({ cache }) => {
-        window.removeEventListener('keydown', cache.keyDownListener)
-        window.removeEventListener('keyup', cache.keyUpListener)
         clearInterval(cache.scrollCheckTimer)
     }),
 ])

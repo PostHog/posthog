@@ -14,7 +14,10 @@ from posthog.schema import (
     WebOverviewQueryResponse,
     WebOverviewQuery,
 )
-from posthog.hogql.database.schema.exchange_rate import revenue_expression_for_data_warehouse
+from posthog.hogql.database.schema.exchange_rate import (
+    revenue_sum_expression_for_events,
+    revenue_expression_for_data_warehouse,
+)
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
@@ -146,7 +149,7 @@ HAVING {inside_start_timestamp_period}
                 parsed_select.select.append(
                     ast.Alias(
                         alias="session_revenue",
-                        expr=self.revenue_sum_expression,
+                        expr=revenue_sum_expression_for_events(self.team.revenue_config),
                     )
                 )
 
@@ -350,11 +353,7 @@ HAVING {inside_start_timestamp_period}
                 elif select.alias == "session_revenue":
                     new_select = ast.Alias(
                         alias=select.alias,
-                        expr=revenue_expression_for_data_warehouse(
-                            self.team.revenue_config,
-                            table,
-                            do_currency_conversion=self.do_currency_conversion,
-                        ),
+                        expr=revenue_expression_for_data_warehouse(self.team.revenue_config, table),
                     )
 
                 select_columns.append(new_select)

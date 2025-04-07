@@ -63,6 +63,8 @@ from .reddit.template_reddit_pixel import template_reddit_pixel as reddit_pixel
 from .reddit.template_reddit_conversions_api import template_reddit_conversions_api as reddit_conversions_api
 
 HOG_FUNCTION_TEMPLATES = [
+    _broadcast,
+    _campaign,
     blank_site_destination,
     blank_site_app,
     slack,
@@ -120,8 +122,6 @@ HOG_FUNCTION_TEMPLATES = [
     notification_bar,
     pineapple_mode,
     debug_posthog,
-    _broadcast,
-    _campaign,
 ]
 
 

@@ -16,7 +16,6 @@ import { toolbarLogic } from '../bar/toolbarLogic'
 import { ScrollDepth } from './ScrollDepth'
 
 export function Elements(): JSX.Element {
-    const { visibleMenu: activeToolbarMode } = useValues(toolbarLogic)
     const {
         heatmapElements,
         elementsToDisplay,
@@ -29,6 +28,7 @@ export function Elements(): JSX.Element {
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+
     const shiftPressed = useShiftKeyPressed()
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
@@ -58,8 +58,8 @@ export function Elements(): JSX.Element {
                     top: relativePositionCompensation,
                 }}
             >
-                {activeToolbarMode === 'heatmap' && <ScrollDepth />}
-                {activeToolbarMode === 'heatmap' && <HeatmapCanvas />}
+                <ScrollDepth />
+                <HeatmapCanvas />
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
