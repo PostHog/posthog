@@ -426,6 +426,11 @@
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
 
+    // Borders (Useful for single pixel backgrounds to mimic borders)
+    // //////////////////////////////////////////////////////////
+    --bg-border-primary: var(--primitive-3000-200);
+    --bg-border-secondary: var(--primitive-3000-400);
+
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
     --text-primary: var(--primitive-neutral-950);
@@ -573,9 +578,11 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-layout-panel: 758;
+    --z-layout-panel-overlay: 757;
+    --z-layout-navbar: 756;
+    --z-layout-navbar-overlay: 755;
     --z-resizer: 754;
-    --z-project-panel-layout: 755;
-    --z-project-panel-overlay: 754;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
@@ -850,6 +857,8 @@
     --bg-fill-switch: var(--primitive-neutral-cool-900);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-border-primary: var(--primitive-neutral-cool-800);
+    --bg-border-secondary: var(--primitive-neutral-cool-600);
 
     // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
@@ -879,7 +888,7 @@
     /* On-fill text for success */
 
     // Borders (dark mode)
-    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
+    // Borders for surfaces/fills
     // //////////////////////////////////////////////////////////
     --border-primary: var(--primitive-neutral-cool-800);
     --border-secondary: var(--primitive-neutral-cool-600);

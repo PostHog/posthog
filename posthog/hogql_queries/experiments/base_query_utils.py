@@ -1,7 +1,12 @@
 from typing import Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.models.action.action import Action
+from posthog.models.team.team import Team
 from posthog.schema import (
+    ActionsNode,
+    EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
@@ -37,3 +42,29 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
     # Else, we default to count
     # We then just emit 1 so we can easily sum it up
     return ast.Constant(value=1)
+
+
+def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, ActionsNode]) -> ast.Expr:
+    """
+    Returns the filter for a single entity node.
+    """
+
+    if isinstance(entity_node, ActionsNode):
+        try:
+            action = Action.objects.get(pk=int(entity_node.id), team__project_id=team.project_id)
+            event_filter = action_to_expr(action)
+        except Action.DoesNotExist:
+            # If an action doesn't exist, we want to return no events
+            event_filter = ast.Constant(value=False)
+    else:
+        event_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=entity_node.event),
+        )
+
+    if entity_node.properties:
+        event_properties = ast.And(exprs=[property_to_expr(property, team) for property in entity_node.properties])
+        event_filter = ast.And(exprs=[event_filter, event_properties])
+
+    return event_filter

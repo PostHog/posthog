@@ -37,6 +37,7 @@ export enum Scene {
     PipelineNodeNew = 'PipelineNodeNew',
     Pipeline = 'Pipeline',
     PipelineNode = 'PipelineNode',
+    Groups = 'Groups',
     Group = 'Group',
     Action = 'Action',
     Experiments = 'Experiments',

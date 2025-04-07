@@ -26,6 +26,7 @@ import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
@@ -1415,7 +1416,6 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
-    DASHBOARD = 'dashboard',
 }
 
 export enum LayoutView {
@@ -1991,6 +1991,8 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
+    breakdown_colors?: BreakdownColorConfig[]
+    data_color_theme_id?: number | null
 }
 
 export enum TemplateAvailabilityContext {
@@ -2264,6 +2266,7 @@ export type BreakdownType =
     | 'cohort'
     | 'person'
     | 'event'
+    | 'event_metadata'
     | 'group'
     | 'session'
     | 'hogql'
@@ -2866,6 +2869,27 @@ export enum SurveyPartialResponses {
     No = 'false',
 }
 
+export interface SurveyDisplayConditions {
+    url: string
+    selector?: string
+    seenSurveyWaitPeriodInDays?: number
+    urlMatchType?: SurveyMatchType
+    deviceTypes?: string[]
+    deviceTypesMatchType?: SurveyMatchType
+    actions: {
+        values: {
+            id: number
+            name: string
+        }[]
+    } | null
+    events: {
+        repeatedActivation?: boolean
+        values: {
+            name: string
+        }[]
+    } | null
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -2877,26 +2901,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters?: FeatureFlagFilters
-    conditions: {
-        url: string
-        selector?: string
-        seenSurveyWaitPeriodInDays?: number
-        urlMatchType?: SurveyMatchType
-        deviceTypes?: string[]
-        deviceTypesMatchType?: SurveyMatchType
-        actions: {
-            values: {
-                id: number
-                name: string
-            }[]
-        } | null
-        events: {
-            repeatedActivation?: boolean
-            values: {
-                name: string
-            }[]
-        } | null
-    } | null
+    conditions: SurveyDisplayConditions | null
     appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
@@ -3899,6 +3904,7 @@ export interface SlackChannelType {
     is_private: boolean
     is_ext_shared: boolean
     is_member: boolean
+    is_private_without_access?: boolean
 }
 
 export interface SharingConfigurationType {
@@ -4297,6 +4303,19 @@ export interface ExternalDataSource {
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
 }
+
+export interface DataModelingJob {
+    id: string
+    saved_query_id: string
+    status: 'Running' | 'Completed' | 'Failed'
+    rows_materialized: number
+    error: string | null
+    created_at: string
+    last_run_at: string
+    workflow_id: string
+    workflow_run_id: string
+}
+
 export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
