@@ -236,7 +236,7 @@ class PremiumFeaturePermission(BasePermission):
         if not request.user or not request.user.organization:  # type: ignore
             return True
 
-        if not request.user.organization.is_feature_available(view.premium_feature):
+        if not request.user.organization.is_feature_available(view.premium_feature):  # type: ignore
             raise EnterpriseFeatureException()
 
         return True
