@@ -19,16 +19,23 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.tasks.tasks import process_query_task
 
-
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
+CUSTOM_BUCKETS = (0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 20, 30, 60, 120, 300, 600, float("inf"))
+
 QUERY_WAIT_TIME = Histogram(
-    "query_wait_time_seconds", "Time from query creation to pick-up", labelnames=["team", "mode"]
+    "query_wait_time_seconds",
+    "Time from query creation to pick-up",
+    labelnames=["team", "mode"],
+    buckets=Histogram.DEFAULT_BUCKETS[:-1] + (20, 30, 60, 120, 300, 600, float("inf")),
 )
-QUERY_PROCESS_TIME = Histogram("query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"])
+
+QUERY_PROCESS_TIME = Histogram(
+    "query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"], buckets=CUSTOM_BUCKETS
+)
 
 
 class QueryNotFoundError(NotFound):
