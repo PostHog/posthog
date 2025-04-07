@@ -70,11 +70,7 @@ impl CohortCacheManager {
     pub async fn get_cohorts(&self, project_id: ProjectId) -> Result<Vec<Cohort>, FlagError> {
         // First check cache before acquiring lock
         if let Some(cached_cohorts) = self.cache.get(&project_id).await {
-            common_metrics::inc(
-                COHORT_CACHE_HIT_COUNTER,
-                &[("project_id".to_string(), project_id.to_string())],
-                1,
-            );
+            common_metrics::inc(COHORT_CACHE_HIT_COUNTER, &[], 1);
             return Ok(cached_cohorts.clone());
         }
 
@@ -83,20 +79,12 @@ impl CohortCacheManager {
 
         // Double-check the cache after acquiring lock
         if let Some(cached_cohorts) = self.cache.get(&project_id).await {
-            common_metrics::inc(
-                COHORT_CACHE_HIT_COUNTER,
-                &[("project_id".to_string(), project_id.to_string())],
-                1,
-            );
+            common_metrics::inc(COHORT_CACHE_HIT_COUNTER, &[], 1);
             return Ok(cached_cohorts.clone());
         }
 
         // If we get here, we have a cache miss
-        common_metrics::inc(
-            COHORT_CACHE_MISS_COUNTER,
-            &[("project_id".to_string(), project_id.to_string())],
-            1,
-        );
+        common_metrics::inc(COHORT_CACHE_MISS_COUNTER, &[], 1);
 
         // Attempt to fetch from DB
         match Cohort::list_from_pg(self.reader.clone(), project_id).await {
