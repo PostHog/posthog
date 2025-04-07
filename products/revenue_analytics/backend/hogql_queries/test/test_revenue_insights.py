@@ -1,4 +1,4 @@
-# NOTE: This isn't testing any of the custom Web Analytics code,
+# NOTE: This isn't testing any of the custom Revenue Analytics code,
 # but rather testing the revenue code in insights/trends/aggregation_operations.py
 from decimal import Decimal
 from typing import Any, Optional
@@ -34,7 +34,7 @@ from posthog.test.base import (
 
 
 @snapshot_clickhouse_queries
-class TestWebAnalyticsRevenue(ClickhouseTestMixin, APIBaseTest):
+class TestRevenueAnalyticsInsights(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="product_sold"):
         person_result = []
         for id, events in data:

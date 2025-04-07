@@ -8,7 +8,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useRef, useState } from 'react'
 
 import { BaseCurrency } from './BaseCurrency'
-import { DataWarehouseTablesConfiguration } from './DataWarehouseTablesConfiguration'
 import { EventConfiguration } from './EventConfiguration'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
@@ -19,16 +18,17 @@ type Tab = 'events' | 'data-warehouse'
 export function RevenueEventsSettings(): JSX.Element {
     const [activeTab, setActiveTab] = useState<Tab>('events')
 
-    const { events, dataWarehouseTables } = useValues(revenueEventsSettingsLogic)
+    const { events } = useValues(revenueEventsSettingsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
     const eventsButtonRef = useRef<HTMLButtonElement>(null)
     const dataWarehouseTablesButtonRef = useRef<HTMLButtonElement>(null)
 
-    let introductionDescription =
-        'Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event.'
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS]) {
+    const product = featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] ? 'Revenue analytics' : 'Web analytics'
+
+    let introductionDescription = `Revenue events are used to track revenue in ${product}. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event.`
+    if (featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
         introductionDescription += ' You can also import revenue data from your PostHog data warehouse tables.'
     }
 
@@ -38,7 +38,7 @@ export function RevenueEventsSettings(): JSX.Element {
                 productName="Revenue tracking"
                 thingName="revenue event"
                 description={introductionDescription}
-                isEmpty={events.length === 0 && dataWarehouseTables.length === 0}
+                isEmpty={events.length === 0}
                 actionElementOverride={
                     <>
                         <div className="flex flex-col gap-2">
@@ -54,7 +54,7 @@ export function RevenueEventsSettings(): JSX.Element {
                                 Create revenue event
                             </LemonButton>
 
-                            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] && (
+                            {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
                                 <LemonButton
                                     type="primary"
                                     icon={<IconPlus />}
@@ -76,11 +76,7 @@ export function RevenueEventsSettings(): JSX.Element {
 
             <EventConfiguration buttonRef={eventsButtonRef} />
 
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] && (
-                <DataWarehouseTablesConfiguration buttonRef={dataWarehouseTablesButtonRef} />
-            )}
-
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] ? (
+            {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] ? (
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(key) => setActiveTab(key as Tab)}

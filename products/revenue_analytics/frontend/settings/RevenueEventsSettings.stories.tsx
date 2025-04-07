@@ -10,14 +10,14 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.WEB_REVENUE_TRACKING, FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS],
+        featureFlags: [FEATURE_FLAGS.WEB_REVENUE_TRACKING, FEATURE_FLAGS.REVENUE_ANALYTICS],
     },
 }
 export default meta
 
 export function RevenueEventsSettings(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.revenue())
+        router.actions.push(urls.revenueSettings())
     }, [])
     return <App />
 }
