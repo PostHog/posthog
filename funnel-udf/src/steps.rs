@@ -29,6 +29,7 @@ pub struct Args {
     pub breakdown_attribution_type: String,
     pub funnel_order_type: String,
     pub prop_vals: Vec<PropVal>,
+    pub optional_steps: Vec<i8>,
     pub value: Vec<Event>,
 }
 
