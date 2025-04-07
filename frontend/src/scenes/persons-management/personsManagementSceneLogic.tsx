@@ -32,14 +32,14 @@ export type PersonsManagementTabs = Record<
 
 export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
     path(['scenes', 'persons-management', 'personsManagementSceneLogic']),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     actions({
         setTabKey: (tabKey: string) => ({ tabKey }),
     }),

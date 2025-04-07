@@ -320,7 +320,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         (props: SessionRecordingPlaylistLogicProps) =>
             `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
-    connect({
+    connect(() => ({
         actions: [
             eventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
@@ -335,7 +335,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
         ],
-    }),
+    })),
 
     actions({
         setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
