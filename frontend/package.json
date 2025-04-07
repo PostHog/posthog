@@ -194,6 +194,7 @@
         "@sentry/types": "7.112.1",
         "@storybook/react": "^7.6.4",
         "@storybook/types": "^7.6.4",
+        "@storybook/addon-actions": "^7.6.4",
         "@sucrase/jest-plugin": "^3.0.0",
         "@testing-library/dom": ">=7.21.4",
         "@testing-library/jest-dom": "^5.16.2",
