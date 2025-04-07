@@ -29,8 +29,9 @@ def funnel_steps_to_window_funnel_expr(funnel_metric: ExperimentFunnelMetric) ->
     if funnel_metric.time_window_hours is not None:
         conversion_window_seconds = int(funnel_metric.time_window_hours * 60 * 60)
     else:
-        # Default to 72 hours
-        conversion_window_seconds = 72 * 60 * 60
+        # Default to include all events selected, so we just set a large value here (3 years)
+        # Events outside the experiment duration will be filtered out by the query runner
+        conversion_window_seconds = 3 * 365 * 24 * 60 * 60
 
     return parse_expr(
         f"windowFunnel({conversion_window_seconds})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",

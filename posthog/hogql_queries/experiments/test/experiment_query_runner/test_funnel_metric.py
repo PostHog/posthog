@@ -499,7 +499,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Create test data using journeys
         journeys_for(
             {
-                # User completes both steps within conversion window (72 hours)
+                # User completes both steps within default conversion window (experiment duration)
                 "user_control_1": [
                     {
                         "event": "$feature_flag_called",
@@ -519,7 +519,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     },
                     {
                         "event": "purchase",
-                        "timestamp": "2024-01-05T11:00:00",  # Within 72 hours of pageview
+                        "timestamp": "2024-01-08T11:00:00",  # Within default conversion window (experiment duration)
                         "properties": {
                             ff_property: "control",
                         },
@@ -545,7 +545,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     },
                     {
                         "event": "purchase",
-                        "timestamp": "2024-01-05T14:00:00",  # Outside 72 hours window (73 hours after pageview)
+                        "timestamp": "2024-01-16T14:00:00",  # Outside default conversion window (experiment duration)
                         "properties": {
                             ff_property: "control",
                         },
@@ -571,7 +571,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     },
                     {
                         "event": "purchase",
-                        "timestamp": "2024-01-04T12:30:00",  # Within 72 hours of pageview
+                        "timestamp": "2024-01-08T12:30:00",  # Within default conversion window (experiment duration)
                         "properties": {
                             ff_property: "test",
                         },
@@ -597,7 +597,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     },
                     {
                         "event": "purchase",
-                        "timestamp": "2024-01-05T15:00:00",  # Outside 72 hours window
+                        "timestamp": "2024-01-16T15:00:00",  # Outside default conversion window (experiment duration)
                         "properties": {
                             ff_property: "test",
                         },
@@ -609,7 +609,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        # Create funnel metric with default 72 hours conversion window
+        # Create funnel metric with default conversion window (experiment duration)
         # (by not specifying time_window_hours)
         metric = ExperimentFunnelMetric(
             series=[
