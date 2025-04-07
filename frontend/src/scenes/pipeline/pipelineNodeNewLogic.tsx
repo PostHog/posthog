@@ -26,9 +26,9 @@ export interface PipelineNodeNewLogicProps {
 
 export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
     props({} as PipelineNodeNewLogicProps),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     path((id) => ['scenes', 'pipeline', 'pipelineNodeNewLogic', id]),
 
     loaders({

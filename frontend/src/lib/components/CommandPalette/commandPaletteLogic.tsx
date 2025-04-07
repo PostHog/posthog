@@ -140,7 +140,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
-    connect({
+    connect(() => ({
         actions: [
             router,
             ['push'],
@@ -168,7 +168,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['sidePanelOpen'],
         ],
         logic: [preflightLogic],
-    }),
+    })),
     actions({
         hidePalette: true,
         showPalette: true,

@@ -842,8 +842,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.234.7
-        version: 1.234.7(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.234.10
+        version: 1.234.10(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1621,6 +1621,8 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+
+  products/editor: {}
 
   products/experiments:
     dependencies:
@@ -13199,8 +13201,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.234.7:
-    resolution: {integrity: sha512-4950h1AbUbwM+Fdg4mNNdF4H99H+HONeKCJiKg+FJT4iVNoXSsa7DsJSSPwPtQUILIultZjTPP/WOd6gv7CayA==}
+  posthog-js@1.234.10:
+    resolution: {integrity: sha512-PCwfDtvzuQU1PfMVxZ/G6K9vQmBZvoIlYjE+3e5trycCd70rKJbPKAQX5cg0bI5+z5HZTcUQdq1A/NvDsMFQeA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -13236,8 +13238,8 @@ packages:
   preact@10.25.4:
     resolution: {integrity: sha512-jLdZDb+Q+odkHJ+MpW/9U5cODzqnB+fy2EiHSZES7ldV5LK7yjlVzTp7R8Xy6W6y75kfK8iWYtFVH7lvjwrCMA==}
 
-  preact@10.26.4:
-    resolution: {integrity: sha512-KJhO7LBFTjP71d83trW+Ilnjbo+ySsaAgCfXOXUlmGzJ4ygYPWmysm77yg4emwfmoz3b22yvH5IsVFHbhUaH5w==}
+  preact@10.26.5:
+    resolution: {integrity: sha512-fmpDkgfGU6JYux9teDWLhj9mKN55tyepwYbxHgQuIxbWQzgFg5vk7Mrrtfx7xRxq798ynkY4DDDxZr235Kk+4w==}
 
   prelude-ls@1.1.2:
     resolution: {integrity: sha512-ESF23V4SKG6lVSGZgYNpbsiaAkdab6ZgOxe52p7+Kid3W3u3bxR4Vfd/o21dmN7jSt0IwgZ4v5MUd26FEtXE9w==}
@@ -15426,8 +15428,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.243.0:
-    resolution: {integrity: sha512-1yaiNNvZMvy229q7ZQwQJUmXi46qlstq6UJk9B1QaAEMXToxOQzipe+H0nFZEDxUOwyZ6gUxsslIATZhsaGJEA==}
+  unlayer-types@1.248.0:
+    resolution: {integrity: sha512-jXse36Qo8LT8XsI0/3bVeKe7NV8QGEih+Yji6y4qAQqC4CNWZBJAbofvRS0eb5Ad2uiLdxYQIbRiDQvoy8bkJA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -27258,7 +27260,7 @@ snapshots:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.26.4
+      preact: 10.26.5
       qs: 6.9.7
       search-insights: 2.13.0
 
@@ -30779,11 +30781,11 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.234.7(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.234.10(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
-      preact: 10.26.4
+      preact: 10.26.5
       web-vitals: 4.2.4
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
@@ -30815,7 +30817,7 @@ snapshots:
 
   preact@10.25.4: {}
 
-  preact@10.26.4: {}
+  preact@10.26.5: {}
 
   prelude-ls@1.1.2: {}
 
@@ -31284,7 +31286,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.243.0
+      unlayer-types: 1.248.0
 
   react-error-overlay@6.0.9: {}
 
@@ -33385,7 +33387,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.243.0: {}
+  unlayer-types@1.248.0: {}
 
   unpipe@1.0.0: {}
 

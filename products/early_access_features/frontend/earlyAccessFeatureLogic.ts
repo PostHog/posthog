@@ -13,6 +13,7 @@ import {
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
+    ProjectTreeRef,
 } from '~/types'
 
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
@@ -132,6 +133,10 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     name: earlyAccessFeature.name,
                 },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: EarlyAccessFeatureLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'early_access_feature', ref: String(id) }),
         ],
     }),
     listeners(({ actions, values, props }) => ({
