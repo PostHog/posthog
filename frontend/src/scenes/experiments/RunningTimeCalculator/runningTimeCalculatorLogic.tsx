@@ -293,6 +293,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         setMetricIndex: () => {
             actions.loadMetricResult()
         },
+        setExposureEstimateConfig: () => {
+            actions.loadMetricResult()
+        },
     })),
     selectors({
         metric: [
