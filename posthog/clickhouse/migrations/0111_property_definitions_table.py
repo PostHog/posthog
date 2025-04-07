@@ -31,5 +31,5 @@ SETTINGS index_granularity = 8192
 """
 
 operations = [
-    run_sql_with_exceptions(PROPERTY_DEFINITIONS_TABLE_SQL(on_cluster=False), node_role=NodeRole.ALL),
+    run_sql_with_exceptions(PROPERTY_DEFINITIONS_TABLE_SQL, node_role=NodeRole.ALL),
 ]
