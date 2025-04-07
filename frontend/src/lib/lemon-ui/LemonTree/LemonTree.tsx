@@ -19,7 +19,12 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
-import { renderTreeNodeDisplayItem, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
+import {
+    renderTreeNodeDisplayCheckbox,
+    renderTreeNodeDisplayIcon,
+    TreeNodeDraggable,
+    TreeNodeDroppable,
+} from './LemonTreeUtils'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -196,6 +201,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         )
                     }
 
+                    const isFolder = item.record?.type === 'folder'
+
                     const content = (
                         <AccordionPrimitive.Root
                             type="multiple"
@@ -229,31 +236,34 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className="group/lemon-tree-button-group relative"
                                                 groupVariant="side-action-group"
                                             >
-                                                <div
-                                                    className="absolute size-5"
-                                                    // eslint-disable-next-line react/forbid-dom-props
-                                                    style={{ left: `${DEPTH_OFFSET + 5}px` }}
-                                                >
-                                                    {/* Icon left */}
-                                                    {renderTreeNodeDisplayItem({
-                                                        item,
-                                                        expandedItemIds: expandedItemIds ?? [],
-                                                        defaultNodeIcon,
-                                                        enableMultiSelection,
-                                                        handleCheckedChange: (checked) => {
-                                                            onItemChecked?.(item.id, checked)
-                                                        },
-                                                    })}
-                                                </div>
+                                                {enableMultiSelection && (
+                                                    <div
+                                                        className="absolute size-5"
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={{ left: `${DEPTH_OFFSET + 5}px` }}
+                                                    >
+                                                        {/* Checkbox left */}
+                                                        {renderTreeNodeDisplayCheckbox({
+                                                            item,
+                                                            expandedItemIds: expandedItemIds ?? [],
+                                                            enableMultiSelection,
+                                                            handleCheckedChange: (checked) => {
+                                                                onItemChecked?.(item.id, checked)
+                                                            },
+                                                        })}
+                                                    </div>
+                                                )}
 
                                                 <ButtonPrimitive
                                                     className={cn(
-                                                        'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] pl-8',
+                                                        'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] transition-[padding] duration-50 group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover',
                                                         {
                                                             'bg-fill-button-tertiary-hover':
                                                                 selectedId === item.id ||
                                                                 isContextMenuOpenForItem === item.id,
                                                             'bg-fill-button-tertiary-active': getItemActiveState(item),
+                                                            'pl-1': !enableMultiSelection,
+                                                            'pl-8': enableMultiSelection,
                                                         }
                                                     )}
                                                     onClick={() => {
@@ -297,12 +307,25 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         />
                                                     )}
 
+                                                    {renderTreeNodeDisplayIcon({
+                                                        item,
+                                                        expandedItemIds: expandedItemIds ?? [],
+                                                        defaultNodeIcon,
+                                                    })}
+
                                                     {/* Render contents */}
                                                     {renderItem ? (
                                                         <>
                                                             {renderItem(
                                                                 item,
-                                                                <span className="truncate">{displayName}</span>
+                                                                <span
+                                                                    className={cn(
+                                                                        'truncate',
+                                                                        isFolder && 'font-semibold'
+                                                                    )}
+                                                                >
+                                                                    {displayName}
+                                                                </span>
                                                             )}
 
                                                             {/* Loading state */}
@@ -314,7 +337,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             )}
                                                         </>
                                                     ) : (
-                                                        <span className="truncate">{displayName}</span>
+                                                        <span className={cn('truncate', isFolder && 'font-semibold')}>
+                                                            {displayName}
+                                                        </span>
                                                     )}
                                                 </ButtonPrimitive>
                                                 {itemSideAction && (

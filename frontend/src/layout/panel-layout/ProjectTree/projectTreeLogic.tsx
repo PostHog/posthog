@@ -46,6 +46,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (oldPath: string, newPath: string, force = false) => ({ oldPath, newPath, force }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
+        linkItem: (oldPath: string, newPath: string, force = false) => ({ oldPath, newPath, force }),
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
@@ -74,6 +75,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
         expandProjectFolder: (path: string) => ({ path }),
         moveCheckedItems: (path: string) => ({ path }),
+        linkCheckedItems: (path: string) => ({ path }),
         checkSelectedFolders: true,
     }),
     loaders(({ actions, values }) => ({
@@ -129,23 +131,25 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             false,
             {
                 queueAction: async ({ action }) => {
-                    if (action.type === 'prepare-move' && action.newPath) {
+                    actions.removeQueuedAction(action)
+                    if ((action.type === 'prepare-move' || action.type === 'prepare-link') && action.newPath) {
+                        const verb = action.type === 'prepare-link' ? 'link' : 'move'
+                        const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
                         try {
                             const response = await api.fileSystem.count(action.item.id)
                             if (response && response.count > MOVE_ALERT_LIMIT) {
-                                const confirmMessage = `You're about to move ${response.count} items. Are you sure?`
+                                const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
                                 if (!confirm(confirmMessage)) {
                                     actions.removeQueuedAction(action)
                                     return false
                                 }
                             }
-                            actions.queueAction({ ...action, type: 'move' })
+                            actions.queueAction({ ...action, type: verb })
                         } catch (error) {
-                            console.error('Error moving item:', error)
-                            lemonToast.error(`Error moving item: ${error}`)
+                            console.error(`Error ${verbing} item:`, error)
+                            lemonToast.error(`Error ${verbing} item: ${error}`)
                         }
-                    }
-                    if (action.type === 'move' && action.newPath) {
+                    } else if (action.type === 'move' && action.newPath) {
                         try {
                             const oldPath = action.item.path
                             const newPath = action.newPath
@@ -163,6 +167,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         } catch (error) {
                             console.error('Error moving item:', error)
                             lemonToast.error(`Error moving item: ${error}`)
+                        }
+                    } else if (action.type === 'link' && action.newPath) {
+                        try {
+                            const newPath = action.newPath
+                            const newItem = await api.fileSystem.link(action.item.id, newPath)
+                            if (newItem) {
+                                actions.createSavedItem(newItem)
+                            }
+                            if (action.item.type === 'folder') {
+                                actions.loadFolder(newPath)
+                            }
+                            lemonToast.success('Item linked successfully') // TODO: undo for linking
+                        } catch (error) {
+                            console.error('Error linking item:', error)
+                            lemonToast.error(`Error linking item: ${error}`)
                         }
                     } else if (action.type === 'create') {
                         try {
@@ -207,7 +226,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             lemonToast.error(`Error deleting item: ${error}`)
                         }
                     }
-                    actions.removeQueuedAction(action)
                     return true
                 },
             },
@@ -256,10 +274,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
                 deleteSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-                    return {
+                    const newState = {
                         ...state,
                         [folder]: state[folder].filter((item) => item.id !== savedItem.id),
                     }
+                    if (savedItem.type === 'folder') {
+                        for (const folder of Object.keys(newState)) {
+                            if (folder === savedItem.path || folder.startsWith(savedItem.path + '/')) {
+                                delete newState[folder]
+                            }
+                        }
+                    }
+                    return newState
                 },
                 movedItem: (state, { oldPath, newPath, item }) => {
                     const newState = { ...state }
@@ -447,7 +473,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         } else {
                             console.error("Item already exists, can't create", action.item)
                         }
-                    } else if (action.path) {
+                    } else if (action.path && itemsByPath[action.path]) {
                         itemsByPath[action.path] = itemsByPath[action.path].map((i) => ({ ...i, loading: true }))
                     }
                 }
@@ -631,11 +657,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 let hasFolder = false
                 let sum = 0
                 for (const [key, value] of Object.entries(checkedItems)) {
-                    if (viableItemsById[key]?.type === 'folder') {
-                        hasFolder = true
-                    }
                     if (value) {
                         sum += 1
+                        if (viableItemsById[key]?.type === 'folder') {
+                            hasFolder = true
+                        }
                     }
                 }
 
@@ -699,6 +725,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         movedItem: () => {
             actions.checkSelectedFolders()
         },
+        linkedItem: () => {
+            actions.checkSelectedFolders()
+        },
         checkSelectedFolders: () => {
             // Select items added into folders that are selected
             const checkedItems = values.checkedItems
@@ -754,18 +783,22 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return
             }
             const checkedItems = { ...values.checkedItems }
-            const itemIndex = sortedItems.findIndex((i) => i.id === clickedItem.id)
-            for (let i = itemIndex; i < sortedItems.length; i++) {
-                const item = sortedItems[i]
-                if (item.path !== clickedItem.path && !item.path.startsWith(clickedItem.path + '/')) {
-                    break
+            if (clickedItem.type === 'folder') {
+                const itemIndex = sortedItems.findIndex((i) => i.id === clickedItem.id)
+                for (let i = itemIndex; i < sortedItems.length; i++) {
+                    const item = sortedItems[i]
+                    if (item.path !== clickedItem.path && !item.path.startsWith(clickedItem.path + '/')) {
+                        break
+                    }
+                    const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                    if (checked) {
+                        checkedItems[itemId] = true
+                    } else {
+                        checkedItems[itemId] = false
+                    }
                 }
-                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
-                if (checked) {
-                    checkedItems[itemId] = true
-                } else {
-                    checkedItems[itemId] = false
-                }
+            } else {
+                checkedItems[`project/${clickedItem.id}`] = !!checked
             }
             actions.setCheckedItems(checkedItems)
         },
@@ -790,7 +823,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         moveItem: async ({ oldPath, newPath, force }) => {
-            if (newPath.startsWith(oldPath + '/')) {
+            if (newPath === oldPath) {
                 lemonToast.error('Cannot move folder into itself')
                 return
             }
@@ -808,11 +841,50 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 })
             }
         },
+        linkCheckedItems: ({ path }) => {
+            const { checkedItems } = values
+            let skipInFolder: string | null = null
+            for (const item of values.sortedItems) {
+                if (skipInFolder !== null) {
+                    if (item.path.startsWith(skipInFolder + '/')) {
+                        continue
+                    } else {
+                        skipInFolder = null
+                    }
+                }
+                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                if (checkedItems[itemId]) {
+                    actions.linkItem(item.path, joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]), true)
+                    if (item.type === 'folder') {
+                        skipInFolder = item.path
+                    }
+                }
+            }
+        },
+        linkItem: async ({ oldPath, newPath, force }) => {
+            if (newPath === oldPath) {
+                lemonToast.error('Cannot link folder into itself')
+                return
+            }
+            const item = values.viableItems.find((item) => item.path === oldPath)
+            if (item && item.path === oldPath) {
+                if (!item.id) {
+                    lemonToast.error("Sorry, can't link an unsaved item (no id)")
+                    return
+                }
+                actions.queueAction({
+                    type: !force && item.type === 'folder' ? 'prepare-link' : 'link',
+                    item,
+                    path: item.path,
+                    newPath: newPath + item.path.slice(oldPath.length),
+                })
+            }
+        },
         deleteItem: async ({ item }) => {
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
         addFolder: ({ folder }) => {
-            if (values.viableItems.find((item) => item.path === folder)) {
+            if (values.viableItems.find((item) => item.path === folder && item.type === 'folder')) {
                 return
             }
             actions.queueAction({

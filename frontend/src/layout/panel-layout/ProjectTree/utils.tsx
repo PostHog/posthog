@@ -41,14 +41,16 @@ export function convertFileSystemEntryToTreeDataItem({
 
     // Helper to find an existing folder node or create one if it doesn't exist.
     const findOrCreateFolder = (nodes: TreeDataItem[], folderName: string, fullPath: string): TreeDataItem => {
-        let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
+        let folderNode: TreeDataItem | undefined = nodes.find(
+            (node) => node.record?.path === fullPath && node.record?.type === 'folder'
+        )
         if (!folderNode) {
             const id = `${root}-folder/${fullPath}`
             folderNode = {
                 id,
                 name: folderName,
                 displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm ?? ''} />,
-                record: { type: 'folder', id, path: fullPath },
+                record: { type: 'folder', id: null, path: fullPath },
                 children: [],
                 checked: checkedItems[id],
             }
@@ -85,8 +87,22 @@ export function convertFileSystemEntryToTreeDataItem({
             currentLevel = folderNode.children!
         }
 
-        if (item.type === 'folder' && currentLevel.find((node) => node.record?.path === item.path)) {
-            continue
+        let accumulatedChildren: TreeDataItem[] = []
+        if (item.type === 'folder') {
+            const folderMatch = (node: TreeDataItem): boolean =>
+                node.record?.path === item.path && node.record?.type === 'folder'
+            const existingFolder = currentLevel.find(folderMatch)
+            if (existingFolder) {
+                if (existingFolder.id) {
+                    continue
+                } else {
+                    // We have a folder without an id, but the incoming one has an id. Remove the current one
+                    currentLevel = currentLevel.filter((node) => !folderMatch(node))
+                    if (existingFolder.children) {
+                        accumulatedChildren = [...accumulatedChildren, ...existingFolder.children]
+                    }
+                }
+            }
         }
 
         // Create the actual item node.
@@ -115,6 +131,9 @@ export function convertFileSystemEntryToTreeDataItem({
             if (!node.children) {
                 node.children = []
             }
+            if (accumulatedChildren) {
+                node.children = [...node.children, ...accumulatedChildren]
+            }
             if (folderStates[item.path] === 'has-more') {
                 node.children.push({
                     id: `${root}-load-more/${item.path}`,
@@ -142,6 +161,13 @@ export function convertFileSystemEntryToTreeDataItem({
             }
             if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
                 return -1
+            }
+            // folders before files
+            if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
+                return -1
+            }
+            if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
+                return 1
             }
             return String(a.name).localeCompare(String(b.name))
         })

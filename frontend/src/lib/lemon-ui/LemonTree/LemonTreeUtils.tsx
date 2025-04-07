@@ -6,29 +6,52 @@ import { cn } from 'lib/utils/css-classes'
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
 
-type IconProps = {
+const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
+
+type CheckboxProps = {
     item: TreeDataItem
     expandedItemIds: string[]
-    defaultNodeIcon?: React.ReactNode
     enableMultiSelection?: boolean
     handleCheckedChange?: (checked: boolean) => void
 }
 
-// Get display item for the tree node
-// This is used to render the tree node in the tree view
-// It can render an icon or checkbox
-export function renderTreeNodeDisplayItem({
+// Render an icon or checkbox
+export function renderTreeNodeDisplayCheckbox({
     item,
-    expandedItemIds,
-    defaultNodeIcon,
     enableMultiSelection = false,
     handleCheckedChange,
-}: IconProps): JSX.Element {
-    const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
+}: CheckboxProps): JSX.Element {
+    const isChecked = !!item.checked
+
+    return (
+        <>
+            {((enableMultiSelection && !item.disableSelect) || isChecked) && (
+                <div className={cn(ICON_CLASSES, 'z-3 relative')}>
+                    <LemonCheckbox
+                        className="size-5 ml-[2px]"
+                        checked={item.checked ?? false}
+                        onChange={(checked) => {
+                            handleCheckedChange?.(checked)
+                        }}
+                    />
+                </div>
+            )}
+        </>
+    )
+}
+
+type IconProps = {
+    item: TreeDataItem
+    expandedItemIds: string[]
+    defaultNodeIcon?: React.ReactNode
+}
+
+// Get display item for the tree node
+// This is used to render the tree node in the tree view
+export function renderTreeNodeDisplayIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): JSX.Element {
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
     const isFile = item.record?.type === 'file'
-    const isChecked = !!item.checked
     let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
 
     if (isFolder) {
@@ -40,27 +63,7 @@ export function renderTreeNodeDisplayItem({
     }
 
     return (
-        <div className="relative group/lemon-tree-icon-group [&_svg]:size-4">
-            {((enableMultiSelection && !item.disableSelect) || isChecked) && (
-                <div
-                    className={cn(
-                        ICON_CLASSES,
-                        'z-3 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover/lemon-tree-icon-group:opacity-100 transition-opacity duration-150',
-                        {
-                            'opacity-0': !isChecked,
-                            'opacity-100': isChecked,
-                        }
-                    )}
-                >
-                    <LemonCheckbox
-                        className="size-5 ml-[2px]"
-                        checked={item.checked ?? false}
-                        onChange={(checked) => {
-                            handleCheckedChange?.(checked)
-                        }}
-                    />
-                </div>
-            )}
+        <div className="flex gap-1 relative group/lemon-tree-icon-group [&_svg]:size-4">
             {isFolder && (
                 <div
                     className={cn(
@@ -76,7 +79,7 @@ export function renderTreeNodeDisplayItem({
                     ICON_CLASSES,
                     {
                         'text-tertiary': item.disabledReason,
-                        'group-hover/lemon-tree-button-group:opacity-0': isFolder || (isFolder && isChecked),
+                        'group-hover/lemon-tree-button-group:opacity-0': isFolder,
                     },
                     'transition-opacity duration-150'
                 )}

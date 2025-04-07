@@ -1,6 +1,5 @@
 use std::ops::Deref;
 use std::sync::Arc;
-use uuid::Uuid;
 
 use axum::{debug_handler, Json};
 use bytes::Bytes;
@@ -355,7 +354,20 @@ pub async fn process_replay_events<'a>(
 
     // Validate session_id is a valid UUID
     let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
-    if Uuid::parse_str(session_id_str).is_err() {
+
+    // Reject session_ids that are too long, or that contains non-alphanumeric characters,
+    // this is a proxy for "not a valid UUID"
+    // we can't just reject non-UUIDv7 strings because
+    // some running versions of PostHog JS in the wild are still pre-version 1.73.0
+    // when we started sending valid UUIDv7 session_ids
+    // at time of writing they are ~4-5% of all sessions
+    // they'll be having a bad time generally but replay probably works a little for them
+    // so we don't drop non-UUID strings, but we use length as a proxy definitely bad UUIDs
+    if session_id_str.len() > 70
+        || !session_id_str
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
         return Err(CaptureError::InvalidSessionId);
     }
 

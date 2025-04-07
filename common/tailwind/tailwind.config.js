@@ -662,6 +662,8 @@ const config = {
                 'fill-switch': 'var(--bg-fill-switch)',
                 'fill-slider-rail': 'var(--bg-fill-slider-rail)',
                 'fill-scroll-thumb': 'var(--bg-fill-scroll-thumb)',
+                'border-primary': 'var(--bg-border-primary)',
+                'border-secondary': 'var(--bg-border-secondary)',
             },
             textColor: {
                 ...commonColors,
