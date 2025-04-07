@@ -1,21 +1,32 @@
-import { IconChevronRight, IconFolderOpen, IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconFilter, IconGlobe, IconInfo, IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { SessionKeyEvent } from '../player-meta/types'
 import { useState } from 'react'
+import { LemonBanner, LemonMenu } from '@posthog/lemon-ui'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+
+function formatEventMetaInfo(event: SessionKeyEvent): string {
+    return `Event: ${event.event}\n
+Type: ${event.event_type || 'N/A'}\n
+Importance: ${(event.importance * 100).toFixed(0)}%\n
+Window ID: ${event.window_id}\n
+Tags:\n
+  Where: ${event.tags.where.join(', ')}\n
+  What: ${event.tags.what.join(', ')}`
+}
 
 type FilterType = 'all' | 'errors' | 'important'
 
 const FILTER_TYPES: Record<FilterType, { label: string }> = {
     all: { label: 'Show full journey' },
-    errors: { label: 'Show only errors' },
-    important: { label: 'Show only important events' },
+    errors: { label: 'Show only failed steps' },
+    important: { label: 'Show only important steps' },
 }
 
 function formatMsIntoTime(ms: number): string {
@@ -49,53 +60,31 @@ function SessionSummary(): JSX.Element {
         <div className="flex flex-col" style={{ maxWidth: '24rem' }}>
             {sessionSummary ? (
                 <>
-                    <div className="text-sm break-words">
-                        {sessionSummary.content.summary}
-                    </div>
+
+
+                    <LemonBanner
+                        className="mb-3"
+                        type='info'
+                        action={undefined}
+                        onClose={undefined}
+                    >
+                        <div className="text-sm break-words py-1 px-1" style={{ fontWeight: 'normal' }}>
+                            {sessionSummary.content.summary}
+                        </div>
+                    </LemonBanner>
 
                     <div>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <LemonButton
-                                    type="primary"
-                                    className="mt-2"
-                                    icon={<IconFolderOpen />}
-                                >
-                                    {FILTER_TYPES[filterType].label}
-                                    <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
-                                </LemonButton>
-
-                                {/* <Button.Root>
-                                    <Button.Icon>
-                                        <IconFolderOpen className="text-tertiary" />
-                                    </Button.Icon>
-                                    <Button.Label>
-                                        {FILTER_TYPES[filterType].label}
-                                    </Button.Label>
-                                    <Button.Icon size="sm">
-                                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
-                                    </Button.Icon>
-                                </Button.Root> */}
-                            </DropdownMenuTrigger>
-
-                            <DropdownMenuContent loop align="start">
-                                {Object.entries(FILTER_TYPES).map(([key, { label }]) => (
-                                    <DropdownMenuItem key={key} asChild className="cursor-pointer hover:bg-primary-alt-highlight">
-                                        {/* <Button.Root onClick={() => setFilterType(key as FilterType)}>
-                                            <Button.Label>{label}</Button.Label>
-                                        </Button.Root> */}
-                                        <LemonButton
-                                            type="primary"
-                                            className="mt-2"
-                                            onClick={() => setFilterType(key as FilterType)}
-                                        >
-                                            {label}
-                                            <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
-                                        </LemonButton>
-                                    </DropdownMenuItem>
-                                ))}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        <LemonMenu
+                            items={Object.entries(FILTER_TYPES).map(([key, { label }]) => ({
+                                label,
+                                onClick: () => setFilterType(key as FilterType)
+                            }))}
+                            buttonSize="xsmall"
+                        >
+                            <LemonButton type="secondary" size="xsmall" icon={<IconFilter />} className='mb-3'>
+                                {FILTER_TYPES[filterType].label}
+                            </LemonButton>
+                        </LemonMenu>
 
                         <div>
                             {filteredEvents?.map((event, index) => (
@@ -108,8 +97,24 @@ function SessionSummary(): JSX.Element {
                                 >
                                     <div className="flex flex-row gap-2">
                                         <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                            {formatMsIntoTime(event.milliseconds_since_start)}<br />
+                                            {formatMsIntoTime(event.milliseconds_since_start)}
+                                            <div className="flex flex-row gap-1">
+                                                <ButtonPrimitive
+                                                    href={event.current_url}
+                                                    tooltip={event.current_url}
+                                                    tooltipPlacement="top"
+                                                >
+                                                    <span className="font-mono text-xs text-muted-alt">url</span>
+                                                </ButtonPrimitive>
+                                                <ButtonPrimitive
+                                                    tooltip={formatEventMetaInfo(event)}
+                                                    tooltipPlacement="top"
+                                                >
+                                                    <span className="font-mono text-xs text-muted-alt">meta</span>
+                                                </ButtonPrimitive>
+                                            </div>
                                         </span>
+
                                         <span className="text-xs break-words">{event.description}</span>
                                     </div>
                                 </div>
@@ -117,8 +122,7 @@ function SessionSummary(): JSX.Element {
                         </div>
                     </div>
 
-                    <LemonDivider dashed={true} />
-                    <div className="text-right">
+                    <div className="text-right mb-2 mt-4">
                         <p>Is this a good summary?</p>
                         <div className="flex flex-row gap-2 justify-end">
                             <LemonButton
@@ -146,8 +150,9 @@ function SessionSummary(): JSX.Element {
                 <div className="text-center text-muted-alt">
                     No summary available for this session
                 </div>
-            )}
-        </div>
+            )
+            }
+        </div >
     )
 }
 
@@ -178,18 +183,18 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
     return (
         <>
             <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
-                <div className="rounded border bg-surface-primary px-2 py-1">
-                    <h2>AI Session Summary</h2>
-                    {sessionSummaryLoading ? (
-                        <>
-                            Thinking... <Spinner />{' '}
-                        </>
-                    ) : sessionSummary ? (
-                        <SessionSummary />
-                    ) : (
-                        <LoadSessionSummaryButton />
-                    )}
-                </div>
+            <div className="rounded border bg-surface-primary px-2 py-1">
+                <h2>AI Session Summary</h2>
+                {sessionSummaryLoading ? (
+                    <>
+                        Thinking... <Spinner />{' '}
+                    </>
+                ) : sessionSummary ? (
+                    <SessionSummary />
+                ) : (
+                    <LoadSessionSummaryButton />
+                )}
+            </div>
             </FlaggedFeature>
         </>
     )
