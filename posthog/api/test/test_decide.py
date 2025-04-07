@@ -438,9 +438,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             }
         )
 
-        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response.status == status.HTTP_400_BAD_REQUEST
-
+        response = self._post_decide(origin="capacitor://localhost:8000/home")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
     def test_session_recording_trigger_match_type_cannot_be_unknown_string(self, *args):
         self._update_team(
             {
