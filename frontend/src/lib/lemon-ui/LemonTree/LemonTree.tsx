@@ -66,7 +66,7 @@ export type TreeDataItem = {
 
 type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** The data to render in the tree. */
-    data: TreeDataItem[] | TreeDataItem
+    data: TreeDataItem[]
     /** The ID of the folder/node to select by default. Will expand the node if it has children. */
     defaultSelectedFolderOrNodeId?: string
     /** The IDs of the expanded items. */
@@ -103,6 +103,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** Pass true if you need to wait for async events to populate the tree.
      * If present and true will trigger: scrolling to focused item */
     isFinishedBuildingTreeData?: boolean
+    /** The context menu to render for the empty space. */
+    emptySpaceContextMenu?: () => React.ReactNode
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -455,6 +457,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isFinishedBuildingTreeData,
             enableMultiSelection = false,
             onItemChecked,
+            emptySpaceContextMenu,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1070,6 +1073,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             onItemChecked={onItemChecked}
                             {...props}
                         />
+
+                        {/* Context menu for empty space, takes up remaining space */}
+                        <ContextMenu>
+                            <ContextMenuTrigger className="flex-1 w-full">
+                                <div className="h-full w-full" />
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>{emptySpaceContextMenu?.()}</ContextMenuContent>
+                        </ContextMenu>
                     </TreeNodeDroppable>
                 </ScrollableShadows>
             </DndContext>

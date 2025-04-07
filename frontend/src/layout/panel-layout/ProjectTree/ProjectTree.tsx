@@ -283,6 +283,21 @@ export function ProjectTree(): JSX.Element {
                     }
                     return <DropdownMenuGroup>{renderMenuItems(item, DropdownMenuItem)}</DropdownMenuGroup>
                 }}
+                emptySpaceContextMenu={() => {
+                    return (
+                        <ContextMenuGroup>
+                            <ContextMenuItem
+                                asChild
+                                onClick={(e: any) => {
+                                    e.stopPropagation()
+                                    createFolder('')
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                            </ContextMenuItem>
+                        </ContextMenuGroup>
+                    )
+                }}
             />
         </PanelLayoutPanel>
     )
