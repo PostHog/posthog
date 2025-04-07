@@ -3,7 +3,6 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { useState } from 'react'
 import { TIME_INTERVAL_BOUNDS } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
@@ -16,8 +15,6 @@ export function ExperimentMetricConversionWindowFilter({
     metric: ExperimentMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
 }): JSX.Element {
-    const [conversionWindowInputValue, setConversionWindowInputValue] = useState<string | null>(null)
-
     const options: LemonSelectOption<FunnelConversionWindowTimeUnit>[] = Object.keys(TIME_INTERVAL_BOUNDS).map(
         (unit) => ({
             label: capitalizeFirstLetter(pluralize(metric.conversion_window ?? 72, unit, `${unit}s`, false)),
@@ -46,7 +43,7 @@ export function ExperimentMetricConversionWindowFilter({
                     </>
                 }
             >
-                Conversion window
+                Conversion window limit
             </LemonLabel>
             <div className="flex items-center gap-2">
                 <LemonRadio
@@ -80,25 +77,9 @@ export function ExperimentMetricConversionWindowFilter({
                             fullWidth={false}
                             min={intervalBounds[0]}
                             max={intervalBounds[1]}
-                            value={
-                                conversionWindowInputValue !== null
-                                    ? Number(conversionWindowInputValue)
-                                    : metric.conversion_window ?? 14
-                            }
+                            value={metric.conversion_window_unit === undefined ? 14 : metric.conversion_window || 1}
                             onChange={(value) => {
-                                // Track empty input specially
-                                setConversionWindowInputValue(
-                                    value === undefined || value === null ? null : String(value)
-                                )
-                            }}
-                            onBlur={() => {
-                                // On blur, convert to number and update the metric
-                                const numericalValue =
-                                    conversionWindowInputValue === '' || conversionWindowInputValue === null
-                                        ? 14
-                                        : Number(conversionWindowInputValue)
-                                handleSetMetric({ ...metric, conversion_window: numericalValue })
-                                setConversionWindowInputValue(null)
+                                handleSetMetric({ ...metric, conversion_window: value || undefined })
                             }}
                         />
                         <LemonSelect
