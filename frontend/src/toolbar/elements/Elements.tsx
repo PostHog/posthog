@@ -28,6 +28,7 @@ export function Elements(): JSX.Element {
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+
     const shiftPressed = useShiftKeyPressed()
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
@@ -72,8 +73,8 @@ export function Elements(): JSX.Element {
                                 zIndex: apparentZIndex ? apparentZIndex : hoverElement === element ? 2 : 1,
                                 opacity:
                                     (!hoverElement && !selectedElement) ||
-                                        selectedElement === element ||
-                                        hoverElement === element
+                                    selectedElement === element ||
+                                    hoverElement === element
                                         ? 1
                                         : 0.4,
                                 transition: 'opacity 0.2s, box-shadow 0.2s',

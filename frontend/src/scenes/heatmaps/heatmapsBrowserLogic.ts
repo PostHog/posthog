@@ -104,8 +104,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                                      WHERE timestamp >= now() - INTERVAL 7 DAY
                                        AND timestamp <= now()
                                        AND properties.$current_url like '%${hogql.identifier(
-                            values.browserSearchTerm
-                        )}%'
+                                           values.browserSearchTerm
+                                       )}%'
                                      ORDER BY timestamp DESC
                                          limit 100`,
                     }
@@ -248,7 +248,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 return checkUrlIsAuthorized(browserUrl)
             },
         ],
-
         isBrowserUrlValid: [
             (s) => [s.browserUrl],
             (browserUrl) => {
