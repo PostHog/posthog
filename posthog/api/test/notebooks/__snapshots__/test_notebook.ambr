@@ -546,8 +546,6 @@
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'notebook')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.2
@@ -1035,8 +1033,6 @@
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'notebook')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.7

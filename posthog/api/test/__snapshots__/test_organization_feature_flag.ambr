@@ -154,8 +154,6 @@
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.12
@@ -1467,8 +1465,6 @@
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.41
