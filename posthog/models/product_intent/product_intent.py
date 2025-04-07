@@ -3,6 +3,7 @@ from typing import Optional
 
 from celery import shared_task
 from django.db import models
+from rest_framework import serializers
 
 from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
@@ -42,6 +43,17 @@ Note: single-event activation metrics that can also happen at the same time the 
 is created won't have tracking events sent for them. Unless you want to solve this,
 make activation metrics require multiple things to happen.
 """
+
+
+class ProductIntentSerializer(serializers.Serializer):
+    """
+    Serializer for validating product intent data.
+    This is used when registering new product intents via the API.
+    """
+
+    product_type = serializers.CharField(required=True)
+    metadata = serializers.DictField(required=False, default=dict)
+    intent_context = serializers.CharField(required=False, default="unknown")
 
 
 class ProductIntent(UUIDModel):

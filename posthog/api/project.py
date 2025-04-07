@@ -33,6 +33,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
+    ProductIntentSerializer,
     calculate_product_activation,
 )
 from posthog.models.project import Project
@@ -599,24 +600,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         project = self.get_object()
         team = project.passthrough_team
         user = request.user
-        product_type = request.data.get("product_type")
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
-        metadata = request.data.get("metadata", {})
-        context = request.data.get("intent_context", "unknown")
 
-        if not product_type:
-            return response.Response({"error": "product_type is required"}, status=400)
-
-        if not isinstance(metadata, dict):
-            return response.Response({"error": "'metadata' must be a dictionary"}, status=400)
+        serializer = ProductIntentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
         ProductIntent.register(
             team=team,
-            product_type=product_type,
-            context=context,
+            product_type=serializer.validated_data["product_type"],
+            context=serializer.validated_data["intent_context"],
             user=cast(User, user),
-            metadata={**metadata, "$current_url": current_url, "$session_id": session_id},
+            metadata={**serializer.validated_data["metadata"], "$current_url": current_url, "$session_id": session_id},
         )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
