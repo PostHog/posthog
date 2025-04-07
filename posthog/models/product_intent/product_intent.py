@@ -107,7 +107,7 @@ class ProductIntent(UUIDModel):
         return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
 
     def has_activated_surveys(self) -> bool:
-        return Survey.objects.filter(team=self.team, start_date__isnull=False).exists()
+        return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
 
     def has_activated_feature_flags(self) -> bool:
         # Get feature flags that have at least one filter group, excluding ones used by experiments and surveys
