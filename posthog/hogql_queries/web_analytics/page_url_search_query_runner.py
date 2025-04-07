@@ -11,6 +11,8 @@ from posthog.schema import (
     PageURL,
 )
 
+PAGE_URL_SEARCH_DEFAULT_LIMIT = 100
+
 
 class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
     query: WebPageURLSearchQuery
@@ -41,8 +43,8 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
         with self.timings.measure("page_url_search_query"):
             url_column = self._get_url_column()
             search_condition = self._get_search_condition()
-            sampling_factor = self.query.sampling_factor or 0.1
-            limit = self.query.limit or 100
+            sampling_factor = self.query.sampling_factor
+            limit = self.query.limit or PAGE_URL_SEARCH_DEFAULT_LIMIT
 
             select_query = ast.SelectQuery(
                 select=[
@@ -73,7 +75,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
 
     def calculate(self) -> WebPageURLSearchQueryResponse:
         query = self._get_hogql_query()
-        limit = self.query.limit or 100
+        limit = self.query.limit or PAGE_URL_SEARCH_DEFAULT_LIMIT
 
         response = execute_hogql_query(
             query=query,
@@ -87,7 +89,10 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
             limit_context=self.limit_context,
         )
 
-        results = [PageURL(url=str(row[0]), count=int(row[1])) for row in response.results]
+        results = [
+            PageURL(url=str(row[0]) if row[0] is not None else "", count=int(round(self._unsample(float(row[1])) or 0)))
+            for row in response.results
+        ]
 
         return WebPageURLSearchQueryResponse(
             results=results,

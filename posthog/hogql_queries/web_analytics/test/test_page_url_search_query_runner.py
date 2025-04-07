@@ -225,3 +225,68 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(full_response.results) == 5, f"Expected 5 results with limit=10, got {len(full_response.results)}"
         assert full_response.hasMore is False, "Expected hasMore=False but got True"  # Should indicate no more results
+
+    def test_sampling_factor(self):
+        s1 = str(uuid7("2025-01-22"))
+
+        pageview_events = []
+        for i in range(50):
+            pageview_events.append((f"2025-01-22", s1, f"/page{i % 5}"))
+
+        self._create_events([("p1", pageview_events)])
+
+        # Run query with sampling_factor=1.0 (no sampling)
+        full_results = self._run_page_url_search_query(
+            "2025-01-22",
+            "2025-01-29",
+            sampling_factor=1.0,
+        ).results
+
+        # Make sure we actually get results
+        assert len(full_results) > 0, "Should have results with sampling_factor=1.0"
+
+        # Get the counts for each URL with full sampling
+        full_counts = {result.url: result.count for result in full_results}
+
+        # Now run with sampling_factor=0.5 (50% sampling)
+        # The _unsample method in WebAnalyticsQueryRunner should scale the counts back up
+        sampled_results = self._run_page_url_search_query(
+            "2025-01-22",
+            "2025-01-29",
+            sampling_factor=0.5,
+        ).results
+
+        # Get the counts for each URL with sampling
+        sampled_counts = {result.url: result.count for result in sampled_results}
+
+        # Check that the counts are still roughly similar after unsampling
+        # We can't expect exact matches due to random sampling, but they should be in the same ballpark
+        for url, count in full_counts.items():
+            if url in sampled_counts:
+                # Allow for some variance due to sampling randomness
+                # The difference should be reasonable since _unsample should scale counts back up
+                assert 0.5 <= sampled_counts[url] / count <= 1.5, (
+                    f"Count for {url} with sampling_factor=0.5 ({sampled_counts[url]}) "
+                    f"is too different from count with sampling_factor=1.0 ({count})"
+                )
+
+        # Verify that sampling factor is passed through to the query
+        # This requires inspecting the AST to confirm it's properly constructed
+        runner = PageUrlSearchQueryRunner(
+            team=self.team,
+            query=WebPageURLSearchQuery(
+                dateRange=DateRange(date_from="2025-01-22", date_to="2025-01-29"),
+                properties=[],
+                sampling_factor=0.25,  # 25% sampling
+            ),
+        )
+        query = runner._get_hogql_query()
+
+        # Check that the sample expression in the query has the correct value
+        sample_expr = query.select_from.sample
+        assert sample_expr is not None, "Sample expression should not be None"
+        assert hasattr(sample_expr, "sample_value"), "Sample expression should have sample_value"
+        assert hasattr(sample_expr.sample_value, "left"), "Sample value should have left attribute"
+        assert (
+            sample_expr.sample_value.left.value == 0.25
+        ), f"Expected sampling_factor=0.25 in query, got {sample_expr.sample_value.left.value}"
