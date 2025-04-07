@@ -897,5 +897,13 @@ describe('lib/utils', () => {
                 })
             ).toBe(false)
         })
+        it('returns false for our hashed API key when explicitly excluded', () => {
+            expect(
+                shouldEnablePreviewFlagsV2('sTMFPsFhdP1Ssg', {
+                    rolloutPercentage: 100,
+                    excludedHashes: new Set(['3a4a1aa4']),
+                })
+            ).toBe(false)
+        })
     })
 })
