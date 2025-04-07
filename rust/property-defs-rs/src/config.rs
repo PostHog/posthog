@@ -183,17 +183,7 @@ impl TeamFilterMode {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        let consumer_group = match std::env::var("ENABLE_V2") {
-            Ok(enabled_v2) => {
-                if enabled_v2.to_lowercase() == "true" {
-                    "property-defs-rs-v2"
-                } else {
-                    "property_defs_rs"
-                }
-            }
-            _ => "property-defs-rs",
-        };
-        ConsumerConfig::set_defaults(consumer_group, "clickhouse_events_json", true);
+        ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json", true);
         Config::init_from_env()
     }
 }
