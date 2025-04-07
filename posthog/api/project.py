@@ -29,7 +29,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
@@ -72,6 +72,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
 
@@ -85,6 +86,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "created_at",
             "effective_membership_level",  # Compat with TeamSerializer
             "has_group_types",  # Compat with TeamSerializer
+            "group_types",  # Compat with TeamSerializer
             "live_events_token",  # Compat with TeamSerializer
             "updated_at",  # Compat with TeamSerializer
             "uuid",  # Compat with TeamSerializer
@@ -139,6 +141,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "organization",
             "effective_membership_level",
             "has_group_types",
+            "group_types",
             "live_events_token",
             "created_at",
             "api_token",
@@ -203,6 +206,11 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def get_has_group_types(self, project: Project) -> bool:
         return GroupTypeMapping.objects.filter(project_id=project.id).exists()
+
+    def get_group_types(self, project: Project) -> list[dict[str, Any]]:
+        return list(
+            GroupTypeMapping.objects.filter(project_id=project.id).values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        )
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)

@@ -1,6 +1,16 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
 
+# Defined here for reuse between OS and EE
+GROUP_TYPE_MAPPING_SERIALIZER_FIELDS = [
+    "group_type",
+    "group_type_index",
+    "name_singular",
+    "name_plural",
+    "detail_dashboard",
+    "default_columns",
+]
+
 
 # This table is responsible for mapping between group types for a Team/Project and event columns
 # to add group keys
