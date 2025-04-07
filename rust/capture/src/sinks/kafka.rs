@@ -140,6 +140,10 @@ impl KafkaSink {
                 config.kafka_metadata_max_age_ms.to_string(),
             )
             .set(
+                "topic.metadata.refresh.interval.ms",
+                config.kafka_topic_metadata_refresh_interval_ms.to_string(),
+            )
+            .set(
                 "message.send.max.retries",
                 config.kafka_producer_max_retries.to_string(),
             )
