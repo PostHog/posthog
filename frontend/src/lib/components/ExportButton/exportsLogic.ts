@@ -36,9 +36,9 @@ export const exportsLogic = kea<exportsLogicType>([
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
     }),
 
-    connect({
+    connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel']],
-    }),
+    })),
 
     reducers({
         exports: [

@@ -96,7 +96,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     props({} as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -111,7 +111,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             propertyDefinitionsModel,
             ['eventMetadataPropertyDefinitions'],
         ],
-    }),
+    })),
     actions(() => ({
         moveUp: true,
         moveDown: true,
