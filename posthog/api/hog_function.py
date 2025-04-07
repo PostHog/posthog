@@ -328,23 +328,46 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
 
-        # Set execution_order for transformation type
+        # Handle execution_order for transformation type
         if validated_data.get("type") == "transformation":
-            # Get the highest execution_order for existing transformations
-            highest_order = (
-                HogFunction.objects.filter(team_id=validated_data["team"].id, type="transformation", deleted=False)
-                .order_by("-execution_order")
-                .values_list("execution_order", flat=True)
-                .first()
-            )
+            requested_order = validated_data.get("execution_order")
 
-            # Set to 1 if no existing transformations, otherwise increment by 1
-            validated_data["execution_order"] = (highest_order or 0) + 1
+            # For transformations, we need to determine the execution_order
+            if requested_order is None:
+                # If no order specified, add at the end
+                highest_order = self._get_highest_execution_order(validated_data["team"].id)
+                validated_data["execution_order"] = highest_order + 1
 
-        hog_function = super().create(validated_data=validated_data)
-        return hog_function
+            # Create the function with the execution_order
+            return super().create(validated_data=validated_data)
+        else:
+            # For non-transformation types, just create normally
+            return super().create(validated_data=validated_data)
+
+    def _get_highest_execution_order(self, team_id: int) -> int:
+        """Get the highest execution_order for transformations in a team."""
+        highest_order = (
+            HogFunction.objects.filter(team_id=team_id, type="transformation", deleted=False)
+            .order_by("-execution_order")
+            .values_list("execution_order", flat=True)
+            .first()
+        )
+        return highest_order or 0
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
+        # Handle undeletion or re-enabling by placing at the end when needed
+        if instance.type == "transformation" and (
+            (instance.deleted and validated_data.get("deleted") is False)
+            or (
+                not instance.enabled
+                and validated_data.get("enabled") is True
+                and "execution_order" not in validated_data
+            )
+        ):
+            highest_order = self._get_highest_execution_order(instance.team_id)
+            validated_data["execution_order"] = highest_order + 1
+
+        # Standard update
         res: HogFunction = super().update(instance, validated_data)
 
         if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
@@ -394,7 +417,7 @@ class HogFunctionViewSet(
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
-            queryset = queryset.order_by("execution_order", "created_at")
+            queryset = queryset.order_by("execution_order", "-updated_at")
 
         if self.request.GET.get("filters"):
             try:

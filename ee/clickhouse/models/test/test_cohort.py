@@ -1739,3 +1739,68 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         with self.assertRaises(ValidationError):
             self.calculate_cohort_hogql_test_harness(cohort, 0)
+
+    def test_cohort_with_inclusion_and_exclusion_and_nested_negation(self):
+        # Create two users with different properties
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["user1"], properties={"email": "exclude1", "in_cohort_1": "yes"}
+        )
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["user2"], properties={"email": "exclude2", "in_cohort_1": "yes"}
+        )
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["user3"], properties={"email": "include", "in_cohort_1": "yes"}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["user4"], properties={"in_cohort_1": "yes"})
+        flush_persons_and_events()
+
+        cohort_1 = Cohort.objects.create(
+            team=self.team,
+            name="cohort_1",
+            groups=[{"properties": [{"key": "in_cohort_1", "value": "yes", "type": "person", "operator": "exact"}]}],
+        )
+
+        cohort_2 = Cohort.objects.create(
+            team=self.team,
+            name="cohort_2",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "operator": "is_not", "value": "exclude1", "type": "person"},
+                                {"key": "email", "operator": "is_not", "value": "exclude2", "type": "person"},
+                            ],
+                        },
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "id", "value": cohort_1.pk, "type": "cohort"},
+                            ],
+                        },
+                    ],
+                }
+            },
+        )
+
+        # Create third cohort that includes cohort_1 and excludes cohort_2
+        cohort_3 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort_1.pk, "type": "cohort"},
+                        {"key": "id", "value": cohort_2.pk, "type": "cohort", "negation": True},
+                    ],
+                }
+            },
+            name="cohort_3",
+        )
+        self.calculate_cohort_hogql_test_harness(cohort_3, 0)
+
+        results = self._get_cohortpeople(cohort_3)
+        self.assertEqual(len(results), 2)
+        self.assertCountEqual([x[0] for x in results], [p1.uuid, p2.uuid])

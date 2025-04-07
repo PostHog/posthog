@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
+from typing import Optional
 
 from celery import shared_task
 from django.db import models
+from rest_framework import serializers
 
 from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
@@ -9,7 +11,9 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDModel
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
 
 """
@@ -41,12 +45,24 @@ make activation metrics require multiple things to happen.
 """
 
 
+class ProductIntentSerializer(serializers.Serializer):
+    """
+    Serializer for validating product intent data.
+    This is used when registering new product intents via the API.
+    """
+
+    product_type = serializers.CharField(required=True)
+    metadata = serializers.DictField(required=False, default=dict)
+    intent_context = serializers.CharField(required=False, default="unknown")
+
+
 class ProductIntent(UUIDModel):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     product_type = models.CharField(max_length=255)
     onboarding_completed_at = models.DateTimeField(null=True, blank=True)
+    contexts = models.JSONField(default=dict, blank=True, null=True)
     activated_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -116,11 +132,32 @@ class ProductIntent(UUIDModel):
 
         return total_groups >= 2
 
+    def has_activated_session_replay(self) -> bool:
+        has_viewed_five_recordings = SessionRecordingViewed.objects.filter(team=self.team).count() >= 5
+
+        intent = ProductIntent.objects.filter(
+            team=self.team,
+            product_type="session_replay",
+        ).first()
+
+        if not intent:
+            return False
+
+        contexts = intent.contexts or {}
+
+        set_filters_count = contexts.get("session_replay_set_filters", 0)
+
+        if set_filters_count >= 1 and has_viewed_five_recordings:
+            return True
+
+        return False
+
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
             "experiments": self.has_activated_experiments,
             "feature_flags": self.has_activated_feature_flags,
+            "session_replay": self.has_activated_session_replay,
             "error_tracking": self.has_activated_error_tracking,
         }
 
@@ -145,6 +182,53 @@ class ProductIntent(UUIDModel):
                 "realm": get_instance_realm(),
             },
         )
+
+    @staticmethod
+    def register(team: Team, product_type: str, context: str, user: User, metadata: Optional[dict] = None) -> None:
+        from posthog.event_usage import report_user_action
+
+        should_report_product_intent = False
+
+        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
+
+        contexts = product_intent.contexts or {}
+
+        product_intent.contexts = {
+            **contexts,
+            context: contexts.get(context, 0) + 1,
+        }
+        product_intent.save()
+
+        if created:
+            # For new intents, check activation immediately but skip reporting
+            was_already_activated = product_intent.check_and_update_activation(skip_reporting=True)
+            # Only report the action if they haven't already activated
+            if isinstance(user, User) and not was_already_activated:
+                should_report_product_intent = True
+        else:
+            if not product_intent.activated_at:
+                is_activated = product_intent.check_and_update_activation()
+                if not is_activated:
+                    should_report_product_intent = True
+            product_intent.updated_at = datetime.now(tz=UTC)
+            product_intent.save()
+
+        if should_report_product_intent and isinstance(user, User):
+            report_user_action(
+                user,
+                "user showed product intent",
+                {
+                    **(metadata or {}),
+                    "product_key": product_type,
+                    "$set_once": {"first_onboarding_product_selected": product_type},
+                    "intent_context": context,
+                    "is_first_intent_for_product": created,
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
+                },
+                team=team,
+            )
 
 
 @shared_task(ignore_result=True)
