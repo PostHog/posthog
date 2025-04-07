@@ -1072,6 +1072,7 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_201_CREATED
             product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            assert product_intent.onboarding_completed_at is None
             mock_report_user_action.assert_called_once_with(
                 self.user,
                 "user showed product intent",
@@ -1079,8 +1080,8 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
+                    "$set_once": {},
                     "intent_context": "onboarding product selected",
-                    "$set_once": {"first_onboarding_product_selected": "product_analytics"},
                     "is_first_intent_for_product": True,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
@@ -1116,6 +1117,7 @@ def team_api_test_factory():
                 product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
                 assert product_intent.updated_at == datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC)
                 assert product_intent.created_at == original_created_at
+                assert product_intent.onboarding_completed_at is None
                 mock_check_and_update_activation.assert_called_once()
                 mock_report_user_action.assert_called_once_with(
                     self.user,
@@ -1124,8 +1126,8 @@ def team_api_test_factory():
                         "product_key": "product_analytics",
                         "$current_url": "https://posthogtest.com/my-url",
                         "$session_id": "test_session_id",
+                        "$set_once": {},
                         "intent_context": "unknown",
-                        "$set_once": {"first_onboarding_product_selected": "product_analytics"},
                         "is_first_intent_for_product": False,
                         "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                         "intent_updated_at": datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC),
@@ -1182,7 +1184,7 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
-                    "intent_context": None,
+                    "intent_context": "unknown",
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
@@ -1229,7 +1231,7 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
-                    "intent_context": None,
+                    "intent_context": "unknown",
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
