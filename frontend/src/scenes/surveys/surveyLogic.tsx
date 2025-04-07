@@ -1584,11 +1584,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     appearance: sanitizedAppearance && {
                         backgroundColor: validateColor(sanitizedAppearance.backgroundColor, 'background color'),
                         borderColor: validateColor(sanitizedAppearance.borderColor, 'border color'),
-                        ratingButtonActiveColor: validateColor(
-                            sanitizedAppearance.ratingButtonActiveColor,
-                            'rating button active color'
-                        ),
-                        ratingButtonColor: validateColor(sanitizedAppearance.ratingButtonColor, 'rating button color'),
+                        // Only validate rating button colors if there's a rating question
+                        ...(questions.some((q) => q.type === SurveyQuestionType.Rating) && {
+                            ratingButtonActiveColor: validateColor(
+                                sanitizedAppearance.ratingButtonActiveColor,
+                                'rating button active color'
+                            ),
+                            ratingButtonColor: validateColor(
+                                sanitizedAppearance.ratingButtonColor,
+                                'rating button color'
+                            ),
+                        }),
                         submitButtonColor: validateColor(sanitizedAppearance.submitButtonColor, 'button color'),
                         submitButtonTextColor: validateColor(
                             sanitizedAppearance.submitButtonTextColor,

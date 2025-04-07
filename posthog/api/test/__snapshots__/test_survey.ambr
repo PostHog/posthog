@@ -23,6 +23,59 @@
   GROUP BY survey_id
   '''
 # ---
+# name: TestSurveyStats.test_global_survey_stats
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT event as event_name,
+         count() as total_count,
+         count(DISTINCT person_id) as unique_persons,
+         if(count() > 0, min(timestamp), null) as first_seen,
+         if(count() > 0, max(timestamp), null) as last_seen
+  FROM events
+  WHERE team_id = '149'
+    AND event IN ('survey shown',
+                  'survey dismissed',
+                  'survey sent')
+    AND JSONExtractString(properties, '$survey_id') IN ['018f3499-3d28-0003-3bc1-fba5b527bea4', '018f3499-3d28-0004-ae8f-29a2e731876c']
+  GROUP BY event
+  '''
+# ---
+# name: TestSurveyStats.test_individual_survey_stats
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT event as event_name,
+         count() as total_count,
+         count(DISTINCT person_id) as unique_persons,
+         if(count() > 0, min(timestamp), null) as first_seen,
+         if(count() > 0, max(timestamp), null) as last_seen
+  FROM events
+  WHERE team_id = '150'
+    AND event IN ('survey shown',
+                  'survey dismissed',
+                  'survey sent')
+    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0005-c132-159ffbeb513c'
+  GROUP BY event
+  '''
+# ---
+# name: TestSurveyStats.test_survey_stats_with_date_filtering
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT event as event_name,
+         count() as total_count,
+         count(DISTINCT person_id) as unique_persons,
+         if(count() > 0, min(timestamp), null) as first_seen,
+         if(count() > 0, max(timestamp), null) as last_seen
+  FROM events
+  WHERE team_id = '151'
+    AND event IN ('survey shown',
+                  'survey dismissed',
+                  'survey sent')
+    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0006-85d9-ee09372fa1d4'
+    AND timestamp >= '2024-05-02 00:00:00'
+    AND timestamp <= '2024-05-02 23:59:59'
+  GROUP BY event
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys
   '''
   SELECT "posthog_filesystem"."team_id",

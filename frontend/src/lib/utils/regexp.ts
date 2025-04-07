@@ -7,7 +7,7 @@ export const isValidRegexp = (regex: string): boolean => {
     }
 }
 
-function isLikelyRegex(url: string): boolean {
+export function isLikelyRegex(url: string): boolean {
     // Common regex special characters that indicate regex pattern
     const regexSpecialChars = /[.*+?^${}()|[\]\\]/
 
