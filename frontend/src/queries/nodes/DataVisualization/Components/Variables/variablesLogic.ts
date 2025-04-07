@@ -39,10 +39,10 @@ export const variablesLogic = kea<variablesLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variablesLogic']),
     props({ key: '' } as VariablesLogicProps),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
         values: [dataVisualizationLogic, ['query'], variableDataLogic, ['variables', 'variablesLoading']],
-    }),
+    })),
     actions(({ values }) => ({
         addVariable: (variable: HogQLVariable) => ({ variable }),
         _addVariable: (variable: HogQLVariable) => ({ variable }),

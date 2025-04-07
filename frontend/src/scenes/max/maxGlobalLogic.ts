@@ -21,10 +21,10 @@ export interface ToolDefinition {
 
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
-    connect({
+    connect(() => ({
         actions: [organizationLogic, ['updateOrganization']],
         values: [organizationLogic, ['currentOrganization']],
-    }),
+    })),
     actions({
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolDefinition) => ({ tool }),
