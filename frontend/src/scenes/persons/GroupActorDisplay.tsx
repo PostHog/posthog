@@ -10,6 +10,20 @@ export interface GroupActorDisplayProps {
 }
 
 export function GroupActorDisplay({ actor }: GroupActorDisplayProps): JSX.Element {
+    if (!actor.group_key) {
+        return (
+            <div>
+                Unidentified group{' '}
+                <Link
+                    to="https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups"
+                    target="_blank"
+                    className="font-normal text-xs"
+                >
+                    Learn more
+                </Link>
+            </div>
+        )
+    }
     return (
         <Link to={urls.group(actor.group_type_index.toString(), actor.group_key)}>
             <div className="identified">
