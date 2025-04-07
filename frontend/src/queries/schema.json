@@ -7975,7 +7975,7 @@
             "additionalProperties": false,
             "properties": {
                 "conversion_window": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
@@ -8126,7 +8126,7 @@
             "additionalProperties": false,
             "properties": {
                 "conversion_window": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
@@ -8177,7 +8177,7 @@
             "additionalProperties": false,
             "properties": {
                 "conversion_window": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"

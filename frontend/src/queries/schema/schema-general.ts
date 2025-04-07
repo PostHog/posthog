@@ -1974,7 +1974,7 @@ export const enum ExperimentMetricType {
 export type ExperimentMetricBaseProperties = {
     kind: NodeKind.ExperimentMetric
     name?: string
-    conversion_window?: number
+    conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
 }
 

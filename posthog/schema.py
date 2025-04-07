@@ -2695,7 +2695,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    conversion_window: Optional[float] = None
+    conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
@@ -8007,7 +8007,7 @@ class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    conversion_window: Optional[float] = None
+    conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
@@ -8019,7 +8019,7 @@ class ExperimentMeanMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    conversion_window: Optional[float] = None
+    conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["mean"] = "mean"

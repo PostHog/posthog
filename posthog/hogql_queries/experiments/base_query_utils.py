@@ -11,6 +11,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    FunnelConversionWindowTimeUnit,
 )
 
 
@@ -68,3 +69,23 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
         event_filter = ast.And(exprs=[event_filter, event_properties])
 
     return event_filter
+
+
+def conversion_window_to_seconds(conversion_window: int, conversion_window_unit: FunnelConversionWindowTimeUnit) -> int:
+    match conversion_window_unit:
+        case FunnelConversionWindowTimeUnit.SECOND:
+            multiplier = 1
+        case FunnelConversionWindowTimeUnit.MINUTE:
+            multiplier = 60
+        case FunnelConversionWindowTimeUnit.HOUR:
+            multiplier = 60 * 60
+        case FunnelConversionWindowTimeUnit.DAY:
+            multiplier = 24 * 60 * 60
+        case FunnelConversionWindowTimeUnit.WEEK:
+            multiplier = 7 * 24 * 60 * 60
+        case FunnelConversionWindowTimeUnit.MONTH:
+            multiplier = 30 * 24 * 60 * 60
+        case _:
+            raise ValueError(f"Unsupported conversion window unit: {conversion_window_unit}")
+
+    return conversion_window * multiplier
