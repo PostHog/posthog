@@ -21,7 +21,9 @@ check_pg_dump_installed
 RUST_MIGRATIONS="$SCRIPT_DIR/../migrations"
 MIGRATION_COUNTER=20250402111111
 
-
+if [ -d "$RUST_MIGRATIONS" ]; then
+  rm -f "$RUST_MIGRATIONS/*"
+fi
 mkdir -p "$RUST_MIGRATIONS"
 echo "CREATE EXTENSION IF NOT EXISTS pg_trgm;" > "${RUST_MIGRATIONS}/${MIGRATION_COUNTER}_posthog_gin_extension.sql"
 MIGRATION_COUNTER=$((MIGRATION_COUNTER + 1))
@@ -33,18 +35,23 @@ POSTHOG_TABLES=( \
   "posthog_propertydefinition" \
   "posthog_eventproperty" \
   "posthog_eventdefinition" \
-  "posthog_posthog_grouptypemapping" \
+  "posthog_grouptypemapping" \
   "ee_enterprisepropertydefinition" \
-  "job_queue" \
-  "TODO_MOAR")
+  "posthog_errortrackinggroup" \
+  "posthog_errortrackingissue" \
+  "posthog_errortrackingissueassignment" \
+  "posthog_errortrackingissuefingerprint" \
+  "posthog_errortrackingissuefingerprint_id_seq" \
+  "posthog_errortrackingissuefingerprintv2" \
+  "posthog_errortrackingstackframe" \
+  "posthog_errortrackingsymbolset" \
+  "posthog_project")
 
 for table_name in "${POSTHOG_TABLES[@]}"; do
   MIGRATION_FILE="$RUST_MIGRATIONS/${MIGRATION_COUNTER}_${table_name}_schema.sql"
   MIGRATION_COUNTER=$((MIGRATION_COUNTER + 1))
 
-pg_dump -h localhost -p 5432 -U posthog -s -t <TABLE_NAME> test_posthog
   log "Exporting test_posthog schema for table: ${table_name}..."
-
   PGPASSWORD=posthog pg_dump \
     --user posthog \
     --host localhost \
