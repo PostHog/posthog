@@ -238,14 +238,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     ):
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
-        query = query.model_copy(deep=True)
-        if query.filter_test_accounts:
-            query.properties = expand_test_account_filters(team) + (query.properties or [])
+        expanded_query = query.model_copy(deep=True)
+        if expanded_query.filter_test_accounts:
+            expanded_query.properties = expand_test_account_filters(team) + (expanded_query.properties or [])
 
-        super().__init__(team, query)
+        super().__init__(team, expanded_query)
 
         self._paginator = HogQLHasMorePaginator(
-            limit=query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=query.offset or 0
+            limit=expanded_query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=expanded_query.offset or 0
         )
         self._hogql_query_modifiers = hogql_query_modifiers
 
