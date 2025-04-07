@@ -1,5 +1,9 @@
+use std::collections::HashMap;
+
 use serde_json::Value;
 use thiserror::Error;
+
+use crate::values::HogValue;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -17,12 +21,16 @@ pub enum VmError {
     EndOfProgram(usize),
     #[error("Invalid value of type {0}, expected {1}")]
     InvalidValue(String, String),
-    #[error("Stack overflow at address {0}")]
-    StackOverflow(usize),
-    #[error("Stack underflow at address {0}")]
-    StackUnderflow(usize),
+    #[error("Stack overflow")]
+    StackOverflow,
+    #[error("Stack underflow")]
+    StackUnderflow,
+    #[error("Stack index out of bounds")]
+    StackIndexOutOfBounds,
     #[error("Unknown Global {0}")]
     UnknownGlobal(String),
+    #[error("Unknown property {0}")]
+    UnknownProperty(String),
     #[error("Division by zero")]
     DivisionByZero,
     #[error("Cannot coerce types {0} and {1}")]
@@ -35,4 +43,12 @@ pub enum VmError {
     HeapIndexOutOfBounds,
     #[error("Use after free")]
     UseAfterFree,
+    #[error("Expected object")]
+    ExpectedObject,
+    #[error("Unexpected pop try")]
+    UnexpectedPopTry,
+    #[error("Cannot throw value, it is not of type Object, or is missing a 'type' or 'message' property")]
+    InvalidException,
+    #[error("Uncaught exception: {0}: {1}")]
+    UncaughtException(String, String, Option<HashMap<String, HogValue>>),
 }

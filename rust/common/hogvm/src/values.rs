@@ -9,12 +9,29 @@ pub enum Num {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum CallableType {
+    Local,
+}
+
+// TODO - this could probably be an enum based on the CallableType
+#[derive(Debug, Clone, PartialEq)]
+pub enum Callable {
+    Local {
+        name: String,
+        stack_arg_count: usize,
+        heap_arg_count: usize,
+        ip: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum HogValue {
     Number(Num),
     Boolean(bool),
     String(String),
     Array(Vec<HogValue>),
     Object(HashMap<String, HogValue>),
+    Callable(Callable),
     Null,
 }
 
@@ -38,6 +55,7 @@ impl HogValue {
             Self::Array(_) => "Array",
             Self::Object(_) => "Object",
             Self::Null => "Null",
+            Self::Callable(_) => "Callable",
         }
     }
 
@@ -55,7 +73,7 @@ impl HogValue {
         T::from_val(self)
     }
 
-    pub fn get_nested(&self, chain: &[String]) -> Option<&HogValue> {
+    pub fn get_nested<S: AsRef<str>>(&self, chain: &[S]) -> Option<&HogValue> {
         if chain.len() == 0 {
             return Some(self);
         }
@@ -63,7 +81,23 @@ impl HogValue {
         match self {
             Self::Object(map) => {
                 let key = chain.first().unwrap();
-                map.get(key).and_then(|value| value.get_nested(&chain[1..]))
+                map.get(key.as_ref())
+                    .and_then(|value| value.get_nested(&chain[1..]))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn get_nested_mut<S: AsRef<str>>(&mut self, chain: &[S]) -> Option<&mut HogValue> {
+        if chain.len() == 0 {
+            return Some(self);
+        }
+
+        match self {
+            Self::Object(map) => {
+                let key = chain.first().unwrap();
+                map.get_mut(key.as_ref())
+                    .and_then(|value| value.get_nested_mut(&chain[1..]))
             }
             _ => None,
         }
@@ -193,6 +227,18 @@ impl FromHogRef for str {
             _ => Err(VmError::InvalidValue(
                 value.type_name().to_string(),
                 "String".to_string(),
+            )),
+        }
+    }
+}
+
+impl FromHogRef for Callable {
+    fn from_ref(value: &HogValue) -> Result<&Self, VmError> {
+        match value {
+            HogValue::Callable(c) => Ok(c),
+            _ => Err(VmError::InvalidValue(
+                value.type_name().to_string(),
+                "Callable".to_string(),
             )),
         }
     }
