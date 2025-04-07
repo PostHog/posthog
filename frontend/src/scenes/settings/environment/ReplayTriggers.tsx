@@ -649,8 +649,10 @@ export function ReplayTriggers(): JSX.Element {
             </p>
 
             <div className="border rounded p-2">
-                <TriggerMatchChoice />
-                <LemonDivider />
+                <FlaggedFeature flag={FEATURE_FLAGS.REPLAY_TRIGGER_TYPE_CHOICE} match={true}>
+                    <TriggerMatchChoice />
+                    <LemonDivider />
+                </FlaggedFeature>
                 <UrlTriggerOptions />
                 <EventTriggerOptions />
                 <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>

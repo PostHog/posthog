@@ -255,6 +255,7 @@ export const FEATURE_FLAGS = {
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
     B2B_ANALYTICS: 'b2b-analytics', // owner: @danielbachhuber #team-crm
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
+    REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
