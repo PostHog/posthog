@@ -46,6 +46,7 @@ import {
     roundToDecimal,
     selectorOperatorMap,
     shortTimeZone,
+    shouldEnablePreviewFlagsV2,
     stringOperatorMap,
     toParams,
     wordPluralize,
@@ -873,5 +874,28 @@ describe('lib/utils', () => {
         expect(shortTimeZone('America/Phoenix')).toEqual('MST')
         expect(shortTimeZone('Europe/Moscow')).toEqual('UTC+3')
         expect(shortTimeZone('Asia/Tokyo')).toEqual('UTC+9')
+    })
+
+    describe('shouldEnablePreviewFlagsV2', () => {
+        it('returns true for anything if the rollout percentage is 100', () => {
+            expect(
+                shouldEnablePreviewFlagsV2('test', { rolloutPercentage: 100, includedHashes: new Set(['1234567890']) })
+            ).toBe(true)
+        })
+        it('returns true for our hashed API key', () => {
+            expect(
+                shouldEnablePreviewFlagsV2('sTMFPsFhdP1Ssg', {
+                    rolloutPercentage: 1,
+                    includedHashes: new Set(['3a4a1aa4']),
+                })
+            ).toBe(true)
+        })
+        it('returns false for our hashed API key when not passed it', () => {
+            expect(
+                shouldEnablePreviewFlagsV2('sTMFPsFhdP1Ssg', {
+                    rolloutPercentage: 1,
+                })
+            ).toBe(false)
+        })
     })
 })

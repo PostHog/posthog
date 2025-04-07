@@ -2042,3 +2042,36 @@ export const getJSHeapMemory = (): {
     }
     return {}
 }
+
+interface PreviewFlagsV2Config {
+    rolloutPercentage: number
+    includedHashes?: Set<string>
+    excludedHashes?: Set<string>
+}
+
+function hashString(str: string): string {
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i)
+        hash = (hash << 5) - hash + char
+        hash = hash & hash // Convert to 32-bit integer
+    }
+    // Convert to hex string
+    return (hash >>> 0).toString(16)
+}
+
+export function shouldEnablePreviewFlagsV2(apiKey: string, config: PreviewFlagsV2Config): boolean {
+    const hashHex = hashString(`preview_flags_v2.${apiKey}`)
+
+    // Check explicit includes/excludes first
+    if (config.includedHashes && config.includedHashes.has(hashHex)) {
+        return true
+    }
+    if (config.excludedHashes && config.excludedHashes.has(hashHex)) {
+        return false
+    }
+
+    // For all other keys, use percentage rollout
+    const normalizedHash = parseInt(hashHex, 16) / 0xffffffff
+    return normalizedHash <= config.rolloutPercentage / 100
+}
