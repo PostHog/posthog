@@ -25,13 +25,18 @@ def funnel_steps_to_window_funnel_expr(funnel_metric: ExperimentFunnelMetric) ->
 
     funnel_steps_str = ", ".join([f"funnel_step = 'step_{i}'" for i, _ in enumerate(funnel_metric.series)])
 
-    # TODO: get conversion time window from funnel config
     num_steps = len(funnel_metric.series)
-    conversion_time_window = 6048000000000000
+    if funnel_metric.time_window_hours is not None:
+        conversion_window_seconds = int(funnel_metric.time_window_hours * 60 * 60)
+    else:
+        # Default to include all events selected, so we just set a large value here (3 years)
+        # Events outside the experiment duration will be filtered out by the query runner
+        conversion_window_seconds = 3 * 365 * 24 * 60 * 60
+
     return parse_expr(
-        f"windowFunnel({conversion_time_window})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
+        f"windowFunnel({conversion_window_seconds})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
         placeholders={
-            "conversion_time_window": ast.Constant(value=conversion_time_window),
+            "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
             "num_steps": ast.Constant(value=num_steps),
         },
     )

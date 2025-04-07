@@ -9,6 +9,7 @@ from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import get_traceparent, push_scope, set_tag
 
+from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
@@ -786,8 +787,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
+        concurrency_limit = self.get_api_queries_concurrency_limit()
         with get_api_personal_rate_limiter().run(
-            is_api=self.is_query_service, team_id=self.team.pk, task_id=self.query_id
+            is_api=self.is_query_service,
+            team_id=self.team.pk,
+            org_id=self.team.organization_id,
+            task_id=self.query_id,
+            limit=concurrency_limit,
         ):
             if self.is_query_service:
                 tag_queries(chargeable=1)
@@ -818,6 +824,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
         return fresh_response
+
+    def get_api_queries_concurrency_limit(self):
+        """
+        :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
+        """
+
+        if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
+            return None
+
+        from ee.billing.quota_limiting import list_limited_team_attributes, QuotaLimitingCaches, QuotaResource
+        from posthog.constants import AvailableFeature
+
+        if self.team.api_token in list_limited_team_attributes(
+            QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        ):
+            return 0
+
+        feature = self.team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
+        return feature.get("limit") if feature else None
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

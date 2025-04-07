@@ -193,6 +193,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Action',
         defaultDocsPath: '/docs/data/actions',
     },
+    [Scene.Groups]: {
+        projectBased: true,
+        name: 'Groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
     [Scene.Group]: {
         projectBased: true,
         name: 'People & groups',

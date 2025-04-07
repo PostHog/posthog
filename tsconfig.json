@@ -49,7 +49,7 @@
         "common/eslint_rules/*",
         "common/storybook/*"
     ],
-    "exclude": ["frontend/dist/**/*"],
+    "exclude": ["frontend/dist/**/*", "**/*.mdx"],
     "ts-node": {
         "compilerOptions": {
             "module": "commonjs"

@@ -94,6 +94,7 @@ def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str]
 class TableStructureRow:
     column_name: str
     data_type: str
+    column_type: str
     is_nullable: bool
     numeric_precision: Optional[int]
     numeric_scale: Optional[int]
@@ -104,6 +105,7 @@ def _get_table_structure(cursor: Cursor, schema: str, table_name: str) -> list[T
         SELECT
             column_name,
             data_type,
+            column_type,
             is_nullable,
             numeric_precision,
             numeric_scale
@@ -123,7 +125,12 @@ def _get_table_structure(cursor: Cursor, schema: str, table_name: str) -> list[T
     rows = cursor.fetchall()
     return [
         TableStructureRow(
-            column_name=row[0], data_type=row[1], is_nullable=row[2], numeric_precision=row[3], numeric_scale=row[4]
+            column_name=row[0],
+            data_type=row[1],
+            column_type=row[2],
+            is_nullable=row[3],
+            numeric_precision=row[4],
+            numeric_scale=row[5],
         )
         for row in rows
     ]
@@ -134,24 +141,30 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
 
     for col in table_structure:
         name = col.column_name
-        mysql_type = col.data_type
+        mysql_data_type = col.data_type.lower()
+        mysql_col_type = col.column_type.lower()
+
+        # Note that deltalake doesn't support unsigned types, so we need to convert integer types to larger types
+        # For example an uint32 should support values up to 2^32, but deltalake will only support 2^31
+        # so in order to support unsigned types we need to convert to int64
+        is_unsigned = "unsigned" in mysql_col_type
 
         arrow_type: pa.DataType
 
         # Map MySQL type names to PyArrow types
-        match mysql_type:
+        match mysql_data_type:
             case "bigint":
-                arrow_type = pa.int64()
+                # There's no larger type than (u)int64
+                arrow_type = pa.uint64() if is_unsigned else pa.int64()
             case "int" | "integer" | "mediumint":
-                arrow_type = pa.int32()
+                arrow_type = pa.uint64() if is_unsigned else pa.int32()
             case "smallint":
-                arrow_type = pa.int16()
+                arrow_type = pa.uint32() if is_unsigned else pa.int16()
             case "tinyint":
-                arrow_type = pa.int8()
+                arrow_type = pa.uint16() if is_unsigned else pa.int8()
             case "decimal" | "numeric":
                 precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
                 scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
-
                 arrow_type = build_pyarrow_decimal_type(precision, scale)
             case "float":
                 arrow_type = pa.float32()
@@ -173,7 +186,7 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
                 arrow_type = pa.string()
             case "json":
                 arrow_type = pa.string()
-            case _ if mysql_type.endswith("[]"):  # Array types (though not native in MySQL)
+            case _ if mysql_data_type.endswith("[]"):  # Array types (though not native in MySQL)
                 arrow_type = pa.string()
             case _:
                 arrow_type = pa.string()
