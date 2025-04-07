@@ -3,13 +3,20 @@ import { useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { FingerprintRecordPartDisplay } from 'lib/components/Errors/FingerprintRecordPartDisplay'
 import { ChainedStackTraces, ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
+import { cn } from 'lib/utils/css-classes'
 import { useCallback } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { RuntimeIcon } from './RuntimeIcon'
 
-export function StacktraceDisplay({ className }: { className?: string }): JSX.Element {
+export function StacktraceDisplay({
+    className,
+    truncateMessage,
+}: {
+    className?: string
+    truncateMessage?: boolean
+}): JSX.Element {
     const {
         exceptionList,
         issue,
@@ -25,17 +32,23 @@ export function StacktraceDisplay({ className }: { className?: string }): JSX.El
     const renderExceptionHeader = useCallback(
         ({ type, value, part }: ExceptionHeaderProps): React.ReactNode => {
             return (
-                <div>
+                <div className="pb-1">
                     <div className="flex gap-2 items-center h-7">
                         <RuntimeIcon runtime={exceptionAttributes?.runtime} />
                         <div className="font-bold text-lg">{type}</div>
                         {part && <FingerprintRecordPartDisplay part={part} />}
                     </div>
-                    <div className="text-tertiary h-7 truncate">{value}</div>
+                    <div
+                        className={cn('text-tertiary', {
+                            'h-7 line-clamp-1': truncateMessage,
+                        })}
+                    >
+                        {value}
+                    </div>
                 </div>
             )
         },
-        [exceptionAttributes]
+        [exceptionAttributes, truncateMessage]
     )
 
     return (

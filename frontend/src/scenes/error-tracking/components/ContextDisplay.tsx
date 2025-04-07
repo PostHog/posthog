@@ -6,14 +6,10 @@ import { cn } from 'lib/utils/css-classes'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-export function ContextDisplay(): JSX.Element {
+export function ContextDisplay({ className }: { className?: string }): JSX.Element {
     const { exceptionAttributes, showContext, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
     return (
-        <div
-            className={cn('pt-14 transition-[width] duration-200 w-0', {
-                'w-[350px] pl-3': showContext,
-            })}
-        >
+        <div className={cn('pt-14 transition-[width] duration-200', className)}>
             {match([showContext, propertiesLoading, exceptionAttributes])
                 .with([false, P.any, P.any], () => null)
                 .with([true, true, P.any], () => (

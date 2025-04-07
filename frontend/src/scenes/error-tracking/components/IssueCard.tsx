@@ -3,7 +3,6 @@ import { LemonCard, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { cn } from 'lib/utils/css-classes'
-import { Children, Fragment } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
@@ -24,9 +23,20 @@ export function IssueCard(): JSX.Element {
                 setShowStacktrace(!showStacktrace)
             }}
         >
-            <Collapsible isExpanded={showStacktrace} className="pb-2 flex" minHeight="calc(var(--spacing) * 13)">
-                <StacktraceDisplay className="flex-grow" />
-                <ContextDisplay />
+            <Collapsible isExpanded={showStacktrace} className="pb-2 flex w-full" minHeight="calc(var(--spacing) * 13)">
+                <StacktraceDisplay
+                    className={cn('flex-grow', {
+                        'w-2/3': showContext,
+                        'w-full': !showContext,
+                    })}
+                    truncateMessage={!showStacktrace}
+                />
+                <ContextDisplay
+                    className={cn('', {
+                        'w-1/3 pl-2': showContext,
+                        'w-0': !showContext,
+                    })}
+                />
             </Collapsible>
             <div className="absolute top-2 right-3 flex gap-2">
                 <ViewRecordingButton
@@ -97,16 +107,7 @@ function StacktraceExpander(): JSX.Element {
 function IssueCardActions({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         <div className="flex justify-between items-center gap-1" onClick={cancelEvent}>
-            {Children.toArray(children)
-                .filter((child) => !!child)
-                .map((child, index) => (
-                    <Fragment key={index}>
-                        {child}
-                        {/* {index !== array.length - 1 && (
-                            <LemonDivider vertical={true} className="h-3 mx-1 self-center" />
-                        )} */}
-                    </Fragment>
-                ))}
+            {children}
         </div>
     )
 }
