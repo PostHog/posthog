@@ -6,10 +6,9 @@ from ee.session_recordings.ai.llm import get_raw_llm_session_summary
 from ee.session_recordings.ai.output_data import enrich_raw_session_summary_with_events_meta
 from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.utils import (
-    load_session_metadata_from_json,
-    load_sesssion_recording_events_from_csv,
     shorten_url,
 )
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -28,18 +27,18 @@ class ReplaySummarizer:
     @staticmethod
     def _get_session_metadata(session_id: str, team: Team) -> dict[str, Any]:
         # # TODO: Switch to using it after testing with production data
-        # live_session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
-        # if not live_session_metadata:
-        #     raise ValueError(f"no session metadata found for session_id {session_id}")
-        # # Convert to a dict, so that we can amend its values freely
-        # live_session_metadata_dict = dict(live_session_metadata)
+        session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
+        if not session_metadata:
+            raise ValueError(f"no session metadata found for session_id {session_id}")
+        # Convert to a dict, so that we can amend its values freely
+        session_metadata_dict = dict(session_metadata)
         logger.debug(f"Session id: {session_id}, team: {team}")
 
         # TODO: Remove before merging, using to test with production data
-        # Load session metadata from JSON to load with production data.
-        session_metadata_dict = load_session_metadata_from_json(
-            "/Users/woutut/Documents/Code/posthog/playground/single-session-metadata_0195f10e-7c84-7944-9ea2-0303a4b37af7.json"
-        )
+        # # Load session metadata from JSON to load with production data.
+        # session_metadata_dict = load_session_metadata_from_json(
+        #     "/Users/woutut/Documents/Code/posthog/playground/single-session-metadata_0195f10e-7c84-7944-9ea2-0303a4b37af7.json"
+        # )
         return session_metadata_dict
 
     @staticmethod
@@ -47,21 +46,21 @@ class ReplaySummarizer:
         session_id: str, session_metadata: dict, team: Team
     ) -> tuple[list[str], list[list[str | datetime]]]:
         # # TODO: Switch to using it after testing with production data
-        # live_session_events = SessionReplayEvents().get_events(
-        #     session_id=str(session_id),
-        #     team=team,
-        #     metadata=session_metadata,
-        #     events_to_ignore=[
-        #         "$feature_flag_called",
-        #     ],
-        # )
+        session_events_columns, session_events = SessionReplayEvents().get_events(
+            session_id=str(session_id),
+            team=team,
+            metadata=session_metadata,
+            events_to_ignore=[
+                "$feature_flag_called",
+            ],
+        )
         logger.debug(f"Session metadata: {session_metadata}, team: {team}")
 
         # TODO: Remove before merging, using to test with production data
         # Load session events from CSV to load with production data.
-        session_events_columns, session_events = load_sesssion_recording_events_from_csv(
-            "/Users/woutut/Documents/Code/posthog/playground/single-session-csv-export_0195f10e-7c84-7944-9ea2-0303a4b37af7.csv"
-        )
+        # session_events_columns, session_events = load_sesssion_recording_events_from_csv(
+        #     "/Users/woutut/Documents/Code/posthog/playground/single-session-csv-export_0195f10e-7c84-7944-9ea2-0303a4b37af7.csv"
+        # )
         if not session_events_columns or not session_events:
             raise ValueError(f"no events found for session_id {session_id}")
         return session_events_columns, session_events
@@ -75,6 +74,7 @@ class ReplaySummarizer:
         # Keep shortened URLs for the prompt to reduce the number of tokens
         short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
         # Render all templates
+        # TODO Optimize prompt (reduce input count, simplify instructions)
         summary_template = get_template(f"session_summaries/single-replay_base-prompt.djt")
         summary_example = get_template(f"session_summaries/single-replay_example.yml").render()
         rendered_summary_prompt = summary_template.render(
