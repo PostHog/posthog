@@ -8,8 +8,8 @@ from ee.session_recordings.session_summary.utils import get_column_index
 
 
 class EventTagSerializer(serializers.Serializer):
-    where = serializers.ListField(child=serializers.CharField(min_length=1, max_length=256), allow_empty=False)
-    what = serializers.ListField(child=serializers.CharField(min_length=1, max_length=256), allow_empty=False)
+    where = serializers.ListField(child=serializers.CharField(min_length=1, max_length=256), allow_empty=True)
+    what = serializers.ListField(child=serializers.CharField(min_length=1, max_length=256), allow_empty=True)
 
 
 class BaseKeyEventSerializer(serializers.Serializer):
@@ -95,7 +95,8 @@ def _calculate_time_since_start(session_timestamp: str, session_start_time: date
     if not session_start_time or not session_timestamp:
         return None
     timestamp_datetime = datetime.fromisoformat(session_timestamp)
-    return int((timestamp_datetime - session_start_time).total_seconds() * 1000)
+    # TODO Check why the event could happen before the session started
+    return max(0, int((timestamp_datetime - session_start_time).total_seconds() * 1000))
 
 
 def enrich_raw_session_summary_with_events_meta(
@@ -126,7 +127,7 @@ def enrich_raw_session_summary_with_events_meta(
         timestamp = simplified_events_mapping[event_id][timestamp_index]
         enriched_key_event["timestamp"] = timestamp
         ms_since_start = _calculate_time_since_start(timestamp, session_start_time)
-        if ms_since_start:
+        if ms_since_start is not None:
             enriched_key_event["milliseconds_since_start"] = ms_since_start
         # Add full URL of the event page
         current_url = simplified_events_mapping[event_id][current_url_index]
