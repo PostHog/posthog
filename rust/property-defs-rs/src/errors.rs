@@ -2,8 +2,7 @@ use redis::RedisError;
 
 #[derive(Debug)]
 pub enum CacheError {
-    Redis(RedisError),
-    NotSupported,
+    Redis(RedisError)
 }
 
 impl From<RedisError> for CacheError {
@@ -16,7 +15,6 @@ impl std::fmt::Display for CacheError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CacheError::Redis(err) => write!(f, "Redis error: {}", err),
-            CacheError::NotSupported => write!(f, "Operation not supported"),
         }
     }
 }

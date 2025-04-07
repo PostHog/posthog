@@ -31,6 +31,7 @@ thiserror.workspace = true
 regex.workspace = true
 redis = { workspace = true }
 async-trait = "0.1.77"
+async-stream = "0.3.5"
 
 [dev-dependencies]
 mockall = "0.13.1"

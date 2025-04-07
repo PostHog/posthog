@@ -1,8 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration, pin::Pin};
 
 use app_context::AppContext;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
+use futures::stream::{Stream, StreamExt};
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
@@ -160,13 +161,8 @@ async fn process_batch_v1(
     issue_time.fin();
 }
 
-async fn filter_updates(updates: Vec<Update>, cache: &LayeredCache) -> Vec<Update> {
-    let input_count = updates.len();
-    let not_cached = cache.filter_cached_updates(updates).await;
-    let filtered_count = input_count - not_cached.len();
-    metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(filtered_count as u64);
-    metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(filtered_count as u64);
-    not_cached
+async fn filter_updates(updates: Vec<Update>, cache: &LayeredCache) -> Pin<Box<dyn Stream<Item = Update> + Send + '_>> {
+    cache.filter_cached_updates(updates).await
 }
 
 pub async fn update_producer_loop(
@@ -244,9 +240,13 @@ pub async fn update_producer_loop(
         {
             last_send = tokio::time::Instant::now();
             let updates: Vec<Update> = batch.drain().collect();
-            let filtered_updates = filter_updates(updates, &layered_cache).await;
+            let input_count = updates.len() as u64;
+            let filtered_stream = filter_updates(updates, &layered_cache).await;
 
-            for update in filtered_updates {
+            tokio::pin!(filtered_stream);
+            let mut processed_count = 0u64;
+            while let Some(update) = filtered_stream.next().await {
+                processed_count += 1;
                 match channel.try_send(update) {
                     Ok(_) => {}
                     Err(TrySendError::Full(update)) => {
@@ -260,6 +260,10 @@ pub async fn update_producer_loop(
                     }
                 }
             }
+
+            let filtered_count = input_count - processed_count;
+            metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(filtered_count);
+            metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(filtered_count);
         }
     }
 }

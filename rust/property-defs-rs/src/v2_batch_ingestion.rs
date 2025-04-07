@@ -280,7 +280,9 @@ pub async fn process_batch_v2(
 
 async fn cache_updates(cache: &LayeredCache, updates: Vec<Update>) {
     let timer = common_metrics::timing_guard(V2_BATCH_CACHE_TIME, &[]);
-    cache.insert_batch(updates).await;
+    if let Err(e) = cache.insert_batch(updates).await {
+        warn!("Failed to insert updates into cache: {:?}", e);
+    }
     timer.fin();
 }
 
