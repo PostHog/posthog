@@ -17,6 +17,9 @@ export function useSparklineOptions(overrides: Partial<SparklineOptions> = {}, d
             axisColor: `var(--${colorVars[0]})`,
             borderRadius: 5,
             eventLabelHeight: 20,
+            eventLabelPaddingX: 5,
+            eventLabelPaddingY: 3,
+            eventMinSpace: 2,
             ...overrides,
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps

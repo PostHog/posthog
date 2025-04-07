@@ -37,11 +37,10 @@ export type SparklineOptions = {
     axisColor: string
     borderRadius: number
     eventLabelHeight: number // Control the chart height reserved to event labels
+    eventMinSpace: number // Control the spacing between events when they collapse
+    eventLabelPaddingX: number //Control the padding on the rect label
+    eventLabelPaddingY: number
 }
-
-// const BORDER_RADIUS = 5
-// const EVENT_PADDING = 50
-const BAR_PADDING = 2
 
 export function SparklineChart({ data, events = [], options, className }: SparklineProps): JSX.Element {
     const svgRef = useRef<SVGSVGElement>(null)
@@ -70,11 +69,11 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
 
             const xAxis = d3.axisBottom(xScale).tickValues(xTicks).tickSize(0).tickPadding(5)
 
-            svg.selectAll('g.bar-group')
+            svg.selectAll('g.datum')
                 .data(occurences)
                 .enter()
                 .append('g')
-                .attr('class', 'bar-group')
+                .attr('class', 'datum')
                 .call(buildBarGroup, xScale, yScale, contentHeight, occurences, options)
 
             svg.append('g')
@@ -87,14 +86,7 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
                 .enter()
                 .append('g')
                 .attr('class', '.event')
-                .call(buildEventLabel, xScale, options, contentWidth)
-
-            svg.selectAll('g.event-anchor')
-                .data(events || [])
-                .enter()
-                .append('g')
-                .attr('class', '.event-anchor')
-                .call(buildEventAnchor, xScale, contentHeight)
+                .call(buildEvent, xScale, options, contentHeight, contentWidth)
 
             return () => {
                 // Remove event listeners
@@ -140,7 +132,7 @@ function buildBarGroup(
         .attr('width', bandwidth * 0.9)
         .attr('height', (d) => (d ? contentHeight - yScale(d.value) : 0))
         .style('fill', options.backgroundColor)
-        .style('clip-path', `inset(0 0 ${options.borderRadius + BAR_PADDING}px 0)`)
+        .style('clip-path', `inset(0 0 ${options.borderRadius + 1}px 0)`) // Offset by 1px to avoid overlapping on x axis
         .attr('rx', options.borderRadius)
         .attr('ry', options.borderRadius)
 
@@ -162,21 +154,11 @@ function buildEventLabel(
     options: SparklineOptions,
     contentWidth: number
 ): void {
-    const paddingX = 5
-    const paddingY = 3
+    const paddingX = options.eventLabelPaddingX
+    const paddingY = options.eventLabelPaddingY
     const baseLine = options.eventLabelHeight / 2
-    const eventGroup = selection
-        .append('g')
-        .attr('class', 'event')
-        .style('cursor', options.onEventClick ? 'pointer' : 'default')
-        .on('mouseover', function (this, _, d) {
-            options.onEventMouseEnter?.(d)
-        })
-        .on('mouseout', function (this, _, d) {
-            options.onEventMouseLeave?.(d)
-        })
 
-    const text = eventGroup
+    const text = selection
         .append('text')
         .attr('class', 'font-semibold')
         .attr('x', (d) => xScale(d.date))
@@ -191,20 +173,20 @@ function buildEventLabel(
 
     const textNodes = text.nodes()
 
-    eventGroup
+    selection
         .insert('rect', 'text')
         .attr('x', (_, i) => textNodes[i].getBBox().x - paddingX)
         .attr('y', (_, i) => textNodes[i].getBBox().y - paddingY)
         .attr('width', (_, i) => textNodes[i].getBBox().width + paddingX * 2)
         .attr('height', (_, i) => textNodes[i].getBBox().height + paddingY * 2)
-        .attr('rx', 5)
-        .attr('ry', 5)
+        .attr('rx', options.borderRadius)
+        .attr('ry', options.borderRadius)
         .attr('fill', (d) => d.color || 'black')
 
-    const movingNodes = eventGroup.nodes().map((node, index) => {
+    const movingNodes = selection.nodes().map((node, index) => {
         const bbox = node.getBBox()
         const center = { x: bbox.x + bbox.width / 2, y: bbox.y + bbox.height / 2 }
-        return { ...center, radius: bbox.width / 2 + 5, id: `moving-${index}` }
+        return { ...center, radius: bbox.width / 2 + options.eventMinSpace, id: `moving-${index}` }
     })
 
     const clonedNodes = [...movingNodes.map((node) => ({ ...node }))]
@@ -226,7 +208,11 @@ function buildEventLabel(
         const initialY = clonedNodes[index].y
         const deltaX = newX - initialX
         const deltaY = newY - initialY
-        eventGroup.filter((_, i) => i === index).attr('transform', `translate(${deltaX}, ${deltaY})`)
+        selection
+            .filter((_, i) => i === index)
+            .attr('transform', `translate(${deltaX}, ${deltaY})`)
+            .attr('dx', deltaX)
+            .attr('dy', deltaY)
     })
 }
 
@@ -235,14 +221,63 @@ function buildEventAnchor(
     xScale: d3.ScaleTime<number, number>,
     contentHeight: number
 ): void {
-    const eventGroup = selection.append('g').attr('class', 'event-anchor')
-
-    eventGroup
+    selection
         .append('circle')
         .attr('cx', (d) => xScale(d.date))
         .attr('cy', contentHeight)
         .attr('r', 6)
         .attr('fill', (d) => d.color || 'black')
+}
+
+function buildEvent(
+    selection: d3.Selection<SVGGElement, SparklineEvent<string>, SVGGElement, SparklineEvent<string>>,
+    xScale: d3.ScaleTime<number, number>,
+    options: SparklineOptions,
+    contentHeight: number,
+    contentWidth: number
+): void {
+    selection.append('g').attr('class', 'label').call(buildEventLabel, xScale, options, contentWidth)
+    selection.call(buildEventLine, xScale, contentHeight, contentWidth)
+    selection.call(buildEventAnchor, xScale, contentHeight)
+
+    selection
+        .style('cursor', options.onEventClick ? 'pointer' : 'default')
+        .on('mouseover', function (this, _, d) {
+            options.onEventMouseEnter?.(d)
+        })
+        .on('mouseout', function (this, _, d) {
+            options.onEventMouseLeave?.(d)
+        })
+}
+
+function buildEventLine(
+    selection: d3.Selection<SVGGElement, SparklineEvent<string>, SVGGElement, SparklineEvent<string>>,
+    xScale: d3.ScaleTime<number, number>,
+    contentHeight: number,
+    contentWidth: number
+): void {
+    selection
+        .insert('line', 'g.label')
+        .attr('x1', (d) => xScale(d.date))
+        .attr('y1', contentHeight)
+        .attr('x2', (_, index) => {
+            const labelNode = selection
+                .selectAll('.label')
+                .nodes()
+                .find((_, i) => i === index) as SVGGElement
+            const dx = parseFloat(labelNode.getAttribute('dx') || '0')
+            const labelBbox = labelNode.getBBox()
+            return labelBbox?.x + dx + labelBbox?.width / 2 || 0
+        })
+        .attr('y2', 5)
+        .attr('stroke-width', 2)
+        .attr('stroke', (d) => {
+            const xPos = xScale(d.date)
+            if (xPos < 0 || xPos > contentWidth) {
+                return 'transparent'
+            }
+            return d.color || 'black'
+        })
 }
 
 function forceBoundaries(nodes: any, minX: number, maxX: number) {
