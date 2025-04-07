@@ -22,9 +22,9 @@ impl<S: SecondaryCacheOperations> LayeredCache<S> {
 
         for key in &keys {
             if self.memory.get(key).is_none() {
+                self.memory.insert(key.clone(), ());
                 new_keys.push(key.clone());
             }
-            self.memory.insert(key.clone(), ());
         }
 
         if !new_keys.is_empty() {
