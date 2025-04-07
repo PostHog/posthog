@@ -28,6 +28,7 @@ export function Elements(): JSX.Element {
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+
     const shiftPressed = useShiftKeyPressed()
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 

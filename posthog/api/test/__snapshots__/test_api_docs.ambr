@@ -137,6 +137,7 @@
     'Warning: operationId "persons_activity_retrieve" has collisions [(\'/api/projects/{project_id}/persons/{id}/activity/\', \'get\'), (\'/api/projects/{project_id}/persons/activity/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "retrieve" has collisions [(\'/api/organizations/{id}/\', \'get\'), (\'/api/organizations/{organization_id}/projects/{id}/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "surveys_activity_retrieve" has collisions [(\'/api/projects/{project_id}/surveys/{id}/activity/\', \'get\'), (\'/api/projects/{project_id}/surveys/activity/\', \'get\')]. resolving with numeral suffixes.',
+    'Warning: operationId "surveys_stats_retrieve" has collisions [(\'/api/projects/{project_id}/surveys/{id}/stats/\', \'get\'), (\'/api/projects/{project_id}/surveys/stats/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "update" has collisions [(\'/api/organizations/{id}/\', \'put\'), (\'/api/organizations/{organization_id}/projects/{id}/\', \'put\')]. resolving with numeral suffixes.',
   ])
 # ---

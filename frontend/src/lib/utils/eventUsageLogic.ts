@@ -269,6 +269,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             success,
             error,
         }),
+        reportDataTableColumnsUpdated: (context_type: string) => ({ context_type }),
         // insight filters
         reportFunnelStepReordered: true,
         reportInsightFilterRemoved: (index: number) => ({ index }),
@@ -725,6 +726,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportFunnelStepReordered: async () => {
             posthog.capture('funnel step reordered')
+        },
+        reportDataTableColumnsUpdated: async ({ context_type }) => {
+            posthog.capture('data table columns updated', { context_type })
         },
         reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`person property ${action}`, {

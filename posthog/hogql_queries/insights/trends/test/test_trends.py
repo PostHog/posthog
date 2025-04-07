@@ -4468,6 +4468,46 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEntityResponseEqual(event_response, action_response)
 
+    def test_breakdown_by_event_metadata(self):
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "interval": "hour",
+                        "events": [{"id": "$pageview"}],
+                        "breakdown": "distinct_id",
+                        "breakdown_type": "event_metadata",
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "p1")
+        self.assertEqual(response[1]["label"], "p2")
+        self.assertEqual(response[0]["count"], 2)
+        self.assertEqual(response[1]["count"], 1)
+
     @also_test_with_materialized_columns(verify_no_jsonextract=False)
     def test_interval_filtering_breakdown(self):
         self._create_events(use_time=True)

@@ -121,9 +121,9 @@ class Insight(FileSystemSyncMixin, models.Model):
         should_delete = self.deleted or not self.saved
         return FileSystemRepresentation(
             base_folder="Unfiled/Insights",
-            type="insight",
+            type="insight",  # sync with APIScopeObject in scopes.py
             ref=self.short_id,
-            name=self.name or "Untitled",
+            name=self.name or self.derived_name or "Untitled",
             href=f"/insights/{self.short_id}",
             meta={
                 "created_at": str(self.created_at),

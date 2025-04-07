@@ -64,6 +64,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -160,15 +161,6 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.12
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Feature Flags/Untitled'
-         AND "posthog_filesystem"."team_id" = 99999)
-  LIMIT 1
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.13
-  '''
   SELECT "posthog_team"."id",
          "posthog_team"."project_id"
   FROM "posthog_team"
@@ -177,7 +169,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.14
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.13
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -205,11 +197,12 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.15
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.14
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -276,7 +269,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.16
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.15
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -288,11 +281,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.17
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.16
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -366,7 +360,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.18
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.17
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -375,7 +369,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.19
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.18
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -391,16 +385,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.2
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_organizationmembership"
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 99999)
-  LIMIT 1
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.20
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.19
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -427,6 +412,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -504,7 +490,16 @@
                                               'site_app'))
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.21
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.2
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_organizationmembership"
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 1
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.20
   '''
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
@@ -515,7 +510,7 @@
          AND "posthog_dashboardtile"."dashboard_id" = 99999)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.22
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.21
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -542,7 +537,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.23
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.22
   '''
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
@@ -553,11 +548,12 @@
          AND "posthog_dashboardtile"."dashboard_id" = 99999)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.24
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.23
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -624,7 +620,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.25
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.24
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -659,11 +655,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.26
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.25
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -737,11 +734,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.27
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.26
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -808,7 +806,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.28
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.27
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -826,7 +824,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.29
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.28
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -858,6 +856,32 @@
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   WHERE "posthog_dashboarditem"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.29
+  '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  WHERE "posthog_dashboard"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -891,33 +915,10 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.30
   '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."variables",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  WHERE "posthog_dashboard"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.31
-  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -991,11 +992,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.32
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.31
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1062,7 +1064,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.33
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.32
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -1097,11 +1099,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.34
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.33
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1175,11 +1178,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.35
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.34
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1246,7 +1250,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.36
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.35
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -1264,7 +1268,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.37
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.36
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -1299,7 +1303,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.38
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.37
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -1312,6 +1316,8 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1323,11 +1329,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.39
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.38
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1399,6 +1406,33 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.39
+  '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."version",
+         "posthog_featureflag"."last_modified_by_id",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
+  FROM "posthog_featureflag"
+  WHERE "posthog_featureflag"."id" = 99999
+  ORDER BY "posthog_featureflag"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.4
@@ -1430,33 +1464,6 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.40
   '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
-  FROM "posthog_featureflag"
-  WHERE "posthog_featureflag"."id" = 99999
-  ORDER BY "posthog_featureflag"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.41
-  '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
@@ -1476,17 +1483,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.42
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Feature Flags/Untitled'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
-  LIMIT 1
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.43
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.41
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -1514,11 +1511,12 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.44
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.42
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1585,7 +1583,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.45
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.43
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -1597,11 +1595,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.46
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.44
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1675,7 +1674,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.47
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.45
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -1684,7 +1683,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.48
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.46
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -1700,7 +1699,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.49
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.47
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -1727,6 +1726,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1804,11 +1804,42 @@
                                               'site_app'))
   '''
 # ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.48
+  '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_taggeditem"."experiment_saved_metric_id"
+  FROM "posthog_taggeditem"
+  WHERE "posthog_taggeditem"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.49
+  '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_taggeditem"."experiment_saved_metric_id"
+  FROM "posthog_taggeditem"
+  WHERE "posthog_taggeditem"."feature_flag_id" = 99999
+  '''
+# ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.5
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1878,135 +1909,106 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.50
   '''
-  SELECT "posthog_taggeditem"."id",
-         "posthog_taggeditem"."tag_id",
-         "posthog_taggeditem"."dashboard_id",
-         "posthog_taggeditem"."insight_id",
-         "posthog_taggeditem"."event_definition_id",
-         "posthog_taggeditem"."property_definition_id",
-         "posthog_taggeditem"."action_id",
-         "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id"
-  FROM "posthog_taggeditem"
-  WHERE "posthog_taggeditem"."feature_flag_id" = 99999
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
+         "posthog_survey"."enable_partial_responses"
+  FROM "posthog_survey"
+  WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.51
   '''
-  SELECT "posthog_taggeditem"."id",
-         "posthog_taggeditem"."tag_id",
-         "posthog_taggeditem"."dashboard_id",
-         "posthog_taggeditem"."insight_id",
-         "posthog_taggeditem"."event_definition_id",
-         "posthog_taggeditem"."property_definition_id",
-         "posthog_taggeditem"."action_id",
-         "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id"
-  FROM "posthog_taggeditem"
-  WHERE "posthog_taggeditem"."feature_flag_id" = 99999
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
+         "posthog_survey"."enable_partial_responses"
+  FROM "posthog_survey"
+  WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.52
   '''
-  SELECT "posthog_survey"."id",
-         "posthog_survey"."team_id",
-         "posthog_survey"."name",
-         "posthog_survey"."description",
-         "posthog_survey"."linked_flag_id",
-         "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."internal_targeting_flag_id",
-         "posthog_survey"."internal_response_sampling_flag_id",
-         "posthog_survey"."type",
-         "posthog_survey"."conditions",
-         "posthog_survey"."questions",
-         "posthog_survey"."appearance",
-         "posthog_survey"."created_at",
-         "posthog_survey"."created_by_id",
-         "posthog_survey"."start_date",
-         "posthog_survey"."end_date",
-         "posthog_survey"."updated_at",
-         "posthog_survey"."archived",
-         "posthog_survey"."responses_limit",
-         "posthog_survey"."response_sampling_start_date",
-         "posthog_survey"."response_sampling_interval_type",
-         "posthog_survey"."response_sampling_interval",
-         "posthog_survey"."response_sampling_limit",
-         "posthog_survey"."response_sampling_daily_limits",
-         "posthog_survey"."iteration_count",
-         "posthog_survey"."iteration_frequency_days",
-         "posthog_survey"."iteration_start_dates",
-         "posthog_survey"."current_iteration",
-         "posthog_survey"."current_iteration_start_date",
-         "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
-  FROM "posthog_survey"
-  WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
+  SELECT "ee_featureflagroleaccess"."id",
+         "ee_featureflagroleaccess"."feature_flag_id",
+         "ee_featureflagroleaccess"."role_id",
+         "ee_featureflagroleaccess"."added_at",
+         "ee_featureflagroleaccess"."updated_at"
+  FROM "ee_featureflagroleaccess"
+  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.53
   '''
-  SELECT "posthog_survey"."id",
-         "posthog_survey"."team_id",
-         "posthog_survey"."name",
-         "posthog_survey"."description",
-         "posthog_survey"."linked_flag_id",
-         "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."internal_targeting_flag_id",
-         "posthog_survey"."internal_response_sampling_flag_id",
-         "posthog_survey"."type",
-         "posthog_survey"."conditions",
-         "posthog_survey"."questions",
-         "posthog_survey"."appearance",
-         "posthog_survey"."created_at",
-         "posthog_survey"."created_by_id",
-         "posthog_survey"."start_date",
-         "posthog_survey"."end_date",
-         "posthog_survey"."updated_at",
-         "posthog_survey"."archived",
-         "posthog_survey"."responses_limit",
-         "posthog_survey"."response_sampling_start_date",
-         "posthog_survey"."response_sampling_interval_type",
-         "posthog_survey"."response_sampling_interval",
-         "posthog_survey"."response_sampling_limit",
-         "posthog_survey"."response_sampling_daily_limits",
-         "posthog_survey"."iteration_count",
-         "posthog_survey"."iteration_frequency_days",
-         "posthog_survey"."iteration_start_dates",
-         "posthog_survey"."current_iteration",
-         "posthog_survey"."current_iteration_start_date",
-         "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
-  FROM "posthog_survey"
-  WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
+  SELECT "ee_featureflagroleaccess"."id",
+         "ee_featureflagroleaccess"."feature_flag_id",
+         "ee_featureflagroleaccess"."role_id",
+         "ee_featureflagroleaccess"."added_at",
+         "ee_featureflagroleaccess"."updated_at"
+  FROM "ee_featureflagroleaccess"
+  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.54
   '''
-  SELECT "ee_featureflagroleaccess"."id",
-         "ee_featureflagroleaccess"."feature_flag_id",
-         "ee_featureflagroleaccess"."role_id",
-         "ee_featureflagroleaccess"."added_at",
-         "ee_featureflagroleaccess"."updated_at"
-  FROM "ee_featureflagroleaccess"
-  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.55
-  '''
-  SELECT "ee_featureflagroleaccess"."id",
-         "ee_featureflagroleaccess"."feature_flag_id",
-         "ee_featureflagroleaccess"."role_id",
-         "ee_featureflagroleaccess"."added_at",
-         "ee_featureflagroleaccess"."updated_at"
-  FROM "ee_featureflagroleaccess"
-  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.56
-  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2080,7 +2082,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.57
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.55
   '''
   SELECT "posthog_experiment"."id",
          "posthog_experiment"."name",
@@ -2108,7 +2110,7 @@
   WHERE "posthog_experiment"."feature_flag_id" = 99999
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.58
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.56
   '''
   SELECT "posthog_survey"."id",
          "posthog_survey"."team_id",
@@ -2145,7 +2147,7 @@
   WHERE "posthog_survey"."linked_flag_id" = 99999
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.59
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.57
   '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
@@ -2157,6 +2159,68 @@
          "posthog_earlyaccessfeature"."created_at"
   FROM "posthog_earlyaccessfeature"
   WHERE "posthog_earlyaccessfeature"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.58
+  '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_featureflagdashboards" ON ("posthog_dashboard"."id" = "posthog_featureflagdashboards"."dashboard_id")
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_featureflagdashboards"."feature_flag_id" = 99999)
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.59
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.6
@@ -2406,6 +2470,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
