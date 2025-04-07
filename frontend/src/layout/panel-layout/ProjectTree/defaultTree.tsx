@@ -62,11 +62,6 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: () => urls.survey('new'),
         },
         {
-            path: `SQL query`,
-            type: 'sql',
-            href: () => urls.sqlEditor(),
-        },
-        {
             path: `Data source`,
             type: 'hog_function/source',
             href: () => urls.pipelineNodeNew(PipelineStage.Source),
@@ -132,7 +127,11 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             href: () => urls.ingestionWarnings(),
             flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         },
-
+        {
+            path: `SQL query`,
+            type: 'sql',
+            href: () => urls.sqlEditor(),
+        },
         {
             path: 'Data warehouse',
             icon: <IconDatabase />,
