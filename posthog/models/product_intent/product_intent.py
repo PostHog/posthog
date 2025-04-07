@@ -5,6 +5,7 @@ from celery import shared_task
 from django.db import models
 from rest_framework import serializers
 
+from posthog.models.dashboard import Dashboard
 from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -152,6 +153,19 @@ class ProductIntent(UUIDModel):
 
         return False
 
+    def has_activated_product_analytics(self) -> bool:
+        insights = Insight.objects.filter(team=self.team, created_by__isnull=False)
+
+        if insights.count() < 3:
+            return False
+
+        dashboards = Dashboard.objects.filter(team=self.team, created_by__isnull=False)
+
+        if dashboards.count() < 1:
+            return False
+
+        return self.team.ingested_event
+
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
@@ -159,6 +173,7 @@ class ProductIntent(UUIDModel):
             "feature_flags": self.has_activated_feature_flags,
             "session_replay": self.has_activated_session_replay,
             "error_tracking": self.has_activated_error_tracking,
+            "product_analytics": self.has_activated_product_analytics,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():
