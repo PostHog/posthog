@@ -63,7 +63,6 @@ posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does no
 posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/api/search.py:0: error: "type[Model]" has no attribute "objects"  [attr-defined]
 posthog/api/shared.py:0: error: Incompatible return value type (got "int | None", expected "Level | None")  [return-value]
-posthog/api/sharing.py:0: error: Item "None" of "list[Any] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/api/signup.py:0: error: Argument 1 to "create_user" of "UserManager" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/api/survey.py:0: error: Incompatible types in assignment (expression has type "Any | Sequence[Any] | None", variable has type "Survey | None")  [assignment]
 posthog/api/survey.py:0: error: Item "list[_ErrorFullDetails]" of "_FullDetailDict | list[_ErrorFullDetails] | dict[str, _ErrorFullDetails]" has no attribute "get"  [union-attr]
