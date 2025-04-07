@@ -7,12 +7,11 @@ use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
 use crate::metrics::metrics_consts::{
     DB_GROUP_PROPERTIES_READS_COUNTER, DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
-    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_COHORT_FILTER_TIME, FLAG_DB_PROPERTIES_FETCH_TIME,
+    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_TYPE_INDEX_MATCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
-    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_EVALUATION_TIME,
-    FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME,
+    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
@@ -212,6 +211,8 @@ pub struct PropertiesCache {
     person_id: Option<PersonId>,
     person_properties: Option<HashMap<String, Value>>,
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
+    // Add static cohort cache
+    static_cohort_matches: Option<HashMap<CohortId, bool>>,
 }
 
 #[derive(Clone)]
@@ -225,7 +226,6 @@ pub struct FeatureFlagMatcher {
     group_type_mapping_cache: GroupTypeMappingCache,
     properties_cache: PropertiesCache,
     groups: HashMap<String, Value>,
-    static_cohort_matches: Option<HashMap<CohortId, bool>>,
 }
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
@@ -253,7 +253,6 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(project_id, reader.clone())),
             groups: groups.unwrap_or_default(),
             properties_cache: PropertiesCache::default(),
-            static_cohort_matches: None,
         }
     }
 
@@ -314,7 +313,6 @@ impl FeatureFlagMatcher {
             );
         }
 
-        let local_eval_timer = common_metrics::timing_guard(FLAG_LOCAL_EVALUATION_TIME, &[]);
         let flags_response = self
             .evaluate_flags_with_overrides(
                 feature_flags,
@@ -323,17 +321,6 @@ impl FeatureFlagMatcher {
                 hash_key_overrides,
             )
             .await;
-
-        local_eval_timer
-            .label(
-                "outcome",
-                if flags_response.errors_while_computing_flags {
-                    "error"
-                } else {
-                    "success"
-                },
-            )
-            .fin();
 
         eval_timer
             .label(
@@ -456,6 +443,157 @@ impl FeatureFlagMatcher {
         }
     }
 
+    /// Fetches all required properties for evaluating feature flags.
+    /// Returns a tuple containing:
+    /// - HashSet of group type indexes
+    /// - HashSet of group keys
+    /// - Result indicating if there were any errors during fetching
+    async fn fetch_required_properties(
+        &mut self,
+        flags_needing_db_properties: &[FeatureFlag],
+    ) -> Result<(), FlagError> {
+        // First fetch and cache static cohort memberships
+        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
+        self.evaluate_and_cache_static_cohorts(&cohorts).await?;
+
+        println!(
+            "static_cohort_matches: {:?}",
+            self.properties_cache.static_cohort_matches
+        );
+
+        // Then fetch other required properties as before
+        let group_type_indexes_required: HashSet<GroupTypeIndex> = flags_needing_db_properties
+            .iter()
+            .filter_map(|flag| flag.get_group_type_index())
+            .collect();
+
+        // Map group names to group_type_index and group_keys
+        let group_type_to_key_map: HashMap<GroupTypeIndex, String> = self
+            .groups
+            .iter()
+            .filter_map(|(group_type, group_key_value)| {
+                let group_key = group_key_value.as_str()?.to_string();
+                self.group_type_mapping_cache
+                    .group_types_to_indexes
+                    .get(group_type)
+                    .cloned()
+                    .map(|group_type_index| (group_type_index, group_key))
+            })
+            .collect();
+
+        // Extract group_keys that are relevant to the required group_type_indexes
+        let group_keys: HashSet<String> = group_type_to_key_map
+            .iter()
+            .filter_map(|(group_type_index, group_key)| {
+                if group_type_indexes_required.contains(group_type_index) {
+                    Some(group_key.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Extract group_type_indexes for the required flags
+        let group_type_indexes: HashSet<GroupTypeIndex> = group_type_indexes_required;
+
+        let reader = self.reader.clone();
+        let distinct_id = self.distinct_id.clone();
+        let team_id = self.team_id;
+
+        let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
+        let fetch_result = fetch_and_locally_cache_all_relevant_properties(
+            &mut self.properties_cache,
+            reader,
+            distinct_id,
+            team_id,
+            &group_type_indexes,
+            &group_keys,
+        )
+        .await;
+
+        match fetch_result {
+            Ok(_) => {
+                inc(DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, &[], 1);
+                db_fetch_timer.label("outcome", "success").fin();
+                Ok(())
+            }
+            Err(e) => {
+                error!("Error fetching properties: {:?}", e);
+                db_fetch_timer.label("outcome", "error").fin();
+                Err(e)
+            }
+        }
+    }
+
+    /// Evaluates and caches static cohort memberships for the current person.
+    /// This should be called once per request to avoid multiple DB lookups.
+    async fn evaluate_and_cache_static_cohorts(
+        &mut self,
+        cohorts: &[Cohort],
+    ) -> Result<HashMap<CohortId, bool>, FlagError> {
+        // Skip if we've already cached the results
+        if self.properties_cache.static_cohort_matches.is_some() {
+            return Ok(self.properties_cache.static_cohort_matches.clone().unwrap());
+        }
+
+        let person_id = self.get_person_id().await?;
+        let static_cohorts: Vec<_> = cohorts.iter().filter(|c| c.is_static).collect();
+
+        if static_cohorts.is_empty() {
+            // Cache empty map to indicate we've checked
+            self.properties_cache.static_cohort_matches = Some(HashMap::new());
+            return Ok(HashMap::new());
+        }
+
+        let results = evaluate_static_cohorts(
+            self.reader.clone(),
+            person_id,
+            static_cohorts.iter().map(|c| c.id).collect(),
+        )
+        .await?
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+
+        self.properties_cache.static_cohort_matches = Some(results.clone());
+        Ok(results.clone())
+    }
+
+    /// Evaluates cohort filters using cached static cohort results where possible.
+    /// For dynamic cohorts, evaluates them based on the provided properties.
+    pub async fn evaluate_cohort_filters(
+        &mut self,
+        cohort_property_filters: &[PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+    ) -> Result<bool, FlagError> {
+        // At the start of the request, fetch all of the cohorts for the project from the cache
+        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
+
+        // Get cached static cohort results or evaluate them if not cached
+        let static_cohort_matches = match self.properties_cache.static_cohort_matches.as_ref() {
+            Some(matches) => matches.clone(),
+            None => self.evaluate_and_cache_static_cohorts(&cohorts).await?,
+        };
+
+        // Store all cohort match results, starting with static cohort results
+        let mut cohort_matches = static_cohort_matches;
+
+        // For any cohorts not yet evaluated (i.e., dynamic ones), evaluate them
+        for filter in cohort_property_filters {
+            let cohort_id = filter
+                .get_cohort_id()
+                .ok_or(FlagError::CohortFiltersParsingError)?;
+
+            if let Entry::Vacant(e) = cohort_matches.entry(cohort_id) {
+                let match_result =
+                    evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
+                e.insert(match_result);
+            }
+        }
+
+        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
+        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+    }
+
     /// Evaluates feature flags with property and hash key overrides.
     ///
     /// This function evaluates feature flags in two steps:
@@ -525,86 +663,21 @@ impl FeatureFlagMatcher {
                 .fin();
         }
 
-        // Step 2: Fetch and cache properties for remaining flags (just one DB lookup for all of relevant properties)
+        // Step 2: Fetch and cache properties for remaining flags
         if !flags_needing_db_properties.is_empty() {
-            let group_type_index_match_timer =
-                common_metrics::timing_guard(FLAG_GROUP_TYPE_INDEX_MATCH_TIME, &[]);
-
-            let group_type_indexes_required: HashSet<GroupTypeIndex> = flags_needing_db_properties
-                .iter()
-                .filter_map(|flag| flag.get_group_type_index())
-                .collect();
-
-            // Map group names to group_type_index and group_keys
-            let group_type_to_key_map: HashMap<GroupTypeIndex, String> = self
-                .groups
-                .iter()
-                .filter_map(|(group_type, group_key_value)| {
-                    let group_key = group_key_value.as_str()?.to_string();
-                    self.group_type_mapping_cache
-                        .group_types_to_indexes
-                        .get(group_type)
-                        .cloned()
-                        .map(|group_type_index| (group_type_index, group_key))
-                })
-                .collect();
-
-            // Extract group_keys that are relevant to the required group_type_indexes
-            let group_keys: HashSet<String> = group_type_to_key_map
-                .iter()
-                .filter_map(|(group_type_index, group_key)| {
-                    if group_type_indexes_required.contains(group_type_index) {
-                        Some(group_key.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            // Extract group_type_indexes for the required flags
-            let group_type_indexes: HashSet<GroupTypeIndex> = group_type_indexes_required.clone();
-
-            group_type_index_match_timer
-                .label("outcome", "success")
-                .fin();
-
-            let reader = self.reader.clone();
-            let distinct_id = self.distinct_id.clone();
-            let team_id = self.team_id;
-
-            let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
-            let fetch_result = fetch_and_locally_cache_all_relevant_properties(
-                &mut self.properties_cache,
-                reader,
-                distinct_id,
-                team_id,
-                &group_type_indexes,
-                &group_keys,
-            )
-            .await;
-
-            match fetch_result {
-                Ok(_) => {
-                    inc(
-                        DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
-                        &[("team_id".to_string(), team_id.to_string())],
-                        1,
-                    );
-                    db_fetch_timer.label("outcome", "success").fin();
+            if let Err(e) = self
+                .fetch_required_properties(&flags_needing_db_properties)
+                .await
+            {
+                println!("error: {:?}", e);
+                errors_while_computing_flags = true;
+                let reason = parse_exception_for_prometheus_label(&e);
+                for flag in flags_needing_db_properties {
+                    flag_details_map
+                        .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                 }
-                Err(e) => {
-                    errors_while_computing_flags = true;
-                    // TODO add sentry exception tracking
-                    error!("Error fetching properties: {:?}", e);
-                    let reason = parse_exception_for_prometheus_label(&e);
-                    inc(
-                        FLAG_EVALUATION_ERROR_COUNTER,
-                        &[("reason".to_string(), reason.to_string())],
-                        1,
-                    );
-                    db_fetch_timer.label("outcome", "error").fin();
-                }
-            };
+                return FlagsResponse::new(errors_while_computing_flags, flag_details_map, None);
+            }
 
             // Step 3: Evaluate remaining flags with cached properties
             let flag_get_match_timer = common_metrics::timing_guard(FLAG_GET_MATCH_TIME, &[]);
@@ -830,41 +903,6 @@ impl FeatureFlagMatcher {
 
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in sorted_conditions {
-            let mut cohort_ids: HashSet<CohortId> = HashSet::new();
-
-            if let Some(props) = &condition.properties {
-                for prop in props {
-                    if prop.is_cohort() {
-                        if let Some(cohort_id) = prop.get_cohort_id() {
-                            cohort_ids.insert(cohort_id);
-                        }
-                    }
-                }
-            }
-
-            let mut static_cohort_matches: HashMap<CohortId, bool> = HashMap::new();
-            if !cohort_ids.is_empty() {
-                let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
-                let static_cohorts: Vec<_> = cohorts
-                    .iter()
-                    .filter(|c| c.is_static && cohort_ids.contains(&c.id))
-                    .collect();
-
-                if !static_cohorts.is_empty() {
-                    let person_id = self.get_person_id().await?;
-                    let results = evaluate_static_cohorts(
-                        self.reader.clone(),
-                        person_id,
-                        static_cohorts.iter().map(|c| c.id).collect(),
-                    )
-                    .await?;
-                    static_cohort_matches.extend(results);
-                }
-            }
-
-            // Store static matches in struct for use during condition evaluation
-            self.static_cohort_matches = Some(static_cohort_matches);
-
             let (is_match, reason) = self
                 .is_condition_match(
                     flag,
@@ -993,20 +1031,12 @@ impl FeatureFlagMatcher {
             // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
                 // Get the person ID for the current distinct ID – this value should be cached at this point, and if we can't get it we return false.
-                let person_id = self.get_person_id().await?;
-                let cohort_filter_timer =
-                    common_metrics::timing_guard(FLAG_COHORT_FILTER_TIME, &[]);
                 if !self
-                    .evaluate_cohort_filters(
-                        &cohort_filters,
-                        &person_or_group_properties,
-                        person_id,
-                    )
+                    .evaluate_cohort_filters(&cohort_filters, &person_or_group_properties)
                     .await?
                 {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
-                cohort_filter_timer.fin();
             }
         }
 
@@ -1112,47 +1142,6 @@ impl FeatureFlagMatcher {
                 Err(e) => Err(e),
             }
         }
-    }
-
-    /// Evaluates dynamic cohort property filters
-    ///
-    /// NB: This method first caches all of the cohorts associated with the team, which allows us to avoid
-    /// hitting the database for each cohort filter.
-    pub async fn evaluate_cohort_filters(
-        &self,
-        cohort_property_filters: &[PropertyFilter],
-        target_properties: &HashMap<String, Value>,
-        _person_id: PersonId,
-    ) -> Result<bool, FlagError> {
-        // At the start of the request, fetch all of the cohorts for the project from the cache
-        // This method also caches any cohorts for a given project in memory for the duration of the application, so we don't need to fetch from
-        // the database again until we restart the application.  See the CohortCacheManager for more details.
-        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
-
-        // Store all cohort match results in a HashMap to avoid re-evaluating the same cohort multiple times,
-        // since the same cohort could appear in multiple property filters.
-        // Start with any pre-computed static matches
-        let mut cohort_matches = self
-            .static_cohort_matches
-            .as_ref()
-            .map(|m| m.clone())
-            .unwrap_or_default();
-
-        // For any cohorts not yet evaluated (i.e., dynamic ones), evaluate them
-        for filter in cohort_property_filters {
-            let cohort_id = filter
-                .get_cohort_id()
-                .ok_or(FlagError::CohortFiltersParsingError)?;
-
-            if let Entry::Vacant(e) = cohort_matches.entry(cohort_id) {
-                let match_result =
-                    evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
-                e.insert(match_result);
-            }
-        }
-
-        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
-        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
     }
 
     async fn is_holdout_condition_match(
@@ -5068,6 +5057,8 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, None)
         .await;
 
+        println!("result: {:?}", result);
+
         assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -5787,7 +5778,6 @@ mod tests {
 
         // This should not throw CohortNotFound because we skip dependency graph evaluation for static cohorts
         let result = matcher.get_match(&flag, None, None).await;
-        println!("result: {:?}", result);
         assert!(result.is_ok(), "Should not throw CohortNotFound error");
 
         let match_result = result.unwrap();
