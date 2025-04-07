@@ -51,7 +51,7 @@ class EarlyAccessFeature(FileSystemSyncMixin, UUIDModel):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["EarlyAccessFeature"]:
-        base_qs = cls.objects.filter(team=team, deleted=False)
+        base_qs = cls.objects.filter(team=team)
         return cls._filter_unfiled_queryset(base_qs, team, type="early_access_feature", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
