@@ -1,4 +1,4 @@
-import { IconFilter, IconGlobe, IconInfo, IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconFilter, IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,17 +8,20 @@ import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/pl
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionKeyEvent } from '../player-meta/types'
 import { useState } from 'react'
-import { LemonBanner, LemonMenu } from '@posthog/lemon-ui'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { LemonBanner, LemonMenu, Link, Tooltip } from '@posthog/lemon-ui'
 
-function formatEventMetaInfo(event: SessionKeyEvent): string {
-    return `Event: ${event.event}\n
-Type: ${event.event_type || 'N/A'}\n
-Importance: ${(event.importance * 100).toFixed(0)}%\n
-Window ID: ${event.window_id}\n
-Tags:\n
-  Where: ${event.tags.where.join(', ')}\n
-  What: ${event.tags.what.join(', ')}`
+function formatEventMetaInfo(event: SessionKeyEvent): JSX.Element {
+    return (
+        <pre className="m-0 p-0 font-mono text-xs whitespace-pre">
+{`Event: ${event.event}
+Type: ${event.event_type || 'N/A'}
+Importance: ${(event.importance * 100).toFixed(0)}%
+Window ID: ${event.window_id}
+Tags:
+  Where: ${event.tags.where.join(', ')}
+  What: ${event.tags.what.join(', ')}`}
+        </pre>
+    )
 }
 
 type FilterType = 'all' | 'errors' | 'important'
@@ -98,20 +101,18 @@ function SessionSummary(): JSX.Element {
                                     <div className="flex flex-row gap-2">
                                         <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
                                             {formatMsIntoTime(event.milliseconds_since_start)}
-                                            <div className="flex flex-row gap-1">
-                                                <ButtonPrimitive
-                                                    href={event.current_url}
-                                                    tooltip={event.current_url}
-                                                    tooltipPlacement="top"
+                                            <div className="flex flex-row gap-2 mt-1">
+                                                <Link
+                                                    to={event.current_url}
+                                                    target="_blank"
                                                 >
-                                                    <span className="font-mono text-xs text-muted-alt">url</span>
-                                                </ButtonPrimitive>
-                                                <ButtonPrimitive
-                                                    tooltip={formatEventMetaInfo(event)}
-                                                    tooltipPlacement="top"
-                                                >
+                                                    <Tooltip title={event.current_url} placement="top">
+                                                        <span className="font-mono text-xs text-muted-alt">url</span>
+                                                    </Tooltip>
+                                                </Link>
+                                                <Tooltip title={formatEventMetaInfo(event)} placement="top">
                                                     <span className="font-mono text-xs text-muted-alt">meta</span>
-                                                </ButtonPrimitive>
+                                                </Tooltip>
                                             </div>
                                         </span>
 
