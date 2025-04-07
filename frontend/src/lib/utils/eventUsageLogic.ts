@@ -233,6 +233,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
+        reportGroupTypeDetailDashboardCreated: () => ({}),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -268,6 +269,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             success,
             error,
         }),
+        reportDataTableColumnsUpdated: (context_type: string) => ({ context_type }),
         // insight filters
         reportFunnelStepReordered: true,
         reportInsightFilterRemoved: (index: number) => ({ index }),
@@ -608,6 +610,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportTimeToSeeData: async ({ payload }) => {
             posthog.capture('time to see data', payload)
         },
+        reportGroupTypeDetailDashboardCreated: async () => {
+            posthog.capture('group type detail dashboard created')
+        },
         reportGroupPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`group property ${action}`, {
                 old_property_type: oldPropertyType !== 'undefined' ? oldPropertyType : undefined,
@@ -721,6 +726,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportFunnelStepReordered: async () => {
             posthog.capture('funnel step reordered')
+        },
+        reportDataTableColumnsUpdated: async ({ context_type }) => {
+            posthog.capture('data table columns updated', { context_type })
         },
         reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`person property ${action}`, {

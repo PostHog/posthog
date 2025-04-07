@@ -16,7 +16,7 @@ import * as monaco from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { AnyDataNode, HogLanguage, HogQLMetadataResponse } from '~/queries/schema/schema-general'
+import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
 if (loader) {
     loader.config({ monaco })
@@ -148,6 +148,7 @@ export function CodeEditor({
         onError,
         onMetadata,
         onMetadataLoading,
+        metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
 

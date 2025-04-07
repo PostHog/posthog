@@ -384,11 +384,15 @@
     --bg-fill-primary: var(--color-white);
     --bg-fill-secondary: var(--primitive-3000-25);
     --bg-fill-tertiary: var(--primitive-3000-50);
+    --bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
     --bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
     --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
     --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
     --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
@@ -410,8 +414,9 @@
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
 
     // Buttons
-    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-100);
-    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-100);
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-25);
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-75);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
     --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
     --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
 
@@ -420,6 +425,11 @@
     --bg-fill-switch: var(--primitive-neutral-cool-250);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
+
+    // Borders (Useful for single pixel backgrounds to mimic borders)
+    // //////////////////////////////////////////////////////////
+    --bg-border-primary: var(--primitive-3000-200);
+    --bg-border-secondary: var(--primitive-3000-400);
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
@@ -568,9 +578,11 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
-    --z-resizer: 755;
-    --z-project-panel-layout: 1099;
-    --z-project-panel-overlay: 1098;
+    --z-layout-panel: 758;
+    --z-layout-panel-overlay: 757;
+    --z-layout-navbar: 756;
+    --z-layout-navbar-overlay: 755;
+    --z-resizer: 754;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
@@ -581,7 +593,9 @@
 
     // Elements
     --project-navbar-width: 250px;
+    --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
+    --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
 
     // Toasts
     // Update and override from react-toastify
@@ -810,11 +824,15 @@
     --bg-fill-primary: var(--primitive-neutral-cool-900);
     --bg-fill-secondary: var(--primitive-neutral-cool-850);
     --bg-fill-tertiary: var(--primitive-neutral-cool-800);
+    --bg-fill-highlight-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
     --bg-fill-highlight-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --bg-fill-highlight-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-white) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
     --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
     --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
@@ -830,14 +848,17 @@
     --bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
-    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-100);
-    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-100);
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-25);
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-75);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
     --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
     --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
     --bg-fill-input: var(--primitive-neutral-cool-850);
     --bg-fill-switch: var(--primitive-neutral-cool-900);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-border-primary: var(--primitive-neutral-cool-800);
+    --bg-border-secondary: var(--primitive-neutral-cool-600);
 
     // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
@@ -867,7 +888,7 @@
     /* On-fill text for success */
 
     // Borders (dark mode)
-    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
+    // Borders for surfaces/fills
     // //////////////////////////////////////////////////////////
     --border-primary: var(--primitive-neutral-cool-800);
     --border-secondary: var(--primitive-neutral-cool-600);

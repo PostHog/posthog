@@ -36,10 +36,9 @@ import { hogFunctionConfigurationLogic, mightDropEvents } from './hogFunctionCon
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
-import { HogFunctionTest } from './HogFunctionTest'
+import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
-
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
     id?: string | null
@@ -89,6 +88,7 @@ export function HogFunctionConfiguration({
         type,
         usesGroups,
         hasGroupsAddon,
+        broadcastLoading,
     } = useValues(logic)
 
     // State for debounced mightDropEvents check
@@ -123,6 +123,7 @@ export function HogFunctionConfiguration({
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
+        sendBroadcast,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
@@ -546,6 +547,40 @@ export function HogFunctionConfiguration({
                             )}
                             {showTesting ? (
                                 <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
+                            ) : null}
+                            {type === 'broadcast' ? (
+                                <HogFunctionTestPlaceholder
+                                    title="Send broadcast"
+                                    description={
+                                        id && id !== 'new' ? (
+                                            <div className="mt-2 space-y-2">
+                                                <LemonButton
+                                                    type="primary"
+                                                    onClick={sendBroadcast}
+                                                    loading={personsCountLoading || broadcastLoading}
+                                                >
+                                                    Send to {personsCount} emails
+                                                </LemonButton>
+                                                <div>
+                                                    <strong>Please note:</strong> Clicking the button above will
+                                                    synchronously send to all the e-mails. While this is fine for
+                                                    testing with small lists, please don't use this for production
+                                                    usecases yet.
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="mt-2 space-y-2">
+                                                <LemonButton
+                                                    type="primary"
+                                                    disabledReason="Must save to send broadcast"
+                                                >
+                                                    Send to {personsCount} emails
+                                                </LemonButton>
+                                                <div>Save your configuration to send a broadcast</div>
+                                            </div>
+                                        )
+                                    }
+                                />
                             ) : null}
                             <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>

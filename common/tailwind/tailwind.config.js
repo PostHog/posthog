@@ -653,6 +653,7 @@ const config = {
                 'fill-success-secondary': 'var(--bg-fill-success-secondary)',
                 'fill-success-tertiary': 'var(--bg-fill-success-tertiary)',
                 'fill-success-highlight': 'var(--bg-fill-success-highlight)',
+                'fill-button-group-tertiary-hover': 'var(--bg-fill-button-group-tertiary-hover)',
                 'fill-button-tertiary-hover': 'var(--bg-fill-button-tertiary-hover)',
                 'fill-button-tertiary-hover-inverse': 'var(--bg-fill-button-tertiary-hover-inverse)',
                 'fill-button-tertiary-active': 'var(--bg-fill-button-tertiary-active)',
@@ -661,6 +662,8 @@ const config = {
                 'fill-switch': 'var(--bg-fill-switch)',
                 'fill-slider-rail': 'var(--bg-fill-slider-rail)',
                 'fill-scroll-thumb': 'var(--bg-fill-scroll-thumb)',
+                'border-primary': 'var(--bg-border-primary)',
+                'border-secondary': 'var(--bg-border-secondary)',
             },
             textColor: {
                 ...commonColors,
@@ -690,6 +693,13 @@ const config = {
             },
             ringColor: {
                 ...commonColors,
+
+                'primary': 'var(--border-primary)',
+                'secondary': 'var(--border-secondary)',
+                'info': 'var(--border-info)',
+                'warning': 'var(--border-warning)',
+                'error': 'var(--border-error)',
+                'success': 'var(--border-success)',
             },
             fontFamily: {
                 sans: [

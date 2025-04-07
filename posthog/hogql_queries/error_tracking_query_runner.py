@@ -21,14 +21,6 @@ from posthog.models.error_tracking import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
 
-INTERVAL_FUNCTIONS = {
-    "minute": "toStartOfMinute",
-    "hour": "toStartOfHour",
-    "day": "toStartOfDay",
-    "week": "toStartOfWeek",
-    "month": "toStartOfMonth",
-}
-
 
 @dataclass
 class VolumeOptions:
@@ -45,13 +37,16 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )
         dayRange = DateRange(
-            date_from=(datetime.now() - timedelta(hours=24)).isoformat(), date_to=datetime.now().isoformat()
+            date_from=(datetime.utcnow() - timedelta(hours=24)).isoformat(),
+            date_to=datetime.utcnow().isoformat(),
+            explicitDate=True,
         )
         self.sparklineConfigs = {
             "volumeDay": VolumeOptions(date_range=dayRange, resolution=self.query.volumeResolution),
@@ -256,6 +251,30 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
 
+        if self.query.dateRange.date_from:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(
+                        name="toDateTime",
+                        args=[ast.Constant(value=self.query.dateRange.date_from)],
+                    ),
+                )
+            )
+
+        if self.query.dateRange.date_to:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(
+                        name="toDateTime",
+                        args=[ast.Constant(value=self.query.dateRange.date_to)],
+                    ),
+                )
+            )
+
         if self.query.issueId:
             exprs.append(
                 ast.CompareOperation(
@@ -324,7 +343,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
                 filters=HogQLFilters(
-                    dateRange=self.query.dateRange,
                     filterTestAccounts=self.query.filterTestAccounts,
                     properties=self.properties,
                 ),

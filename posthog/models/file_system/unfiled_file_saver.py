@@ -53,7 +53,7 @@ class UnfiledFileSaver:
             if rep.should_delete:
                 continue
 
-            path = self._generate_unique_path(rep.base_folder, rep.name)
+            path = f"{rep.base_folder}/{escape_path(rep.name)}"
             new_files.append(
                 FileSystem(
                     team=self.team,
@@ -68,16 +68,6 @@ class UnfiledFileSaver:
             )
         FileSystem.objects.bulk_create(new_files)
         return new_files
-
-    def _generate_unique_path(self, base_folder: str, name: str) -> str:
-        desired = f"{base_folder}/{escape_path(name)}"
-        path = desired
-        index = 1
-        while path in self._in_memory_paths or FileSystem.objects.filter(team=self.team, path=path).exists():
-            path = f"{desired} ({index})"
-            index += 1
-        self._in_memory_paths.add(path)
-        return path
 
     def save_all_unfiled(self) -> list[FileSystem]:
         created_all = []

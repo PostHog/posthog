@@ -264,9 +264,28 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        return self.map_hosts_in_shard_by_role(shard_num, fn, concurrency, NodeRole.ALL, Workload.DEFAULT)
+
+    def map_hosts_in_shard_by_role(
+        self,
+        shard_num: int,
+        fn: Callable[[Client], T],
+        concurrency: int | None = None,
+        node_role: NodeRole = NodeRole.ALL,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the specified shard and role.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host in self.__shards[shard_num]}
+                {
+                    host: executor.submit(self.__get_task_function(host, fn))
+                    for host in self.__hosts_by_role(self.__shards[shard_num], node_role, workload)
+                }
             )
 
     def map_all_hosts_in_shards(

@@ -684,6 +684,7 @@ def also_test_with_materialized_columns(
     event_properties=None,
     person_properties=None,
     verify_no_jsonextract=True,
+    is_nullable: Optional[list] = None,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -709,10 +710,15 @@ def also_test_with_materialized_columns(
                 return
 
             for prop in event_properties:
-                materialize("events", prop)
+                materialize("events", prop, is_nullable=is_nullable is not None and prop in is_nullable)
             for prop in person_properties:
-                materialize("person", prop)
-                materialize("events", prop, table_column="person_properties")
+                materialize("person", prop, is_nullable=is_nullable is not None and prop in is_nullable)
+                materialize(
+                    "events",
+                    prop,
+                    table_column="person_properties",
+                    is_nullable=is_nullable is not None and prop in is_nullable,
+                )
 
             try:
                 with self.capture_select_queries() as sqls:

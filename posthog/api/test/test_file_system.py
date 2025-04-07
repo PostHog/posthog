@@ -128,6 +128,23 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
+    def test_delete_folder_obj(self):
+        """
+        Test deleting a FileSystem folder.
+        """
+        folder_obj = FileSystem.objects.create(team=self.team, path="DeleteMe", type="folder", created_by=self.user)
+        file1_obj = FileSystem.objects.create(
+            team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
+        )
+        file2_obj = FileSystem.objects.create(
+            team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
+        )
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
     def test_unfiled_endpoint_no_content(self):
         """
         If there are no relevant items to create (e.g. no FeatureFlags, Experiments, etc.),
@@ -478,6 +495,20 @@ class TestFileSystemAPI(APIBaseTest):
         file2.refresh_from_db()
         self.assertEqual(file2.path, "NewFolder/File2")
 
+    def test_count_of_files(self):
+        """
+        Moving a folder should update all child paths correctly.
+        """
+        # Create a folder and some files inside it
+        folder = FileSystem.objects.create(team=self.team, path="OldFolder", type="folder", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
+
+        # Move the folder
+        response = self.client.post(f"/api/projects/{self.team.id}/file_system/{folder.pk}/count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["count"], 2)
+
     def test_list_by_type_filter(self):
         """
         Ensure that the list endpoint filters results by the 'type' query parameter.
@@ -520,3 +551,100 @@ class TestFileSystemAPI(APIBaseTest):
         # Expecting only the item with ref "unique-ref-123"
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["results"][0]["ref"], "unique-ref-123")
+
+    def test_link_file_endpoint(self):
+        """
+        Test linking a file creates a new file with an updated path and that missing parent folders are auto-created.
+        """
+        # Create an original file.
+        file_obj = FileSystem.objects.create(
+            team=self.team,
+            path="OriginalFile.txt",
+            type="doc",
+            created_by=self.user,
+        )
+        new_path = "NewFolder/NewFile.txt"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/link",
+            {"new_path": new_path},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        result = response.json()
+        self.assertEqual(result["path"], new_path)
+        # "NewFolder/NewFile.txt" should have a depth of 2.
+        self.assertEqual(result["depth"], 2)
+        # Ensure that the parent folder "NewFolder" was auto-created as a folder.
+        self.assertTrue(FileSystem.objects.filter(team=self.team, path="NewFolder", type="folder").exists())
+
+    def test_link_folder_endpoint(self):
+        """
+        Test linking a folder creates a new folder instance and also clones its child items with updated paths.
+        """
+        # Create a folder and a child file.
+        folder_obj = FileSystem.objects.create(
+            team=self.team,
+            path="Folder1",
+            type="folder",
+            created_by=self.user,
+        )
+        FileSystem.objects.create(
+            team=self.team,
+            path="Folder1/Child.txt",
+            type="doc",
+            created_by=self.user,
+        )
+        new_path = "LinkedFolder"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/link",
+            {"new_path": new_path},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        result = response.json()
+        self.assertEqual(result["path"], new_path)
+        # A single-segment folder should have depth 1.
+        self.assertEqual(result["depth"], 1)
+        # Verify that the child file was linked with its path updated.
+        linked_child = FileSystem.objects.filter(team=self.team, path="LinkedFolder/Child.txt", type="doc").first()
+        assert linked_child is not None
+        self.assertEqual(linked_child.depth, 2)
+
+    def test_link_folder_into_itself(self):
+        """
+        Test that linking a folder into itself is rejected.
+        """
+        folder_obj = FileSystem.objects.create(
+            team=self.team,
+            path="Folder2",
+            type="folder",
+            created_by=self.user,
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/link",
+            {"new_path": "Folder2"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("detail", response.json())
+        self.assertEqual(response.json()["detail"], "Cannot link folder into itself")
+
+    def test_assure_parent_folders(self):
+        """
+        Test that assure_parent_folders creates all missing parent folder entries for a given path.
+        """
+        # Clear existing FileSystem entries to start fresh.
+        FileSystem.objects.all().delete()
+        test_path = "A/B/C"
+        # Import the function to be tested.
+        from posthog.api.file_system import assure_parent_folders
+
+        assure_parent_folders(test_path, self.team, self.user)
+
+        # For the path "A/B/C", we expect the parent folders "A" and "A/B" to be created.
+        folder_a = FileSystem.objects.filter(team=self.team, path="A", type="folder").first()
+        folder_ab = FileSystem.objects.filter(team=self.team, path="A/B", type="folder").first()
+        assert folder_a is not None
+        self.assertEqual(folder_a.depth, 1)
+        assert folder_ab is not None
+        self.assertEqual(folder_ab.depth, 2)
+        # The full path "A/B/C" should NOT be created by assure_parent_folders.
+        folder_abc = FileSystem.objects.filter(team=self.team, path="A/B/C").first()
+        self.assertIsNone(folder_abc)

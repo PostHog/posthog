@@ -657,7 +657,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2150,6 +2150,7 @@
                 "cohort",
                 "person",
                 "event",
+                "event_metadata",
                 "group",
                 "session",
                 "hogql",
@@ -7804,23 +7805,46 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
-        "ExperimentActionMetricConfig": {
+        "ExperimentDataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
-                "action": {
-                    "type": "number"
+                "custom_name": {
+                    "type": "string"
+                },
+                "data_warehouse_join_key": {
+                    "type": "string"
+                },
+                "events_join_key": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "kind": {
-                    "const": "ExperimentActionMetricConfig",
+                    "const": "ExperimentDataWarehouseNode",
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
                 },
                 "math_hogql": {
                     "type": "string"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
@@ -7832,35 +7856,9 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
-                }
-            },
-            "required": ["kind", "action"],
-            "type": "object"
-        },
-        "ExperimentDataWarehouseMetricConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "data_warehouse_join_key": {
-                    "type": "string"
                 },
-                "events_join_key": {
-                    "type": "string"
-                },
-                "kind": {
-                    "const": "ExperimentDataWarehouseMetricConfig",
-                    "type": "string"
-                },
-                "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
-                },
-                "math_hogql": {
-                    "type": "string"
-                },
-                "math_property": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
+                "response": {
+                    "type": "object"
                 },
                 "table_name": {
                     "type": "string"
@@ -7869,7 +7867,7 @@
                     "type": "string"
                 }
             },
-            "required": ["kind", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
+            "required": ["data_warehouse_join_key", "events_join_key", "kind", "table_name", "timestamp_field"],
             "type": "object"
         },
         "ExperimentEventExposureConfig": {
@@ -7890,39 +7888,6 @@
                 }
             },
             "required": ["kind", "event", "properties"],
-            "type": "object"
-        },
-        "ExperimentEventMetricConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "event": {
-                    "type": "string"
-                },
-                "kind": {
-                    "const": "ExperimentEventMetricConfig",
-                    "type": "string"
-                },
-                "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
-                },
-                "math_hogql": {
-                    "type": "string"
-                },
-                "math_property": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "properties": {
-                    "description": "Properties configurable in the interface",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["kind", "event"],
             "type": "object"
         },
         "ExperimentExposureCriteria": {
@@ -8006,56 +7971,58 @@
             "required": ["variant", "days", "exposure_counts"],
             "type": "object"
         },
-        "ExperimentFunnelMetricConfig": {
+        "ExperimentFunnelMetric": {
             "additionalProperties": false,
             "properties": {
-                "funnel": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentFunnelStepConfig"
-                    },
-                    "type": "array"
-                },
                 "kind": {
-                    "const": "ExperimentFunnelMetricConfig",
+                    "const": "ExperimentMetric",
                     "type": "string"
                 },
-                "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
-                },
-                "math_hogql": {
-                    "type": "string"
-                },
-                "math_property": {
-                    "type": "string"
-                }
-            },
-            "required": ["kind", "funnel"],
-            "type": "object"
-        },
-        "ExperimentFunnelStepConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "event": {
-                    "type": "string"
-                },
-                "kind": {
-                    "const": "ExperimentFunnelStepConfig",
+                "metric_type": {
+                    "const": "funnel",
                     "type": "string"
                 },
                 "name": {
                     "type": "string"
                 },
-                "order": {
-                    "$ref": "#/definitions/integer"
-                },
-                "properties": {
+                "series": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/ExperimentFunnelMetricStep"
+                    },
+                    "type": "array"
+                },
+                "time_window_hours": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "metric_type", "series"],
+            "type": "object"
+        },
+        "ExperimentFunnelMetricStep": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
+        },
+        "ExperimentFunnelMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "metric_type": {
+                    "const": "funnel",
+                    "type": "string"
+                },
+                "series": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelMetricStep"
                     },
                     "type": "array"
                 }
             },
-            "required": ["kind", "event", "order"],
+            "required": ["metric_type", "series"],
             "type": "object"
         },
         "ExperimentFunnelsQuery": {
@@ -8152,34 +8119,60 @@
             ],
             "type": "object"
         },
-        "ExperimentMetric": {
+        "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
-                "inverse": {
-                    "type": "boolean"
-                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
                 },
-                "metric_config": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/ExperimentEventMetricConfig"
-                        },
-                        {
-                            "$ref": "#/definitions/ExperimentActionMetricConfig"
-                        },
-                        {
-                            "$ref": "#/definitions/ExperimentDataWarehouseMetricConfig"
-                        },
-                        {
-                            "$ref": "#/definitions/ExperimentFunnelMetricConfig"
-                        }
-                    ]
-                },
                 "metric_type": {
-                    "$ref": "#/definitions/ExperimentMetricType"
+                    "const": "mean",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "time_window_hours": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "metric_type", "source"],
+            "type": "object"
+        },
+        "ExperimentMeanMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "metric_type": {
+                    "const": "mean",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                }
+            },
+            "required": ["metric_type", "source"],
+            "type": "object"
+        },
+        "ExperimentMetric": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentMeanMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelMetric"
+                }
+            ]
+        },
+        "ExperimentMetricBaseProperties": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
                 },
                 "name": {
                     "type": "string"
@@ -8188,16 +8181,39 @@
                     "type": "number"
                 }
             },
-            "required": ["kind", "metric_type", "metric_config"],
+            "required": ["kind"],
             "type": "object"
         },
         "ExperimentMetricMathType": {
             "enum": ["total", "sum"],
             "type": "string"
         },
+        "ExperimentMetricSource": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentDataWarehouseNode"
+                }
+            ]
+        },
         "ExperimentMetricType": {
             "enum": ["funnel", "mean"],
             "type": "string"
+        },
+        "ExperimentMetricTypeProps": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentMeanMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelMetricTypeProps"
+                }
+            ]
         },
         "ExperimentQuery": {
             "additionalProperties": false,
@@ -8478,9 +8494,23 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "FileSystemCount": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "number"
+                }
+            },
+            "required": ["count"],
+            "type": "object"
+        },
         "FileSystemEntry": {
             "additionalProperties": false,
             "properties": {
+                "_loading": {
+                    "description": "Used to indicate pending actions, frontend only",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
                     "type": "string"
@@ -8510,12 +8540,16 @@
                     "type": "string"
                 }
             },
-            "required": ["path"],
+            "required": ["id", "path"],
             "type": "object"
         },
         "FileSystemImport": {
             "additionalProperties": false,
             "properties": {
+                "_loading": {
+                    "description": "Used to indicate pending actions, frontend only",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
                     "type": "string"
@@ -8540,7 +8574,6 @@
                 },
                 "icon": {},
                 "id": {
-                    "description": "Unique UUID for tree entry",
                     "type": "string"
                 },
                 "meta": {
@@ -10399,6 +10432,9 @@
                 "hidePersonsModal": {
                     "type": "boolean"
                 },
+                "hideTooltipOnScroll": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "InsightVizNode",
                     "type": "string"
@@ -11161,7 +11197,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "group", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NodeKind": {
@@ -11210,13 +11246,9 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
-                "ExperimentEventMetricConfig",
-                "ExperimentFunnelMetricConfig",
-                "ExperimentFunnelStepConfig",
-                "ExperimentActionMetricConfig",
-                "ExperimentDataWarehouseMetricConfig",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
+                "ExperimentDataWarehouseNode",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
@@ -14661,6 +14693,12 @@
                 "date_to": {
                     "type": ["string", "null"]
                 },
+                "distinct_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "events": {
                     "items": {
                         "type": "object"
@@ -15396,6 +15434,9 @@
                     "type": "boolean"
                 },
                 "hidePersonsModal": {
+                    "type": "boolean"
+                },
+                "hideTooltipOnScroll": {
                     "type": "boolean"
                 },
                 "kind": {
@@ -16481,10 +16522,18 @@
                     "default": "ActionsLineGraph"
                 },
                 "formula": {
+                    "deprecated": "Use formulaNodes instead.",
                     "type": "string"
                 },
+                "formulaNodes": {
+                    "description": "List of formulas with optional custom names. Takes precedence over formula/formulas if set.",
+                    "items": {
+                        "$ref": "#/definitions/TrendsFormulaNode"
+                    },
+                    "type": "array"
+                },
                 "formulas": {
-                    "description": "List of formulas to apply to the data. Takes precedence over formula if both are set.",
+                    "deprecated": "Use formulaNodes instead.",
                     "items": {
                         "type": "string"
                     },
@@ -16632,6 +16681,20 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "TrendsFormulaNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "description": "Optional user-defined name for the formula",
+                    "type": "string"
+                },
+                "formula": {
+                    "type": "string"
+                }
+            },
+            "required": ["formula"],
             "type": "object"
         },
         "TrendsQuery": {
@@ -16884,7 +16947,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query"],
+            "required": ["type", "query", "answer"],
             "type": "object"
         },
         "VizSpecificOptions": {

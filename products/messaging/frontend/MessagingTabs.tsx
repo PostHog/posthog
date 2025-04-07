@@ -14,10 +14,7 @@ export function MessagingTabs(): JSX.Element {
     const isLibraryEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
     const isAutomationEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_AUTOMATION]
 
-    const tabs = [
-        { key: 'broadcasts', label: 'Broadcasts' },
-        { key: 'providers', label: 'Providers' },
-    ]
+    const tabs = [{ key: 'broadcasts', label: 'Broadcasts' }]
 
     if (isLibraryEnabled) {
         tabs.push({ key: 'library', label: 'Library' })

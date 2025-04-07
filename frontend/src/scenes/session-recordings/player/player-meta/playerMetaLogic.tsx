@@ -1,19 +1,11 @@
 import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
-import { eventWithTime } from '@posthog/rrweb-types'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from 'lib/taxonomy'
-import {
-    capitalizeFirstLetter,
-    ceilMsToClosestSecond,
-    findLastIndex,
-    humanFriendlyDuration,
-    objectsEqual,
-    percentage,
-} from 'lib/utils'
+import { capitalizeFirstLetter, ceilMsToClosestSecond, humanFriendlyDuration, percentage } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -95,7 +87,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 'trackedWindow',
             ],
             sessionRecordingPlayerLogic(props),
-            ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment'],
+            ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
             ['recordingPropertiesById', 'recordingPropertiesLoading'],
         ],
@@ -147,37 +139,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return playerData?.person ?? null
             },
         ],
-        resolution: [
-            (s) => [s.sessionPlayerData, s.currentTimestamp, s.currentSegment],
-            (sessionPlayerData, currentTimestamp, currentSegment): { width: number; height: number } | null => {
-                // Find snapshot to pull resolution from
-                if (!currentTimestamp) {
-                    return null
-                }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
-
-                const currIndex = findLastIndex(
-                    snapshots,
-                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
-                )
-
-                if (currIndex === -1) {
-                    return null
-                }
-                const snapshot = snapshots[currIndex]
-                return {
-                    width: snapshot.data?.['width'],
-                    height: snapshot.data?.['height'],
-                }
-            },
-            {
-                resultEqualityCheck: (prev, next) => {
-                    // Only update if the resolution values have changed (not the object reference)
-                    // stops PlayerMeta from re-rendering on every player position
-                    return objectsEqual(prev, next)
-                },
-            },
-        ],
         resolutionDisplay: [
             (s) => [s.resolution],
             (resolution) => {
@@ -211,22 +172,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     currentSegment?.windowId ? windowId === currentSegment?.windowId : -1
                 )
                 return index === -1 ? 1 : index + 1
-            },
-        ],
-        lastUrl: [
-            (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp],
-            (urls, sessionPlayerMetaData, currentTimestamp): string | undefined => {
-                if (!urls.length || !currentTimestamp) {
-                    return sessionPlayerMetaData?.start_url ?? undefined
-                }
-
-                // Go through the events in reverse to find the latest pageview
-                for (let i = urls.length - 1; i >= 0; i--) {
-                    const urlTimestamp = urls[i]
-                    if (i === 0 || urlTimestamp.timestamp < currentTimestamp) {
-                        return urlTimestamp.url
-                    }
-                }
             },
         ],
         lastPageviewEvent: [

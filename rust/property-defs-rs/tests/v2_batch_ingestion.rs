@@ -9,7 +9,7 @@ use sqlx::PgPool;
 
 use property_defs_rs::{
     config::Config,
-    types::{Event, PropertyParentType, Update},
+    types::{Event, GroupType, PropertyParentType, Update},
     v2_batch_ingestion::process_batch_v2,
 };
 
@@ -47,12 +47,37 @@ async fn test_simple_batch_write(db: PgPool) {
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_group_batch_write(db: PgPool) {
+    let _unused = sqlx::query!(
+        r#"
+        INSERT INTO posthog_grouptypemapping (id, group_type, group_type_index, team_id, project_id)
+            VALUES(1, 'Organization', 1, 111, 111)
+    "#
+    )
+    .execute(&db)
+    .await;
+
     let config = Config::init_with_defaults().unwrap();
     let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));
-    let updates = gen_test_event_updates("$groupidentify", 100, Some(PropertyParentType::Group));
+    let mut updates =
+        gen_test_event_updates("$groupidentify", 100, Some(PropertyParentType::Group));
     // should decompose into 1 group event def, 100 prop defs (of group type), 100 event props
     assert_eq!(updates.len(), 201);
 
+    // TODO(eli): quick hack - until we refacor the group type hydration on AppContext,
+    // we need to manually do this prior to passing to process_batch_v2 for the test
+    // to be realistic to prod behavior.
+    updates.iter_mut().for_each({
+        |u: &mut Update| {
+            if let Update::Property(group_prop) = u {
+                if group_prop.event_type == PropertyParentType::Group {
+                    if let Some(GroupType::Unresolved(group_name)) = &group_prop.group_type_index {
+                        group_prop.group_type_index =
+                            Some(GroupType::Resolved(group_name.clone(), 1))
+                    }
+                }
+            }
+        }
+    });
     process_batch_v2(&config, cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly

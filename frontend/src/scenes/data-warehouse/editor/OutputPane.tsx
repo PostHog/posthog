@@ -17,6 +17,7 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
@@ -173,8 +174,9 @@ export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, editorKey } = useValues(multitabEditorLogic)
-    const { saveAsInsight, setSourceQuery } = useActions(multitabEditorLogic)
+    const { sourceQuery, exportContext, editorKey, editingInsight, updateInsightButtonEnabled, showLegacyFilters } =
+        useValues(multitabEditorLogic)
+    const { saveAsInsight, updateInsight, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
@@ -217,7 +219,7 @@ export function OutputPane(): JSX.Element {
 
                 const maxContentLength = Math.max(
                     column.length,
-                    ...response.results.map((row: any[]) => {
+                    ...(response.results || response.result).map((row: any[]) => {
                         const content = row[index]
                         return typeof content === 'string'
                             ? content.length
@@ -298,6 +300,19 @@ export function OutputPane(): JSX.Element {
                     ]}
                 />
                 <div className="flex gap-2">
+                    {showLegacyFilters && (
+                        <DateRange
+                            key="date-range"
+                            query={sourceQuery.source}
+                            setQuery={(query) => {
+                                setSourceQuery({
+                                    ...sourceQuery,
+                                    source: query,
+                                })
+                                runQuery(query.query)
+                            }}
+                        />
+                    )}
                     {activeTab === OutputTab.Results && exportContext && columns.length > 0 && (
                         <ExportButton
                             type="secondary"
@@ -327,10 +342,20 @@ export function OutputPane(): JSX.Element {
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
                                         />
-
-                                        <LemonButton type="primary" onClick={() => saveAsInsight()}>
-                                            Create insight
-                                        </LemonButton>
+                                        {editingInsight && (
+                                            <LemonButton
+                                                disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
+                                                type="primary"
+                                                onClick={() => updateInsight()}
+                                            >
+                                                Save insight
+                                            </LemonButton>
+                                        )}
+                                        {!editingInsight && (
+                                            <LemonButton type="primary" onClick={() => saveAsInsight()}>
+                                                Create insight
+                                            </LemonButton>
+                                        )}
                                     </div>
                                 </div>
                             </div>

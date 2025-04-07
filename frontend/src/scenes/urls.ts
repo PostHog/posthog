@@ -67,13 +67,17 @@ export const urls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string): string => {
+    sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
         if (query) {
             return `/sql?open_query=${encodeURIComponent(query)}`
         }
 
         if (view_id) {
             return `/sql?open_view=${view_id}`
+        }
+
+        if (insightShortId) {
+            return `/sql?open_insight=${insightShortId}`
         }
 
         return '/sql'

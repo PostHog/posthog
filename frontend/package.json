@@ -39,7 +39,7 @@
         "prettier:check": "prettier --check \"../{cypress,products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "lint": "pnpm lint:js && pnpm lint:css",
-        "lint:js": "eslint --cache src ../cypress ../products",
+        "lint:js": "eslint src ../cypress ../products",
         "lint:css": "stylelint \"../(frontend|products)/**/*.{css,scss}\" --ignore-path=frontend/.stylelintignore",
         "format": "pnpm lint:js --fix && pnpm lint:css --fix && pnpm prettier",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html"
@@ -153,7 +153,7 @@
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "1.234.0",
+        "posthog-js": "1.234.9",
         "posthog-js-lite": "3.0.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",

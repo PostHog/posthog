@@ -39,9 +39,9 @@ export const manifest: ProductManifest = {
         //     href: (ref: string) => urls.earlyAccessFeature(ref),
         // },
     },
-    treeItems: [
+    treeItemsExplore: [
         {
-            path: 'Explore/Early access features',
+            path: 'Early access features',
             icon: <IconRocket />,
             href: () => urls.earlyAccessFeatures(),
         },

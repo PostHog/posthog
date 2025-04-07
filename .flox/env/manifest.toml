@@ -58,6 +58,7 @@ OPENSSL_LIB_DIR = "$FLOX_ENV/lib"
 OPENSSL_INCLUDE_DIR = "$FLOX_ENV/include"
 LDFLAGS="-L$FLOX_ENV/lib"
 CPPFLAGS="-I$FLOX_ENV/include"
+UV_PROJECT_ENVIRONMENT = "$FLOX_ENV_CACHE/venv"
 
 # The `hook.on-activate` script is run by the *bash* shell immediately upon
 # activating an environment, and will not be invoked if Flox detects that the
@@ -82,7 +83,7 @@ if [[ -t 0 ]] && [ ! -d "$DIRENV_FILE" ] && [ ! -f "$FLOX_ENV_CACHE/.hush-direnv
 fi
 
 # Ensure Python virtual environment - Python version is defined in pyproject.toml
-uv sync # Also activates
+uv sync
 
 # Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)
 # This also sets up pre-commit hooks via Husky
@@ -138,6 +139,7 @@ bash = '''
     # ensure even with your shell prefs in place we know this is a Flox.dev env
     export PS1="\033[47m(flox)\033[0m $PS1"
   fi
+  source $UV_PROJECT_ENVIRONMENT/bin/activate
 '''
 zsh = '''
   if [[ -f "$HOME/.zshrc" ]]; then
@@ -145,6 +147,13 @@ zsh = '''
     # ensure even with your shell prefs in place we know this is a Flox.dev env
     export PS1="%K{white}%F{black}(flox)%k%f $PS1"
   fi
+  source $UV_PROJECT_ENVIRONMENT/bin/activate
+'''
+fish = '''
+  source $UV_PROJECT_ENVIRONMENT/bin/activate.fish
+'''
+tcsh = '''
+  source $UV_PROJECT_ENVIRONMENT/bin/activate.csh
 '''
 
 # The `[services]` section of the manifest allows you to define services.
