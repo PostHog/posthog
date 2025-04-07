@@ -42,6 +42,34 @@ class TestProductIntent(BaseTest):
         assert intent is not None
         assert intent.contexts == {"test": 2}
 
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_register_with_onboarding_sets_onboarding_completed_at(self):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="onboarding product selected - primary",
+            user=self.user,
+            is_onboarding=True,
+        )
+
+        intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+        assert intent.onboarding_completed_at == datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        assert intent.contexts == {"onboarding product selected - primary": 1}
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_register_without_onboarding_does_not_set_onboarding_completed_at(self):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="taxonomic filter empty state",
+            user=self.user,
+            is_onboarding=False,
+        )
+
+        intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+        assert intent.onboarding_completed_at is None
+        assert intent.contexts == {"taxonomic filter empty state": 1}
+
     @freeze_time("2024-06-15T12:00:00Z")
     def test_has_activated_data_warehouse_with_valid_query(self):
         Insight.objects.create(
