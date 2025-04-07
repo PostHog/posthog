@@ -55,7 +55,7 @@ export type TreeDataItem = {
      * Type node, normal behavior
      * Type separator, render as separator
      */
-    type?: 'node' | 'separator'
+    type?: 'node' | 'separator' | 'empty-folder'
 
     /**
      * Handle a click on the item.
@@ -190,8 +190,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         return (
             <ul className={cn('list-none m-0 p-0', className)} role="group">
                 {data.map((item) => {
-                    // Clean up display name by replacing escaped characters
                     const displayName = item.displayName ?? item.name
+                    const isFolder = item.record?.type === 'folder'
+                    const isEmptyFolder = item.type === 'empty-folder'
 
                     if (item.type === 'separator') {
                         return (
@@ -200,8 +201,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             </div>
                         )
                     }
-
-                    const isFolder = item.record?.type === 'folder'
 
                     const content = (
                         <AccordionPrimitive.Root
@@ -264,12 +263,12 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             'bg-fill-button-tertiary-active': getItemActiveState(item),
                                                             'pl-1': !enableMultiSelection,
                                                             'pl-8': enableMultiSelection,
+                                                            'pointer-events-none': isEmptyFolder,
                                                         }
                                                     )}
                                                     onClick={() => {
                                                         handleClick(item)
                                                     }}
-                                                    // onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
                                                     href={item.record?.href}
                                                     role="treeitem"
                                                     data-id={item.id}
@@ -277,8 +276,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     menuItem
                                                     size="base"
                                                     sideActionLeft
-                                                    tooltip={displayName}
+                                                    tooltip={isEmptyFolder ? undefined : displayName}
                                                     tooltipPlacement="right"
+                                                    disabled={isEmptyFolder}
+                                                    tabIndex={isEmptyFolder ? -1 : 0}
                                                     buttonWrapper={
                                                         enableDragAndDrop &&
                                                         isItemDraggable?.(item) &&
@@ -307,11 +308,15 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         />
                                                     )}
 
-                                                    {renderTreeNodeDisplayIcon({
-                                                        item,
-                                                        expandedItemIds: expandedItemIds ?? [],
-                                                        defaultNodeIcon,
-                                                    })}
+                                                    {!isEmptyFolder && (
+                                                        <div className="flex items-center justify-center bg-transparent pointer-events-none flex-shrink-0 h-[var(--button-height-base)]">
+                                                            {renderTreeNodeDisplayIcon({
+                                                                item,
+                                                                expandedItemIds: expandedItemIds ?? [],
+                                                                defaultNodeIcon,
+                                                            })}
+                                                        </div>
+                                                    )}
 
                                                     {/* Render contents */}
                                                     {renderItem ? (
@@ -342,7 +347,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         </span>
                                                     )}
                                                 </ButtonPrimitive>
-                                                {itemSideAction && (
+
+                                                {itemSideAction && !isEmptyFolder && (
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
                                                             <ButtonPrimitive

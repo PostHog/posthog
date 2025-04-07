@@ -184,9 +184,9 @@ export function convertFileSystemEntryToTreeDataItem({
             folderNode.children.push({
                 id: `${root}-folder-empty/${folderNode.id}`,
                 name: 'Empty folder',
-                displayName: <em className="text-muted">Empty folder</em>,
-                icon: <IconPlus />,
+                displayName: <span className="italic text-tertiary pl-2">Empty folder</span>,
                 disableSelect: true,
+                type: 'empty-folder',
             })
         }
         if (indeterminateFolders[folderNode.id] && !folderNode.checked) {
