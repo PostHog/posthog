@@ -25,10 +25,10 @@ const fuse = new Fuse<CohortType>([], {
 
 export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'cohortsSidebarLogic']),
-    connect({
+    connect(() => ({
         values: [cohortsModel, ['cohorts', 'cohortsLoading'], sceneLogic, ['activeScene', 'sceneParams']],
         actions: [cohortsModel, ['loadCohorts', 'deleteCohort']],
-    }),
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [s.relevantCohorts, s.cohortsLoading],
