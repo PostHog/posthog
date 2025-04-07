@@ -1,5 +1,6 @@
 import { action } from '@storybook/addon-actions'
 import { Meta, StoryObj } from '@storybook/react'
+import * as d3 from 'd3'
 import { generateSparklineLabels } from 'scenes/error-tracking/utils'
 
 import { SparklineChart, SparklineEvent, SparklineOptions } from './SparklineChart'
@@ -72,6 +73,7 @@ function buildData(
     minDate: string = '2022-01-01',
     maxDate: string = '2022-02-01'
 ): Array<{ value: number; date: Date }> {
+    const generator = d3.randomLcg(42) // Initialize a random generator with seed
     const ranges = generateSparklineLabels(
         {
             date_from: minDate,
@@ -81,7 +83,7 @@ function buildData(
     )
     return new Array(resolution).fill(0).map((_, index) => {
         return {
-            value: Math.floor(Math.random() * (maxValue - minValue) + minValue),
+            value: Math.floor(generator() * (maxValue - minValue) + minValue),
             date: ranges[index].toDate(),
         }
     })
