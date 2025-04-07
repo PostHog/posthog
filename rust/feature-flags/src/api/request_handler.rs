@@ -1178,8 +1178,6 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        println!("result: {:?}", result);
-
         assert!(
             result.flags.contains_key("test_flag"),
             "test_flag not found in result flags"

@@ -8,11 +8,11 @@ use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
 use crate::metrics::metrics_consts::{
     DB_GROUP_PROPERTIES_READS_COUNTER, DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
     DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_COHORT_FILTER_TIME, FLAG_DB_PROPERTIES_FETCH_TIME,
-    FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
+    FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATE_STATIC_COHORTS_TIME,
+    FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME, FLAG_GET_INDIVIDUAL_FLAG_TIME,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_TYPE_INDEX_MATCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
-    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_EVALUATION_TIME,
-    FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME,
+    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
@@ -312,7 +312,6 @@ impl FeatureFlagMatcher {
             );
         }
 
-        let local_eval_timer = common_metrics::timing_guard(FLAG_LOCAL_EVALUATION_TIME, &[]);
         let flags_response = self
             .evaluate_flags_with_overrides(
                 feature_flags,
@@ -321,17 +320,6 @@ impl FeatureFlagMatcher {
                 hash_key_overrides,
             )
             .await;
-
-        local_eval_timer
-            .label(
-                "outcome",
-                if flags_response.errors_while_computing_flags {
-                    "error"
-                } else {
-                    "success"
-                },
-            )
-            .fin();
 
         eval_timer
             .label(
@@ -607,6 +595,8 @@ impl FeatureFlagMatcher {
             // Step 3: Evaluate remaining flags with cached properties
             let flag_get_match_timer = common_metrics::timing_guard(FLAG_GET_MATCH_TIME, &[]);
             for flag in flags_needing_db_properties {
+                let get_individual_flag_timer =
+                    common_metrics::timing_guard(FLAG_GET_INDIVIDUAL_FLAG_TIME, &[]);
                 match self
                     .get_match(&flag, None, hash_key_overrides.clone())
                     .await
@@ -632,6 +622,7 @@ impl FeatureFlagMatcher {
                             .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                     }
                 }
+                get_individual_flag_timer.label("flag_key", &flag.key).fin();
             }
             flag_get_match_timer
                 .label(
@@ -1090,12 +1081,15 @@ impl FeatureFlagMatcher {
 
         // Always evaluate static cohorts first
         if !static_cohorts.is_empty() {
+            let evaluate_static_cohorts_timer =
+                common_metrics::timing_guard(FLAG_EVALUATE_STATIC_COHORTS_TIME, &[]);
             let results = evaluate_static_cohorts(
                 self.reader.clone(),
                 person_id,
                 static_cohorts.iter().map(|c| c.id).collect(),
             )
             .await?;
+            evaluate_static_cohorts_timer.fin();
             cohort_matches.extend(results);
         }
 
