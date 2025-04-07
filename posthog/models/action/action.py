@@ -85,7 +85,7 @@ class Action(FileSystemSyncMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             base_folder="Unfiled/Actions",
-            type="action",
+            type="action",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",
             href=f"/data-management/actions/{self.id}",
