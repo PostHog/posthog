@@ -131,6 +131,8 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     depth?: number
     /** Whether the context menu is open */
     onContextMenuOpen?: (open: boolean) => void
+    /** Whether the item is dragging */
+    isDragging?: boolean
 }
 
 export interface LemonTreeRef {
@@ -160,6 +162,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             itemContextMenu,
             enableMultiSelection = false,
             onItemChecked,
+            isDragging,
             ...props
         },
         ref
@@ -256,6 +259,13 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 )}
 
                                                 <ButtonPrimitive
+                                                    data-id={item.id}
+                                                    // When dragging, don't allow links to be clicked,
+                                                    // without this drag end would fire this href causing a reload
+                                                    href={isDragging ? undefined : item.record?.href}
+                                                    onClick={() => {
+                                                        handleClick(item)
+                                                    }}
                                                     className={cn(
                                                         'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] transition-[padding] duration-50 group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover',
                                                         {
@@ -268,17 +278,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             'pointer-events-none': isEmptyFolder,
                                                         }
                                                     )}
-                                                    onClick={() => {
-                                                        handleClick(item)
-                                                    }}
-                                                    href={item.record?.href}
                                                     role="treeitem"
-                                                    data-id={item.id}
                                                     active={getItemActiveState(item)}
                                                     menuItem
-                                                    size="base"
                                                     sideActionLeft
-                                                    tooltip={isEmptyFolder ? undefined : displayName}
+                                                    tooltip={isDragging || isEmptyFolder ? undefined : displayName}
                                                     tooltipPlacement="right"
                                                     disabled={isEmptyFolder}
                                                     tabIndex={isEmptyFolder ? -1 : 0}
@@ -406,6 +410,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             itemContextMenu={itemContextMenu}
                                             enableMultiSelection={enableMultiSelection}
                                             onItemChecked={onItemChecked}
+                                            isDragging={isDragging}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -484,6 +489,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
+        const [isDragging, setIsDragging] = useState(false)
 
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
@@ -1025,6 +1031,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         return (
             <DndContext
                 sensors={sensors}
+                onDragStart={() => {
+                    setIsDragging(true)
+                }}
                 onDragEnd={(dragEvent) => {
                     const active = dragEvent.active?.id
                     const over = dragEvent.over?.id
@@ -1033,6 +1042,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     } else {
                         onDragEnd?.(dragEvent)
                     }
+                    setIsDragging(false)
                 }}
             >
                 <ScrollableShadows
@@ -1071,6 +1081,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             itemContextMenu={itemContextMenu}
                             enableMultiSelection={enableMultiSelection}
                             onItemChecked={onItemChecked}
+                            isDragging={isDragging}
                             {...props}
                         />
 
