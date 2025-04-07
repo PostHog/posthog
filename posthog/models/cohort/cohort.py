@@ -120,7 +120,7 @@ class Cohort(FileSystemSyncMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             base_folder="Unfiled/Cohorts",
-            type="cohort",
+            type="cohort",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
             href=f"/cohorts/{self.pk}",
