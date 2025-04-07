@@ -36,8 +36,8 @@ export function ExperimentMetricConversionWindowFilter({
                                 exposed until the experiment ends.
                             </li>
                             <li>
-                                <strong>Conversion window</strong> only includes data that occurs within the specified
-                                number of hours after a user's first exposure (also ignoring the experiment end date).
+                                <strong>Time window</strong> only includes data that occurs within the specified number
+                                of hours after a user's first exposure (also ignoring the experiment end date).
                             </li>
                         </ul>
                     </>
