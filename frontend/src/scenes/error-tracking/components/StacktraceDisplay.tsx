@@ -38,8 +38,8 @@ export function StacktraceDisplay({
                         {part && <FingerprintRecordPartDisplay part={part} />}
                     </div>
                     <div
-                        className={cn('text-tertiary', {
-                            'h-7 line-clamp-1': truncateMessage,
+                        className={cn('text-tertiary leading-6', {
+                            'line-clamp-1': truncateMessage,
                         })}
                     >
                         {value}
