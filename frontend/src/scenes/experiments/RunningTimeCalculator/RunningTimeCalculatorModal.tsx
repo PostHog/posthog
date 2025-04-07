@@ -56,7 +56,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         <RunningTimeCalculatorModalStep
                             stepNumber={3}
                             title="Choose minimum detectable effect"
-                            description="The minimum detectable effect (MDE) is the smallest improvement you want to be able to detect with statistical significance. A smaller MDE requires more participants but can detect subtler changes."
+                            description="The minimum detectable effect (MDE) is the smallest relativeimprovement you want to be able to detect with statistical significance. A smaller MDE requires more participants but can detect subtler changes."
                         >
                             <div className="flex items-center gap-2">
                                 <LemonInput
