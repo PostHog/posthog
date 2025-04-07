@@ -763,6 +763,7 @@
          "posthog_productintent"."updated_at",
          "posthog_productintent"."product_type",
          "posthog_productintent"."onboarding_completed_at",
+         "posthog_productintent"."contexts",
          "posthog_productintent"."activated_at",
          "posthog_productintent"."activation_last_checked_at"
   FROM "posthog_productintent"
@@ -4854,6 +4855,7 @@
          "posthog_productintent"."updated_at",
          "posthog_productintent"."product_type",
          "posthog_productintent"."onboarding_completed_at",
+         "posthog_productintent"."contexts",
          "posthog_productintent"."activated_at",
          "posthog_productintent"."activation_last_checked_at"
   FROM "posthog_productintent"
@@ -6133,6 +6135,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -6711,6 +6714,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -7629,6 +7633,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -8203,6 +8208,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",

@@ -50,7 +50,7 @@ export const groupLogic = kea<groupLogicType>([
     props({} as GroupLogicProps),
     key((props) => `${props.groupTypeIndex}-${props.groupKey}`),
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
-    connect({
+    connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],
         values: [
             teamLogic,
@@ -60,7 +60,7 @@ export const groupLogic = kea<groupLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     actions(() => ({
         setGroupData: (group: Group) => ({ group }),
         setGroupTab: (groupTab: string | null) => ({ groupTab }),

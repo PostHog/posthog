@@ -61,9 +61,9 @@ export interface FlagLogicProps {
 export const featureFlagsLogic = kea<featureFlagsLogicType>([
     props({} as FlagLogicProps),
     path(['scenes', 'feature-flags', 'featureFlagsLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),

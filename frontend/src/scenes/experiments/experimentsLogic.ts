@@ -37,7 +37,7 @@ export function getExperimentStatusColor(status: ProgressStatus): LemonTagType {
 
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['scenes', 'experiments', 'experimentsLogic']),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -50,7 +50,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             router,
             ['location'],
         ],
-    }),
+    })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSearchStatus: (status: ProgressStatus | 'all') => ({ status }),

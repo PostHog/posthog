@@ -88,9 +88,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             base_folder="Unfiled/Feature Flags",
-            type="feature_flag",
+            type="feature_flag",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
-            name=self.name or "Untitled",
+            name=self.key or "Untitled",
             href=f"/feature_flags/{self.id}",
             meta={
                 "created_at": str(self.created_at),

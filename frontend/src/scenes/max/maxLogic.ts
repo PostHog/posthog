@@ -55,7 +55,7 @@ export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
     key(({ conversationId }) => conversationId || 'new-conversation'),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeam'],
@@ -67,7 +67,7 @@ export const maxLogic = kea<maxLogicType>([
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
         ],
-    }),
+    })),
     actions({
         askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,

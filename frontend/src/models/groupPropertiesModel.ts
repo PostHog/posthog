@@ -10,9 +10,9 @@ import type { groupPropertiesModelType } from './groupPropertiesModelType'
 
 export const groupPropertiesModel = kea<groupPropertiesModelType>([
     path(['models', 'groupPropertiesModel']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled']],
-    }),
+    })),
     loaders(({ values }) => ({
         allGroupProperties: [
             {} as GroupTypeProperties,

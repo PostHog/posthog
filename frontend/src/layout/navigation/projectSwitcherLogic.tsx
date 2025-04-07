@@ -22,9 +22,9 @@ export interface TeamBasicTypeWithProjectName extends TeamBasicType {
 
 export const projectSwitcherLogic = kea<projectSwitcherLogicType>([
     path(['layout', 'navigation', 'projectSwitcherLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user'], teamLogic, ['currentTeam'], organizationLogic, ['currentOrganization']],
-    }),
+    })),
     actions({
         setProjectSwitcherSearch: (input: string) => ({ input }),
     }),

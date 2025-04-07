@@ -27,7 +27,7 @@ const DELETE_ALERT_LIMIT = 0
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupsAccessStatus'],
@@ -39,7 +39,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['projectTreeRef'],
         ],
         actions: [panelLayoutLogic, ['setSearchTerm']],
-    }),
+    })),
     actions({
         loadUnfiledItems: true,
         addFolder: (folder: string) => ({ folder }),

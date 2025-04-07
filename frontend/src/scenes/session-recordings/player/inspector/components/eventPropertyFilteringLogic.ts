@@ -7,9 +7,9 @@ import type { eventPropertyFilteringLogicType } from './eventPropertyFilteringLo
 
 export const eventPropertyFilteringLogic = kea<eventPropertyFilteringLogicType>([
     path(['scenes', 'session-recordings', 'player', 'inspector', 'components', 'eventPropertyFilteringLogic']),
-    connect({
+    connect(() => ({
         values: [userPreferencesLogic, ['hidePostHogPropertiesInTable'], preflightLogic, ['isCloudOrDev']],
-    }),
+    })),
     selectors({
         filterProperties: [
             (s) => [s.hidePostHogPropertiesInTable, s.isCloudOrDev],

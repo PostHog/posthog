@@ -74,9 +74,9 @@ export const notebooksModel = kea<notebooksModelType>([
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
         createNotebookFromDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
     }),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
 
     reducers({
         scratchpadNotebook: [SCRATCHPAD_NOTEBOOK],

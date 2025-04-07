@@ -247,9 +247,10 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
 
 
 def create_hogql_database(
-    team_id: int,
+    team_id: Optional[int] = None,
+    *,
+    team: Optional["Team"] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    team_arg: Optional["Team"] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> Database:
     from posthog.hogql.database.s3_table import S3Table
@@ -264,7 +265,18 @@ def create_hogql_database(
     if timings is None:
         timings = HogQLTimings()
 
-    team = team_arg or Team.objects.get(pk=team_id)
+    with timings.measure("team"):
+        if team_id is None and team is None:
+            raise ValueError("Either team_id or team must be provided")
+
+        if team is not None and team_id is not None and team.pk != team_id:
+            raise ValueError("team_id and team must be the same")
+
+        if team is None:
+            team = Team.objects.get(pk=team_id)
+
+        # Team is definitely not None at this point, make mypy believe that
+        team = cast("Team", team)
 
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)

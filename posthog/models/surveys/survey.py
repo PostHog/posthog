@@ -233,7 +233,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             base_folder="Unfiled/Surveys",
-            type="survey",
+            type="survey",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
             href=f"/surveys/{self.pk}",

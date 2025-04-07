@@ -178,7 +178,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
         hog: template.hog,
         icon_url: template.icon_url,
         inputs: getInputs(template.inputs_schema),
-        enabled: template.type !== 'broadcast',
+        enabled: true,
     }
 }
 

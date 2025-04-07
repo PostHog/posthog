@@ -11,9 +11,9 @@ import type { projectHomepageLogicType } from './projectHomepageLogicType'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
-    }),
+    })),
 
     selectors({
         primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
