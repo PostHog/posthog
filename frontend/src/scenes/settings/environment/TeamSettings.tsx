@@ -26,6 +26,7 @@ export function TeamDisplayName(): JSX.Element {
 
     const showSubProjectName = currentTeamIsSubProject || currentTeamHasSubProjects
 
+    // TODO: Show separate root name and name depending on whether there are separate envs
     console.log({ currentTeam, currentTeamIsSubProject, currentTeamHasSubProjects })
     return (
         <div className="deprecated-space-y-4 max-w-160">
