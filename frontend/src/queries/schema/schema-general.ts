@@ -2815,10 +2815,9 @@ export interface PageURL {
 
 export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLSearchQueryResponse> {
     kind: NodeKind.WebPageURLSearchQuery
-    search_term?: string
-    strip_query_params?: boolean
+    searchTerm?: string
+    stripQueryParams?: boolean
     limit?: integer
-    sampling_factor?: number
 }
 
 export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase<PageURL[]> {

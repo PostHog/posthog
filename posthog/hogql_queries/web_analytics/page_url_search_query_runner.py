@@ -22,17 +22,17 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
     def _get_url_column(self) -> ast.Expr:
         current_url = ast.Call(name="toString", args=[ast.Field(chain=["properties", "$current_url"])])
 
-        if self.query.strip_query_params:
+        if self.query.stripQueryParams:
             return ast.Call(name="cutQueryStringAndFragment", args=[current_url])
         else:
             return current_url
 
     def _get_search_condition(self) -> ast.Expr:
-        if self.query.search_term:
+        if self.query.searchTerm:
             return ast.CompareOperation(
                 left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$current_url"])]),
                 op=ast.CompareOperationOp.ILike,
-                right=ast.Constant(value=f"%{self.query.search_term}%"),
+                right=ast.Constant(value=f"%{self.query.searchTerm}%"),
             )
         return ast.Constant(value=True)
 
@@ -43,7 +43,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
         with self.timings.measure("page_url_search_query"):
             url_column = self._get_url_column()
             search_condition = self._get_search_condition()
-            sampling_factor = self.query.sampling_factor
+            sampling_factor = self._sample_ratio
             limit = self.query.limit or PAGE_URL_SEARCH_DEFAULT_LIMIT
 
             select_query = ast.SelectQuery(
@@ -54,7 +54,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
                 distinct=True,
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
-                    sample=ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=sampling_factor))),
+                    sample=ast.SampleExpr(sample_value=sampling_factor),
                 ),
                 where=ast.And(
                     exprs=[

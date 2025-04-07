@@ -128,8 +128,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     try {
                         const response = await api.query<WebPageURLSearchQuery>({
                             kind: NodeKind.WebPageURLSearchQuery,
-                            search_term: searchTerm,
-                            strip_query_params: values.stripQueryParams,
+                            searchTerm: searchTerm,
+                            stripQueryParams: values.stripQueryParams,
                             dateRange: {
                                 date_from: values.dateFilter.dateFrom,
                                 date_to: values.dateFilter.dateTo,
