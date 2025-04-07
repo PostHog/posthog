@@ -63,7 +63,9 @@ class SurveyEventName(str, Enum):
 
 class EventStats(TypedDict):
     total_count: int
+    total_count_only_seen: int
     unique_persons: int
+    unique_persons_only_seen: int  # unique_persons - dismissed - sent
     first_seen: str | None
     last_seen: str | None
 
@@ -71,6 +73,8 @@ class EventStats(TypedDict):
 class SurveyRates(TypedDict):
     response_rate: float
     dismissal_rate: float
+    unique_users_response_rate: float
+    unique_users_dismissal_rate: float
 
 
 SurveyStats = TypedDict(
@@ -833,18 +837,24 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
+                "unique_persons_only_seen": 0,
+                "total_count_only_seen": 0,
             },
             "survey dismissed": {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
+                "total_count_only_seen": 0,
+                "unique_persons_only_seen": 0,
             },
             "survey sent": {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
+                "total_count_only_seen": 0,
+                "unique_persons_only_seen": 0,
             },
         }
 
@@ -864,6 +874,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif event_name == SurveyEventName.SENT.value:
                 stats["survey sent"] = event_stats
 
+        stats["survey shown"]["unique_persons_only_seen"] = (
+            stats["survey shown"]["unique_persons"]
+            - stats["survey dismissed"]["unique_persons"]
+            - stats["survey sent"]["unique_persons"]
+        )
+        stats["survey shown"]["total_count_only_seen"] = (
+            stats["survey shown"]["total_count"]
+            - stats["survey dismissed"]["total_count"]
+            - stats["survey sent"]["total_count"]
+        )
         return stats
 
     def _calculate_rates(self, stats: SurveyStats) -> SurveyRates:
@@ -878,19 +898,28 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         rates: SurveyRates = {
             "response_rate": 0.0,
             "dismissal_rate": 0.0,
+            "unique_users_response_rate": 0.0,
+            "unique_users_dismissal_rate": 0.0,
         }
 
         shown_count = stats["survey shown"]["total_count"]
         if shown_count > 0:
             sent_count = stats["survey sent"]["total_count"]
             dismissed_count = stats["survey dismissed"]["total_count"]
+            unique_users_shown_count = stats["survey shown"]["unique_persons"]
+            unique_users_sent_count = stats["survey sent"]["unique_persons"]
+            unique_users_dismissed_count = stats["survey dismissed"]["unique_persons"]
             rates = {
                 "response_rate": round(sent_count / shown_count * 100, 2),
                 "dismissal_rate": round(dismissed_count / shown_count * 100, 2),
+                "unique_users_response_rate": round(unique_users_sent_count / unique_users_shown_count * 100, 2),
+                "unique_users_dismissal_rate": round(unique_users_dismissed_count / unique_users_shown_count * 100, 2),
             }
         return rates
 
-    def _get_survey_stats(self, date_from: str | None, date_to: str | None, survey_id: str | None = None) -> dict:
+    def _get_survey_stats(
+        self, date_from: str | None, date_to: str | None, survey_id: str | None = None, ignore_cache: bool = False
+    ) -> dict:
         """Get survey statistics from ClickHouse.
 
         Args:
@@ -913,7 +942,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Try to get cached results first
         cached_data = cache.get(cache_key)
-        if cached_data:
+        if cached_data and not ignore_cache:
             return cached_data
 
         # Build query parameters
@@ -993,6 +1022,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Args:
             date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
             date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+            ignore_cache: If True, ignore the cache and get fresh data from ClickHouse.
 
         Returns:
             Survey statistics including event counts, unique respondents, and conversion rates
@@ -1000,13 +1030,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         survey_id = kwargs["pk"]
         date_from = request.query_params.get("date_from", None)
         date_to = request.query_params.get("date_to", None)
+        ignore_cache = request.query_params.get("ignore_cache", False)
 
         try:
             survey = self.get_object()
         except Survey.DoesNotExist:
             raise exceptions.NotFound("Survey not found")
 
-        response_data = self._get_survey_stats(date_from, date_to, survey_id)
+        response_data = self._get_survey_stats(date_from, date_to, survey_id, ignore_cache)
 
         # Add survey metadata
         response_data["survey_id"] = survey_id
@@ -1022,6 +1053,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Args:
             date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
             date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+            ignore_cache: If True, ignore the cache and get fresh data from ClickHouse.
 
         Returns:
             Aggregated statistics across all surveys including total counts and rates

@@ -32,6 +32,7 @@ import {
     SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveySchedule,
+    SurveyStats,
 } from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
@@ -249,6 +250,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -338,74 +340,18 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         surveyUserStats: {
-            loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
+            loadSurveyUserStats: async (): Promise<SurveyStats> => {
                 const survey: Survey = values.survey as Survey
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
+                const stats = await api.surveys.getSurveyStats({
+                    surveyId: props.id,
+                    ignoreCache: true,
+                    dateFrom: startDate,
+                    dateTo: endDate,
+                })
 
-                const answerFilter = createAnswerFilterHogQLExpression(values.answerFilters, survey)
-
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING SURVEY USER STATS
-                        SELECT
-                            (SELECT COUNT(DISTINCT person_id)
-                                FROM events
-                                WHERE event = 'survey shown'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters}),
-                                    (SELECT COUNT(DISTINCT person_id)
-                                    FROM events
-                                    WHERE event = 'survey dismissed'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters}),
-                                    (SELECT COUNT(DISTINCT person_id)
-                                    FROM events
-                                    WHERE event = 'survey sent'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters}),
-                                    (SELECT COUNT()
-                                    FROM events
-                                    WHERE event = 'survey sent'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters})
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
-
-                const responseJSON = await api.query(query)
-                const { results } = responseJSON
-                if (results && results[0]) {
-                    const [uniqueUsersSeen, uniqueUsersDismissed, uniqueUsersSent, totalSent] = results[0]
-                    const uniqueUsersOnlySeen = uniqueUsersSeen - uniqueUsersDismissed - uniqueUsersSent
-                    return {
-                        uniqueUsersOnlySeen: uniqueUsersOnlySeen < 0 ? 0 : uniqueUsersOnlySeen,
-                        uniqueUsersDismissed,
-                        uniqueUsersSent,
-                        totalSent,
-                    }
-                }
-                return {
-                    uniqueUsersOnlySeen: 0,
-                    uniqueUsersDismissed: 0,
-                    uniqueUsersSent: 0,
-                    totalSent: 0,
-                }
+                return stats
             },
         },
         surveyRatingResults: {
@@ -853,6 +799,12 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
     reducers({
+        filterSurveyStatsByDistinctId: [
+            true,
+            {
+                setFilterSurveyStatsByDistinctId: (_, { filterByDistinctId }) => filterByDistinctId,
+            },
+        ],
         isEditingSurvey: [
             false,
             {

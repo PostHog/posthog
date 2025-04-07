@@ -125,6 +125,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyStats,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -2599,6 +2600,38 @@ const api = {
                 apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
             }
             return await apiRequest.create()
+        },
+        async getSurveyStats({
+            surveyId,
+            ignoreCache = false,
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            surveyId: Survey['id']
+            ignoreCache?: boolean
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (ignoreCache) {
+                queryParams['ignore_cache'] = 'true'
+            }
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+
+            return await apiRequest.withQueryString(queryParams).get()
+        },
+        async getGlobalSurveyStats(ignoreCache: boolean = false): Promise<SurveyStats> {
+            let apiRequest = new ApiRequest().surveys().withAction('stats')
+            if (ignoreCache) {
+                apiRequest = apiRequest.withQueryString('ignore_cache=true')
+            }
+            return await apiRequest.get()
         },
     },
 
