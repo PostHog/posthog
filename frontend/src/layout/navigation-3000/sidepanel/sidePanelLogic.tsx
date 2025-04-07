@@ -25,7 +25,7 @@ const ALWAYS_EXTRA_TABS = [
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
-    connect({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -48,7 +48,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['currentTeam'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
-    }),
+    })),
 
     selectors({
         enabledTabs: [

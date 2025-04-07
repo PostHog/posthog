@@ -17,9 +17,9 @@ export interface Noun {
 
 export const groupsModel = kea<groupsModelType>([
     path(['models', 'groupsModel']),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
-    }),
+    })),
     loaders(({ values }) => ({
         groupTypesRaw: [
             [] as Array<GroupType>,

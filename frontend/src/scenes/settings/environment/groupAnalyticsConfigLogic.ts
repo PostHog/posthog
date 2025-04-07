@@ -6,10 +6,10 @@ import type { groupAnalyticsConfigLogicType } from './groupAnalyticsConfigLogicT
 
 export const groupAnalyticsConfigLogic = kea<groupAnalyticsConfigLogicType>([
     path(['scenes', 'project', 'Settings', 'groupAnalyticsConfigLogic']),
-    connect({
+    connect(() => ({
         values: [groupsModel, ['groupTypes', 'groupTypesLoading']],
         actions: [groupsModel, ['updateGroupTypesMetadata']],
-    }),
+    })),
     actions({
         setSingular: (groupTypeIndex: number, value: string) => ({ groupTypeIndex, value }),
         setPlural: (groupTypeIndex: number, value: string) => ({ groupTypeIndex, value }),

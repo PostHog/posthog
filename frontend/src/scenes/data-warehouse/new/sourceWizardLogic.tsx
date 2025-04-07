@@ -827,7 +827,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
-    connect({
+    connect(() => ({
         values: [
             dataWarehouseTableLogic,
             ['tableLoading'],
@@ -844,7 +844,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-    }),
+    })),
     reducers({
         manualLinkingProvider: [
             null as ManualLinkSourceType | null,
