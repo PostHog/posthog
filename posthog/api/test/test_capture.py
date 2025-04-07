@@ -2144,7 +2144,6 @@ class TestCapture(BaseTest):
                     "session_recording_snapshot_item_events_test",
                     "events_plugin_ingestion_test",
                     "events_plugin_ingestion_test",
-                    "events_plugin_ingestion_test",
                     "exceptions_ingestion_test",
                 ],
             )
