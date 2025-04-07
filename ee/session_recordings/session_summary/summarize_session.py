@@ -116,6 +116,10 @@ class ReplaySummarizer:
             url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
             window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
             rendered_summary_prompt = self._generate_prompt(prompt_data, url_mapping_reversed, window_mapping_reversed)
+            # TODO Remove after testing
+            # with open("wakawaka_input.txt", "w") as f:
+            #     f.write(rendered_summary_prompt)
+
         with timer("openai_completion"):
             raw_session_summary = get_raw_llm_session_summary(
                 rendered_summary_template=rendered_summary_prompt,
@@ -124,6 +128,7 @@ class ReplaySummarizer:
                 session_id=self.recording.session_id,
             )
         # Enrich the session summary with events metadata
+        # TODO Ensure only important events are picked (instead of 5 events for the first 1 minute and then 5 for the rest)
         session_summary = enrich_raw_session_summary_with_events_meta(
             raw_session_summary=raw_session_summary,
             simplified_events_mapping=simplified_events_mapping,
@@ -139,5 +144,11 @@ class ReplaySummarizer:
 
         # TODO Make the output streamable (the main reason behing using YAML
         # to keep it partially parsable to avoid waiting for the LLM to finish)
+
+        # TODO Remove after testing
+        # import json
+
+        # with open("wakawaka_output.json", "w") as f:
+        #     f.write(json.dumps(session_summary.data, indent=4))
 
         return {"content": session_summary.data, "timings": timer.get_all_timings()}
