@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
-from posthog.hogql_queries.experiments.test.utils import create_standard_group_test_events
+from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureQuery

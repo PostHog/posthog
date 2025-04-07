@@ -105,11 +105,11 @@ impl AppContext {
                         // and we're (hopefully) catching the frequent constraint errors above
                         metrics::counter!(UPDATES_SKIPPED, &[("reason", "unhandled_fail")])
                             .increment(1);
-                        tx.rollback().await?;
                         error!(
                             "Unhandled issue update error, bubbling up to batch: {:?}",
                             e
                         );
+                        tx.rollback().await?;
                         issue_time.label("outcome", "abort");
                         return Err(e);
                     }

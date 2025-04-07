@@ -892,6 +892,7 @@ interface InsightVizNodeViewProps {
     embedded?: boolean
     suppressSessionAnalysisWarning?: boolean
     hidePersonsModal?: boolean
+    hideTooltipOnScroll?: boolean
     vizSpecificOptions?: VizSpecificOptions
 }
 
@@ -2326,7 +2327,10 @@ export interface DateRange {
     explicitDate?: boolean | null
 }
 
-export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session' | 'hogql'>
+export type MultipleBreakdownType = Extract<
+    BreakdownType,
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql'
+>
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null

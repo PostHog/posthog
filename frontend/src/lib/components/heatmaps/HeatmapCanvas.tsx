@@ -60,6 +60,7 @@ export function HeatmapCanvas({
 }): JSX.Element | null {
     const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
         useValues(heatmapDataLogic)
+
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
 
@@ -127,7 +128,7 @@ export function HeatmapCanvas({
     }
 
     return (
-        <div className={cn('inset-0 overflow-hidden w-full h-full', positioning)}>
+        <div className={cn('inset-0 overflow-hidden w-full h-full', positioning)} data-attr="heatmap-canvas">
             {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas */}
             <div
                 key={`${widthOverride ?? windowWidth}x${windowHeight}`}

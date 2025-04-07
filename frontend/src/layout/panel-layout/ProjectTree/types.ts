@@ -1,7 +1,7 @@
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export interface ProjectTreeAction {
-    type: 'prepare-move' | 'move' | 'create' | 'prepare-delete' | 'delete'
+    type: 'prepare-move' | 'move' | 'link' | 'prepare-link' | 'create' | 'prepare-delete' | 'delete'
     item: FileSystemEntry
     path: string
     newPath?: string

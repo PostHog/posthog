@@ -76,5 +76,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 }
             },
         ],
+        isPrivateChannelWithoutAccess: [
+            (s) => [s.slackChannels],
+            (slackChannels: SlackChannelType[]) => {
+                return (channel: string) => {
+                    const [channelId] = channel.split('|')
+                    return slackChannels.find((x) => x.id === channelId)?.is_private_without_access ?? false
+                }
+            },
+        ],
     }),
 ])

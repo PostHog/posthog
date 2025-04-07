@@ -97,6 +97,7 @@ class AssistantDurationRange(BaseModel):
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
 
@@ -384,6 +385,7 @@ class BreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -1359,6 +1361,7 @@ class MatchedRecordingEvent(BaseModel):
 class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -3097,6 +3100,7 @@ class SavedInsightNode(BaseModel):
         default=None, description="Show with most visual options enabled. Used in insight scene."
     )
     hidePersonsModal: Optional[bool] = None
+    hideTooltipOnScroll: Optional[bool] = None
     kind: Literal["SavedInsightNode"] = "SavedInsightNode"
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
     shortId: str
@@ -6997,9 +7001,7 @@ class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Optional[
-        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    ] = None
+    answer: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None
@@ -8895,6 +8897,7 @@ class InsightVizNode(BaseModel):
         default=None, description="Show with most visual options enabled. Used in insight scene."
     )
     hidePersonsModal: Optional[bool] = None
+    hideTooltipOnScroll: Optional[bool] = None
     kind: Literal["InsightVizNode"] = "InsightVizNode"
     showCorrelationTable: Optional[bool] = None
     showFilters: Optional[bool] = None
