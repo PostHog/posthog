@@ -33,6 +33,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
+    ProductIntentSerializer,
     calculate_product_activation,
 )
 from posthog.models.project import Project
@@ -599,37 +600,19 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         project = self.get_object()
         team = project.passthrough_team
         user = request.user
-        product_type = request.data.get("product_type")
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
-        if not product_type:
-            return response.Response({"error": "product_type is required"}, status=400)
+        serializer = ProductIntentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
-        if not created:
-            if not product_intent.activated_at:
-                product_intent.check_and_update_activation()
-            product_intent.updated_at = datetime.now(tz=UTC)
-            product_intent.save()
-
-        if isinstance(user, User) and not product_intent.activated_at:
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
+        ProductIntent.register(
+            team=team,
+            product_type=serializer.validated_data["product_type"],
+            context=serializer.validated_data["intent_context"],
+            user=cast(User, user),
+            metadata={**serializer.validated_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+        )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
 
