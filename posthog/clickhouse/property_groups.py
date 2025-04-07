@@ -137,6 +137,8 @@ ignore_custom_properties = [
     "igshid",  # instagram
     "ttclid",  # tiktok
     "rdt_cid",  # reddit
+    "epik",  # pinterest
+    "qclid",  # quora
     "irclid",  # impact
     "_kx",  # klaviyo
 ]

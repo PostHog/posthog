@@ -34,6 +34,8 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "igshid",
     "ttclid",
     "rdt_cid",
+    "epik",
+    "qclid",
     "irclid",
     "_kx",
 ]
@@ -81,6 +83,8 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "igshid",
     "ttclid",
     "rdt_cid",
+    "epik",
+    "qclid",
     "irclid",
     "_kx",
 }
@@ -1241,6 +1245,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "rdt_cid": {
             "label": "rdt_cid",
             "description": "Reddit Click ID",
+        },
+        "epik": {
+            "label": "epik",
+            "description": "Pinterest Click ID",
+        },
+        "qclid": {
+            "label": "qclid",
+            "description": "Quora Click ID",
         },
         "irclid": {
             "label": "irclid",
