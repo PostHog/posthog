@@ -3,7 +3,7 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.settings.data_stores import POSTHOG_MIGRATION_CLUSTER
 
 PROPERTY_DEFINITIONS_TABLE_SQL = f"""
-CREATE TABLE property_definitions ON CLUSTER '{POSTHOG_MIGRATION_CLUSTER}'
+CREATE TABLE property_definitions
 (
     -- Team and project relationships
     team_id UInt32,
