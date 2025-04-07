@@ -104,7 +104,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
         base_qs = HogFunction.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type__startswith="hog/", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type__startswith="hog_function/", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         if self.type == HogFunctionType.SITE_APP:
