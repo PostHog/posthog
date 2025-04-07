@@ -118,7 +118,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
             url_type = f"destinations"
         return FileSystemRepresentation(
             base_folder=folder,
-            type=f"hog/{self.type}",
+            type=f"hog_function/{self.type}",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
             href=f"/pipeline/{url_type}/hog-{self.pk}/configuration",
