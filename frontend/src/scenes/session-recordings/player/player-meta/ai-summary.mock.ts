@@ -1,6 +1,6 @@
 import { SessionSummaryResponse } from './types'
 
-export const aiSummaryMock: SessionSummaryResponse = {
+export const aiSummaryMockHeavy: SessionSummaryResponse = {
     content: {
         summary:
             'User started their session on the insights page, explored various insights, and created new insights. They encountered multiple errors during their exploration but successfully saved their insights at the end of the session.',
@@ -157,6 +157,120 @@ export const aiSummaryMock: SessionSummaryResponse = {
                 window_id: '0195f145-b927-7820-82f5-3f55902ade8b',
                 current_url: 'https://us.posthog.com/project/65144/insights/2QNLlTfs',
                 event: '$pageleave',
+                event_type: null,
+            },
+        ],
+    },
+}
+
+export const aiSummaryMockLight: SessionSummaryResponse = {
+    content: {
+        summary:
+            'User began the session on the login page, encountered several errors during the login process, and eventually navigated to the signup page to create a new account. After completing the signup form, they explored the project settings and billing pages, with interactions primarily focused on settings updates and navigating through the account setup.',
+        key_events: [
+            {
+                description: 'Landed on login page and opted in for tracking.',
+                error: false,
+                tags: {
+                    where: ['login_page'],
+                    what: ['signup_start'],
+                },
+                importance: 0.3,
+                timestamp: '2025-04-07T11:12:00.897000+00:00',
+                milliseconds_since_start: 0,
+                window_id: '01960ff3-3b7b-7d60-bc10-abe15bbbec97',
+                current_url: 'http://localhost:8010/login?next=/',
+                event: '$opt_in',
+                event_type: null,
+            },
+            {
+                description: 'Encountered a query failure during the login attempt.',
+                error: true,
+                tags: {
+                    where: ['login_page'],
+                    what: ['error'],
+                },
+                importance: 1.0,
+                timestamp: '2025-04-07T11:12:00.944000+00:00',
+                milliseconds_since_start: 0,
+                window_id: '01960ff3-3b7b-7d60-bc10-abe15bbbec97',
+                current_url: 'http://localhost:8010/login?next=/',
+                event: 'query failed',
+                event_type: null,
+            },
+            {
+                description: 'Failed client request during login process.',
+                error: true,
+                tags: {
+                    where: ['login_page'],
+                    what: ['error'],
+                },
+                importance: 1.0,
+                timestamp: '2025-04-07T11:12:00.966000+00:00',
+                milliseconds_since_start: 0,
+                window_id: '01960ff3-3b7b-7d60-bc10-abe15bbbec97',
+                current_url: 'http://localhost:8010/login?next=/',
+                event: 'client_request_failure',
+                event_type: null,
+            },
+            {
+                description: 'Submitted the signup form after filling out necessary details.',
+                error: false,
+                tags: {
+                    where: ['signup_page'],
+                    what: ['signup_complete'],
+                },
+                importance: 0.9,
+                timestamp: '2025-04-07T11:12:16.718000+00:00',
+                milliseconds_since_start: 13484,
+                window_id: '01960ff3-3b7b-7d60-bc10-abe15bbbec97',
+                current_url: 'http://localhost:8010/login?next=/',
+                event: '$autocapture',
+                event_type: 'submit',
+            },
+            {
+                description: 'Clicked on the link to create a new account on the signup page.',
+                error: false,
+                tags: {
+                    where: ['signup_page'],
+                    what: ['signup_start'],
+                },
+                importance: 0.7,
+                timestamp: '2025-04-07T11:12:20.539000+00:00',
+                milliseconds_since_start: 17305,
+                window_id: '01960ff3-3b7b-7d60-bc10-abe15bbbec97',
+                current_url: 'http://localhost:8010/login?next=/',
+                event: '$autocapture',
+                event_type: 'click',
+            },
+            {
+                description: 'Accessed project settings page to configure project details.',
+                error: false,
+                tags: {
+                    where: ['settings_page'],
+                    what: ['settings_update'],
+                },
+                importance: 0.6,
+                timestamp: '2025-04-07T11:12:55.124000+00:00',
+                milliseconds_since_start: 51890,
+                window_id: '01960ff3-3b7b-7d60-bc10-abe15bbbec97',
+                current_url: 'http://localhost:8010/project/2/products',
+                event: 'session_recordings_playlist_counts',
+                event_type: null,
+            },
+            {
+                description: 'Navigated to billing page to review billing information.',
+                error: false,
+                tags: {
+                    where: ['billing_page'],
+                    what: ['workspace_setup'],
+                },
+                importance: 0.5,
+                timestamp: '2025-04-07T11:13:05.467000+00:00',
+                milliseconds_since_start: 62233,
+                window_id: '01960ff3-3b7b-7d60-bc10-abe15bbbec97',
+                current_url: 'http://localhost:8010/organization/billing',
+                event: 'billing v2 shown',
                 event_type: null,
             },
         ],
