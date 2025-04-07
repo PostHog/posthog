@@ -94,7 +94,7 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
                     </LemonButton>
                 </div>
             )}
-            {object === 'Person' && (
+            {object === 'Person' && meta?.urlId && (
                 <div className="flex justify-center mt-4 w-fit">
                     <LemonButton
                         type="secondary"
@@ -109,7 +109,7 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
                                         {
                                             type: PropertyFilterType.EventMetadata,
                                             key: 'distinct_id',
-                                            value: meta?.urlId,
+                                            value: meta.urlId,
                                             operator: PropertyOperator.Exact,
                                         },
                                     ]),
