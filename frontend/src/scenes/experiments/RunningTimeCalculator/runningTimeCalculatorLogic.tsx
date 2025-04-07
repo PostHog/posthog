@@ -144,7 +144,7 @@ const getFunnelQuery = (
         series: [
             {
                 kind: NodeKind.EventsNode,
-                event: eventConfig?.event ?? '$feature_flag_called',
+                event: eventConfig?.event ?? '$pageview',
                 properties: eventConfig?.properties ?? [],
             },
             {
