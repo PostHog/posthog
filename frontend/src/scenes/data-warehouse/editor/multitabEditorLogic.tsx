@@ -33,12 +33,6 @@ import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
 
-const dataNodeKey = insightVizDataNodeKey({
-    dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
-    cachedInsight: null,
-    doNotLoad: true,
-})
-
 export interface MultitabEditorLogicProps {
     key: string
     monaco?: Monaco | null
@@ -881,7 +875,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     return `InsightViz.${editingInsight.short_id}`
                 }
 
-                return activeModelUri?.uri.path ?? dataNodeKey
+                return (
+                    activeModelUri?.uri.path ??
+                    insightVizDataNodeKey({
+                        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+                        cachedInsight: null,
+                        doNotLoad: true,
+                    })
+                )
             },
         ],
     }),

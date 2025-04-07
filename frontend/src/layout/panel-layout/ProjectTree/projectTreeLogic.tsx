@@ -27,7 +27,7 @@ const DELETE_ALERT_LIMIT = 0
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupsAccessStatus'],
@@ -39,7 +39,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['projectTreeRef'],
         ],
         actions: [panelLayoutLogic, ['setSearchTerm']],
-    }),
+    })),
     actions({
         loadUnfiledItems: true,
         addFolder: (folder: string) => ({ folder }),
@@ -77,6 +77,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         moveCheckedItems: (path: string) => ({ path }),
         linkCheckedItems: (path: string) => ({ path }),
         checkSelectedFolders: true,
+        syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
+        updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -205,7 +207,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         try {
                             const response = await api.fileSystem.count(action.item.id)
                             if (response && response.count > DELETE_ALERT_LIMIT) {
-                                const confirmMessage = `You're about to delete ${response.count} items. This can't be undone. Are you sure?`
+                                const confirmMessage = `You're about to move ${response.count} items into 'Unfiled'. Are you sure?`
                                 if (!confirm(confirmMessage)) {
                                     actions.removeQueuedAction(action)
                                     return false
@@ -308,6 +310,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 })),
                             ]
                             delete newState[folder]
+                        }
+                    }
+                    return newState
+                },
+                updateSyncedFiles: (state, { files }) => {
+                    const filesById = {}
+                    for (const file of files) {
+                        filesById[file.id] = file
+                    }
+                    const newState = { ...state }
+                    for (const [folder, filesInFolder] of Object.entries(newState)) {
+                        if (filesInFolder.find((file) => filesById[file.id])) {
+                            newState[folder] = newState[folder].map((f) => filesById[f.id] ?? f)
                         }
                     }
                     return newState
@@ -993,6 +1008,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             }
         },
+        syncTypeAndRef: async ({ type, ref }) => {
+            const items = await (type.endsWith('/')
+                ? api.fileSystem.list({ type__startswith: type, ref })
+                : api.fileSystem.list({ type, ref }))
+            actions.updateSyncedFiles(items.results)
+        },
     })),
     subscriptions(({ actions }) => ({
         projectTreeRef: (newRef: ProjectTreeRef | null) => {
@@ -1009,3 +1030,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         }
     }),
 ])
+
+export function refreshTreeItem(type: string, ref: string): void {
+    projectTreeLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
+}
