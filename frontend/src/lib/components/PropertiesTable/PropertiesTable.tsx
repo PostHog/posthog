@@ -538,6 +538,10 @@ export function PropertiesTable({
         )
     }
 
+    if (properties === undefined) {
+        return <div className="px-4 py-2">No defined properties</div>
+    }
+
     // if none of above, it's a value
     return (
         <ValueDisplay
