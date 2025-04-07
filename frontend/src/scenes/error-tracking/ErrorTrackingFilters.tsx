@@ -18,6 +18,14 @@ import { errorTrackingLogic } from './errorTrackingLogic'
 
 const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday')
 
+const taxonomicFilterLogicKey = 'error-tracking'
+const taxonomicGroupTypes = [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.Cohorts,
+    TaxonomicFilterGroupType.HogQLExpression,
+]
+
 export const ErrorTrackingFilters = (): JSX.Element => {
     return (
         <div className="space-y-1">
@@ -36,15 +44,10 @@ const FilterGroup = (): JSX.Element => {
 
     return (
         <UniversalFilters
-            rootKey="error-tracking"
+            rootKey={taxonomicFilterLogicKey}
             group={filterGroup.values[0] as UniversalFiltersGroup}
             // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
-            taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.HogQLExpression,
-            ]}
+            taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
         >
             <UniversalSearch />
@@ -68,12 +71,7 @@ const UniversalSearch = (): JSX.Element => {
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey: 'error-tracking',
-        taxonomicGroupTypes: [
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.Cohorts,
-            TaxonomicFilterGroupType.HogQLExpression,
-        ],
+        taxonomicGroupTypes,
         onChange: (taxonomicGroup, value, item, originalQuery) => {
             searchInputRef.current?.blur()
             setVisible(false)
@@ -125,7 +123,11 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
-                return isUniversalGroupFilterLike(filterOrGroup) ? null : (
+                return isUniversalGroupFilterLike(filterOrGroup) ? (
+                    <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
+                        <UniversalSearch />
+                    </UniversalFilters.Group>
+                ) : (
                     <UniversalFilters.Value
                         key={index}
                         index={index}

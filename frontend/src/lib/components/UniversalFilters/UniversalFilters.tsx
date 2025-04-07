@@ -57,8 +57,6 @@ function Group({
     const { rootKey, taxonomicGroupTypes } = useValues(universalFiltersLogic)
     const { replaceGroupValue } = useActions(universalFiltersLogic)
 
-    console.log(`${rootKey}.group_${index}`)
-
     return (
         <UniversalFilters
             key={index}
