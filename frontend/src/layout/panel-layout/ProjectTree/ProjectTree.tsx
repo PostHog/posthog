@@ -143,6 +143,7 @@ export function ProjectTree(): JSX.Element {
                         >
                             <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                         </MenuItem>
+                        <MenuSeparator />
                         {treeItemsNew.map((treeItem: any) => (
                             <MenuItem
                                 key={treeItem.id}

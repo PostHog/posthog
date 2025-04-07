@@ -121,8 +121,12 @@ def prepare_ast_for_printing(
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
+            # Passing both `team_id` and `team` because `team` is not always available in the context
             context.database = create_hogql_database(
-                context.team_id, context.modifiers, context.team, timings=context.timings
+                context.team_id,
+                modifiers=context.modifiers,
+                team=context.team,
+                timings=context.timings,
             )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
