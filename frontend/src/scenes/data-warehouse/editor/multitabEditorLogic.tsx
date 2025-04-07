@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
+import { removeUndefinedAndNull } from 'lib/utils'
 import isEqual from 'lodash.isequal'
 import { editor, Uri } from 'monaco-editor'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -49,20 +50,6 @@ export const activeModelStateKey = (key: string | number): string => `${key}/act
 export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
 
 export const NEW_QUERY = 'Untitled'
-
-const removeUndefinedAndNull = (obj: object): object => {
-    if (Array.isArray(obj)) {
-        return obj.map(removeUndefinedAndNull)
-    } else if (obj && typeof obj === 'object') {
-        return Object.entries(obj).reduce((acc, [key, value]) => {
-            if (value !== undefined && value !== null) {
-                acc[key] = removeUndefinedAndNull(value)
-            }
-            return acc
-        }, {} as Record<string, any>)
-    }
-    return obj
-}
 
 const getNextUntitledNumber = (tabs: QueryTab[]): number => {
     const untitledNumbers = tabs
@@ -135,8 +122,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateTab: (tab: QueryTab) => ({ tab }),
         setLocalState: (key: string, value: any) => ({ key, value }),
         initialize: true,
-        saveAsView: true,
-        saveAsViewSubmit: (name: string) => ({ name }),
+        saveAsView: (materializeAfterSave = false) => ({ materializeAfterSave }),
+        saveAsViewSubmit: (name: string, materializeAfterSave = false) => ({ name, materializeAfterSave }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         updateInsight: true,
@@ -625,7 +612,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
         },
-        saveAsView: async () => {
+        saveAsView: async ({ materializeAfterSave = false }) => {
             LemonDialog.openForm({
                 title: 'Save as view',
                 initialValues: { viewName: values.activeModelUri?.name || '' },
@@ -653,12 +640,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             : undefined,
                 },
                 onSubmit: async ({ viewName }) => {
-                    await asyncActions.saveAsViewSubmit(viewName)
+                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave)
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name }) => {
+        saveAsViewSubmit: async ({ name, materializeAfterSave = false }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = {
@@ -678,7 +665,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query: queryToSave,
                     types,
                 })
+
                 actions.updateState()
+
+                // Saved queries are unique by team,name
+                const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
+
+                if (materializeAfterSave && savedQuery) {
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                        id: savedQuery.id,
+                        sync_frequency: '24hour',
+                        types: [[]],
+                        lifecycle: 'create',
+                    })
+                }
             } catch (e) {
                 lemonToast.error('Failed to save view')
             }

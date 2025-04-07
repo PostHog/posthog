@@ -171,6 +171,7 @@ dev = [
     "pytest-watch==4.2.0",
     "pytest-xdist==3.6.1",
     "python-dateutil>=2.8.2",
+    "requests-mock>=1.12.1",
     "responses==0.23.1",
     "ruff~=0.8.1",
     "sqlalchemy==2.0.38",

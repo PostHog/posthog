@@ -175,7 +175,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
         try:
             group = self.get_queryset().get(group_key=request.GET["group_key"])
@@ -200,7 +200,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def update_property(self, request: request.Request, **kw) -> response.Response:
         try:
             group = self.get_queryset().get()
@@ -291,7 +291,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def delete_property(self, request: request.Request, **kw) -> response.Response:
         try:
             group = self.get_queryset().get()
@@ -410,7 +410,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def related(self, request: request.Request, pk=None, **kw) -> response.Response:
         group_type_index = request.GET.get("group_type_index")
         id = request.GET["id"]
@@ -418,7 +418,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
         results = RelatedActorsQuery(self.team, group_type_index, id).run()
         return response.Response(results)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_definitions(self, request: request.Request, **kw):
         rows = sync_execute(
             f"""
@@ -438,7 +438,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
 
         return response.Response(group_type_index_to_properties)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
         value_filter = request.GET.get("value")
 

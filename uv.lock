@@ -3803,6 +3803,7 @@ dev = [
     { name = "pytest-watch" },
     { name = "pytest-xdist" },
     { name = "python-dateutil" },
+    { name = "requests-mock" },
     { name = "responses" },
     { name = "ruff" },
     { name = "sqlalchemy" },
@@ -3992,6 +3993,7 @@ dev = [
     { name = "pytest-watch", specifier = "==4.2.0" },
     { name = "pytest-xdist", specifier = "==3.6.1" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
+    { name = "requests-mock", specifier = ">=1.12.1" },
     { name = "responses", specifier = "==0.23.1" },
     { name = "ruff", specifier = "~=0.8.1" },
     { name = "sqlalchemy", specifier = "==2.0.38" },
@@ -4835,6 +4837,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/72/97/bf44e6c6bd8ddbb99943baf7ba8b1a8485bcd2fe0e55e5708d7fee4ff1ae/requests_file-2.1.0.tar.gz", hash = "sha256:0f549a3f3b0699415ac04d167e9cb39bccfb730cb832b4d20be3d9867356e658", size = 6891 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d7/25/dd878a121fcfdf38f52850f11c512e13ec87c2ea72385933818e5b6c15ce/requests_file-2.1.0-py2.py3-none-any.whl", hash = "sha256:cf270de5a4c5874e84599fc5778303d496c10ae5e870bfa378818f35d21bda5c", size = 4244 },
+]
+
+[[package]]
+name = "requests-mock"
+version = "1.12.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/92/32/587625f91f9a0a3d84688bf9cfc4b2480a7e8ec327cefd0ff2ac891fd2cf/requests-mock-1.12.1.tar.gz", hash = "sha256:e9e12e333b525156e82a3c852f22016b9158220d2f47454de9cae8a77d371401", size = 60901 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/ec/889fbc557727da0c34a33850950310240f2040f3b1955175fdb2b36a8910/requests_mock-1.12.1-py2.py3-none-any.whl", hash = "sha256:b1e37054004cdd5e56c84454cc7df12b25f90f382159087f4b6915aaeef39563", size = 27695 },
 ]
 
 [[package]]

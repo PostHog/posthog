@@ -17,7 +17,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -60,12 +60,19 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
     const { updateSchema, reloadSchema, resyncSchema, setIsProjectTime } = useActions(dataWarehouseSourceSettingsLogic)
     const { isProjectTime } = useValues(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
+    const [initialLoad, setInitialLoad] = useState(true)
+
+    useEffect(() => {
+        if (initialLoad && !isLoading) {
+            setInitialLoad(false)
+        }
+    }, [isLoading])
 
     return (
         <>
             <LemonTable
                 dataSource={schemas}
-                loading={isLoading}
+                loading={initialLoad}
                 disableTableWhileLoading={false}
                 columns={[
                     {
@@ -83,7 +90,11 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                     <span>UTC</span>
                                     {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
                                         <>
-                                            <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
+                                            <LemonSwitch
+                                                size="xsmall"
+                                                checked={isProjectTime}
+                                                onChange={setIsProjectTime}
+                                            />
                                             <span>{currentTeam?.timezone || 'UTC'}</span>
                                         </>
                                     )}
@@ -105,6 +116,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             return (
                                 <LemonInput
                                     type="time"
+                                    size="xsmall"
                                     disabled={
                                         !schema.should_sync ||
                                         schema.sync_frequency === '5min' ||
@@ -136,10 +148,12 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Sync Frequency',
                         key: 'frequency',
+                        className: 'px-1',
                         render: function RenderFrequency(_, schema) {
                             return (
                                 <LemonSelect
                                     className="my-1"
+                                    size="xsmall"
                                     disabled={!schema.should_sync}
                                     value={schema.sync_frequency || '6hour'}
                                     onChange={(value) =>
@@ -162,6 +176,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Sync method',
                         key: 'incremental',
+                        className: 'px-1',
                         render: function RenderIncremental(_, schema) {
                             const { openSyncMethodModal } = useActions(
                                 dataWarehouseSourcesTableSyncMethodModalLogic({ schema })
@@ -173,6 +188,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         <LemonButton
                                             className="my-1"
                                             type="primary"
+                                            size="xsmall"
                                             onClick={() => openSyncMethodModal(schema)}
                                         >
                                             Set up
@@ -186,7 +202,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 <>
                                     <LemonButton
                                         className="my-1"
-                                        size="small"
+                                        size="xsmall"
                                         type="secondary"
                                         onClick={() => openSyncMethodModal(schema)}
                                     >
@@ -303,6 +319,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                 <>
                                                     <LemonButton
                                                         type="tertiary"
+                                                        size="xsmall"
                                                         key={`reload-data-warehouse-schema-${schema.id}`}
                                                         onClick={() => {
                                                             reloadSchema(schema)
@@ -314,6 +331,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                         <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data">
                                                             <LemonButton
                                                                 type="tertiary"
+                                                                size="xsmall"
                                                                 key={`resync-data-warehouse-schema-${schema.id}`}
                                                                 onClick={() => {
                                                                     resyncSchema(schema)

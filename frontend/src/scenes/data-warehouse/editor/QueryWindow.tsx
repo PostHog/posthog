@@ -46,13 +46,15 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
 
+    const isMaterializedView = !!editingView?.status
+
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
             <div className="flex flex-row overflow-x-auto">
                 {sidebarWidth === 0 && (
                     <LemonButton
                         onClick={() => resetDefaultSidebarWidth()}
-                        className="mt-1 mr-1"
+                        className="rounded-none"
                         icon={<IconSidebarClose />}
                         type="tertiary"
                         size="small"
@@ -72,7 +74,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     <span className="pl-2 text-xs">
                         {editingView && (
                             <>
-                                Editing {editingView.last_run_at ? 'materialized view' : 'view'} "{editingView.name}"
+                                Editing {isMaterializedView ? 'materialized view' : 'view'} "{editingView.name}"
                             </>
                         )}
                         {editingInsight && <>Editing insight "{editingInsight.name}"</>}
@@ -92,6 +94,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     query: queryInput,
                                 },
                                 types: response?.types ?? [],
+                                shouldRematerialize: isMaterializedView,
                             })
                         }
                         disabledReason={
@@ -105,7 +108,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         type="tertiary"
                         size="xsmall"
                     >
-                        Update view
+                        {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                     </LemonButton>
                 ) : (
                     <LemonButton

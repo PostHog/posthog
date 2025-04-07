@@ -356,3 +356,26 @@ def validate_rate_limit(value):
             "%(value)s is not a valid rate limit format. Use formats like '5/s', '10/min', '2/hour', '1/day'.",
             params={"value": value},
         )
+
+
+class TeamProjectMixin(models.Model):
+    """
+    A mixin that ensures project_id is set from team.project_id when saving if not explicitly set.
+    Used for models transitioning from team to project based architecture.
+    """
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        team_id = self.team_id  # type: ignore
+        project_id = self.project_id  # type: ignore
+        if not project_id and team_id:
+            from posthog.models.team import Team
+
+            team = Team.objects.filter(id=team_id).only("project_id").first()
+            if team and team.project_id:
+                self.project_id = team.project_id
+            else:
+                raise ValueError("Team or project not found")
+        super().save(*args, **kwargs)

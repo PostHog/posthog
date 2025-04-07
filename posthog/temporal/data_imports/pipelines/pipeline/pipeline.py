@@ -8,17 +8,21 @@ from dlt.sources import DltSource
 
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+from posthog.temporal.data_imports.deltalake_compaction_job import (
+    trigger_compaction_job,
+)
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _get_column_hints,
+    _get_incremental_field_last_value,
     _get_primary_keys,
     _handle_null_columns_with_definitions,
-    _update_incremental_state,
     _update_job_row_count,
     _update_last_synced_at_sync,
     append_partition_key_to_table,
@@ -26,9 +30,15 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     should_partition_table,
     table_from_py_list,
 )
-from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
+from posthog.temporal.data_imports.pipelines.pipeline_sync import (
+    validate_schema_and_update_table_sync,
+)
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+)
 
 
 class PipelineNonDLT:
@@ -42,6 +52,7 @@ class PipelineNonDLT:
     _delta_table_helper: DeltaTableHelper
     _internal_schema = HogQLSchema()
     _load_id: int
+    _chunk_size: int = 5000
 
     def __init__(
         self,
@@ -82,6 +93,7 @@ class PipelineNonDLT:
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
         self._shutdown_monitor = shutdown_monitor
+        self._last_incremental_field_value: Any = None
 
     def run(self):
         pa_memory_pool = pa.default_memory_pool()
@@ -94,7 +106,6 @@ class PipelineNonDLT:
 
             buffer: list[Any] = []
             py_table = None
-            chunk_size = 5000
             row_count = 0
             chunk_index = 0
 
@@ -114,18 +125,18 @@ class PipelineNonDLT:
                 if isinstance(item, list):
                     if len(buffer) > 0:
                         buffer.extend(item)
-                        if len(buffer) >= chunk_size:
+                        if len(buffer) >= self._chunk_size:
                             py_table = table_from_py_list(buffer)
                             buffer = []
                     else:
-                        if len(item) >= chunk_size:
+                        if len(item) >= self._chunk_size:
                             py_table = table_from_py_list(item)
                         else:
                             buffer.extend(item)
                             continue
                 elif isinstance(item, dict):
                     buffer.append(item)
-                    if len(buffer) < chunk_size:
+                    if len(buffer) < self._chunk_size:
                         continue
 
                     py_table = table_from_py_list(buffer)
@@ -217,7 +228,20 @@ class PipelineNonDLT:
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
-        _update_incremental_state(self._schema, pa_table, self._logger)
+        # Update the incremental_field_last_value.
+        # If the resource returns data sorted in ascending timestamp order, we can update the
+        # `incremental_field_last_value` in the schema.
+        # However, if the data is returned in descending order, we only want to update the
+        # `incremental_field_last_value` once we have processed all of the data, otherwise if we fail halfway through,
+        # we'd not process older data the next time we retry.
+        last_value = _get_incremental_field_last_value(self._schema, pa_table)
+        if last_value is not None:
+            if (self._last_incremental_field_value is None) or (last_value > self._last_incremental_field_value):
+                self._last_incremental_field_value = last_value
+            if self._resource.sort_mode == "asc":
+                self._logger.debug(f"Updating incremental_field_last_value with {self._last_incremental_field_value}")
+                self._schema.update_incremental_field_last_value(self._last_incremental_field_value)
+
         _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
 
     def _post_run_operations(self, row_count: int):
@@ -240,8 +264,15 @@ class PipelineNonDLT:
         self._logger.debug("Updating last synced at timestamp on schema")
         _update_last_synced_at_sync(self._schema, self._job)
 
-        self._logger.debug("Validating schema and updating table")
+        # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
+        # have processed all of the data (we could also update it here for 'asc' but it's not needed)
+        if self._resource.sort_mode == "desc" and self._last_incremental_field_value is not None:
+            self._logger.debug(
+                f"Sort mode is 'desc' -> updating incremental_field_last_value with {self._last_incremental_field_value}"
+            )
+            self._schema.update_incremental_field_last_value(self._last_incremental_field_value)
 
+        self._logger.debug("Validating schema and updating table")
         validate_schema_and_update_table_sync(
             run_id=str(self._job.id),
             team_id=self._job.team_id,
