@@ -26,6 +26,7 @@ from posthog.schema import (
     CustomEventConversionGoal,
     EventPropertyFilter,
     WebOverviewQuery,
+    WebPageURLSearchQuery,
     WebStatsTableQuery,
     PersonPropertyFilter,
     SamplingRate,
@@ -37,7 +38,12 @@ from posthog.schema import (
 from posthog.utils import generate_cache_key, get_safe_cache
 
 WebQueryNode = Union[
-    WebOverviewQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery, WebVitalsPathBreakdownQuery
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebExternalClicksTableQuery,
+    WebVitalsPathBreakdownQuery,
+    WebPageURLSearchQuery,
 ]
 
 

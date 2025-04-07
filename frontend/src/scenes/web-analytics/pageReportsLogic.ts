@@ -2,7 +2,13 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
-import { InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    TrendsQuery,
+    WebPageURLSearchQuery,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -28,7 +34,7 @@ import {
     WebTileLayout,
 } from './webAnalyticsLogic'
 
-export interface PageURL {
+export interface PageURLSearchResult {
     url: string
     count: number
 }
@@ -116,13 +122,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
     loaders: ({ values }) => ({
         pagesUrls: [
-            [] as PageURL[],
+            [] as PageURLSearchResult[],
             {
                 loadPagesUrls: async ({ searchTerm }: { searchTerm: string }) => {
                     try {
-                        // Use the dedicated query runner instead of raw HogQL
-                        const response = await api.query({
-                            kind: 'WebPageURLSearchQuery',
+                        const response = await api.query<WebPageURLSearchQuery>({
+                            kind: NodeKind.WebPageURLSearchQuery,
                             search_term: searchTerm,
                             strip_query_params: values.stripQueryParams,
                             dateRange: {
@@ -132,7 +137,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             properties: [],
                         })
 
-                        return response.results as PageURL[]
+                        return response.results
                     } catch (error) {
                         console.error('Error loading pages:', error)
                         return []

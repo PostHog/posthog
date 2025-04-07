@@ -1,7 +1,5 @@
-from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
@@ -11,7 +9,6 @@ from posthog.schema import (
     WebPageURLSearchQueryResponse,
     CachedWebPageURLSearchQueryResponse,
     PageURL,
-    HogQLQueryModifiers,
 )
 
 
@@ -20,17 +17,22 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
     response: WebPageURLSearchQueryResponse
     cached_response: CachedWebPageURLSearchQueryResponse
 
-    def _get_url_column(self) -> str:
-        return (
-            f"cutQueryStringAndFragment(toString(properties.$current_url))"
-            if self.query.strip_query_params
-            else "toString(properties.$current_url)"
-        )
+    def _get_url_column(self) -> ast.Expr:
+        current_url = ast.Call(name="toString", args=[ast.Field(chain=["properties", "$current_url"])])
 
-    def _get_search_condition(self) -> str:
+        if self.query.strip_query_params:
+            return ast.Call(name="cutQueryStringAndFragment", args=[current_url])
+        else:
+            return current_url
+
+    def _get_search_condition(self) -> ast.Expr:
         if self.query.search_term:
-            return f"toString(properties.$current_url) ILIKE '%{self.query.search_term}%'"
-        return "1=1"
+            return ast.CompareOperation(
+                left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$current_url"])]),
+                op=ast.CompareOperationOp.ILike,
+                right=ast.Constant(value=f"%{self.query.search_term}%"),
+            )
+        return ast.Constant(value=True)
 
     def to_query(self) -> ast.SelectQuery:
         return self._get_hogql_query()
@@ -42,20 +44,32 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
             sampling_factor = self.query.sampling_factor or 0.1
             limit = self.query.limit or 100
 
-            query = parse_select(
-                f"""
-                SELECT DISTINCT {url_column} AS url, count() as count
-                FROM events SAMPLE {sampling_factor}
-                WHERE event = '$pageview'
-                    AND {search_condition}
-                GROUP BY url
-                ORDER BY count DESC
-                LIMIT {limit}
-            """,
-                timings=self.timings,
+            select_query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="url", expr=url_column),
+                    ast.Alias(alias="count", expr=ast.Call(name="count", args=[])),
+                ],
+                distinct=True,
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    sample=ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=sampling_factor))),
+                ),
+                where=ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value="$pageview"),
+                        ),
+                        search_condition,
+                    ]
+                ),
+                group_by=[ast.Field(chain=["url"])],
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["count"]), order="DESC")],
+                limit=ast.Constant(value=limit),
             )
 
-            return cast(ast.SelectQuery, query)
+            return select_query
 
     def calculate(self) -> WebPageURLSearchQueryResponse:
         query = self._get_hogql_query()
@@ -68,14 +82,12 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
             context=HogQLContext(
                 team_id=self.team.pk,
                 timings=self.timings,
-                modifiers=cast(HogQLQueryModifiers, self.modifiers.model_dump() if self.modifiers else {}),
+                modifiers=self.modifiers,
             ),
             limit_context=self.limit_context,
         )
 
-        results = []
-        for row in response.results:
-            results.append(PageURL(url=str(row[0]), count=float(row[1])))
+        results = [PageURL(url=str(row[0]), count=int(row[1])) for row in response.results]
 
         return WebPageURLSearchQueryResponse(
             results=results,
