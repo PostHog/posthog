@@ -682,7 +682,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item, originalQuery }) => {
-            if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
+            if (item) {
                 try {
                     const hasOriginalQuery = originalQuery && originalQuery.trim().length > 0
                     const hasName = item && item.name && item.name.trim().length > 0
@@ -704,6 +704,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 // If the user pressed enter on a group with no item selected, we want to pass the original query
                 props.onEnter(values.searchQuery)
                 return
+            } else if (group.type === TaxonomicFilterGroupType.HogQLExpression) {
+                props.onChange?.(group, value, item, originalQuery)
             }
             actions.setSearchQuery('')
         },
