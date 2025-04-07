@@ -35,7 +35,7 @@ pub fn capture_command_invoked(
     if let Some(env_id) = env_id {
         event
             .insert_prop("env_id", env_id.as_ref())
-            .expect("Inserting team id prop succeeds");
+            .expect("Inserting env_id prop succeeds");
     }
 
     spawn_capture(event)
