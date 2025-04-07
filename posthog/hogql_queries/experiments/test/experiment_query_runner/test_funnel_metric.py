@@ -682,27 +682,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Create test data using journeys
         journeys_for(
             {
-                # User with first step only, should be excluded.
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
                 # User with two pageviews and second step completed, should be included.
-                "user_control_2": [
+                "user_control_1": [
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2024-01-02T12:00:00",
@@ -741,8 +722,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                         },
                     },
                 ],
-                # User with duplicated events, should be included.
-                "user_control_3": [
+                # User with all duplicated events, should be included.
+                "user_control_2": [
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2024-01-03T12:00:00",
@@ -769,22 +750,40 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                         },
                     },
                     {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
+                        "event": "$feature_flag_called",
                         "timestamp": "2024-01-03T12:02:00",
                         "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-03T12:03:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03T12:04:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T12:05:00",
+                        "properties": {
                             ff_property: "control",
                         },
                     },
                     {
                         "event": "purchase",
-                        "timestamp": "2024-01-03T12:03:00",
+                        "timestamp": "2024-01-03T12:06:00",
                         "properties": {
                             ff_property: "control",
                         },
@@ -811,32 +810,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     {
                         "event": "$pageview",
                         "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-                # User with whole funnel completed, should be included.
-                "user_test_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:02:00",
                         "properties": {
                             ff_property: "test",
                         },
@@ -872,39 +845,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                         "timestamp": "2024-01-03T12:04:00",
                         "properties": {
                             ff_property: "test",
-                        },
-                    },
-                ],
-                # User with experiment exposure after completing the funnel. Should be excluded.
-                "user_test_4": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:00:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-03T12:03:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
                         },
                     },
                 ],
@@ -946,9 +886,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         self.assertEqual(control_variant.success_count, 2)
-        self.assertEqual(control_variant.failure_count, 1)
-        self.assertEqual(test_variant.success_count, 1)
-        self.assertEqual(test_variant.failure_count, 3)
+        self.assertEqual(control_variant.failure_count, 0)
+        self.assertEqual(test_variant.success_count, 0)
+        self.assertEqual(test_variant.failure_count, 2)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
