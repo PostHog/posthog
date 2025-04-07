@@ -702,7 +702,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 props.onChange?.(group, value, item, originalQuery)
             } else if (props.onEnter) {
                 // If the user pressed enter on a group with no item selected, we want to pass the original query
-                props.onEnter(originalQuery)
+                props.onEnter(values.searchQuery)
                 return
             }
             actions.setSearchQuery('')

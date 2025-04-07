@@ -12,6 +12,8 @@ import { dateMapping } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+
 import { errorTrackingLogic } from './errorTrackingLogic'
 
 const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday')
@@ -35,7 +37,7 @@ const FilterGroup = (): JSX.Element => {
     return (
         <UniversalFilters
             rootKey="error-tracking"
-            group={filterGroup}
+            group={filterGroup.values[0] as UniversalFiltersGroup}
             // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.EventProperties,
@@ -43,7 +45,7 @@ const FilterGroup = (): JSX.Element => {
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.HogQLExpression,
             ]}
-            onChange={setFilterGroup}
+            onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
         >
             <UniversalSearch />
         </UniversalFilters>
@@ -123,11 +125,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
-                return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup />
-                    </UniversalFilters.Group>
-                ) : (
+                return isUniversalGroupFilterLike(filterOrGroup) ? null : (
                     <UniversalFilters.Value
                         key={index}
                         index={index}
