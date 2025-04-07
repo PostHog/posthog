@@ -140,7 +140,7 @@ class SessionRecordingsListingBaseQuery:
 
     def __init__(self, team: Team, query: RecordingsQuery):
         self._team = team
-        self._query = query.model_copy(deep=True)
+        self._query = query
 
     @property
     def ttl_days(self):
