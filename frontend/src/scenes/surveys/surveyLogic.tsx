@@ -92,13 +92,6 @@ export interface SurveyMetricsQueries {
     surveysDismissed: DataTableNode
 }
 
-export interface SurveyUserStats {
-    uniqueUsersOnlySeen: number
-    uniqueUsersDismissed: number
-    uniqueUsersSent: number
-    totalSent: number
-}
-
 export interface SurveyRatingResults {
     [key: number]: {
         data: number[]
@@ -346,7 +339,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const endDate = getSurveyEndDateForQuery(survey)
                 const stats = await api.surveys.getSurveyStats({
                     surveyId: props.id,
-                    ignoreCache: true,
+                    ignoreCache: true, // ignoring cache on the survey results page to always get fresh data
                     dateFrom: startDate,
                     dateTo: endDate,
                 })

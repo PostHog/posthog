@@ -116,14 +116,14 @@ function SurveyStatsStackedBar({
 
     const { stats } = surveyStats
 
-    const total = filterByDistinctId ? stats['survey shown'].total_count : stats['survey shown'].unique_persons
-    const onlySeen = filterByDistinctId
+    const total = !filterByDistinctId ? stats['survey shown'].total_count : stats['survey shown'].unique_persons
+    const onlySeen = !filterByDistinctId
         ? stats['survey shown'].total_count_only_seen
         : stats['survey shown'].unique_persons_only_seen
     const dismissed = filterByDistinctId
         ? stats['survey dismissed'].total_count
         : stats['survey dismissed'].unique_persons
-    const sent = filterByDistinctId ? stats['survey sent'].total_count : stats['survey sent'].unique_persons
+    const sent = !filterByDistinctId ? stats['survey sent'].total_count : stats['survey sent'].unique_persons
 
     const segments: StackedBarSegment[] = [
         {
