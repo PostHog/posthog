@@ -83,6 +83,27 @@ def is_cohort_property(p: AnyPropertyFilter) -> bool:
     return bool(p_type and "cohort" in p_type)
 
 
+def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
+    prop_filters: list[AnyPropertyFilter] = []
+    for prop in team.test_account_filters:
+        match prop.get("type", None):
+            case "person":
+                prop_filters.append(PersonPropertyFilter(**prop))
+            case "event":
+                prop_filters.append(EventPropertyFilter(**prop))
+            case "group":
+                prop_filters.append(GroupPropertyFilter(**prop))
+            case "hogql":
+                prop_filters.append(HogQLPropertyFilter(**prop))
+            case "cohort":
+                prop_filters.append(CohortPropertyFilter(**prop))
+            case None:
+                logger.warn("test account filter had no type", filter=prop)
+                prop_filters.append(EventPropertyFilter(**prop))
+
+    return prop_filters
+
+
 class SessionRecordingQueryResult(NamedTuple):
     results: list
     has_more_recording: bool
@@ -120,34 +141,10 @@ class SessionRecordingsListingBaseQuery:
     def __init__(self, team: Team, query: RecordingsQuery):
         self._team = team
         self._query = query.model_copy(deep=True)
-        if self._query.filter_test_accounts:
-            self._query.properties = self._query.properties or []
-            self._query.properties += self._test_account_filters
 
     @property
     def ttl_days(self):
         return ttl_days(self._team)
-
-    @property
-    def _test_account_filters(self) -> list[AnyPropertyFilter]:
-        prop_filters: list[AnyPropertyFilter] = []
-        for prop in self._team.test_account_filters:
-            match prop.get("type", None):
-                case "person":
-                    prop_filters.append(PersonPropertyFilter(**prop))
-                case "event":
-                    prop_filters.append(EventPropertyFilter(**prop))
-                case "group":
-                    prop_filters.append(GroupPropertyFilter(**prop))
-                case "hogql":
-                    prop_filters.append(HogQLPropertyFilter(**prop))
-                case "cohort":
-                    prop_filters.append(CohortPropertyFilter(**prop))
-                case None:
-                    logger.warn("test account filter had no type", filter=prop)
-                    prop_filters.append(EventPropertyFilter(**prop))
-
-        return prop_filters
 
     @property
     def property_operand(self):
@@ -239,6 +236,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         hogql_query_modifiers: Optional[HogQLQueryModifiers],
         **_,
     ):
+        # TRICKY: we need to make sure we init test account filters only once,
+        # otherwise we'll end up with a lot of duplicated test account filters in the query
+        query = query.model_copy(deep=True)
+        if query.filter_test_accounts:
+            query.properties = expand_test_account_filters(team) + (query.properties or [])
+
         super().__init__(team, query)
 
         self._paginator = HogQLHasMorePaginator(
