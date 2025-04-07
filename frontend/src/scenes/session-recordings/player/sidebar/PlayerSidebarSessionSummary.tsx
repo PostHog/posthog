@@ -5,7 +5,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Button } from 'lib/ui/Button/Button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -30,6 +29,7 @@ function formatMsIntoTime(ms: number): string {
 
 function SessionSummary(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { sessionSummary, summaryHasHadFeedback } = useValues(playerMetaLogic(logicProps))
     const { sessionSummaryFeedback } = useActions(playerMetaLogic(logicProps))
     const [filterType, setFilterType] = useState<FilterType>('all')
@@ -56,7 +56,16 @@ function SessionSummary(): JSX.Element {
                     <div>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button.Root>
+                                <LemonButton
+                                    type="primary"
+                                    className="mt-2"
+                                    icon={<IconFolderOpen />}
+                                >
+                                    {FILTER_TYPES[filterType].label}
+                                    <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                                </LemonButton>
+
+                                {/* <Button.Root>
                                     <Button.Icon>
                                         <IconFolderOpen className="text-tertiary" />
                                     </Button.Icon>
@@ -66,15 +75,23 @@ function SessionSummary(): JSX.Element {
                                     <Button.Icon size="sm">
                                         <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
                                     </Button.Icon>
-                                </Button.Root>
+                                </Button.Root> */}
                             </DropdownMenuTrigger>
 
                             <DropdownMenuContent loop align="start">
                                 {Object.entries(FILTER_TYPES).map(([key, { label }]) => (
                                     <DropdownMenuItem key={key} asChild className="cursor-pointer hover:bg-primary-alt-highlight">
-                                        <Button.Root onClick={() => setFilterType(key as FilterType)}>
+                                        {/* <Button.Root onClick={() => setFilterType(key as FilterType)}>
                                             <Button.Label>{label}</Button.Label>
-                                        </Button.Root>
+                                        </Button.Root> */}
+                                        <LemonButton
+                                            type="primary"
+                                            className="mt-2"
+                                            onClick={() => setFilterType(key as FilterType)}
+                                        >
+                                            {label}
+                                            <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                                        </LemonButton>
                                     </DropdownMenuItem>
                                 ))}
                             </DropdownMenuContent>
@@ -85,10 +102,13 @@ function SessionSummary(): JSX.Element {
                                 <div
                                     key={index}
                                     className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${event.error ? 'bg-danger-highlight' : ''}`}
+                                    onClick={() => {
+                                        seekToTime(event.milliseconds_since_start)
+                                    }}
                                 >
                                     <div className="flex flex-row gap-2">
                                         <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                            {formatMsIntoTime(event.milliseconds_since_start)}
+                                            {formatMsIntoTime(event.milliseconds_since_start)}<br />
                                         </span>
                                         <span className="text-xs break-words">{event.description}</span>
                                     </div>
