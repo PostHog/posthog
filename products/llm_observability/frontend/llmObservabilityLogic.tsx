@@ -47,7 +47,7 @@ export interface QueryTile {
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
 
-    connect({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] }),
+    connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),

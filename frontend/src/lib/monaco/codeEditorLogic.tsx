@@ -54,9 +54,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     actions({
         reloadMetadata: true,
     }),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     loaders(({ props }) => ({
         metadata: [
             null as null | [string, HogQLMetadataResponse],

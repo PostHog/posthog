@@ -21,13 +21,13 @@ export type SparklineSelectedPeriod = 'custom' | 'day'
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
-    connect({
+    connect(() => ({
         values: [errorTrackingLogic, ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
         actions: [
             errorTrackingLogic,
             ['setAssignee', 'setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
         ],
-    }),
+    })),
 
     actions({
         setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),

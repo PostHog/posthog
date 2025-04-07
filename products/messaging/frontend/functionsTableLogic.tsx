@@ -22,9 +22,9 @@ export const functionsTableLogic = kea<functionsTableLogicType>([
     path(['products', 'messaging', 'frontend', 'functionsTableLogic']),
     props({} as FunctionsTableLogicProps),
     key((props: FunctionsTableLogicProps) => props.type ?? 'destination'),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-    }),
+    })),
     actions({
         deleteHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setFilters: (filters: Partial<HogFunctionsFilter>) => ({ filters }),

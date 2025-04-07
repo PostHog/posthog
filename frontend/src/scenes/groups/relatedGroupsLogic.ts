@@ -17,7 +17,7 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
     ),
     key((props) => `${props.groupTypeIndex ?? 'person'}-${props.id}`),
     path(['scenes', 'groups', 'relatedGroupsLogic']),
-    connect({ values: [teamLogic, ['currentTeamId']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions(() => ({
         loadRelatedActors: true,
     })),
