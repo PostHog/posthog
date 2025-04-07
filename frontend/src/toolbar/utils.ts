@@ -62,17 +62,7 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
                 return name.startsWith('data-')
             },
         })
-        // KLUDGE: [data-attr="session\.recording\.preview"] is valid CSS
-        // but our action matching doesn't support it
-        // in order to avoid trying to write a general purpose CSS unescaper
-        // we just remove the backslash in this specific pattern
-        // if it matches data-attr="bla\.blah\.blah"
-        const dataAttrRegex = /data-[^="]+="([^"]+)"/
-        const dataAttrMatch = foundSelector?.match(dataAttrRegex)
-        if (dataAttrMatch) {
-            return foundSelector.replace(/(?<=data-[^="]+="[^"]*)(\\\.)+(?=[^"]*")/g, '.')
-        }
-        return foundSelector
+        return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
         console.warn('Error while trying to find a selector for element', element, error)
         return undefined
@@ -425,4 +415,15 @@ export function getHeatMapHue(count: number, maxCount: number): number {
         return 60
     }
     return 60 - (count / maxCount) * 40
+}
+
+/*
+ * KLUDGE: e.g. [data-attr="session\.recording\.preview"] is valid CSS
+ * but our action matching doesn't support it
+ * in order to avoid trying to write a general purpose CSS unescaper
+ * we just remove the backslash in this specific pattern
+ * if it matches data-attr="bla\.blah\.blah"
+ */
+export function slashDotDataAttrUnescape(foundSelector: string): string | undefined {
+    return foundSelector.replace(/\\./g, '.')
 }
