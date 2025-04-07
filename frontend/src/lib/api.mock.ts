@@ -92,6 +92,16 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     effective_membership_level: OrganizationMembershipLevel.Admin,
     user_access_level: 'admin',
     access_control: true,
+    group_types: [
+        {
+            group_type: 'organization',
+            group_type_index: 0,
+            name_singular: null,
+            name_plural: 'organizations',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+    ],
     has_group_types: true,
     primary_dashboard: 1,
     live_events_columns: null,
