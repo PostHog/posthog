@@ -1,6 +1,7 @@
 import { IconChevronDown, IconWarning } from '@posthog/icons'
 import { LemonCard, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { cn } from 'lib/utils/css-classes'
 import { match, P } from 'ts-pattern'
@@ -12,7 +13,7 @@ import { ContextDisplay } from './ContextDisplay'
 import { StacktraceDisplay } from './StacktraceDisplay'
 
 export function IssueCard(): JSX.Element {
-    const { propertiesLoading, properties, sessionId, showStacktrace, showAllFrames, showContext } =
+    const { propertiesLoading, firstSeen, properties, sessionId, showStacktrace, showAllFrames, showContext } =
         useValues(errorTrackingIssueSceneLogic)
     const { setShowStacktrace, setShowAllFrames, setShowContext } = useActions(errorTrackingIssueSceneLogic)
     return (
@@ -38,7 +39,11 @@ export function IssueCard(): JSX.Element {
                     })}
                 />
             </Collapsible>
-            <div className="absolute top-2 right-3 flex gap-2">
+            <div className="absolute top-2 right-3 flex gap-2 items-center">
+                {
+                    // We should timestamp from event properties here but for now only first seen event is accessible and data is not available
+                    firstSeen && <TZLabel className="text-muted text-xs" time={firstSeen} />
+                }
                 <ViewRecordingButton
                     sessionId={sessionId}
                     timestamp={properties.timestamp}
