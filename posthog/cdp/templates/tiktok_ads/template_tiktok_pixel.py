@@ -76,7 +76,7 @@ export function onLoad({ inputs }) {
 
     let userProperties = {};
     for (const [key, value] of Object.entries(inputs.userProperties)) {
-        if (value) {
+        if (value || value === '') {
             userProperties[key] = value;
         }
     };
@@ -120,9 +120,16 @@ export function onEvent({ inputs }) {
             "description": "Map of TikTok user parameters and their values. Check out this page for more details: https://business-api.tiktok.com/portal/docs?id=1739585700402178#item-link-Identity%20information%20supported",
             "label": "User parameters",
             "default": {
-                "email": "{sha256Hex(lower(person.properties.email))}",
-                "phone_number": "{sha256Hex(lower(person.properties.phone))}",
-                "external_id": "{sha256Hex(person.id)}",
+                "email": '{not empty(person.properties.email) ? sha256Hex(lower(person.properties.email)) : ""}',
+                "first_name": '{not empty(person.properties.first_name) ? sha256Hex(lower(person.properties.first_name)) : ""}',
+                "last_name": '{not empty(person.properties.last_name) ? sha256Hex(lower(person.properties.last_name)) : ""}',
+                "phone": '{not empty(person.properties.phone) ? sha256Hex(person.properties.phone) : ""}',
+                "external_id": '{not empty(person.id) ? sha256Hex(person.id) : ""}',
+                "city": "{replaceAll(lower(person.properties.$geoip_city_name), ' ', ''))}",
+                "state": "{lower(person.properties.$geoip_subdivision_1_code)}",
+                "country": "{lower(person.properties.$geoip_country_code)}",
+                "zip_code": "{sha256Hex(replaceAll(lower(person.properties.$geoip_postal_code), ' ', ''))}",
+                "ttclid": "{person.properties.ttclid ?? person.properties.$initial_ttclid}",
             },
             "secret": False,
             "required": False,
