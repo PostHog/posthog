@@ -804,6 +804,10 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         .await
         .unwrap();
 
+    // need this for the test to work, since we look up the dinstinct_id <-> person_id in from the DB at the beginning
+    // of the flag evaluation process
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None).await?;
+
     let token = team.api_token;
 
     // Create a group of type "organization" (group_type_index 1) with group_key "foo" and specific properties
