@@ -9,14 +9,14 @@ import { experimentLogic } from '../experimentLogic'
 import { EventConfig, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 
-const exposureEstimateConfigToFilter = (exposureEstimateConfig: EventConfig): FilterType => ({
+const exposureEstimateConfigToFilter = (exposureEstimateConfig: EventConfig | null): FilterType => ({
     events: [
         {
-            id: exposureEstimateConfig.event,
+            id: exposureEstimateConfig?.event || '$pageview',
             kind: NodeKind.EventsNode,
             type: 'events',
-            name: exposureEstimateConfig.event,
-            properties: exposureEstimateConfig.properties || [],
+            name: exposureEstimateConfig?.event || '$pageview',
+            properties: exposureEstimateConfig?.properties || [],
         },
     ],
 })
