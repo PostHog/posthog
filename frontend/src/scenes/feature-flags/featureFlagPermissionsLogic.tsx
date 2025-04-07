@@ -16,7 +16,7 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
     path(['scenes', 'feature-flags', 'featureFlagPermissionsLogic']),
     props({} as FeatureFlagPermissionsLogicProps),
     key((props: FeatureFlagPermissionsLogicProps) => `${props.flagId}`),
-    connect({ values: [rolesLogic, ['roles']] }),
+    connect(() => ({ values: [rolesLogic, ['roles']] })),
     actions({
         setModalOpen: (visible: boolean) => ({ visible }),
         setRolesToAdd: (roleIds: string[]) => ({ roleIds }),
@@ -55,9 +55,8 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
                         const response = await api.resourceAccessPermissions.featureFlags.list(props.flagId)
 
                         return response.results || []
-                    } else {
-                        return []
                     }
+                    return []
                 },
                 addAssociatedRoles: async (flagId?: number) => {
                     const { rolesToAdd } = values

@@ -18,7 +18,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
     key((props: GroupsListLogicProps) => props.groupTypeIndex),
     path(['groups', 'groupsListLogic']),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -27,7 +27,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
             groupsAccessLogic,
             ['groupsEnabled'],
         ],
-    }),
+    })),
     actions(() => ({
         setQuery: (query: DataTableNode) => ({ query }),
     })),

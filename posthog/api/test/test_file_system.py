@@ -162,7 +162,7 @@ class TestFileSystemAPI(APIBaseTest):
         Calling the unfiled endpoint multiple times should not create duplicate
         FileSystem rows for the same objects.
         """
-        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         FileSystem.objects.all().delete()
 
         first_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
@@ -185,7 +185,7 @@ class TestFileSystemAPI(APIBaseTest):
         and return them. We now exclude folder rows when counting total.
         """
         # Create 5 objects
-        ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
@@ -215,7 +215,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         Ensure that the 'type' query parameter filters creation to a single type.
         """
-        flag = FeatureFlag.objects.create(team=self.team, name="Only Flag", created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="Only Flag", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
         FileSystem.objects.all().delete()
 
@@ -339,7 +339,7 @@ class TestFileSystemAPI(APIBaseTest):
         By default, an unfiled FeatureFlag ends up with something like "Unfiled/Feature Flags/Flag Name" => depth=3
         """
         # Create a FeatureFlag
-        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         FileSystem.objects.all().delete()
 
         # Call unfiled - that should create the new FileSystem item
@@ -362,7 +362,7 @@ class TestFileSystemAPI(APIBaseTest):
         If an object name contains a slash, it should be escaped in the path, but still count as a single path segment.
         """
         # If a user enters something with a slash in the name...
-        FeatureFlag.objects.create(team=self.team, name="Flag / With Slash", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="Flag / With Slash", created_by=self.user)
         FileSystem.objects.all().delete()
 
         # This becomes "Unfiled/Feature Flags/Flag \/ With Slash"

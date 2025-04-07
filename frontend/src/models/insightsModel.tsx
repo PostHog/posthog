@@ -11,7 +11,7 @@ import type { insightsModelType } from './insightsModelType'
 
 export const insightsModel = kea<insightsModelType>([
     path(['models', 'insightsModel']),
-    connect({ logic: [teamLogic] }),
+    connect(() => ({ logic: [teamLogic] })),
     actions(() => ({
         renameInsight: (item: QueryBasedInsightModel) => ({ item }),
         renameInsightSuccess: (item: QueryBasedInsightModel) => ({ item }),
