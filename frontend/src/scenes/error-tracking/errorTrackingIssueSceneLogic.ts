@@ -50,7 +50,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             errorTrackingLogic,
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery', 'showStacktrace', 'showContext'],
             stackFrameLogic,
-            ['frameOrderReversed', 'showAllFrames', 'showFingerprint'],
+            ['frameOrderReversed', 'showAllFrames'],
         ],
         actions: [
             errorTrackingLogic,
@@ -63,7 +63,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 'setShowContext',
             ],
             stackFrameLogic,
-            ['setFrameOrderReversed', 'setShowAllFrames', 'setShowFingerprint'],
+            ['setFrameOrderReversed', 'setShowAllFrames'],
         ],
     })),
 

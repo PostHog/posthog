@@ -1,5 +1,3 @@
-import './ContextDisplay.scss'
-
 import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'

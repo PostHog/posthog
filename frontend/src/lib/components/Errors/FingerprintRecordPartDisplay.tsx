@@ -30,13 +30,15 @@ function getPartPieces(component: FingerprintRecordPart): React.ReactNode {
     }
     const pieces = component.pieces || []
     return (
-        <ul className="text-[0.70rem] leading-[0.85rem]">
+        <div className="text-[0.70rem] leading-[0.85rem]">
             <span>Fingerprinted by</span>
-            {pieces.map((piece, index) => (
-                <li key={index} className={cn('list-disc ml-4')}>
-                    {piece}
-                </li>
-            ))}
-        </ul>
+            <ul>
+                {pieces.map((piece, index) => (
+                    <li key={index} className={cn('list-disc ml-4')}>
+                        {piece}
+                    </li>
+                ))}
+            </ul>
+        </div>
     )
 }

@@ -132,7 +132,7 @@ function renderDataPoint(d: SparklineDatum): JSX.Element {
         <div className="flex flex-col justify-between items-center h-full p-2">
             <div className="flex flex-col justify-center items-center  flex-grow">
                 <div className="text-3xl font-bold">{humanFriendlyLargeNumber(d.value)}</div>
-                <div className="text-xs text-muted">Occurences</div>
+                <div className="text-xs text-muted">Occurrences</div>
             </div>
             <div className="text-xs text-muted">{dayjs(d.date).format('D MMM YYYY HH:mm (UTC)')}</div>
         </div>

@@ -25,7 +25,7 @@ export function OccurrenceSparkline({
         backgroundColor: colorVars[0],
         hoverBackgroundColor: colorVars[1],
     })
-    const [occurences, labels, labelRenderer] = useMemo(() => {
+    const [occurrences, labels, labelRenderer] = useMemo(() => {
         return [
             wrapDataWithColor(data, options),
             data.map((value) => dayjs(value.date).toISOString()),
@@ -60,7 +60,7 @@ export function OccurrenceSparkline({
     return (
         <Sparkline
             className={className}
-            data={occurences}
+            data={occurrences}
             labels={labels}
             renderLabel={labelRenderer}
             withXScale={displayXAxis ? withXScale : undefined}

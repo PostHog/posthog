@@ -50,18 +50,18 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
         const svgEl = svgRef.current
         if (svgEl && contentHeight && contentWidth) {
             const svg = d3.select(svgEl)
-            const occurences = data
-            if (occurences.length < 2) {
+            const occurrences = data
+            if (occurrences.length < 2) {
                 throw new Error('Not enough data to render chart')
             }
-            const timeDiff = Math.abs(occurences[1].date.getTime() - occurences[0].date.getTime())
-            const extent = d3.extent(occurences.map((d) => d.date)) as [Date, Date]
+            const timeDiff = Math.abs(occurrences[1].date.getTime() - occurrences[0].date.getTime())
+            const extent = d3.extent(occurrences.map((d) => d.date)) as [Date, Date]
             const maxDate = new Date(extent[1])
             maxDate.setTime(extent[1].getTime() + timeDiff)
             const xTicks = d3.timeTicks(extent[0], maxDate, 8)
             const xScale = d3.scaleTime().domain([extent[0], maxDate]).range([0, contentWidth])
 
-            const maxValue = d3.max(occurences.map((d) => d.value)) || 0
+            const maxValue = d3.max(occurrences.map((d) => d.value)) || 0
             const yScale = d3
                 .scaleLinear()
                 .domain([0, maxValue || 1])
@@ -70,11 +70,11 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
             const xAxis = d3.axisBottom(xScale).tickValues(xTicks).tickSize(0).tickPadding(5)
 
             svg.selectAll('g.datum')
-                .data(occurences)
+                .data(occurrences)
                 .enter()
                 .append('g')
                 .attr('class', 'datum')
-                .call(buildBarGroup, xScale, yScale, contentHeight, occurences, options)
+                .call(buildBarGroup, xScale, yScale, contentHeight, occurrences, options)
 
             svg.append('g')
                 .attr('transform', `translate(0,${contentHeight})`)
@@ -85,7 +85,7 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
                 .data(events || [])
                 .enter()
                 .append('g')
-                .attr('class', '.event')
+                .attr('class', 'event')
                 .call(buildEvent, xScale, options, contentHeight, contentWidth)
 
             return () => {

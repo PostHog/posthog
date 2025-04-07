@@ -22,7 +22,6 @@ export function StacktraceDisplay({
         issue,
         hasStacktrace,
         exceptionAttributes,
-        showFingerprint,
         showAllFrames,
         fingerprintRecords,
         issueLoading,
@@ -81,7 +80,7 @@ export function StacktraceDisplay({
                         showAllFrames={showAllFrames}
                         exceptionList={exceptionList}
                         renderExceptionHeader={renderExceptionHeader}
-                        fingerprintRecords={showFingerprint ? fingerprintRecords : undefined}
+                        fingerprintRecords={fingerprintRecords}
                     />
                 ))
                 .with([false, P.any, false], () => (

@@ -96,11 +96,11 @@ export function ErrorTrackingScene(): JSX.Element {
 const VolumeColumn: QueryContextColumnComponent = (props) => {
     const { dateRange, sparklineSelectedPeriod, volumeResolution } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-    const occurences = match(sparklineSelectedPeriod)
+    const occurrences = match(sparklineSelectedPeriod)
         .with('day', () => record.aggregations.volumeDay)
         .with('custom', () => record.aggregations.volumeRange)
         .exhaustive()
-    const data = useSparklineData(occurences, dateRange, volumeResolution)
+    const data = useSparklineData(occurrences, dateRange, volumeResolution)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />

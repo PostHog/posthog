@@ -8,13 +8,13 @@ import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { generateSparklineLabels } from '../utils'
 
 export function useSparklineData(
-    occurences: number[] | undefined,
+    occurrences: number[] | undefined,
     dateRange: DateRange,
     volumeResolution: number
 ): SparklineData {
     return useMemo(() => {
         const labels = generateSparklineLabels(dateRange, volumeResolution)
-        let values = occurences
+        let values = occurrences
         if (!values) {
             values = new Array(volumeResolution).fill(0)
         }
@@ -22,7 +22,7 @@ export function useSparklineData(
             value,
             date: labels[index].toDate(),
         }))
-    }, [occurences, dateRange, volumeResolution])
+    }, [occurrences, dateRange, volumeResolution])
 }
 
 export function useSparklineDataIssueScene(): SparklineData {
