@@ -410,6 +410,7 @@ mod tests {
             kafka_producer_linger_ms: 0,
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
+            kafka_topic_metadata_refresh_interval_ms: 20000,
             kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),
