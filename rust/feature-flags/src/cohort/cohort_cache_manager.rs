@@ -1,7 +1,7 @@
 use crate::api::errors::FlagError;
 use crate::cohort::cohort_models::Cohort;
 use crate::flags::flag_matching::PostgresReader;
-use crate::metrics::metrics_consts::{
+use crate::metrics::consts::{
     COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER, DB_COHORT_ERRORS_COUNTER,
     DB_COHORT_READS_COUNTER,
 };
@@ -101,20 +101,12 @@ impl CohortCacheManager {
         // Attempt to fetch from DB
         match Cohort::list_from_pg(self.reader.clone(), project_id).await {
             Ok(fetched_cohorts) => {
-                common_metrics::inc(
-                    DB_COHORT_READS_COUNTER,
-                    &[("project_id".to_string(), project_id.to_string())],
-                    1,
-                );
+                common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
                 self.cache.insert(project_id, fetched_cohorts.clone()).await;
                 Ok(fetched_cohorts)
             }
             Err(e) => {
-                common_metrics::inc(
-                    DB_COHORT_ERRORS_COUNTER,
-                    &[("project_id".to_string(), project_id.to_string())],
-                    1,
-                );
+                common_metrics::inc(DB_COHORT_ERRORS_COUNTER, &[], 1);
                 Err(e)
             }
         }
