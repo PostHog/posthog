@@ -133,6 +133,61 @@ export class TemplateTester {
             return acc
         }, {} as Record<string, HogFunctionInputType>)
 
+        if (this.template.mapping_templates) {
+            const compiledMappingInputs = this.template.mapping_templates.map((mapping) => ({
+                ...mapping,
+                inputs: {},
+            }))
+
+            await Promise.all(
+                compiledMappingInputs.map(async (mapping) => {
+                    if (!mapping.inputs_schema) {
+                        return
+                    }
+
+                    const processedInputs = await Promise.all(
+                        mapping.inputs_schema
+                            .filter((input) => typeof input.default !== 'undefined')
+                            .map(async (input) => {
+                                return {
+                                    key: input.key,
+                                    value: input.default,
+                                    bytecode: await this.compileObject(input.default),
+                                }
+                            })
+                    )
+
+                    const inputsObj = processedInputs.reduce((acc, item) => {
+                        acc[item.key] = {
+                            value: item.value,
+                            bytecode: item.bytecode,
+                        }
+                        return acc
+                    }, {} as Record<string, HogFunctionInputType>)
+
+                    mapping.inputs = inputsObj
+                })
+            )
+
+            const invocations = this.executor.buildHogFunctionInvocations(
+                [
+                    {
+                        ...this.template,
+                        team_id: 1,
+                        enabled: true,
+                        created_at: '2024-01-01T00:00:00Z',
+                        updated_at: '2024-01-01T00:00:00Z',
+                        deleted: false,
+                        inputs: compiledInputs,
+                        mappings: compiledMappingInputs,
+                    },
+                ],
+                this.createGlobals(_globals)
+            )
+
+            return invocations.invocations.map((invocation) => this.executor.execute(invocation))
+        }
+
         const globals = this.createGlobals(_globals)
 
         const hogFunction: HogFunctionType = {
@@ -159,7 +214,7 @@ export class TemplateTester {
 
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
 
-        return this.executor.execute(invocation, { functions: extraFunctions })
+        return [this.executor.execute(invocation, { functions: extraFunctions })]
     }
 
     invokeFetchResponse(invocation: HogFunctionInvocation, response: HogFunctionQueueParametersFetchResponse) {

@@ -12,7 +12,7 @@ describe('webhook template', () => {
     })
 
     it('should invoke the function', async () => {
-        const response = await tester.invoke(
+        const responses = await tester.invoke(
             {
                 url: 'https://example.com?v={event.properties.$lib_version}',
                 debug: false,
@@ -22,16 +22,20 @@ describe('webhook template', () => {
                     properties: {
                         $lib_version: '1.0.0',
                     },
+                    event: '$pageview',
                 },
             }
         )
+
+        expect(responses.length).toBe(1)
+        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$lib_version":"1.0.0"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}}",
+              "body": "{"event":{"uuid":"event-id","event":"$pageview","distinct_id":"distinct-id","properties":{"$lib_version":"1.0.0"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}}",
               "headers": {
                 "Content-Type": "application/json",
               },
@@ -51,15 +55,25 @@ describe('webhook template', () => {
     })
 
     it('should log details of given', async () => {
-        let response = await tester.invoke({
-            url: 'https://example.com?v={event.properties.$lib_version}',
-            debug: true,
-        })
+        const responses = await tester.invoke(
+            {
+                url: 'https://example.com?v={event.properties.$lib_version}',
+                debug: true,
+            },
+            {
+                event: {
+                    event: '$pageview',
+                },
+            }
+        )
+
+        expect(responses.length).toBe(1)
+        let response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.logs.filter((l) => l.level === 'info').map((l) => l.message)).toMatchInlineSnapshot(`
             [
-              "Request, https://example.com?v=, {"headers":{"Content-Type":"application/json"},"body":{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$current_url":"https://example.com"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}},"method":"POST"}",
+              "Request, https://example.com?v=, {"headers":{"Content-Type":"application/json"},"body":{"event":{"uuid":"event-id","event":"$pageview","distinct_id":"distinct-id","properties":{"$current_url":"https://example.com"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}},"method":"POST"}",
             ]
         `)
 
