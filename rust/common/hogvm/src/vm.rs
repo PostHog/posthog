@@ -5,6 +5,7 @@ use serde_json::Value as JsonValue;
 
 use crate::{
     error::{Error, VmError},
+    memory::VmHeap,
     ops::Operation,
     util::{like, regex_match},
     values::{Callable, FromHogValue, HogValue, Num, NumOp},
@@ -14,107 +15,6 @@ pub struct ExecutionContext<'a> {
     bytecode: &'a [JsonValue],
     globals: HashMap<String, HogValue>,
     max_stack_depth: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct HeapValue {
-    epoch: usize,
-    value: HogValue,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HeapReference {
-    idx: usize,
-    epoch: usize, // Used to allow heap values to be freed, and their
-}
-
-#[derive(Default)]
-pub struct VmHeap {
-    inner: Vec<HeapValue>,
-    freed: Vec<HeapReference>, // Indices of freed heap values, for reuse
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum StackItem {
-    Value(HogValue),
-    Reference(HeapReference),
-}
-
-impl VmHeap {
-    pub fn alloc(&mut self, value: HogValue) -> Result<HeapReference, VmError> {
-        let (next_idx, next_epoch) = match self.freed.pop() {
-            Some(ptr) => (ptr.idx, ptr.epoch + 1),
-            None => (self.inner.len(), 0),
-        };
-
-        if self.inner.len() <= next_idx {
-            self.inner.push(HeapValue {
-                epoch: next_epoch,
-                value,
-            });
-        } else {
-            self.inner[next_idx] = HeapValue {
-                epoch: next_epoch,
-                value,
-            };
-        }
-
-        Ok(HeapReference {
-            idx: next_idx,
-            epoch: next_epoch,
-        })
-    }
-
-    pub fn free(&mut self, ptr: HeapReference) -> Result<(), VmError> {
-        if self.inner.len() < ptr.idx {
-            return Err(VmError::HeapIndexOutOfBounds);
-        }
-
-        let to_free = &mut self.inner[ptr.idx];
-
-        if to_free.epoch != ptr.epoch {
-            return Err(VmError::UseAfterFree);
-        }
-
-        // All existing references to this value are now invalid, and any use of them will result in a UseAfterFree error.
-        to_free.epoch += 1;
-        to_free.value = HogValue::Null;
-
-        // This slot's now available for reuse.
-        self.freed.push(ptr);
-        Ok(())
-    }
-
-    pub fn load(&mut self, ptr: HeapReference) -> Result<HogValue, VmError> {
-        if self.inner.len() < ptr.idx {
-            return Err(VmError::HeapIndexOutOfBounds);
-        }
-
-        let to_load = &mut self.inner[ptr.idx];
-
-        if to_load.epoch != ptr.epoch {
-            return Err(VmError::UseAfterFree);
-        }
-
-        // TODO - this is a bit inefficient, but allows us to track heap memory usage by forcing callers to call
-        // `store` to update the value.
-        Ok(to_load.value.clone())
-    }
-
-    pub fn store(&mut self, ptr: HeapReference, value: HogValue) -> Result<(), VmError> {
-        if self.inner.len() < ptr.idx {
-            return Err(VmError::HeapIndexOutOfBounds);
-        }
-
-        let to_store = &mut self.inner[ptr.idx];
-
-        if to_store.epoch != ptr.epoch {
-            return Err(VmError::UseAfterFree);
-        }
-
-        to_store.value = value;
-        Ok(())
-    }
 }
 
 pub struct ExecOutcome {
@@ -133,7 +33,7 @@ pub struct ThrowFrame {
 }
 
 pub struct VmState<'a> {
-    stack: Vec<StackItem>,
+    stack: Vec<HogValue>,
     heap: VmHeap,
 
     stack_frames: Vec<CallFrame>,
@@ -204,26 +104,39 @@ impl<'a> VmState<'a> {
         if self.stack.len() <= self.current_frame_base() {
             return Err(VmError::StackUnderflow);
         }
-        let item = self.stack.pop().ok_or(VmError::StackUnderflow)?;
-
-        match item {
-            StackItem::Value(hog_value) => Ok(hog_value),
-            StackItem::Reference(reference) => self.heap.load(reference),
-        }
+        self.stack.pop().ok_or(VmError::StackUnderflow)
     }
 
-    fn try_pop_as<T>(&mut self) -> Result<T, VmError>
+    // As above, but with a handy cast/unwrap
+    fn pop_stack_as<T>(&mut self) -> Result<T, VmError>
     where
         T: FromHogValue,
     {
-        self.pop_stack().and_then(HogValue::try_into)
+        self.pop_stack().and_then(T::from_val)
     }
 
-    fn set_stack_val(&mut self, idx: usize, value: HogValue) -> Result<(), VmError> {
+    // "get a local" from the somewhere bach in the stack, which means, if it's a primitive (not an array, tuple or object),
+    // cloning it, and if it isn't a primitive, hoisting it onto the heap and replacing the stack item with a reference to it
+    fn get_maybe_hoisting(&mut self, idx: usize) -> Result<HogValue, VmError> {
+        let item = self.clone_stack_item(idx)?;
+        let res = match item {
+            // If it's an "object", we hoist it onto the heap and push a reference to it onto the stack
+            HogValue::Array(_) | HogValue::Object(_) => {
+                todo!()
+            }
+            // It's a "primitive", and we just copy it
+            other => other,
+        };
+
+        Ok(res)
+    }
+
+    fn set_stack_val(&mut self, idx: usize, value: impl Into<HogValue>) -> Result<(), VmError> {
+        // TODO - revisit this, idk about it
         self.stack
             .get_mut(idx)
             .ok_or(VmError::StackIndexOutOfBounds)
-            .map(|v| *v = value)
+            .map(|v| *v = value.into())
     }
 
     fn truncate_stack(&mut self, new_len: usize) -> Result<(), VmError> {
@@ -248,6 +161,10 @@ impl<'a> VmState<'a> {
         return Err(VmError::NotImplemented("imports".to_string()));
     }
 
+    fn clone_stack_item(&self, idx: usize) -> Result<HogValue, VmError> {
+        self.stack.get(idx).cloned().ok_or(VmError::StackUnderflow)
+    }
+
     pub fn step(&mut self) -> Result<ExecOutcome, VmError> {
         let op: Operation = self.next()?;
 
@@ -258,7 +175,7 @@ impl<'a> VmState<'a> {
                 let mut chain: Vec<String> = Vec::new();
                 let count: usize = self.next()?;
                 for _ in 0..count {
-                    chain.push(self.try_pop_as()?);
+                    chain.push(self.pop_stack_as()?);
                 }
                 if let Some(chain_start) = self.context.globals.get(&chain[0]) {
                     // TODO - this is a lot more strict that other implementations
@@ -294,71 +211,70 @@ impl<'a> VmState<'a> {
                 self.push_stack(acc)?;
             }
             Operation::Not => {
-                let val = self.pop_stack()?;
-                let val = val.try_as::<bool>()?;
+                let val = self.pop_stack_as::<bool>()?;
                 // TODO - technically, we could assert here that this push will always succeed,
                 // and it'd let us skip a bounds check I /think/, but lets not go microoptimizing yet
-                self.push_stack(!val)?;
+                self.push_stack((!val).into())?;
             }
             Operation::Plus => {
-                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(Num::binary_op(NumOp::Add, &a, &b)?)?;
             }
             Operation::Minus => {
-                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(Num::binary_op(NumOp::Sub, &a, &b)?)?;
             }
             Operation::Mult => {
-                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(Num::binary_op(NumOp::Mul, &a, &b)?)?;
             }
             Operation::Div => {
-                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(Num::binary_op(NumOp::Div, &a, &b)?)?;
             }
             Operation::Mod => {
-                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(Num::binary_op(NumOp::Mod, &a, &b)?)?;
             }
             Operation::Eq => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(a.equals(&b)?)?;
             }
             Operation::NotEq => {
-                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(a.not_equals(&b)?)?;
             }
             Operation::Gt => {
-                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(Num::binary_op(NumOp::Gt, &a, &b)?)?;
             }
             Operation::GtEq => {
-                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(Num::binary_op(NumOp::Gte, &a, &b)?)?;
             }
             Operation::Lt => {
-                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(Num::binary_op(NumOp::Lt, &a, &b)?)?;
             }
             Operation::LtEq => {
-                let (a, b) = (self.try_pop_as()?, self.try_pop_as()?);
+                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(Num::binary_op(NumOp::Lte, &a, &b)?)?;
             }
             Operation::Like => {
-                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
-                self.push_stack(like(val, pat, true)?)?;
+                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                self.push_stack(like(val, pat, true)?.into())?;
             }
             Operation::Ilike => {
-                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
-                self.push_stack(like(val, pat, false)?)?;
+                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                self.push_stack(like(val, pat, false)?.into())?;
             }
             Operation::NotLike => {
-                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
-                self.push_stack(!like(val, pat, true)?)?;
+                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                self.push_stack((!like(val, pat, true)?).into())?;
             }
             Operation::NotIlike => {
-                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
-                self.push_stack(!like(val, pat, false)?)?;
+                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                self.push_stack((!like(val, pat, false)?).into())?;
             }
             Operation::In => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
@@ -369,54 +285,54 @@ impl<'a> VmState<'a> {
                 self.push_stack(haystack.contains(&needle)?.not()?)?;
             }
             Operation::Regex => {
-                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
-                self.push_stack(regex_match(val, pat, true)?)?;
+                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                self.push_stack(regex_match(val, pat, true)?.into())?;
             }
             Operation::NotRegex => {
-                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
-                self.push_stack(!regex_match(val, pat, true)?)?;
+                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                self.push_stack((!regex_match(val, pat, true)?).into())?;
             }
             Operation::Iregex => {
-                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
-                self.push_stack(regex_match(val, pat, false)?)?;
+                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                self.push_stack(regex_match(val, pat, false)?.into())?;
             }
             Operation::NotIregex => {
-                let (val, pat): (String, String) = (self.try_pop_as()?, self.try_pop_as()?);
-                self.push_stack(!regex_match(val, pat, false)?)?;
+                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                self.push_stack((!regex_match(val, pat, false)?).into())?;
             }
             Operation::InCohort => return Err(VmError::NotImplemented("InCohort".to_string())),
             Operation::NotInCohort => {
                 return Err(VmError::NotImplemented("NotInCohort".to_string()))
             }
             Operation::True => {
-                self.push_stack(true)?;
+                self.push_stack(true.into())?;
             }
             Operation::False => {
-                self.push_stack(false)?;
+                self.push_stack(false.into())?;
             }
             Operation::Null => {
                 self.push_stack(HogValue::Null)?;
             }
             Operation::String => {
-                self.push_stack(String::new())?;
+                self.push_stack(String::new().into())?;
             }
             Operation::Integer => {
-                self.push_stack(0)?;
+                self.push_stack(0.into())?;
             }
             Operation::Float => {
-                self.push_stack(0.0)?;
+                self.push_stack(0.0.into())?;
             }
             Operation::Pop => {
                 self.pop_stack()?;
             }
             Operation::GetLocal => {
-                // Reaches "back" in the stack some number of items, and puts a reference to that on the top of the stack
                 let base = self.current_frame_base();
                 let offset: usize = self.next()?;
-                self.push_stack(self.clone_stack_val(base + offset)?)?;
+                let item = self.get_maybe_hoisting(base + offset)?;
+                self.push_stack(item)?;
             }
             Operation::SetLocal => {
-                // Sets some value "lower" in the stack
+                // Replace some item "lower" in the stack with the top one.
                 let base = self.current_frame_base();
                 let offset: usize = self.next()?;
                 let value = self.pop_stack()?;
@@ -447,18 +363,18 @@ impl<'a> VmState<'a> {
             }
             Operation::JumpIfFalse => {
                 let offset: usize = self.next()?;
-                if !self.try_pop_as::<bool>()? {
+                if !self.pop_stack_as::<bool>()? {
                     self.ip += offset;
                 }
             }
             Operation::JumpIfStackNotNull => {
                 let offset: usize = self.next()?;
-                // Weirdly, this operation doesn't pop the value from the stack, but is always followed by a pop,
-                // based on the current compiler. I've asked marius why, and will update this comment once I have an answer.
-                if !self.stack.is_empty()
-                    && !matches!(self.clone_stack_val(self.stack.len())?, HogValue::Null)
-                {
-                    self.ip += offset;
+                // Weirdly, this operation doesn't pop the value from the stack. This is mostly a random choice.
+                if !self.stack.is_empty() {
+                    let item = self.clone_stack_item(self.stack.len() - 1)?;
+                    if matches!(item, HogValue::Null) {
+                        self.ip += offset;
+                    }
                 }
             }
             // We don't implement DeclareFn, because it's not used in the current compiler - it uses
@@ -472,8 +388,9 @@ impl<'a> VmState<'a> {
                 // The keys and values are pushed into the stack in key:value, key:value pairs, but we're
                 // going to walk the stack backwards to construct the dictionary
                 for _ in 0..element_count {
+                    // Note we don't put references into collections ever
                     values.push(self.pop_stack()?);
-                    keys.push(self.try_pop_as::<String>()?);
+                    keys.push(self.pop_stack_as::<String>()?);
                 }
                 let map: HashMap<String, HogValue> =
                     HashMap::from_iter(keys.into_iter().zip(values.into_iter()));
@@ -483,7 +400,7 @@ impl<'a> VmState<'a> {
                 let element_count: usize = self.next()?;
                 let mut elements = Vec::with_capacity(element_count);
                 for _ in 0..element_count {
-                    elements.push(self.pop_stack()?);
+                    elements.push(self.pop_stack_val()?);
                 }
                 // We've walked back down the stack, but the compiler expects the array to be in pushed order
                 elements.reverse();

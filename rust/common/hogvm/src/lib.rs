@@ -1,4 +1,5 @@
 mod error;
+mod memory;
 mod ops;
 mod util;
 mod values;

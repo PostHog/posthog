@@ -1,6 +1,6 @@
 use std::{collections::HashMap, str::FromStr};
 
-use crate::error::VmError;
+use crate::{error::VmError, vm::HeapReference};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Num {
@@ -24,6 +24,9 @@ pub enum Callable {
     },
 }
 
+// hog has "primitives", which are copied by e.g, "get_local", and "objects", which are passed around by reference. This is distinct from the
+// "Heap" allocated stuff, which is used for things which must outlive all references to themselves on the stack, e.g. upvalues.
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum HogValue {
     Number(Num),
@@ -32,6 +35,7 @@ pub enum HogValue {
     Array(Vec<HogValue>),
     Object(HashMap<String, HogValue>),
     Callable(Callable),
+    Reference(HeapReference), // A reference to a heap allocated value
     Null,
 }
 
@@ -56,6 +60,7 @@ impl HogValue {
             Self::Object(_) => "Object",
             Self::Null => "Null",
             Self::Callable(_) => "Callable",
+            Self::Reference(_) => "Reference",
         }
     }
 
@@ -73,33 +78,59 @@ impl HogValue {
         T::from_val(self)
     }
 
-    pub fn get_nested<S: AsRef<str>>(&self, chain: &[S]) -> Option<&HogValue> {
+    pub fn get_nested(&self, chain: &[HogValue]) -> Result<Option<&HogValue>, VmError> {
         if chain.len() == 0 {
-            return Some(self);
+            return Ok(Some(self));
         }
 
         match self {
             Self::Object(map) => {
-                let key = chain.first().unwrap();
-                map.get(key.as_ref())
-                    .and_then(|value| value.get_nested(&chain[1..]))
+                let key: &str = chain.first().unwrap().try_as()?;
+                let Some(found) = map.get(key) else {
+                    return Ok(None);
+                };
+                found.get_nested(&chain[1..])
             }
-            _ => None,
+            Self::Array(vals) => {
+                let index: &Num = chain.first().unwrap().try_as()?;
+                if index.is_float() || index.to_integer() < 1 {
+                    return Err(VmError::InvalidIndex);
+                }
+                let index = (index.to_integer() as usize) - 1; // Hog indices are 1 based
+                let Some(found) = vals.get(index) else {
+                    return Ok(None);
+                };
+                found.get_nested(&chain[1..])
+            }
+            _ => Ok(None),
         }
     }
 
-    pub fn get_nested_mut<S: AsRef<str>>(&mut self, chain: &[S]) -> Option<&mut HogValue> {
+    pub fn get_nested_mut(&mut self, chain: &[HogValue]) -> Result<Option<&mut HogValue>, VmError> {
         if chain.len() == 0 {
-            return Some(self);
+            return Ok(Some(self));
         }
 
         match self {
             Self::Object(map) => {
-                let key = chain.first().unwrap();
-                map.get_mut(key.as_ref())
-                    .and_then(|value| value.get_nested_mut(&chain[1..]))
+                let key: &str = chain.first().unwrap().try_as()?;
+                let Some(found) = map.get_mut(key) else {
+                    return Ok(None);
+                };
+                found.get_nested_mut(&chain[1..])
             }
-            _ => None,
+            Self::Array(vals) => {
+                let index: &Num = chain.first().unwrap().try_as()?;
+                if index.is_float() || index.to_integer() < 1 {
+                    return Err(VmError::InvalidIndex);
+                }
+                let index = (index.to_integer() as usize) - 1; // Hog indices are 1 based
+                let Some(found) = vals.get_mut(index) else {
+                    return Ok(None);
+                };
+                found.get_nested_mut(&chain[1..])
+            }
+            _ => Ok(None),
         }
     }
 

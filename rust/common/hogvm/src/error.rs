@@ -51,4 +51,6 @@ pub enum VmError {
     InvalidException,
     #[error("Uncaught exception: {0}: {1}")]
     UncaughtException(String, String, Option<HashMap<String, HogValue>>),
+    #[error("Invalid index, expected positive, non-zero integer")]
+    InvalidIndex,
 }
