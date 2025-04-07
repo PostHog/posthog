@@ -152,17 +152,19 @@ export const DateRangeFilter = ({
     const { dateRange } = useValues(errorTrackingLogic)
     const { setDateRange } = useActions(errorTrackingLogic)
     return (
-        <DateFilter
-            className={className}
-            size={size}
-            dateFrom={dateRange.date_from}
-            dateTo={dateRange.date_to}
-            fullWidth={fullWidth}
-            dateOptions={errorTrackingDateOptions}
-            onChange={(changedDateFrom, changedDateTo) =>
-                setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-            }
-        />
+        <span className="rounded bg-surface-primary">
+            <DateFilter
+                className={className}
+                size={size}
+                dateFrom={dateRange.date_from}
+                dateTo={dateRange.date_to}
+                fullWidth={fullWidth}
+                dateOptions={errorTrackingDateOptions}
+                onChange={(changedDateFrom, changedDateTo) =>
+                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+                }
+            />
+        </span>
     )
 }
 
