@@ -3,12 +3,12 @@ import './StackTraces.scss'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { useEffect, useMemo } from 'react'
-import { match } from 'ts-pattern'
+import { match, P } from 'ts-pattern'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
+import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
 import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
 import {
     ErrorTrackingException,
@@ -17,31 +17,22 @@ import {
     ErrorTrackingStackFrameContextLine,
 } from './types'
 
-function renderTraceHeaderDefault(
-    id: string | undefined,
-    type: string,
-    value: string,
-    checkers?: FingerprintCheckers
-): JSX.Element {
+export type ExceptionHeaderProps = {
+    id?: string
+    type: string
+    value: string
+    part?: FingerprintRecordPart
+}
+
+function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Element {
     return (
         <div className="flex flex-col gap-0.5 mb-2">
             <h3 className="StackTrace__type mb-0" title={type}>
                 {type}
-                {id && checkers && checkers.includesExceptionType(id) && (
-                    <IconFingerprint
-                        className="ml-1"
-                        color={checkers.isExceptionTypeHighlighted(id) ? 'red' : 'gray'}
-                    />
-                )}
+                {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
             </h3>
             <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
                 {value}
-                {id && checkers && checkers.includesExceptionValue(id) && (
-                    <IconFingerprint
-                        className="ml-1"
-                        color={checkers.isExceptionValueHighlighted(id) ? 'red' : 'gray'}
-                    />
-                )}
             </div>
         </div>
     )
@@ -50,23 +41,17 @@ function renderTraceHeaderDefault(
 export function ChainedStackTraces({
     exceptionList,
     showAllFrames,
-    renderTraceHeader = renderTraceHeaderDefault,
+    renderExceptionHeader,
     embedded = false,
     fingerprintRecords = [],
 }: {
-    renderTraceHeader?: (
-        id: string | undefined,
-        type: string,
-        value: string,
-        checkers?: FingerprintCheckers
-    ) => React.ReactNode
+    renderExceptionHeader?: (props: ExceptionHeaderProps) => React.ReactNode
     exceptionList: ErrorTrackingException[]
     fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded?: boolean
 }): JSX.Element {
     const { loadFromRawIds } = useActions(stackFrameLogic)
-    const checkers = useFingerprintRecords(fingerprintRecords)
 
     useEffect(() => {
         const frames: ErrorTrackingStackFrame[] = exceptionList.flatMap((e) => {
@@ -85,12 +70,17 @@ export function ChainedStackTraces({
                 if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
                     const hasOnlyNonInAppFrames = frames?.every((frame) => !frame.in_app)
+                    const part = fingerprintRecords.find((record) => record.type == 'exception' && record.id === id)
+                    const traceHeaderProps = { id, type, value, part }
                     return (
                         <div
                             key={id ?? index}
                             className={clsx('StackTrace flex flex-col', embedded && 'StackTrace--embedded')}
                         >
-                            {renderTraceHeader(id, type, value, checkers)}
+                            {match(renderExceptionHeader)
+                                .with(P.nullish, () => <ExceptionHeader {...traceHeaderProps} />)
+                                .with(P.any, () => renderExceptionHeader!(traceHeaderProps))
+                                .exhaustive()}
                             {match([showAllFrames, hasOnlyNonInAppFrames])
                                 .with([false, true], () => null)
                                 .otherwise(() => (
@@ -127,8 +117,9 @@ function Trace({
     const panels = displayFrames.map(
         ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }) => {
             const record = stackFrameRecords[raw_id]
-            const isUsedInFingerprint = checkers.includesFrame(raw_id)
-            const isHighlighted = checkers.isFrameHighlighted(raw_id)
+            const part = checkers.getFramePart(raw_id)
+            // const isUsedInFingerprint = checkers.includesFrame(raw_id)
+            // const isHighlighted = checkers.isFrameHighlighted(raw_id)
 
             return {
                 key: raw_id,
@@ -153,9 +144,7 @@ function Trace({
                             ) : null}
                         </div>
                         <div className="flex gap-x-1 items-center">
-                            {isUsedInFingerprint && (
-                                <IconFingerprint color={isHighlighted ? 'red' : 'gray'} fontSize="18px" />
-                            )}
+                            {part && <FingerprintRecordPartDisplay part={part} />}
                             {in_app && <LemonTag>In App</LemonTag>}
                             {!resolved && (
                                 <Tooltip title={resolve_failure}>
@@ -185,62 +174,21 @@ function Trace({
 }
 
 export type FingerprintCheckers = {
-    includesExceptionType(exc_id: string): boolean
-    includesExceptionValue(exc_id: string): boolean
-    includesFrame(frame_id: string): boolean
-    isExceptionTypeHighlighted(exc_id: string): boolean
-    isExceptionValueHighlighted(exc_id: string): boolean
-    isFrameHighlighted(frame_id: string): boolean
+    getExceptionPart(excId: string): FingerprintRecordPart | undefined
+    getFramePart(frameId: string): FingerprintRecordPart | undefined
 }
 
 function useFingerprintRecords(fingerprintRecords: FingerprintRecordPart[]): FingerprintCheckers {
-    const { highlightedRecordPart } = useValues(stackFrameLogic)
     return useMemo(() => {
         return {
-            includesExceptionType(exc_id: string) {
-                return !!fingerprintRecords.find(
-                    (record) =>
-                        record.type === 'exception' &&
-                        record.id === exc_id &&
-                        record.pieces.some((piece) => piece === 'Exception Type')
-                )
+            getExceptionPart(excId: string) {
+                return fingerprintRecords.find((record) => record.type === 'exception' && record.id === excId)
             },
-            isExceptionTypeHighlighted(exc_id: string) {
-                return !!(
-                    highlightedRecordPart &&
-                    highlightedRecordPart.type === 'exception' &&
-                    highlightedRecordPart.id === exc_id &&
-                    highlightedRecordPart.pieces.some((piece) => piece === 'Exception Type')
-                )
-            },
-            includesExceptionValue(exc_id: string) {
-                return !!fingerprintRecords.find(
-                    (record) =>
-                        record.type === 'exception' &&
-                        record.id === exc_id &&
-                        record.pieces.some((piece) => piece === 'Exception Message')
-                )
-            },
-            isExceptionValueHighlighted(exc_id: string) {
-                return !!(
-                    highlightedRecordPart &&
-                    highlightedRecordPart.type === 'exception' &&
-                    highlightedRecordPart.id === exc_id &&
-                    highlightedRecordPart.pieces.some((piece) => piece === 'Exception Message')
-                )
-            },
-            includesFrame(frame_id: string) {
-                return !!fingerprintRecords.find((record) => record.type === 'frame' && record.raw_id === frame_id)
-            },
-            isFrameHighlighted(frame_id: string) {
-                return !!(
-                    highlightedRecordPart &&
-                    highlightedRecordPart.type === 'frame' &&
-                    highlightedRecordPart.raw_id === frame_id
-                )
+            getFramePart(frameId: string) {
+                return fingerprintRecords.find((record) => record.type === 'frame' && record.raw_id === frameId)
             },
         }
-    }, [fingerprintRecords, highlightedRecordPart])
+    }, [fingerprintRecords])
 }
 
 function FrameContext({

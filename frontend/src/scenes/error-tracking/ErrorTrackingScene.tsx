@@ -27,14 +27,21 @@ import { InsightLogicProps } from '~/types'
 
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
-import { ErrorTrackingFilters } from './ErrorTrackingFilters'
+import {
+    DateRangeFilter,
+    ErrorTrackingFilters,
+    FilterGroup,
+    InternalAccountsFilter,
+    UniversalSearch,
+} from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
+import { useSparklineData } from './hooks/use-sparkline-data'
 import { StatusIndicator } from './issue/Indicator'
-import { OccurrenceSparkline, useSparklineData } from './OccurrenceSparkline'
+import { OccurrenceSparkline } from './OccurrenceSparkline'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -72,7 +79,12 @@ export function ErrorTrackingScene(): JSX.Element {
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                <ErrorTrackingFilters />
+                <ErrorTrackingFilters>
+                    <DateRangeFilter />
+                    <FilterGroup />
+                    <UniversalSearch />
+                    <InternalAccountsFilter />
+                </ErrorTrackingFilters>
                 <LemonDivider className="mt-2" />
                 <ErrorTrackingListOptions />
                 <Query query={query} context={context} />
@@ -82,20 +94,16 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { dateRange } = useValues(errorTrackingLogic)
-    const { sparklineSelectedPeriod, volumeResolution } = useValues(errorTrackingSceneLogic)
+    const { dateRange, sparklineSelectedPeriod, volumeResolution } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-    const { values, labels } = useSparklineData(
-        volumeResolution,
-        dateRange,
-        match(sparklineSelectedPeriod)
-            .with('day', () => record.aggregations.volumeDay)
-            .with('custom', () => record.aggregations.volumeRange)
-            .exhaustive()
-    )
+    const occurences = match(sparklineSelectedPeriod)
+        .with('day', () => record.aggregations.volumeDay)
+        .with('custom', () => record.aggregations.volumeRange)
+        .exhaustive()
+    const data = useSparklineData(occurences, dateRange, volumeResolution)
     return (
         <div className="flex justify-end">
-            <OccurrenceSparkline className="h-8" values={values} labels={labels} displayXAxis={false} />
+            <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />
         </div>
     )
 }

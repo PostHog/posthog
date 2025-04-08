@@ -164,11 +164,11 @@ export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): bool
     return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
 }
 
-export function generateSparklineLabels(range: DateRange, resolution: number): string[] {
+export function generateSparklineLabels(range: DateRange, resolution: number): Dayjs[] {
     const { date_from, date_to } = ResolvedDateRange.fromDateRange(range)
-    const bin_size = Math.floor(date_to.diff(date_from, 'seconds') / resolution)
+    const bin_size = Math.floor(date_to.diff(date_from, 'milliseconds') / resolution)
     const labels = Array.from({ length: resolution }, (_, i) => {
-        return date_from.add(i * bin_size, 'seconds').toISOString()
+        return date_from.add(i * bin_size, 'milliseconds')
     })
     return labels
 }

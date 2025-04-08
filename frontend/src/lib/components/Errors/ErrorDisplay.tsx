@@ -1,10 +1,9 @@
-import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
-import { cn } from 'lib/utils/css-classes'
 import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
 
 import { EventType } from '~/types'
@@ -19,7 +18,6 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
 
     const exceptionWithStack = hasStacktrace(exceptionList)
     const fingerprintRecords: FingerprintRecordPart[] = eventProperties.$exception_fingerprint_record || []
-    const hasFingerprintRecord = fingerprintRecords.length > 0
 
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
@@ -33,7 +31,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                         sentryUrl ? (
                             <Link
                                 className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
-                                to={sentryUrl}
+                                to={String(sentryUrl)}
                                 target="_blank"
                             >
                                 Sentry
@@ -44,9 +42,9 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     }
                 />
                 <TitledSnack title="unhandled" value={String(unhandled)} />
-                <TitledSnack title="library" value={library} />
-                <TitledSnack title="browser" value={browser ?? 'unknown'} />
-                <TitledSnack title="os" value={os ?? 'unknown'} />
+                <TitledSnack title="library" value={String(library)} />
+                <TitledSnack title="browser" value={String(browser ?? 'unknown')} />
+                <TitledSnack title="os" value={String(os ?? 'unknown')} />
             </div>
 
             {ingestionErrors || exceptionWithStack ? <LemonDivider dashed={true} /> : null}
@@ -62,68 +60,8 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 </>
             )}
             {exceptionWithStack && <StackTrace exceptionList={exceptionList} fingerprintRecords={fingerprintRecords} />}
-            {hasFingerprintRecord && (
-                <div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-muted">Fingerprinted by:</span>
-                        <div className="flex gap-1 items-center">
-                            <FingerprintComponents components={fingerprintRecords} />
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     )
-}
-
-export const FingerprintComponents = ({ components }: { components: FingerprintRecordPart[] }): JSX.Element => {
-    const { highlightRecordPart } = useActions(stackFrameLogic)
-
-    return (
-        <>
-            {components.map((component, index) => {
-                return (
-                    <Tooltip key={index} title={getPartPieces(component)}>
-                        <LemonTag
-                            type="muted"
-                            className="hover:text-danger hover:border-danger cursor-pointer"
-                            onMouseEnter={() => highlightRecordPart(component)}
-                            onMouseLeave={() => highlightRecordPart(null)}
-                        >
-                            {getPartLabel(component)}
-                        </LemonTag>
-                    </Tooltip>
-                )
-            })}
-        </>
-    )
-}
-
-function getPartPieces(component: FingerprintRecordPart): React.ReactNode {
-    if (component.type === 'manual') {
-        return null
-    }
-    const pieces = component.pieces || []
-    return (
-        <ul>
-            {pieces.map((piece, index) => (
-                <li key={index} className={cn('text-xs', pieces.length > 1 && 'list-disc ml-4')}>
-                    {piece}
-                </li>
-            ))}
-        </ul>
-    )
-}
-
-function getPartLabel(part: FingerprintRecordPart): string {
-    switch (part.type) {
-        case 'frame':
-            return 'Frame'
-        case 'exception':
-            return 'Exception'
-        case 'manual':
-            return 'Manual'
-    }
 }
 
 const StackTrace = ({
