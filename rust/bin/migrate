@@ -37,8 +37,6 @@ log "Executing Rust workspace migrations with DB_HOST: ${DB_HOST}..."
 CYCLOTRON_DB_NAME="${CYCLOTRON_DATABASE_NAME:-test_posthog}"
 CYCLOTRON_DB="$DB_HOST/${CYCLOTRON_DB_NAME}"
 
-check_install_pinned_sqlx_cli
-
 # cyclotron points to it's own DB instance in production, and therefore has its own
 # DB namespace in local dev too.
 if [ "$CYCLOTRON_DB_NAME" != "test_posthog" ]; then
