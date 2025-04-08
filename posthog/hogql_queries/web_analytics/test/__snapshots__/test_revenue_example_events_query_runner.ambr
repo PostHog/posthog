@@ -1,13 +1,13 @@
 # serializer version: 1
 # name: TestRevenueExampleEventsQueryRunner.test_multiple_events
   '''
-  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties),
+  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(uuid, event, distinct_id, properties)`,
          events.event AS event,
          multiIf(equals(events.event, 'purchase_a'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), equals(events.event, 'purchase_b'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS original_revenue,
          multiIf(equals(events.event, 'purchase_a'), 'USD', equals(events.event, 'purchase_b'), 'USD', NULL) AS original_currency,
          multiIf(equals(events.event, 'purchase_a'), if(isNull('USD'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), equals(events.event, 'purchase_b'), if(isNull('USD'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), NULL) AS revenue,
          'USD' AS currency,
-         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties),
+         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(person.id, person.created_at, distinct_id, person.properties)`,
          nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
@@ -44,13 +44,13 @@
 # ---
 # name: TestRevenueExampleEventsQueryRunner.test_no_crash_when_no_data
   '''
-  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties),
+  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(uuid, event, distinct_id, properties)`,
          events.event AS event,
          NULL AS original_revenue,
          NULL AS original_currency,
          NULL AS revenue,
          'USD' AS currency,
-         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties),
+         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(person.id, person.created_at, distinct_id, person.properties)`,
          nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
@@ -87,13 +87,13 @@
 # ---
 # name: TestRevenueExampleEventsQueryRunner.test_revenue_currency_property
   '''
-  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties),
+  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(uuid, event, distinct_id, properties)`,
          events.event AS event,
          multiIf(equals(events.event, 'purchase_a'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), equals(events.event, 'purchase_b'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS original_revenue,
          multiIf(equals(events.event, 'purchase_a'), 'GBP', equals(events.event, 'purchase_b'), upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), NULL) AS original_currency,
          multiIf(equals(events.event, 'purchase_a'), if(isNull('GBP'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), if(equals('GBP', 'EUR'), toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), equals(events.event, 'purchase_b'), if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), 'EUR'), toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), NULL) AS revenue,
          'EUR' AS currency,
-         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties),
+         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(person.id, person.created_at, distinct_id, person.properties)`,
          nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
@@ -130,13 +130,13 @@
 # ---
 # name: TestRevenueExampleEventsQueryRunner.test_revenue_currency_property_without_feature_flag
   '''
-  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties),
+  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(uuid, event, distinct_id, properties)`,
          events.event AS event,
          multiIf(equals(events.event, 'purchase_a'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), equals(events.event, 'purchase_b'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS original_revenue,
          multiIf(equals(events.event, 'purchase_a'), 'GBP', equals(events.event, 'purchase_b'), upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), NULL) AS original_currency,
          multiIf(equals(events.event, 'purchase_a'), if(isNull('GBP'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), if(equals('GBP', 'EUR'), toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), equals(events.event, 'purchase_b'), if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), 'EUR'), toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), NULL) AS revenue,
          'EUR' AS currency,
-         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties),
+         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(person.id, person.created_at, distinct_id, person.properties)`,
          nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
@@ -173,13 +173,13 @@
 # ---
 # name: TestRevenueExampleEventsQueryRunner.test_single_event
   '''
-  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties),
+  SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(uuid, event, distinct_id, properties)`,
          events.event AS event,
          multiIf(equals(events.event, 'purchase'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS original_revenue,
          multiIf(equals(events.event, 'purchase'), 'USD', NULL) AS original_currency,
          multiIf(equals(events.event, 'purchase'), if(isNull('USD'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), NULL) AS revenue,
          'USD' AS currency,
-         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties),
+         tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(person.id, person.created_at, distinct_id, person.properties)`,
          nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events

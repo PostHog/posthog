@@ -17,6 +17,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.surveys.survey import Survey
 from posthog.models.notebook import Notebook
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 MIXIN_MODELS = {
     "action": Action,
@@ -25,7 +26,8 @@ MIXIN_MODELS = {
     "insight": Insight,
     "dashboard": Dashboard,
     "notebook": Notebook,
-    "replay_playlist": SessionRecordingPlaylist,
+    "early_access_feature": EarlyAccessFeature,
+    "session_recording_playlist": SessionRecordingPlaylist,
     "cohort": Cohort,
     "hog_function": HogFunction,
     "survey": Survey,

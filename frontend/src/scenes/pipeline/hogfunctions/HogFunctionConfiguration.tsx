@@ -207,7 +207,7 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        (['destination', 'internal_destination', 'site_destination', 'broadcast'].includes(type) ||
+        (['destination', 'internal_destination', 'site_destination', 'broadcast', 'email'].includes(type) ||
             (type === 'transformation' && showTransformationFilters))
     const showExpectedVolume =
         displayOptions.showExpectedVolume ??
@@ -570,8 +570,8 @@ export function HogFunctionConfiguration({
                                                 <div>
                                                     <strong>Please note:</strong> Clicking the button above will
                                                     synchronously send to all the e-mails. While this is fine for
-                                                    testing with small lists, please don't use this for production
-                                                    usecases yet.
+                                                    testing with small lists, please don't use this for production use
+                                                    cases yet.
                                                 </div>
                                             </div>
                                         ) : (

@@ -342,7 +342,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'project',
         id: 'project-error-tracking',
         title: 'Error tracking',
-        flag: 'ERROR_TRACKING',
         settings: [
             {
                 id: 'error-tracking-exception-autocapture',
