@@ -23,10 +23,10 @@ const fuse = new Fuse<AnnotationType>([], {
 
 export const annotationsSidebarLogic = kea<annotationsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'annotationsSidebarLogic']),
-    connect({
+    connect(() => ({
         values: [annotationsModel, ['annotations', 'annotationsLoading'], sceneLogic, ['activeScene', 'sceneParams']],
         actions: [annotationsModel, ['deleteAnnotation'], annotationModalLogic, ['openModalToCreateAnnotation']],
-    }),
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [s.relevantAnnotations, s.annotationsLoading],

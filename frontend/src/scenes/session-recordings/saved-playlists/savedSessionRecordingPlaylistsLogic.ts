@@ -49,9 +49,9 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     path((key) => ['scenes', 'session-recordings', 'saved-playlists', 'savedSessionRecordingPlaylistsLogic', key]),
     props({} as SavedSessionRecordingPlaylistsLogicProps),
     key((props) => props.tab),
-    connect({
+    connect(() => ({
         actions: [eventUsageLogic, ['reportRecordingPlaylistCreated']],
-    }),
+    })),
 
     actions(() => ({
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({

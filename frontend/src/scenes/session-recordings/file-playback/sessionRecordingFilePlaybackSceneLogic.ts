@@ -82,10 +82,10 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
 
 export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePlaybackSceneLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackSceneLogic']),
-    connect({
+    connect(() => ({
         actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
 
     loaders(({ actions }) => ({
         sessionRecording: {
