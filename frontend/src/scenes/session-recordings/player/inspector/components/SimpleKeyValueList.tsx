@@ -2,8 +2,9 @@
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { ReactNode, useEffect, useState } from 'react'
+
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 export interface SimpleKeyValueListProps {
     item: Record<string, any>

@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import {
     getDisplayNameFromEntityFilter,
@@ -37,6 +36,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 

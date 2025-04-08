@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
@@ -24,6 +23,7 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,

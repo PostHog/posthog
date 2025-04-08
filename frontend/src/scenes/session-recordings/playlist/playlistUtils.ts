@@ -4,7 +4,6 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { genericOperatorMap } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
@@ -15,6 +14,7 @@ import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessio
 import { urls } from 'scenes/urls'
 
 import { cohortsModelType } from '~/models/cohortsModelType'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { PropertyOperator, SessionRecordingPlaylistType, UniversalFilterValue } from '~/types'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
