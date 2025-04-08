@@ -394,7 +394,7 @@ class RootTeamMixin(models.Model):
     class Meta:
         abstract = True
 
-    def save(self, *args, **kwargs):
-        if self.team and self.team.parent_team:
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:
             self.team = self.team.parent_team
         super().save(*args, **kwargs)
