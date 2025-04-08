@@ -44,10 +44,6 @@ export const TreeNodeDisplayIconWrapper = ({
                         'group/lemon-tree-icon-wrapper': checkedItemIds?.length === 0,
                     }
                 )}
-                // Since we need to make this element hoverable, we cannot pointer-events: none, so we pass onClick to mimic the sibling button click
-                onClick={() => {
-                    handleClick(item)
-                }}
             >
                 <TreeNodeDisplayCheckbox
                     item={item}
@@ -56,7 +52,8 @@ export const TreeNodeDisplayIconWrapper = ({
                     }}
                     className={cn('absolute z-2', {
                         // Apply hidden class only when hovering the (conditional)group and there are no checked items
-                        'hidden group-hover/lemon-tree-icon-wrapper:block': checkedItemIds?.length === 0,
+                        'hidden group-hover/lemon-tree-icon-wrapper:block transition-all duration-50':
+                            checkedItemIds?.length === 0,
                     })}
                     style={{
                         left: `${depthOffset + 5}px`,
@@ -64,11 +61,15 @@ export const TreeNodeDisplayIconWrapper = ({
                 />
 
                 <div
-                    className="absolute"
+                    className="absolute transition-all duration-50"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
                         left: enableMultiSelection ? `${depthOffset + 28}px` : `${depthOffset + 5}px`,
+                    }}
+                    // Since we need to make this element hoverable, we cannot pointer-events: none, so we pass onClick to mimic the sibling button click
+                    onClick={() => {
+                        handleClick(item)
                     }}
                 >
                     <TreeNodeDisplayIcon
