@@ -2949,7 +2949,6 @@ class QueryResponseAlternative8(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
@@ -5835,7 +5834,6 @@ class HogQLMetadataResponse(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
