@@ -30,10 +30,7 @@ export function IssueCard(): JSX.Element {
                     truncateMessage={!showStacktrace}
                 />
                 <ContextDisplay
-                    className={cn('', {
-                        'w-1/3 pl-2': showContext,
-                        'w-0': !showContext,
-                    })}
+                    className={cn('', showContext ? 'w-1/3 pl-2' : 'w-0')}
                 />
             </Collapsible>
             <div className="absolute top-2 right-3 flex gap-2 items-center">
