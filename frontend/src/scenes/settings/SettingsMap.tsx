@@ -62,6 +62,7 @@ import { UserGroups } from './environment/UserGroups'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { OrganizationAdvertisingRetargeting } from './organization/OrgAdvertisingRetargeting'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
@@ -518,6 +519,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
+            },
+            {
+                id: 'organization-advertising-retargeting',
+                title: 'Advertising retargeting',
+                description: (
+                    <>
+                        Allow PostHog to retarget you with ads for products that your org isn't already using, only when
+                        we're pretty certain you'd be a good candidate. It's less obtrusive than a sales call, we
+                        promise.
+                        <br />
+                        <strong>Your data won't be sold to third parties.</strong>
+                    </>
+                ),
+                component: <OrganizationAdvertisingRetargeting />,
             },
         ],
     },

@@ -136,6 +136,7 @@ class Organization(UUIDModel):
     is_member_join_email_enabled = models.BooleanField(default=True)
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
+    allow_advertising_retargeting = models.BooleanField(default=True, null=True, blank=True)
 
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 

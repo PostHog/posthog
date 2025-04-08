@@ -1,8 +1,9 @@
-import dataclasses
-import os
-import json
 import base64
+import dataclasses
 import gzip
+import json
+import logging
+import os
 from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime
@@ -11,7 +12,6 @@ from collections.abc import Callable
 
 import requests
 import structlog
-import logging
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -22,17 +22,17 @@ from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
-from posthog.clickhouse.query_tagging import tags_context
-from posthog.exceptions_capture import capture_exception
-
 from posthog import version_requirement
-from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
+from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
+from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
@@ -40,7 +40,7 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
-from posthog.tasks.report_utils import capture_event
+from posthog.tasks.report_utils import capture_event, update_group_properties
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import (
     get_helm_info_env,
@@ -49,8 +49,6 @@ from posthog.utils import (
     get_previous_day,
 )
 from posthog.warehouse.models import ExternalDataJob
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
-
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -956,6 +954,29 @@ def capture_report(
             properties=full_report_dict,
             timestamp=at_date,
         )
+
+        # set all current member emails on the org if advertising retargeting is enabled
+        org: Organization = Organization.objects.get(id=organization_id)
+        if org.allow_advertising_retargeting:
+            members = (
+                OrganizationMembership.objects.filter(organization=org).order_by("-level").only("user__email")[:2000]
+            )
+            member_emails = [member.user.email for member in members]
+
+            # Create comma-separated string
+            emails_string = ",".join(member_emails)
+            if OrganizationMembership.objects.filter(organization=org).count() > 2000:
+                emails_string += "..."
+
+            update_group_properties(
+                pha_client=pha_client,
+                group_type="organization",
+                group_id=organization_id,
+                properties={
+                    "member_emails": emails_string,
+                    "allow_advertising_retargeting": org.allow_advertising_retargeting,
+                },
+            )
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
