@@ -94,12 +94,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                         return null
                     }
 
-                    if (values.personsCount === null) {
-                        await breakpoint(100)
-                    } else {
-                        await breakpoint(1000)
-                    }
-
+                    // :KRUDGE: Should try and get this to work with a single query in the future
                     const results = await Promise.all(
                         ['true', 'false'].map((value) =>
                             performQuery<ActorsQuery>({
