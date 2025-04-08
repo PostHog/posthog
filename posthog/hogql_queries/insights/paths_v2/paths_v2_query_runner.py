@@ -280,7 +280,7 @@ class PathsV2QueryRunner(QueryRunner):
 
                 /* Splits the tuple array if the difference between the current and the
                 previous timestamp is greater than the session window. */
-                arraySplit(x->if(x.1 < x.3 + {session_interval}, 0, 1), paths_array) as paths_array_session_spli t,
+                arraySplit(x->if(x.1 < x.3 + {session_interval}, 0, 1), paths_array) as paths_array_session_split,
 
                 /* Filters out the steps that are the same as the previous step. */
                 arrayFilter(
