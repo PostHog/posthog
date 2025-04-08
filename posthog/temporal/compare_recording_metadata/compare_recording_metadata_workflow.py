@@ -64,7 +64,9 @@ def get_session_replay_events(
     )
 
     return sync_execute(
-        query.format(table=table_name, block_fields=block_fields),
+        query.format(
+            table=table_name, block_fields=block_fields, session_length_limit_seconds=session_length_limit_seconds
+        ),
         {
             "started_after": started_after.strftime("%Y-%m-%d %H:%M:%S"),
             "started_before": started_before.strftime("%Y-%m-%d %H:%M:%S"),
