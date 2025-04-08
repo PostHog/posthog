@@ -1,8 +1,6 @@
 use crate::types::Update;
 use crate::errors::CacheError;
 use super::CacheOperations;
-use futures::Stream;
-use std::pin::Pin;
 
 /// A no-op cache implementation that can be used in place of RedisCache when Redis caching is not desired
 #[derive(Clone)]
@@ -20,7 +18,7 @@ impl CacheOperations for NoOpCache {
         Ok(())
     }
 
-    async fn filter_cached_updates(&self, updates: Vec<Update>) -> Pin<Box<dyn Stream<Item = Update> + Send + '_>> {
-        Box::pin(futures::stream::iter(updates))
+    async fn filter_cached_updates(&self, updates: Vec<Update>) -> Vec<Update> {
+        updates
     }
 }

@@ -4,8 +4,6 @@ use crate::types::Update;
 use crate::errors::CacheError;
 use crate::cache::secondary_cache::SecondaryCacheOperations;
 use crate::cache::secondary_cache::SecondaryCache;
-use futures::Stream;
-use std::pin::Pin;
 
 #[derive(Clone)]
 pub struct LayeredCache<S: SecondaryCacheOperations = SecondaryCache> {
@@ -34,23 +32,22 @@ impl<S: SecondaryCacheOperations> LayeredCache<S> {
         Ok(())
     }
 
-    pub async fn filter_cached_updates(&self, updates: Vec<Update>) -> Pin<Box<dyn Stream<Item = Update> + Send + '_>> {
+    pub async fn filter_cached_updates(&self, updates: Vec<Update>) -> Vec<Update> {
         let mut check_secondary = Vec::new();
 
         // First pass: check memory cache and collect items not in memory
-        for update in &updates {
-            if self.memory.get(update).is_none() {
-                check_secondary.push(update.clone());
+        for update in updates {
+            if self.memory.get(&update).is_none() {
+                check_secondary.push(update);
             }
         }
 
         if check_secondary.is_empty() {
-            return Box::pin(futures::stream::empty());
+            return check_secondary
         }
 
         // Second pass: check secondary cache
-        let secondary_stream = self.secondary.filter_cached_updates(check_secondary).await;
-        Box::pin(secondary_stream)
+        self.secondary.filter_cached_updates(check_secondary).await
     }
 
     pub fn len(&self) -> usize {

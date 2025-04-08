@@ -3,11 +3,10 @@ use property_defs_rs::cache::secondary_cache::SecondaryCacheOperations;
 use property_defs_rs::types::{Update, EventDefinition};
 use property_defs_rs::errors::CacheError;
 use quick_cache::sync::Cache as InMemoryCache;
-use std::{sync::Arc, pin::Pin};
+use std::sync::Arc;
 use chrono::{Utc, DateTime};
 use mockall::mock;
 use predicates::prelude::*;
-use futures::{Stream, StreamExt};
 
 mock! {
     pub SecondaryCache {}
@@ -15,7 +14,7 @@ mock! {
     #[async_trait::async_trait]
     impl SecondaryCacheOperations for SecondaryCache {
         async fn insert_batch(&'_ self, updates: &[Update]) -> Result<(), CacheError>;
-        async fn filter_cached_updates<'life0>(&'life0 self, updates: Vec<Update>) -> Pin<Box<dyn Stream<Item = Update> + Send + 'life0>>;
+        async fn filter_cached_updates(&self, updates: Vec<Update>) -> Vec<Update>;
     }
 }
 
@@ -45,18 +44,16 @@ async fn test_layered_cache_basic() {
     mock_secondary
         .expect_filter_cached_updates()
         .times(1)
-        .returning(|updates| Box::pin(futures::stream::iter(updates)));
+        .returning(|updates| updates);
 
     let cache = LayeredCache::new(memory, mock_secondary);
 
-    let stream = cache.filter_cached_updates(events.clone()).await;
-    let not_in_cache: Vec<_> = stream.collect().await;
+    let not_in_cache = cache.filter_cached_updates(events.clone()).await;
     assert_eq!(not_in_cache, events, "All events should not be in cache initially");
 
     cache.insert_batch(events.clone()).await.unwrap();
 
-    let stream = cache.filter_cached_updates(events.clone()).await;
-    let not_in_cache: Vec<_> = stream.collect().await;
+    let not_in_cache = cache.filter_cached_updates(events.clone()).await;
     assert_eq!(not_in_cache.len(), 0, "All events should be in cache after insertion");
 }
 
@@ -85,14 +82,13 @@ async fn test_layered_cache_skips_secondary_cache() {
     mock_secondary
         .expect_filter_cached_updates()
         .times(0)
-        .returning(|_| Box::pin(futures::stream::iter(vec![])));
+        .returning(|_| vec![]);
 
     let cache = LayeredCache::new(memory, mock_secondary);
 
     cache.insert_batch(events.clone()).await.unwrap();
 
-    let stream = cache.filter_cached_updates(events.clone()).await;
-    let not_in_cache: Vec<_> = stream.collect().await;
+    let not_in_cache = cache.filter_cached_updates(events.clone()).await;
     assert_eq!(not_in_cache.len(), 0, "All events should be in memory cache");
 }
 
@@ -126,14 +122,13 @@ async fn test_layered_cache_partial_hit() {
         .expect_filter_cached_updates()
         .times(1)
         .with(predicate::eq(events_to_check.clone()))
-        .returning(move |_| Box::pin(futures::stream::iter(events_secondary_returns.clone())));
+        .returning(move |_| events_secondary_returns.clone());
 
     let cache = LayeredCache::new(memory, mock_secondary);
 
     cache.insert_batch(events_to_cache).await.unwrap();
 
-    let stream = cache.filter_cached_updates(all_events.clone()).await;
-    let not_in_cache: Vec<_> = stream.collect().await;
+    let not_in_cache = cache.filter_cached_updates(all_events.clone()).await;
     assert_eq!(not_in_cache, vec![all_events[0].clone(), all_events[4].clone()]);
 }
 
@@ -167,13 +162,12 @@ async fn test_layered_cache_full_hit() {
         .expect_filter_cached_updates()
         .times(1)
         .with(predicate::eq(events_to_check.clone()))
-        .returning(move |_| Box::pin(futures::stream::iter(events_secondary_returns.clone())));
+        .returning(move |_| events_secondary_returns.clone());
 
     let cache = LayeredCache::new(memory, mock_secondary);
     cache.insert_batch(events_to_cache).await.unwrap();
 
-    let stream = cache.filter_cached_updates(all_events.clone()).await;
-    let not_in_cache: Vec<_> = stream.collect().await;
+    let not_in_cache = cache.filter_cached_updates(all_events.clone()).await;
     assert_eq!(not_in_cache.len(), 0);
 }
 
@@ -269,8 +263,7 @@ async fn test_layered_cache_duplicates() {
     cache.insert_batch(second_batch.clone()).await.unwrap();
     assert_eq!(cache.len(), 4, "Cache should have length 4 after second batch");
 
-    let stream = cache.filter_cached_updates(all_events.clone()).await;
-    let not_in_cache: Vec<_> = stream.collect().await;
+    let not_in_cache = cache.filter_cached_updates(all_events.clone()).await;
     assert_eq!(not_in_cache.len(), 0, "All events should be in cache");
 }
 
@@ -337,36 +330,30 @@ async fn test_layered_cache_remove() {
         .expect_filter_cached_updates()
         .times(1)
         .with(predicate::eq(vec![events[1].clone()]))
-        .returning(move |_| Box::pin(futures::stream::iter(filter_returns_0.clone())));
+        .returning(move |_| filter_returns_0.clone());
     mock_secondary
         .expect_filter_cached_updates()
         .times(1)
         .with(predicate::eq(vec![events[0].clone()]))
-        .returning(move |_| Box::pin(futures::stream::iter(filter_returns_1.clone())));
+        .returning(move |_| filter_returns_1.clone());
 
     let cache = LayeredCache::new(memory, mock_secondary);
 
     cache.insert_batch(events.clone()).await.unwrap();
     assert_eq!(cache.len(), 3, "Cache should have length 3 after insertion");
 
-    let stream = cache.filter_cached_updates(events.clone()).await;
-    let not_in_cache: Vec<_> = stream.collect().await;
+    let not_in_cache = cache.filter_cached_updates(events.clone()).await;
     assert_eq!(not_in_cache.len(), 0, "All events should be in cache");
 
     cache.remove(&events[1]);
     assert_eq!(cache.len(), 2, "Cache should have length 2 after removing middle event");
 
-    let stream = cache.filter_cached_updates(vec![events[1].clone()]).await;
-    let not_in_cache: Vec<_> = stream.collect().await;
+    let not_in_cache = cache.filter_cached_updates(vec![events[1].clone()]).await;
     assert_eq!(not_in_cache.len(), 1, "Removed event should not be in cache");
 
     cache.remove(&events[0]);
     assert_eq!(cache.len(), 1, "Cache should have length 1 after removing first event");
 
-    let mut stream = cache.filter_cached_updates(vec![events[0].clone()]).await;
-    let mut not_in_cache = Vec::new();
-    while let Some(update) = stream.next().await {
-        not_in_cache.push(update);
-    }
+    let not_in_cache = cache.filter_cached_updates(vec![events[0].clone()]).await;
     assert_eq!(not_in_cache.len(), 1, "Removed event should not be in cache");
 }

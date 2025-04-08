@@ -1,9 +1,8 @@
-use std::{sync::Arc, time::Duration, pin::Pin};
+use std::{sync::Arc, time::Duration};
 
 use app_context::AppContext;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
-use futures::stream::{Stream, StreamExt};
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
@@ -161,7 +160,7 @@ async fn process_batch_v1(
     issue_time.fin();
 }
 
-async fn filter_updates(updates: Vec<Update>, cache: &LayeredCache) -> Pin<Box<dyn Stream<Item = Update> + Send + '_>> {
+async fn filter_updates(updates: Vec<Update>, cache: &LayeredCache) -> Vec<Update> {
     cache.filter_cached_updates(updates).await
 }
 
@@ -241,12 +240,10 @@ pub async fn update_producer_loop(
             last_send = tokio::time::Instant::now();
             let updates: Vec<Update> = batch.drain().collect();
             let input_count = updates.len() as u64;
-            let filtered_stream = filter_updates(updates, &layered_cache).await;
+            let filtered_updates = filter_updates(updates, &layered_cache).await;
+            let processed_count = filtered_updates.len() as u64;
 
-            tokio::pin!(filtered_stream);
-            let mut processed_count = 0u64;
-            while let Some(update) = filtered_stream.next().await {
-                processed_count += 1;
+            for update in filtered_updates {
                 match channel.try_send(update) {
                     Ok(_) => {}
                     Err(TrySendError::Full(update)) => {

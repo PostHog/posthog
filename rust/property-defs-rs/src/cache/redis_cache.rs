@@ -1,8 +1,6 @@
 use crate::types::Update;
 use crate::errors::CacheError;
 use redis::RedisError;
-use futures::Stream;
-use std::pin::Pin;
 use tracing::warn;
 use super::CacheOperations;
 
@@ -84,45 +82,39 @@ impl CacheOperations for RedisCache {
         self.client.set_keys(&key_value_pairs, self.ttl).await.map_err(CacheError::from)
     }
 
-    async fn filter_cached_updates(&self, mut updates: Vec<Update>) -> Pin<Box<dyn Stream<Item = Update> + Send + '_>> {
-        Box::pin(async_stream::stream! {
-            if updates.is_empty() {
-                return;
-            }
+    async fn filter_cached_updates(&self, mut updates: Vec<Update>) -> Vec<Update> {
+        if updates.is_empty() {
+            return updates;
+        }
 
-            let to_check_len = if self.batch_fetch_limit > 0 {
-                std::cmp::min(updates.len(), self.batch_fetch_limit)
-            } else {
-                updates.len()
-            };
+        let to_check_len = if self.batch_fetch_limit > 0 {
+            std::cmp::min(updates.len(), self.batch_fetch_limit)
+        } else {
+            updates.len()
+        };
 
-            // First drain and yield updates that won't be checked against Redis
-            if to_check_len < updates.len() {
-                for update in updates.drain(to_check_len..) {
-                    yield update;
-                }
-            }
+        // Split off the last batch_fetch_limit elements to check with Redis
+        let to_check = updates.split_off(updates.len() - to_check_len);
 
-            // Now check remaining updates against Redis
-            let redis_keys: Vec<String> = updates.iter().map(|u| u.key()).collect();
-            if !redis_keys.is_empty() {
-                match self.client.get_keys(&redis_keys).await {
-                    Ok(values) => {
-                        for (update, value) in updates.drain(..).zip(values.iter()) {
-                            if value.is_none() {
-                                yield update;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Failed to check Redis cache: {}", e);
-                        // On error, treat all updates as not in cache
-                        for update in updates.drain(..) {
-                            yield update;
+        // Check the last elements against Redis
+        let redis_keys: Vec<String> = to_check.iter().map(|u| u.key()).collect();
+        if !redis_keys.is_empty() {
+            match self.client.get_keys(&redis_keys).await {
+                Ok(values) => {
+                    for (update, value) in to_check.into_iter().zip(values.iter()) {
+                        if value.is_none() {
+                            updates.push(update);
                         }
                     }
                 }
+                Err(e) => {
+                    warn!("Failed to check Redis cache: {}", e);
+                    // On error, treat all updates as not in cache
+                    updates.extend(to_check);
+                }
             }
-        })
+        }
+
+        updates
     }
 }
