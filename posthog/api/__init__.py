@@ -3,6 +3,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.early_access_features.backend.api as early_access_feature
 import products.payments.backend.webhooks as payments
+import products.payments.backend.api as payments_api
 from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -185,6 +186,14 @@ projects_router.register(
     "project_dashboard_templates",
     ["project_id"],
 )
+
+projects_router.register(
+    r"payments",
+    payments_api.TransactionViewSet,
+    "project_payments",
+    ["project_id"],
+)
+
 environment_dashboards_router, legacy_project_dashboards_router = register_grandfathered_environment_nested_viewset(
     r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
 )
