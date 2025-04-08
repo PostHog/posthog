@@ -107,11 +107,6 @@ export function PathsV2(): JSX.Element {
                             // dropoff nodes
                             '--paths-node--dropoff': 'rgba(220, 53, 69, 0.7)', //theme?.['preset-1'] || '#000000',
 
-                            '--paths-node--start-or-end': theme?.['preset-2'] || '#000000',
-                            '--paths-node--start-or-end-hover': lightenDarkenColor(
-                                theme?.['preset-2'] || '#000000',
-                                -20
-                            ),
                             '--paths-link': theme?.['preset-1'] || '#000000',
                             // '--paths-link--hover': lightenDarkenColor(theme?.['preset-1'] || '#000000', -20),
 

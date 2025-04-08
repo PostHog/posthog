@@ -1,43 +1,27 @@
-import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
-import { useActions, useValues } from 'kea'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { userLogic } from 'scenes/userLogic'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { AvailableFeature, InsightLogicProps } from '~/types'
+import { InsightLogicProps } from '~/types'
 
-import { pathsV2DataLogic } from './pathsV2DataLogic'
-import { pageUrl, PathNodeData } from './pathUtils'
+import { POSTHOG_DROPOFF, POSTHOG_OTHER } from './constants'
+import { PathNodeData } from './pathUtils'
 import { NODE_LABEL_HEIGHT, NODE_LABEL_LEFT_OFFSET, NODE_LABEL_TOP_OFFSET, NODE_LABEL_WIDTH } from './renderPathsV2'
+
+function formatNodeName(node: PathNodeData): string {
+    if (node.name.includes(POSTHOG_DROPOFF)) {
+        return 'Dropped off'
+    } else if (node.name.includes(POSTHOG_OTHER)) {
+        return 'Other (i.e. all remaining values)'
+    }
+    return node.name
+}
 
 export type PathV2NodeLabelProps = {
     insightProps: InsightLogicProps
     node: PathNodeData
 }
 
-export function PathV2NodeLabel({ insightProps, node }: PathV2NodeLabelProps): JSX.Element | null {
-    const { pathsFilter } = useValues(pathsV2DataLogic(insightProps))
-    const { updateInsightFilter } = useActions(pathsV2DataLogic(insightProps))
-
-    const { hasAvailableFeature } = useValues(userLogic)
-    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
-
-    const nodeName = pageUrl(node)
-    const isPath = nodeName.includes('/')
-
-    const setAsPathStart = (): void => updateInsightFilter({ startPoint: nodeName })
-    const setAsPathEnd = (): void => updateInsightFilter({ endPoint: nodeName })
-    const excludePathItem = (): void => {
-        updateInsightFilter({ excludeEvents: [...(pathsFilter?.excludeEvents || []), pageUrl(node, false)] })
-    }
-    const viewFunnel = (): void => {}
-    const copyName = (): void => {
-        void copyToClipboard(nodeName).catch(captureException)
-    }
+export function PathV2NodeLabel({ node }: PathV2NodeLabelProps): JSX.Element | null {
     const openModal = (): void => {}
-
-    const isTruncatedPath = node.name.slice(1) === '_...'
 
     return (
         <div
@@ -51,28 +35,11 @@ export function PathV2NodeLabel({ insightProps, node }: PathV2NodeLabelProps): J
             }}
         >
             <div className="flex items-center">
-                <Tooltip title={pageUrl(node)} placement="right">
+                <Tooltip title={formatNodeName(node)} placement="right">
                     <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">
-                        {pageUrl(node, isPath)}
+                        {formatNodeName(node)}
                     </div>
                 </Tooltip>
-                {!isTruncatedPath && (
-                    <LemonMenu
-                        items={[
-                            { label: 'Set as path start', onClick: setAsPathStart },
-                            ...(hasAdvancedPaths
-                                ? [
-                                      { label: 'Set as path end', onClick: setAsPathEnd },
-                                      { label: 'Exclude path item', onClick: excludePathItem },
-                                      { label: 'View funnel', onClick: viewFunnel },
-                                  ]
-                                : []),
-                            { label: 'Copy path item name', onClick: copyName },
-                        ]}
-                    >
-                        <IconEllipsis className="ml-1 cursor-pointer text-muted hover:text-default" />
-                    </LemonMenu>
-                )}
             </div>
 
             <LemonButton size="xsmall" onClick={openModal} noPadding>
