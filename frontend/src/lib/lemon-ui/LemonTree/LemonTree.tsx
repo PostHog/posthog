@@ -359,7 +359,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                           }
 
                                                                           // Get the root data
-                                                                          const containerElement =
+                                                                          const containerElement: HTMLElement | null =
                                                                               document.querySelector('[role="tree"]')
                                                                           if (containerElement) {
                                                                               const foundRootData =
