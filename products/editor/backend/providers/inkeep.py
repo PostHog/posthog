@@ -4,6 +4,9 @@ from collections.abc import Generator
 from django.conf import settings
 import openai
 from typing import Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class InkeepConfig:
@@ -40,10 +43,12 @@ class InkeepProvider:
                 model=self.model_id, stream=True, messages=messages, stream_options={"include_usage": True}
             )
         except openai.APIError as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Inkeep API error: {str(e)}'})}\n\n"
+            logger.exception(f"Inkeep API error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Inkeep API error'})}\n\n"
             return
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error: {str(e)}'})}\n\n"
+            logger.exception(f"Unexpected error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Unexpected error'})}\n\n"
             return
 
         for chunk in stream:

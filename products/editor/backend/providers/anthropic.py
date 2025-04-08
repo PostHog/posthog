@@ -5,6 +5,9 @@ from django.conf import settings
 import anthropic
 from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledParam
 from typing import Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AnthropicConfig:
@@ -136,10 +139,12 @@ class AnthropicProvider:
                     temperature=AnthropicConfig.TEMPERATURE,
                 )
         except anthropic.APIError as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Anthropic API error: {str(e)}'})}\n\n"
+            logger.exception(f"Anthropic API error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': f'Anthropic API error'})}\n\n"
             return
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error: {str(e)}'})}\n\n"
+            logger.exception(f"Unexpected error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
             return
 
         for chunk in stream:

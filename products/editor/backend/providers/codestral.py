@@ -9,9 +9,7 @@ from collections.abc import Generator
 from django.conf import settings
 import mistralai
 
-# Configure logging
-django_logger = logging.getLogger("django")
-django_logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class CodestralConfig:
@@ -58,4 +56,5 @@ class CodestralProvider:
                 data = chunk.data.choices[0].delta.content
                 yield f"data: {json.dumps({'type': 'text', 'text': data})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+            logger.exception(f"Codestral API error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Codestral API error'})}\n\n"
