@@ -94,7 +94,7 @@ class PathsV2QueryRunner(QueryRunner):
                 PathsV2Item(step_index=step_index, source_step=source, target_step=target, value=value)
                 for step_index, source, target, value in response.results
             ],
-            # sort items within each step by value, and put other and dropoffs at the end
+            # sort items within each step by value, and put "other" and "dropoffs" at the end
             key=lambda item: (
                 item.step_index,
                 item.target_step == POSTHOG_OTHER,

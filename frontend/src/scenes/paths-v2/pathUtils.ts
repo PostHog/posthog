@@ -32,51 +32,6 @@ export interface PathNodeData {
     target: PathNodeData
 }
 
-export function roundedRect(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    r: number,
-    tl: boolean,
-    tr: boolean,
-    bl: boolean,
-    br: boolean
-): string {
-    let retval: string
-    retval = 'M' + (x + r) + ',' + y
-    retval += 'h' + (w - 2 * r)
-    if (tr) {
-        retval += 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r
-    } else {
-        retval += 'h' + r
-        retval += 'v' + r
-    }
-    retval += 'v' + (h - 2 * r)
-    if (br) {
-        retval += 'a' + r + ',' + r + ' 0 0 1 ' + -r + ',' + r
-    } else {
-        retval += 'v' + r
-        retval += 'h' + -r
-    }
-    retval += 'h' + (2 * r - w)
-    if (bl) {
-        retval += 'a' + r + ',' + r + ' 0 0 1 ' + -r + ',' + -r
-    } else {
-        retval += 'h' + -r
-        retval += 'v' + -r
-    }
-    retval += 'v' + (2 * r - h)
-    if (tl) {
-        retval += 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + -r
-    } else {
-        retval += 'v' + -r
-        retval += 'h' + r
-    }
-    retval += 'z'
-    return retval
-}
-
 export function pageUrl(d: PathNodeData, display?: boolean): string {
     const incomingUrls = d.targetLinks
         .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))

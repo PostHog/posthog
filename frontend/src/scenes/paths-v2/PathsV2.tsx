@@ -1,4 +1,4 @@
-import './Paths.scss'
+import './PathsV2.scss'
 
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { PathV2NodeLabel } from './PathNodeLabel'
+import { PathV2NodeLabel } from './PathV2NodeLabel'
 import { pathsV2DataLogic } from './pathsV2DataLogic'
 import type { PathNodeData } from './pathUtils'
 import { renderPathsV2 } from './renderPathsV2'
@@ -67,17 +67,17 @@ export function PathsV2(): JSX.Element {
     useEffect(() => {
         setNodes([])
 
-        // Remove the existing SVG canvas(es). The .Paths__canvas selector is crucial, as we have to be sure
+        // Remove the existing SVG canvas(es). The .PathsV2__canvas selector is crucial, as we have to be sure
         // we're only removing the Paths viz and not, for example, button icons.
         // Only remove canvases within this component's container
-        const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
+        const elements = canvasContainerRef.current?.querySelectorAll(`.PathsV2__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
         renderPathsV2(canvasRef, canvasWidth, canvasHeight, paths, pathsFilter || {}, setNodes)
 
         // Proper cleanup
         return () => {
-            const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
+            const elements = canvasContainerRef.current?.querySelectorAll(`.PathsV2__canvas`)
             elements?.forEach((node) => node?.parentNode?.removeChild(node))
         }
     }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter])
@@ -92,7 +92,7 @@ export function PathsV2(): JSX.Element {
             <div className="h-full w-full overflow-auto" ref={canvasContainerRef}>
                 <div
                     ref={canvasRef}
-                    className="Paths"
+                    className="PathsV2"
                     data-attr="paths-viz"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={
