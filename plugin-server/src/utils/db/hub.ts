@@ -29,7 +29,6 @@ import { getObjectStorage } from '../object_storage'
 import { TeamManagerLazy } from '../team-manager-lazy'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
-import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { Celery } from './celery'
 import { DB } from './db'
 import { PostgresRouter } from './postgres'
@@ -131,7 +130,6 @@ export async function createHub(
     const teamManager = new TeamManager(postgres, teamManagerLazy)
     const organizationManager = new OrganizationManager(postgres, teamManager, teamManagerLazy)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
-    const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
 
     const actionManager = new ActionManager(postgres, serverConfig)
@@ -164,7 +162,6 @@ export async function createHub(
         teamManagerLazy,
         organizationManager,
         pluginsApiKeyManager,
-        rootAccessManager,
         rustyHook,
         actionMatcher,
         actionManager,

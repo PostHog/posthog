@@ -182,7 +182,7 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
         `
             SELECT
                 id,
-                project_id,
+                parent_team_id,
                 uuid,
                 organization_id,
                 name,
@@ -206,9 +206,11 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
     if (selectResult.rows.length === 0) {
         return null
     }
-    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-    // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
+
+    // NOTE: The root team_id is a helper to make it easier to work with the team data
+    // It is either the parent_team_id or the team's id if not set.
+    selectResult.rows[0].root_team_id = (selectResult.rows[0] as any).parent_team_id ?? selectResult.rows[0].id
+
     return selectResult.rows[0]
 }
 
@@ -218,7 +220,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
         `
             SELECT
                 id,
-                project_id,
+                root_team_id,
                 uuid,
                 organization_id,
                 name,
@@ -243,9 +245,10 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
     if (selectResult.rows.length === 0) {
         return null
     }
-    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-    // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
+
+    // NOTE: The root team_id is a helper to make it easier to work with the team data
+    // It is either the parent_team_id or the team's id if not set.
+    selectResult.rows[0].root_team_id = (selectResult.rows[0] as any).parent_team_id ?? selectResult.rows[0].id
     return selectResult.rows[0]
 }
 

@@ -1,6 +1,6 @@
-import { RawKafkaEvent } from '../../../types'
+import { RawClickHouseEvent, Team } from '../../../types'
 import { EventPipelineRunner } from './runner'
 
-export function emitEventStep(runner: EventPipelineRunner, event: RawKafkaEvent): [Promise<void>] {
-    return [runner.eventsProcessor.emitEvent(event)]
+export function emitEventStep(runner: EventPipelineRunner, event: RawClickHouseEvent, team: Team): [Promise<void>] {
+    return [runner.eventsProcessor.emitEvent(event, team)]
 }

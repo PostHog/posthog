@@ -11,8 +11,7 @@ import {
     Person,
     PersonMode,
     PreIngestionEvent,
-    ProjectId,
-    RawKafkaEvent,
+    RawClickHouseEvent,
     Team,
     TeamId,
     TimestampFormat,
@@ -196,7 +195,7 @@ export class EventsProcessor {
         return res
     }
 
-    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
+    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawClickHouseEvent {
         const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
@@ -236,7 +235,7 @@ export class EventsProcessor {
             personMode = 'propertyless'
         }
 
-        const rawEvent: RawKafkaEvent = {
+        const rawEvent: RawClickHouseEvent = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
@@ -255,12 +254,20 @@ export class EventsProcessor {
         return rawEvent
     }
 
-    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+    emitEvent(rawEvent: RawClickHouseEvent, team: Team): Promise<void> {
+        // NOTE: We add extra properties to the produced event as the prop-defs service needs them
+        const kafkaEvent: RawKafkaEvent = {
+            ...rawEvent,
+            // NOTE: project_id will be removed once the service is updated using the new root_project_id
+            project_id: team.root_team_id,
+            root_project_id: team.root_team_id,
+        }
+
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
-                value: Buffer.from(JSON.stringify(rawEvent)),
+                value: Buffer.from(JSON.stringify(kafkaEvent)),
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original

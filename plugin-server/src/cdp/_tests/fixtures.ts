@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 
 import { insertRow } from '~/tests/helpers/sql'
 
-import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
+import { ClickHouseTimestamp, RawClickHouseEvent, Team } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
 import { CdpInternalEvent } from '../schema'
@@ -49,7 +49,6 @@ export const createIntegration = (integration: Partial<IntegrationType>) => {
 export const createIncomingEvent = (teamId: number, data: Partial<RawClickHouseEvent>): RawClickHouseEvent => {
     return {
         team_id: teamId,
-        project_id: teamId as ProjectId,
         created_at: new Date().toISOString() as ClickHouseTimestamp,
         elements_chain: '[]',
         person_created_at: new Date().toISOString() as ClickHouseTimestamp,

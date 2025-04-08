@@ -1,7 +1,7 @@
 import { KafkaMessage } from 'kafkajs'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp, ProjectId, RawKafkaEvent } from '../../src/types'
+import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../src/types'
 import { formPipelineEvent, normalizeEvent, parseRawClickHouseEvent } from '../../src/utils/event'
 
 describe('normalizeEvent()', () => {
@@ -49,7 +49,7 @@ describe('normalizeEvent()', () => {
 describe('parseRawClickHouseEvent()', () => {
     it('parses a random event', () => {
         // @ts-expect-error TODO: Add missing `person_mode` field
-        const kafkaEvent: RawKafkaEvent = {
+        const kafkaEvent: RawClickHouseEvent = {
             event: '$pageview',
             properties: JSON.stringify({
                 $ip: '127.0.0.1',

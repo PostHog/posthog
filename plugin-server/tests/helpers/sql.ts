@@ -288,7 +288,7 @@ export async function getTeams(hub: Hub): Promise<Team[]> {
         'fetchAllTeams'
     )
     for (const row of selectResult.rows) {
-        row.project_id = parseInt(row.project_id as unknown as string) as ProjectId
+        row.root_team_id = (row as any).parent_team_id ?? row.id
     }
     return selectResult.rows
 }
