@@ -1,4 +1,5 @@
 # serializer version: 1
+<<<<<<< HEAD
 # name: TestExperimentQueryRunner.test_funnel_metric_duplicate_events
   '''
   SELECT metric_events.variant AS variant,
@@ -132,6 +133,9 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_funnel_metric_with_action
+=======
+# name: TestExperimentFunnelMetric.test_funnel_metric_with_action
+>>>>>>> 3b92840ef3 (rename funnel metric test class)
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -197,7 +201,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_funnel_metric_with_conversion_window
+# name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -263,7 +267,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_funnel_metric_with_custom_conversion_window
+# name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -329,7 +333,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_funnel_metric
+# name: TestExperimentFunnelMetric.test_query_runner_funnel_metric
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -395,7 +399,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_group_aggregation_funnel_metric
+# name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -440,7 +444,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter
   '''
   
   SELECT DISTINCT person_id
@@ -449,7 +453,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -515,7 +519,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent
   '''
   
   SELECT DISTINCT person_id
@@ -524,7 +528,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -590,7 +594,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent
   '''
   
   SELECT DISTINCT person_id
@@ -599,7 +603,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -665,7 +669,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter
   '''
   
   SELECT DISTINCT person_id
@@ -674,7 +678,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -770,7 +774,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent
   '''
   
   SELECT DISTINCT person_id
@@ -779,7 +783,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -875,7 +879,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent
   '''
   
   SELECT DISTINCT person_id
@@ -884,7 +888,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -980,7 +984,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter
   '''
   
   SELECT DISTINCT person_id
@@ -989,7 +993,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1034,7 +1038,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent
   '''
   
   SELECT DISTINCT person_id
@@ -1043,7 +1047,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1088,7 +1092,7 @@
                      transform_null_in=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent
   '''
   
   SELECT DISTINCT person_id
@@ -1097,7 +1101,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
