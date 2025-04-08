@@ -58,7 +58,7 @@ const OPTIONS = [
 
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
-    const { editingView, isValidView } = useValues(multitabEditorLogic)
+    const { editingView } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
 
     const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
@@ -156,7 +156,6 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         }
                                     }}
                                     type="primary"
-                                    disabledReason={!editingView && !isValidView && 'Some fields may need an alias'}
                                     loading={updatingDataWarehouseSavedQuery}
                                 >
                                     {editingView ? 'Materialize' : 'Save and materialize'}

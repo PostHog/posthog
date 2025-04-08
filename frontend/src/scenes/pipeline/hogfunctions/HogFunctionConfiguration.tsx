@@ -216,9 +216,15 @@ export function HogFunctionConfiguration({
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =
         displayOptions.showEnabled ??
-        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
-            type
-        )
+        [
+            'destination',
+            'internal_destination',
+            'email',
+            'site_destination',
+            'site_app',
+            'transformation',
+            'broadcast',
+        ].includes(type)
     const canEditSource =
         displayOptions.canEditSource ??
         // Never allow editing for legacy plugins
