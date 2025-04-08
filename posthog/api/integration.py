@@ -61,6 +61,14 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 request.user,
             )
             return instance
+        elif validated_data["kind"] in OauthIntegration.supported_kinds:
+            try:
+                instance = OauthIntegration.integration_from_oauth_response(
+                    validated_data["kind"], team_id, request.user, validated_data["config"]
+                )
+            except NotImplementedError:
+                raise ValidationError("Kind not configured")
+            return instance
 
         raise ValidationError("Kind not supported")
 
@@ -81,10 +89,10 @@ class IntegrationViewSet(
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
+        token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                token = os.urandom(33).hex()
                 auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
                 response = redirect(auth_url)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
@@ -212,9 +220,5 @@ class IntegrationViewSet(
 
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
-        linear = LinearIntegration(instance)
-
-        teams = linear.list_teams()
-
-        return Response({"teams": teams})
+        linear = LinearIntegration(self.get_object())
+        return Response({"teams": linear.list_teams()})
