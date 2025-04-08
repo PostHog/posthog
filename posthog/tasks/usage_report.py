@@ -857,22 +857,28 @@ def capture_report(
             timestamp=at_date,
         )
 
-        # set all current member emails on the org
-        org = Organization.objects.get(id=organization_id)
-        members = OrganizationMembership.objects.filter(organization=org).order_by("-level").only("user__email")[:2000]
-        member_emails = [member.user.email for member in members]
+        # set all current member emails on the org if advertising retargeting is enabled
+        org: Organization = Organization.objects.get(id=organization_id)
+        if org.allow_advertising_retargeting:
+            members = (
+                OrganizationMembership.objects.filter(organization=org).order_by("-level").only("user__email")[:2000]
+            )
+            member_emails = [member.user.email for member in members]
 
-        # Create comma-separated string
-        emails_string = ",".join(member_emails)
-        if OrganizationMembership.objects.filter(organization=org).count() > 2000:
-            emails_string += "..."
+            # Create comma-separated string
+            emails_string = ",".join(member_emails)
+            if OrganizationMembership.objects.filter(organization=org).count() > 2000:
+                emails_string += "..."
 
-        update_group_properties(
-            pha_client=pha_client,
-            group_type="organization",
-            group_id=organization_id,
-            properties={"member_emails": emails_string},
-        )
+            update_group_properties(
+                pha_client=pha_client,
+                group_type="organization",
+                group_id=organization_id,
+                properties={
+                    "member_emails": emails_string,
+                    "allow_advertising_retargeting": org.allow_advertising_retargeting,
+                },
+            )
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",

@@ -2007,6 +2007,8 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             OrganizationMembership.objects.create(user=user, organization=self.organization)
             users.append(user)
 
+        assert self.organization.allow_advertising_retargeting
+
         mock_pha_client = MagicMock()
         mock_client.return_value = mock_pha_client
 
@@ -2031,6 +2033,42 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         self.assertEqual(email_list[0], self.user.email)  # First user should be the test user
 
         # Verify capture was also called as expected
+        mock_pha_client.capture.assert_called_once()
+        capture_args = mock_pha_client.capture.call_args[0]
+        self.assertEqual(capture_args[1], "organization usage report")
+        self.assertEqual(capture_args[2], {"some": "metrics", "scope": "machine"})
+
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    def test_update_group_properties_not_called_when_retargeting_disabled(self, mock_client: MagicMock) -> None:
+        from posthog.models.organization import OrganizationMembership
+        from posthog.tasks.usage_report import capture_report
+
+        # Disable advertising retargeting
+        self.organization.allow_advertising_retargeting = False
+        self.organization.save()
+
+        # Create test users in the organization
+        users = [self.user]
+        for i in range(5):
+            user = User.objects.create(email=f"test{i}@posthog.com")
+            OrganizationMembership.objects.create(user=user, organization=self.organization)
+            users.append(user)
+
+        mock_pha_client = MagicMock()
+        mock_client.return_value = mock_pha_client
+
+        # Call capture_report
+        capture_report(
+            organization_id=str(self.organization.id),
+            full_report_dict={"some": "metrics"},
+            at_date="2021-10-10T23:01:00Z",
+        )
+
+        # Verify group_identify was not called
+        mock_pha_client.group_identify.assert_not_called()
+
+        # Verify capture was still called as expected
         mock_pha_client.capture.assert_called_once()
         capture_args = mock_pha_client.capture.call_args[0]
         self.assertEqual(capture_args[1], "organization usage report")
