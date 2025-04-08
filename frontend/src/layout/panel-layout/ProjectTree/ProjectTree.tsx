@@ -228,41 +228,44 @@ export function ProjectTree(): JSX.Element {
 
                     // Check if this is a multi-drag operation
                     const isMultiDrag = dragEvent.active.data?.current?.multiDrag === true
-                    const draggedItemIds =
-                        isMultiDrag && dragEvent.active.data?.current?.ids
-                            ? (dragEvent.active.data.current.ids as string[])
-                            : [oldPath]
 
                     if (oldPath === folder) {
                         return false
                     }
 
-                    // Process all the dragged items
-                    if (folder === '') {
-                        // Handle dropping to root
-                        draggedItemIds.forEach((itemPath) => {
-                            const oldSplit = splitPath(itemPath)
-                            const oldFile = oldSplit.pop()
-                            if (oldFile && oldSplit.length > 0) {
-                                moveItem(itemPath, joinPath([oldFile]))
+                    if (isMultiDrag) {
+                        // For multi-drag operations, use moveCheckedItems
+                        if (folder === '') {
+                            moveCheckedItems('')
+                        } else if (folder) {
+                            const item = viableItems.find((i) => i.path === folder)
+                            if (!item || item.type === 'folder') {
+                                moveCheckedItems(String(folder))
                             }
-                        })
-                    } else if (folder) {
-                        // Handle dropping to a folder
-                        const item = viableItems.find((i) => i.path === folder)
-                        if (!item || item.type === 'folder') {
-                            draggedItemIds.forEach((itemPath) => {
-                                const oldSplit = splitPath(itemPath)
-                                const oldFile = oldSplit.pop()
-                                if (oldFile) {
-                                    const newFile = joinPath([...splitPath(String(folder)), oldFile])
-                                    if (newFile !== itemPath) {
-                                        moveItem(itemPath, newFile)
-                                    }
+                        }
+                    } else {
+                        // For single-drag operations, use moveItem
+                        if (folder === '') {
+                            // Move to root
+                            const oldSplit = splitPath(oldPath)
+                            const fileName = oldSplit.pop()
+                            if (fileName) {
+                                moveItem(oldPath, fileName)
+                            }
+                        } else if (folder) {
+                            // Move to folder
+                            const item = viableItems.find((i) => i.path === folder)
+                            if (!item || item.type === 'folder') {
+                                const oldSplit = splitPath(oldPath)
+                                const fileName = oldSplit.pop()
+                                if (fileName) {
+                                    const newPath = joinPath([...splitPath(String(folder)), fileName])
+                                    moveItem(oldPath, newPath)
                                 }
-                            })
+                            }
                         }
                     }
+
                     // Clear the checked items after the drag operation
                     setCheckedItems({})
                 }}
