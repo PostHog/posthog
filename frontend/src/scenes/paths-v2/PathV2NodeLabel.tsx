@@ -1,4 +1,4 @@
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { InsightLogicProps } from '~/types'
 
@@ -35,11 +35,7 @@ export function PathV2NodeLabel({ node }: PathV2NodeLabelProps): JSX.Element | n
             }}
         >
             <div className="flex items-center">
-                <Tooltip title={formatNodeName(node)} placement="right">
-                    <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">
-                        {formatNodeName(node)}
-                    </div>
-                </Tooltip>
+                <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">{formatNodeName(node)}</div>
             </div>
 
             <LemonButton size="xsmall" onClick={openModal} noPadding>
