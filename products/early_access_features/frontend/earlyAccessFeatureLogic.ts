@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     Breadcrumb,
     EarlyAccessFeatureStage,
@@ -146,6 +147,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     ...values.earlyAccessFeature,
                     stage: stage,
                 }))
+            if (props.id) {
+                refreshTreeItem('early_access_feature', props.id)
+            }
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()
         },
