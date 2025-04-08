@@ -263,6 +263,8 @@ export function ProjectTree(): JSX.Element {
                             })
                         }
                     }
+                    // Clear the checked items after the drag operation
+                    setCheckedItems({})
                 }}
                 isItemDraggable={(item) => {
                     return (

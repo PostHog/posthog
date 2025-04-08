@@ -1,5 +1,4 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
 import { IconChevronRight, IconDocument, IconFolder, IconFolderOpen } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 import { CSSProperties } from 'react'
@@ -109,7 +108,6 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         attributes,
         listeners: originalListeners,
         setNodeRef,
-        transform,
     } = useDraggable({
         id: props.id,
         data: props.checkedItemsData
@@ -136,14 +134,6 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
           )
         : {}
 
-    const style = transform
-        ? {
-              transform: CSS.Translate.toString(transform),
-              zIndex: props.enableDragging ? 10 : undefined,
-              opacity: props.enableDragging ? 0.5 : 1,
-          }
-        : undefined
-
     // Create a custom drag overlay for multiple items
     const isMultiDrag = props.checkedItemsData && props.checkedItemsData.ids.length > 1
 
@@ -152,8 +142,7 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         <div
             className={cn('relative w-full', props.className)}
             ref={setNodeRef}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={style}
+            // style={style}
             {...(props.enableDragging ? listeners : {})}
             data-multi-drag={isMultiDrag ? 'true' : undefined}
             data-multi-drag-count={isMultiDrag ? props.checkedItemsData?.ids.length : undefined}

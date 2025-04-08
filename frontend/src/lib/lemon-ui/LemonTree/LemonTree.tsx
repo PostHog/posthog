@@ -1,4 +1,4 @@
-import { DndContext, DragEndEvent, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { IconEllipsis, IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -587,6 +587,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
         const [isDragging, setIsDragging] = useState(false)
         const [checkedItemIdsState, setCheckedItemIdsState] = useState<string[]>(checkedItemIds ?? [])
+        // Track the currently active drag item and any associated data
+        const [activeDragItem, setActiveDragItem] = useState<{
+            id: string
+            item?: TreeDataItem
+            multiDragData?: { ids: string[]; items: Record<string, TreeDataItem> }
+        } | null>(null)
 
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
@@ -1134,8 +1140,44 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         return (
             <DndContext
                 sensors={sensors}
-                onDragStart={() => {
+                onDragStart={(event) => {
                     setIsDragging(true)
+
+                    // Find the dragged item in our tree data
+                    const itemId = String(event.active.id)
+
+                    // Check if there's multi-drag data
+                    const multiDragData = event.active.data.current?.multiDrag
+                        ? {
+                              ids: event.active.data.current.ids,
+                              items: event.active.data.current.items,
+                          }
+                        : undefined
+
+                    // Find the dragged item's details in our tree data
+                    const findItem = (items: TreeDataItem[]): TreeDataItem | undefined => {
+                        for (const item of items) {
+                            if (item.record?.path === itemId) {
+                                return item
+                            }
+                            if (item.children) {
+                                const found = findItem(item.children)
+                                if (found) {
+                                    return found
+                                }
+                            }
+                        }
+                        return undefined
+                    }
+
+                    const draggedItem = findItem(Array.isArray(data) ? data : [data])
+
+                    // Set the active drag item data
+                    setActiveDragItem({
+                        id: itemId,
+                        item: draggedItem,
+                        multiDragData,
+                    })
                 }}
                 onDragEnd={(dragEvent) => {
                     const active = dragEvent.active?.id
@@ -1146,6 +1188,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         onDragEnd?.(dragEvent)
                     }
                     setIsDragging(false)
+                    setActiveDragItem(null)
                 }}
             >
                 <ScrollableShadows
@@ -1209,6 +1252,38 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         </ContextMenu>
                     </TreeNodeDroppable>
                 </ScrollableShadows>
+
+                {/* Custom drag overlay */}
+                <DragOverlay dropAnimation={null}>
+                    {activeDragItem && (
+                        <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)]">
+                            {activeDragItem.item ? (
+                                <>
+                                    <div className="shrink-0">
+                                        {renderTreeNodeDisplayIcon({
+                                            item: activeDragItem.item,
+                                            expandedItemIds: expandedItemIdsState,
+                                            defaultNodeIcon,
+                                        })}
+                                    </div>
+                                    <span className="truncate font-medium">
+                                        {activeDragItem.item.displayName || activeDragItem.item.name}
+                                    </span>
+                                    {activeDragItem.multiDragData && activeDragItem.multiDragData.ids.length > 1 && (
+                                        <span className="ml-1 text-xs rounded-full bg-primary-highlight px-2 py-0.5 whitespace-nowrap">
+                                            +<span>{activeDragItem.multiDragData.ids.length - 1}</span>{' '}
+                                            <span>
+                                                other{activeDragItem.multiDragData.ids.length - 1 === 1 ? '' : 's'}
+                                            </span>
+                                        </span>
+                                    )}
+                                </>
+                            ) : (
+                                <span className="truncate">Moving item</span>
+                            )}
+                        </ButtonPrimitive>
+                    )}
+                </DragOverlay>
             </DndContext>
         )
     }
