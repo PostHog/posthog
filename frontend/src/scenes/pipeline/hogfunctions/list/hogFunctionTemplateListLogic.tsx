@@ -63,7 +63,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             }`
     ),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
-    connect({
+    connect(() => ({
         values: [
             pipelineAccessLogic,
             ['canEnableNewDestinations'],
@@ -72,7 +72,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             userLogic,
             ['user'],
         ],
-    }),
+    })),
     actions({
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
         resetFilters: true,

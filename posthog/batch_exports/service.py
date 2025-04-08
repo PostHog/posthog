@@ -657,7 +657,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = create_hogql_database(batch_export.team.id, context.modifiers)
+    context.database = create_hogql_database(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()
     schedule = Schedule(

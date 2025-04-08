@@ -4,6 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
+import { match } from 'ts-pattern'
 
 import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
@@ -21,13 +22,13 @@ export type SparklineSelectedPeriod = 'custom' | 'day'
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
-    connect({
+    connect(() => ({
         values: [errorTrackingLogic, ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
         actions: [
             errorTrackingLogic,
             ['setAssignee', 'setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
         ],
-    }),
+    })),
 
     actions({
         setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),
@@ -113,16 +114,21 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             (state) => [state.dateRange],
             (dateRange) => {
                 const customLabel = generateDateRangeLabel(dateRange)
-                return [
-                    {
-                        value: 'custom',
-                        label: customLabel,
-                    },
-                    {
-                        value: 'day',
-                        label: '24h',
-                    },
-                ] as { value: SparklineSelectedPeriod; label: string }[]
+                return match(dateRange.date_from)
+                    .with('-24h', () => [])
+                    .otherwise(() => [
+                        {
+                            value: 'custom',
+                            label: customLabel,
+                        },
+                        {
+                            value: 'day',
+                            label: '24h',
+                        },
+                    ]) as {
+                    value: SparklineSelectedPeriod
+                    label: string
+                }[]
             },
         ],
     })),

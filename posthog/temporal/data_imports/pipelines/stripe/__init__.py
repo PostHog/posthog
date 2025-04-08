@@ -40,7 +40,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/accounts",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -75,7 +75,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/balance_transactions",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -110,7 +110,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/charges",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -144,7 +144,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/customers",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -178,7 +178,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "collection_method": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -214,7 +214,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "active": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -251,7 +251,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "active": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -286,7 +286,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "collection_method": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -404,10 +404,48 @@ def stripe_source(
     )
 
 
+class StripePermissionError(Exception):
+    """Exception raised when Stripe API key lacks permissions for specific resources."""
+
+    def __init__(self, missing_permissions: dict[str, str]):
+        self.missing_permissions = missing_permissions
+        message = f"Stripe API key lacks permissions for: {', '.join(missing_permissions.keys())}"
+        super().__init__(message)
+
+
 def validate_credentials(api_key: str) -> bool:
-    try:
-        client = StripeClient(api_key)
-        client.customers.list(params={"limit": 1})
-        return True
-    except:
-        return False
+    """
+    Validates Stripe API credentials and checks permissions for all required resources.
+    This function will:
+    - Return True if the API key is valid and has all required permissions
+    - Raise StripePermissionError if the API key is valid but lacks permissions for specific resources
+    - Raise Exception if the API key is invalid or there's any other error
+    """
+    client = StripeClient(api_key)
+
+    # Test access to all resources we're pulling
+    resources_to_check = [
+        {"name": "Account", "method": client.accounts.list, "params": {"limit": 1}},
+        {"name": "BalanceTransaction", "method": client.balance_transactions.list, "params": {"limit": 1}},
+        {"name": "Charge", "method": client.charges.list, "params": {"limit": 1}},
+        {"name": "Customer", "method": client.customers.list, "params": {"limit": 1}},
+        {"name": "Invoice", "method": client.invoices.list, "params": {"limit": 1}},
+        {"name": "Price", "method": client.prices.list, "params": {"limit": 1}},
+        {"name": "Product", "method": client.products.list, "params": {"limit": 1}},
+        {"name": "Subscription", "method": client.subscriptions.list, "params": {"limit": 1}},
+    ]
+
+    missing_permissions = {}
+
+    for resource in resources_to_check:
+        try:
+            # This will raise an exception if we don't have access
+            resource["method"](params=resource["params"])  # type: ignore
+        except Exception as e:
+            # Store the resource name and error message
+            missing_permissions[resource["name"]] = str(e)
+
+    if missing_permissions:
+        raise StripePermissionError(missing_permissions)  # type: ignore
+
+    return True

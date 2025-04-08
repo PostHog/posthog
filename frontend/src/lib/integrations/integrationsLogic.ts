@@ -36,9 +36,9 @@ const ICONS: Record<IntegrationKind, any> = {
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
-    }),
+    })),
 
     actions({
         handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),

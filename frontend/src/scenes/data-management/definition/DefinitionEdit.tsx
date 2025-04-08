@@ -10,13 +10,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { getFilterLabel, isCoreFilter } from 'lib/taxonomy'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
+import { getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
 
 export const scene: SceneExport = {
     component: DefinitionEdit,

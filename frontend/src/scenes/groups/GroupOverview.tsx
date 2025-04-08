@@ -16,6 +16,7 @@ function GroupOverviewDashboard({
     groupTypeDetailDashboard: number
     groupData: Group
 }): JSX.Element {
+    const { groupTypeName } = useValues(groupLogic)
     const { setProperties } = useActions(dashboardLogic({ id: groupTypeDetailDashboard }))
 
     useEffect(() => {
@@ -24,12 +25,13 @@ function GroupOverviewDashboard({
                 {
                     type: PropertyFilterType.EventMetadata,
                     key: `$group_${groupData.group_type_index}`,
+                    label: groupTypeName,
                     value: groupData.group_key,
                     operator: PropertyOperator.Exact,
                 },
             ])
         }
-    }, [groupTypeDetailDashboard, groupData, setProperties])
+    }, [groupTypeDetailDashboard, groupData, groupTypeName, setProperties])
 
     return <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
 }

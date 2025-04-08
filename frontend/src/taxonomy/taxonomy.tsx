@@ -22,3 +22,5 @@ CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINI
 // Change "All Events" to empty string
 CORE_FILTER_DEFINITIONS_BY_GROUP.events[''] = CORE_FILTER_DEFINITIONS_BY_GROUP.events['All Events']
 delete CORE_FILTER_DEFINITIONS_BY_GROUP.events['All Events']
+
+export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)
