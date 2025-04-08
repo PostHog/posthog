@@ -143,6 +143,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
+        optional_steps = ",".join(str(x) for x in self.context.funnelsFilter.optional)
+
         inner_select = parse_select(
             f"""
             SELECT
@@ -158,6 +160,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
+                    [{optional_steps}],
                     {self.udf_event_array_filter()}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
