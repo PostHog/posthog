@@ -74,7 +74,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
-        setVolumeResolution: (volumeResolution: number) => ({ volumeResolution }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
         setLastSeenLoading: (loading: boolean) => ({ loading }),
     }),
