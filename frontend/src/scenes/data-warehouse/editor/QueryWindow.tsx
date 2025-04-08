@@ -25,8 +25,16 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, isValidView } =
-        useValues(multitabEditorLogic)
+    const {
+        allTabs,
+        activeModelUri,
+        queryInput,
+        editingView,
+        editingInsight,
+        sourceQuery,
+        isValidView,
+        suggestedQueryInput,
+    } = useValues(multitabEditorLogic)
     const {
         renameTab,
         selectTab,
@@ -39,6 +47,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadata,
         setMetadataLoading,
         saveAsView,
+        onAcceptSuggestedQueryInput,
+        onRejectSuggestedQueryInput,
+        setSuggestedQueryInput,
     } = useActions(multitabEditorLogic)
 
     const { response } = useValues(dataNodeLogic)
@@ -126,13 +137,22 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 context={{
                     current_query: queryInput,
                 }}
-                callback={() => {}}
+                callback={(toolOutput: string) => {
+                    setSuggestedQueryInput(toolOutput)
+                }}
                 initialMaxPrompt="Generate "
             >
                 <QueryPane
-                    queryInput={queryInput}
+                    originalValue={
+                        suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined
+                    }
+                    queryInput={
+                        suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput
+                    }
                     sourceQuery={sourceQuery.source}
                     promptError={null}
+                    onAccept={onAcceptSuggestedQueryInput}
+                    onReject={onRejectSuggestedQueryInput}
                     codeEditorProps={{
                         queryKey: codeEditorKey,
                         onChange: (v) => {
