@@ -339,7 +339,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 const endDate = getSurveyEndDateForQuery(survey)
                 const stats = await api.surveys.getSurveyStats({
                     surveyId: props.id,
-                    ignoreCache: true, // ignoring cache on the survey results page to always get fresh data
                     dateFrom: startDate,
                     dateTo: endDate,
                 })
@@ -794,6 +793,7 @@ export const surveyLogic = kea<surveyLogicType>([
     reducers({
         filterSurveyStatsByDistinctId: [
             true,
+            { persist: true },
             {
                 setFilterSurveyStatsByDistinctId: (_, { filterByDistinctId }) => filterByDistinctId,
             },

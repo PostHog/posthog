@@ -93,6 +93,15 @@ function getTooltip(count: number, total: number, isFilteredByDistinctId: boolea
     const singular = isFilteredByDistinctId ? 'user' : 'response'
     const plural = isFilteredByDistinctId ? 'users' : 'responses'
 
+    if (total === 0) {
+        return `${humanFriendlyNumber(count)} ${isFilteredByDistinctId ? 'unique' : ''} ${pluralize(
+            count,
+            singular,
+            plural,
+            false
+        )}`
+    }
+
     return `${humanFriendlyNumber(count)} ${isFilteredByDistinctId ? 'unique' : ''} ${pluralize(
         count,
         singular,
@@ -120,7 +129,7 @@ function SurveyStatsStackedBar({
     const onlySeen = !filterByDistinctId
         ? stats['survey shown'].total_count_only_seen
         : stats['survey shown'].unique_persons_only_seen
-    const dismissed = filterByDistinctId
+    const dismissed = !filterByDistinctId
         ? stats['survey dismissed'].total_count
         : stats['survey dismissed'].unique_persons
     const sent = !filterByDistinctId ? stats['survey sent'].total_count : stats['survey sent'].unique_persons
@@ -140,7 +149,7 @@ function SurveyStatsStackedBar({
         },
         {
             count: onlySeen,
-            label: 'Seen (no response)',
+            label: 'Unanswered',
             colorClass: 'bg-brand-blue',
             tooltip: getTooltip(onlySeen, total, filterByDistinctId),
         },
@@ -159,7 +168,7 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
                 <h3>Survey performance</h3>
                 <div className="flex items-center gap-2">
                     <LemonLabel>
-                        Filter by person distinct ID
+                        Count each person once
                         <LemonSwitch
                             checked={filterSurveyStatsByDistinctId}
                             onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
