@@ -12,7 +12,7 @@ import {
     PersonMode,
     PreIngestionEvent,
     ProjectId,
-    RawKafkaEvent,
+    RawClickHouseEvent,
     Team,
     TeamId,
     TimestampFormat,
@@ -196,7 +196,7 @@ export class EventsProcessor {
         return res
     }
 
-    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
+    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawClickHouseEvent {
         const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
@@ -236,7 +236,7 @@ export class EventsProcessor {
             personMode = 'propertyless'
         }
 
-        const rawEvent: RawKafkaEvent = {
+        const rawEvent: RawClickHouseEvent = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
@@ -255,7 +255,7 @@ export class EventsProcessor {
         return rawEvent
     }
 
-    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+    emitEvent(rawEvent: RawClickHouseEvent): Promise<void> {
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,

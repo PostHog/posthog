@@ -9,7 +9,7 @@ import {
     PipelineEvent,
     PostIngestionEvent,
     RawClickHouseEvent,
-    RawKafkaEvent,
+    RawClickHouseEvent,
 } from '../types'
 import { chainToElements } from './db/elements-chain'
 import {
@@ -123,7 +123,7 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
 
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 // that we can keep to as a contract
-export function convertToPostIngestionEvent(event: RawKafkaEvent): PostIngestionEvent {
+export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {
     const properties = event.properties ? parseJSON(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain

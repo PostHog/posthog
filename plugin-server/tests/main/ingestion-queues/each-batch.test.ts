@@ -19,7 +19,7 @@ import {
     ISOTimestamp,
     PostIngestionEvent,
     ProjectId,
-    RawKafkaEvent,
+    RawClickHouseEvent,
 } from '../../../src/types'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
@@ -64,7 +64,7 @@ const event: PostIngestionEvent = {
 }
 
 // @ts-expect-error TODO: Fix add `person_mode` to this
-const kafkaEvent: RawKafkaEvent = {
+const kafkaEvent: RawClickHouseEvent = {
     event: '$pageview',
     properties: JSON.stringify({
         $ip: '127.0.0.1',

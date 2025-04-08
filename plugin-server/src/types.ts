@@ -425,11 +425,6 @@ export interface EnqueuedPluginJob {
 export type PluginId = Plugin['id']
 export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
-/**
- * An integer, just like team ID. In fact project ID = ID of its first team, the one was created along with the project.
- * A branded type here so that we don't accidentally pass a team ID as a project ID, or vice versa.
- */
-export type ProjectId = Team['id'] & { __brand: 'ProjectId' }
 
 export enum MetricMathOperations {
     Increment = 'increment',
@@ -649,7 +644,6 @@ export interface RawOrganization {
 /** Usable Team model. */
 export interface Team {
     id: number
-    project_id: ProjectId
     uuid: string
     organization_id: string
     name: string
@@ -666,6 +660,8 @@ export interface Team {
         | null
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
+
+    root_team_id: number // Always set - its either the "parent_team_id" or the team's id if not set.
 
     // NOTE: Currently only created on the lazy loader
     available_features?: string[]
@@ -719,7 +715,6 @@ export type PersonMode = 'full' | 'propertyless' | 'force_upgrade'
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
-    project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
     properties?: string
@@ -739,17 +734,8 @@ export interface RawClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
-export interface RawKafkaEvent extends RawClickHouseEvent {
-    /**
-     * The project ID field is only included in the `clickhouse_events_json` topic, not present in ClickHouse.
-     * That's because we need it in `property-defs-rs` and not elsewhere.
-     */
-    project_id: ProjectId
-}
-
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
-    project_id: ProjectId
     timestamp: DateTime
     created_at: DateTime
     properties: Record<string, any>
@@ -776,7 +762,6 @@ export interface PreIngestionEvent {
     eventUuid: string
     event: string
     teamId: TeamId
-    projectId: ProjectId
     distinctId: string
     properties: Properties
     timestamp: ISOTimestamp

@@ -278,14 +278,16 @@ export const fetchGroups = async (teamId: number) => {
     return queryResult.data.map((group) => ({ ...group, group_properties: parseJSON(group.group_properties) }))
 }
 
-export const createGroupType = async (teamId: number, projectId: number, index: number, groupType: string) => {
+export const createGroupType = async (teamId: number, index: number, groupType: string) => {
+    // NOTE: Group types used to have project_id but we replaced that with the new team.parent_team_id
+    // so this is just here until we remove it fully.
     await postgres.query(
         PostgresUse.COMMON_WRITE,
         `
         INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
         VALUES ($1, $2, $3, $4)
         `,
-        [teamId, projectId, groupType, index],
+        [teamId, teamId, groupType, index],
         'insertGroupType'
     )
 }

@@ -4,7 +4,7 @@ import {
     ClickHouseTimestampSecondPrecision,
     Hub,
     ProjectId,
-    RawKafkaEvent,
+    RawClickHouseEvent,
 } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
@@ -18,7 +18,7 @@ import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
 
-const kafkaEvent: RawKafkaEvent = {
+const kafkaEvent: RawClickHouseEvent = {
     event: '$pageview',
     properties: JSON.stringify({
         $ip: '127.0.0.1',

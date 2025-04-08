@@ -9,7 +9,7 @@ import {
     PipelineEvent,
     PreIngestionEvent,
     ProjectId,
-    RawKafkaEvent,
+    RawClickHouseEvent,
     Team,
 } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
@@ -95,7 +95,7 @@ const preIngestionEvent: PreIngestionEvent = {
     ip: '127.0.0.1',
 }
 
-const createdEvent: RawKafkaEvent = {
+const createdEvent: RawClickHouseEvent = {
     created_at: '2024-11-18 14:54:33.606' as ClickHouseTimestamp,
     distinct_id: 'my_id',
     elements_chain: '',

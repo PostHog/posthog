@@ -6,7 +6,7 @@ import { ActionMatcher } from 'worker/ingestion/action-matcher'
 import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
 import { OrganizationManager } from 'worker/ingestion/organization-manager'
 
-import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../../../types'
+import { GroupTypeToColumnIndex, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../utils/event'
@@ -31,17 +31,17 @@ export function groupIntoBatchesByUsage(
     array: KafkaMessage[],
     batchSize: number,
     shouldProcess: (teamId: number) => boolean
-): { eventBatch: RawKafkaEvent[]; lastOffset: string; lastTimestamp: string }[] {
+): { eventBatch: RawClickHouseEvent[]; lastOffset: string; lastTimestamp: string }[] {
     // Most events will not trigger a webhook call, so we want to filter them out as soon as possible
     // to achieve the highest effective concurrency when executing the actual HTTP calls.
     // actionMatcher holds an in-memory set of all teams with enabled webhooks, that we use to
     // drop events based on that signal. To use it we must parse the message, as there aren't that many
     // webhooks, we can keep batches of the parsed messages in memory with the offsets of the last message
-    const result: { eventBatch: RawKafkaEvent[]; lastOffset: string; lastTimestamp: string }[] = []
-    let currentBatch: RawKafkaEvent[] = []
+    const result: { eventBatch: RawClickHouseEvent[]; lastOffset: string; lastTimestamp: string }[] = []
+    let currentBatch: RawClickHouseEvent[] = []
     let currentCount = 0
     array.forEach((message, index) => {
-        const clickHouseEvent = parseJSON(message.value!.toString()) as RawKafkaEvent
+        const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
         if (shouldProcess(clickHouseEvent.team_id)) {
             currentBatch.push(clickHouseEvent)
             currentCount++
@@ -91,7 +91,7 @@ export async function eachBatchWebhooksHandlers(
 export async function eachBatchHandlerHelper(
     payload: EachBatchPayload,
     shouldProcess: (teamId: number) => boolean,
-    eachMessageHandler: (event: RawKafkaEvent) => Promise<void>,
+    eachMessageHandler: (event: RawClickHouseEvent) => Promise<void>,
     concurrency: number,
     stats_key: string
 ): Promise<void> {
@@ -124,7 +124,7 @@ export async function eachBatchHandlerHelper(
             }
 
             await Promise.all(
-                eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event).finally(() => heartbeat()))
+                eventBatch.map((event: RawClickHouseEvent) => eachMessageHandler(event).finally(() => heartbeat()))
             )
 
             resolveOffset(lastOffset)
@@ -203,7 +203,7 @@ async function addGroupPropertiesToPostIngestionEvent(
 }
 
 export async function eachMessageWebhooksHandlers(
-    kafkaEvent: RawKafkaEvent,
+    kafkaEvent: RawClickHouseEvent,
     actionMatcher: ActionMatcher,
     hookCannon: HookCommander,
     groupTypeManager: GroupTypeManager,

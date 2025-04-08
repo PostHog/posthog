@@ -1,6 +1,6 @@
 import { EachBatchPayload } from 'kafkajs'
 
-import { PostIngestionEvent, RawKafkaEvent } from '../../../types'
+import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { convertToPostIngestionEvent } from '../../../utils/event'
 import {
     processComposeWebhookStep,
@@ -42,7 +42,7 @@ export async function handleComposeWebhookPlugins(
 }
 
 export async function eachMessageAppsOnEventHandlers(
-    clickHouseEvent: RawKafkaEvent,
+    clickHouseEvent: RawClickHouseEvent,
     queue: KafkaJSIngestionConsumer
 ): Promise<void> {
     const pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
