@@ -57,6 +57,7 @@ const FilterGroup = (): JSX.Element => {
 
 const UniversalSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
+    const { searchQuery } = useValues(errorTrackingLogic)
     const { setSearchQuery } = useActions(errorTrackingLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
@@ -79,6 +80,7 @@ const UniversalSearch = (): JSX.Element => {
         },
         onEnter: onClose,
         autoSelectItem: false,
+        initialSearchQuery: searchQuery,
     }
 
     return (

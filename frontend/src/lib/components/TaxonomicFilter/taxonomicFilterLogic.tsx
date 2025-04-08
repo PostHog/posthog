@@ -132,9 +132,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             results,
         }),
     })),
-    reducers(({ selectors }) => ({
+    reducers(({ props, selectors }) => ({
         searchQuery: [
-            '',
+            props.initialSearchQuery || '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
             },

@@ -1,8 +1,11 @@
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
+import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
+import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+
+import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP } from './errorTrackingLogic'
 
 export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
@@ -209,4 +212,22 @@ export function datetimeStringToDayJs(date: string | null): Dayjs | null {
         return dayjs()
     }
     return componentsToDayJs(dateComponents)
+}
+
+export function defaultSearchParams({ searchQuery, filterGroup, filterTestAccounts, dateRange }: any): Params {
+    const searchParams: Params = {
+        filterTestAccounts,
+    }
+
+    if (searchQuery) {
+        searchParams.searchQuery = searchQuery
+    }
+    if (!objectsEqual(filterGroup, DEFAULT_ERROR_TRACKING_FILTER_GROUP)) {
+        searchParams.filterGroup = filterGroup
+    }
+    if (!objectsEqual(dateRange, DEFAULT_ERROR_TRACKING_DATE_RANGE)) {
+        searchParams.dateRange = dateRange
+    }
+
+    return searchParams
 }

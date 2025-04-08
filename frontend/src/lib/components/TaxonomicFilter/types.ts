@@ -52,6 +52,7 @@ export interface TaxonomicFilterProps {
      * Set to true to force vertical/columnar layout, or false to force horizontal layout.
      */
     useVerticalLayout?: boolean
+    initialSearchQuery?: string
 }
 
 export interface DataWarehousePopoverField {
