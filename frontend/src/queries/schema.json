@@ -2357,6 +2357,71 @@
             ],
             "type": "object"
         },
+        "CachedCodebaseTreeQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/CodebaseTreeResponse"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedEditorSemanticSearchQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -5355,6 +5420,92 @@
                 }
             },
             "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
+            "type": "object"
+        },
+        "CodebaseTreeQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "branch": {
+                    "type": ["string", "null"]
+                },
+                "codebaseId": {
+                    "type": "string"
+                },
+                "embedding": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "CodebaseTreeQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/CodebaseTreeQueryResponse"
+                },
+                "userId": {
+                    "type": "number"
+                }
+            },
+            "required": ["branch", "codebaseId", "embedding", "kind", "userId"],
+            "type": "object"
+        },
+        "CodebaseTreeQueryResponse": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/CodebaseTreeResponse"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "CodebaseTreeResponse": {
+            "items": {
+                "$ref": "#/definitions/CodebaseTreeResponseItem"
+            },
+            "type": "array"
+        },
+        "CodebaseTreeResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "artifactId": {
+                    "type": "string"
+                },
+                "parentArtifactId": {
+                    "type": "string"
+                }
+            },
+            "required": ["artifactId", "parentArtifactId"],
             "type": "object"
         },
         "CohortPropertyFilter": {
@@ -11911,7 +12062,8 @@
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
                 "VectorSearchQuery",
-                "EditorSemanticSearchQuery"
+                "EditorSemanticSearchQuery",
+                "CodebaseTreeQuery"
             ],
             "type": "string"
         },

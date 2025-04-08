@@ -131,6 +131,7 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     EditorSemanticSearchQuery = 'EditorSemanticSearchQuery',
+    CodebaseTreeQuery = 'CodebaseTreeQuery',
 }
 
 export type AnyDataNode =
@@ -2606,6 +2607,25 @@ export interface EditorSemanticSearchQuery extends DataNode<EditorSemanticSearch
 export type EditorSemanticSearchQueryResponse = AnalyticsQueryResponseBase<EditorSemanticSearchResponse>
 
 export type CachedEditorSemanticSearchQueryResponse = CachedQueryResponse<EditorSemanticSearchQueryResponse>
+
+export interface CodebaseTreeResponseItem {
+    artifactId: string
+    parentArtifactId: string
+}
+
+export type CodebaseTreeResponse = CodebaseTreeResponseItem[]
+
+export interface CodebaseTreeQuery extends DataNode<CodebaseTreeQueryResponse> {
+    kind: NodeKind.CodebaseTreeQuery
+    embedding: number[]
+    userId: number
+    codebaseId: string
+    branch: string | null
+}
+
+export type CodebaseTreeQueryResponse = AnalyticsQueryResponseBase<CodebaseTreeResponse>
+
+export type CachedCodebaseTreeQueryResponse = CachedQueryResponse<CodebaseTreeQueryResponse>
 
 export enum CustomChannelField {
     UTMSource = 'utm_source',
