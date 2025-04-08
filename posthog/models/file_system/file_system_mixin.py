@@ -58,10 +58,10 @@ class FileSystemSyncMixin(models.Model):
 
         if type:
             types = [type] if isinstance(type, str) else type
-            already_saved = FileSystem.objects.filter(team=team, type__in=types, ref=OuterRef("ref_id"))
+            already_saved = FileSystem.objects.filter(team=team, type__in=types, ref=OuterRef("ref_id"), primary=True)
         elif type__startswith:
             already_saved = FileSystem.objects.filter(
-                team=team, type__startswith=type__startswith, ref=OuterRef("ref_id")
+                team=team, type__startswith=type__startswith, ref=OuterRef("ref_id"), primary=True
             )
         else:
             raise ValueError("Either 'type' or 'type__startswith' must be provided")

@@ -42,6 +42,7 @@ export function ProjectTree(): JSX.Element {
         moveCheckedItems,
         linkCheckedItems,
         setCheckedItems,
+        assureVisibility,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -74,6 +75,17 @@ export function ProjectTree(): JSX.Element {
                         }}
                     >
                         <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+                {item.record?.path && !item.record?.primary && item.record?.type !== 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e: any) => {
+                            e.stopPropagation()
+                            assureVisibility({ type: item.record?.type, ref: item.record?.ref })
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Open original</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
                 {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
@@ -128,7 +140,7 @@ export function ProjectTree(): JSX.Element {
                             deleteItem(item.record as unknown as FileSystemEntry)
                         }}
                     >
-                        <ButtonPrimitive menuItem>Delete and move to 'Unfiled'</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>Remove</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
                 {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
