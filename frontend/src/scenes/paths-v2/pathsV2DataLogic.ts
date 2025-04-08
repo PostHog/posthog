@@ -7,7 +7,7 @@ import { isPathsV2Query } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { pathsV2DataLogicType } from './pathsV2DataLogicType'
-import { PathNodeType, Paths, PathsNode } from './types'
+import { PathNodeType, Paths } from './types'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -54,42 +54,6 @@ export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
         paths: [
             (s) => [s.results],
             (results): Paths => {
-                // const links = [
-                //     { source: '1_a1', target: '2_b1', value: 4 },
-                //     { source: '1_a1', target: '2_b2', value: 3 },
-                //     { source: '1_a2', target: '2_$$__posthog_dropoff__$$', value: 2 },
-                //     { source: '1_a3', target: '2_$$__posthog_step_other__$$', value: 1 },
-                //     { source: '1_$$__posthog_step_other__$$', target: '2_b1', value: 1 },
-                //     { source: '1_$$__posthog_step_other__$$', target: '2_$$__posthog_dropoff__$$', value: 4 },
-                // ]
-
-                // const uniqueNodeNames = new Set(links.flatMap((link) => [link.source, link.target]))
-
-                // const nodes = Array.from(uniqueNodeNames).map((nodeName) => ({
-                //     name: nodeName,
-                //     type: nodeName.includes('$$__posthog_dropoff__$$')
-                //         ? PathNodeType.Dropoff
-                //         : nodeName.includes('$$__posthog_step_other__$$')
-                //         ? PathNodeType.Other
-                //         : PathNodeType.Node,
-                //     step_index: parseInt(nodeName.split('_')[0], 10),
-                // }))
-
-                // return { nodes, links }
-
-                // const nodes: Record<string, PathsNode> = {}
-
-                // for (const path of results) {
-                //     // if (!path.source.startsWith('1_')) {
-                //     if (!nodes[path.source]) {
-                //         nodes[path.source] = { name: path.source }
-                //     }
-                //     if (!nodes[path.target]) {
-                //         nodes[path.target] = { name: path.target }
-                //     }
-                //     // }
-                // }
-
                 const uniqueNodeNames = new Set(results.flatMap((link) => [link.source, link.target]))
 
                 const nodes = Array.from(uniqueNodeNames).map((nodeName) => ({
@@ -102,12 +66,8 @@ export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
                     step_index: parseInt(nodeName.split('_')[0], 10),
                 }))
 
-                console.debug('nodes', nodes)
-                console.debug('links', results)
-
                 return {
                     nodes,
-                    // nodes: Object.values(nodes),
                     links: results,
                 }
             },

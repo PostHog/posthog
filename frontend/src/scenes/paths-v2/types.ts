@@ -1,4 +1,4 @@
-import { PathsLink, PathsV2Item } from '~/queries/schema/schema-general'
+import { PathsLink } from '~/queries/schema/schema-general'
 
 export enum PathNodeType {
     // regular node
