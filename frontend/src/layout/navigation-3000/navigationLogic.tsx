@@ -6,6 +6,7 @@ import {
     IconDashboard,
     IconDatabase,
     IconGraph,
+    IconHandMoney,
     IconHome,
     IconLive,
     IconLogomark,
@@ -592,6 +593,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconCursorClick />,
                                   to: isUsingSidebar ? undefined : urls.heatmaps(),
                                   tag: 'alpha' as const,
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.PAYMENTS]
+                            ? {
+                                  identifier: 'Payments',
+                                  label: 'Payments',
+                                  icon: <IconHandMoney />,
+                                  to: urls.paymentsOverview(),
                               }
                             : null,
                         {
