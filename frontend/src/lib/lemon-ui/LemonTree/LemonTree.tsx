@@ -19,12 +19,7 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
-import {
-    renderTreeNodeDisplayIcon,
-    TreeNodeDisplayCheckbox,
-    TreeNodeDraggable,
-    TreeNodeDroppable,
-} from './LemonTreeUtils'
+import { TreeNodeDisplayIcon, TreeNodeDisplayIconWrapper, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -238,20 +233,23 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         )}
 
                                         <ContextMenuTrigger asChild>
+                                            {/* We use the group class to apply hover styles to the button */}
                                             <ButtonGroupPrimitive
                                                 fullWidth
                                                 className="group/lemon-tree-button-group relative"
                                                 groupVariant="side-action-group"
                                             >
-                                                {enableMultiSelection && !isEmptyFolder && (
-                                                    <TreeNodeDisplayCheckbox
+                                                {/* The contents of this <TreeNodeDisplayIconWrapper> are positioned absolutely, so to give the effect it's inside the button */}
+                                                {!isEmptyFolder && (
+                                                    <TreeNodeDisplayIconWrapper
                                                         item={item}
-                                                        handleCheckedChange={(checked) => {
-                                                            onItemChecked?.(item.id, checked)
-                                                        }}
-                                                        style={{
-                                                            left: `${DEPTH_OFFSET + 5}px`,
-                                                        }}
+                                                        expandedItemIds={expandedItemIds}
+                                                        defaultNodeIcon={defaultNodeIcon}
+                                                        handleClick={handleClick}
+                                                        enableMultiSelection={enableMultiSelection}
+                                                        depthOffset={DEPTH_OFFSET}
+                                                        checkedItemIds={checkedItemIds}
+                                                        onItemChecked={onItemChecked}
                                                     />
                                                 )}
 
@@ -264,15 +262,17 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         handleClick(item)
                                                     }}
                                                     className={cn(
-                                                        'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] transition-[padding] duration-50 group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover',
+                                                        'group/lemon-tree-button',
+                                                        'pl-8 z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] transition-[padding] duration-50',
                                                         {
                                                             'bg-fill-button-tertiary-hover':
                                                                 selectedId === item.id ||
                                                                 isContextMenuOpenForItem === item.id,
                                                             'bg-fill-button-tertiary-active': getItemActiveState(item),
-                                                            'pl-1': !enableMultiSelection,
-                                                            'pl-8': enableMultiSelection,
-                                                            'pointer-events-none': isEmptyFolder,
+                                                            'pl-13': enableMultiSelection,
+                                                            'pl-10 pointer-events-none cursor-default': isEmptyFolder,
+                                                            'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
+                                                                !isEmptyFolder,
                                                         }
                                                     )}
                                                     role="treeitem"
@@ -397,10 +397,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     }
                                                 >
                                                     {/* This is a hack to make the button have a left padding since we use important on all tailwind classes */}
-                                                    {depth !== 0 && (
+                                                    {depth !== 0 && !isEmptyFolder && (
                                                         <div
                                                             className="h-full bg-transparent pointer-events-none flex-shrink-0"
-                                                            // -10 is to offset button padding (to match folder lines)
+                                                            // -6 is to offset button padding (to match folder lines)
                                                             // eslint-disable-next-line react/forbid-dom-props
                                                             style={{
                                                                 width: `${DEPTH_OFFSET - 6}px`,
@@ -409,13 +409,13 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     )}
 
                                                     {!isEmptyFolder && (
-                                                        <div className="flex items-center justify-center bg-transparent pointer-events-none flex-shrink-0 h-[var(--button-height-base)]">
-                                                            {renderTreeNodeDisplayIcon({
-                                                                item,
-                                                                expandedItemIds: expandedItemIds ?? [],
-                                                                defaultNodeIcon,
-                                                            })}
-                                                        </div>
+                                                        <div
+                                                            className="absolute size-5 pointer-events-none h-[var(--button-height-base)] flex-shrink-0"
+                                                            // eslint-disable-next-line react/forbid-dom-props
+                                                            style={{
+                                                                width: `${DEPTH_OFFSET + 5}px`,
+                                                            }}
+                                                        />
                                                     )}
 
                                                     {/* Render contents */}
@@ -1260,11 +1260,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             {activeDragItem.item ? (
                                 <>
                                     <div className="shrink-0">
-                                        {renderTreeNodeDisplayIcon({
-                                            item: activeDragItem.item,
-                                            expandedItemIds: expandedItemIdsState,
-                                            defaultNodeIcon,
-                                        })}
+                                        <TreeNodeDisplayIcon
+                                            item={activeDragItem.item}
+                                            expandedItemIds={expandedItemIdsState}
+                                            defaultNodeIcon={defaultNodeIcon}
+                                        />
                                     </div>
                                     <span className="truncate font-medium">
                                         {activeDragItem.item.displayName || activeDragItem.item.name}

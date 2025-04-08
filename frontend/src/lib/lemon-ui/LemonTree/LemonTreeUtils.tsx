@@ -8,26 +8,102 @@ import { TreeDataItem } from './LemonTree'
 
 const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
 
+type TreeNodeDisplayIconWrapperProps = {
+    item: TreeDataItem
+    expandedItemIds?: string[]
+    defaultNodeIcon?: React.ReactNode
+    handleClick: (item: TreeDataItem) => void
+    enableMultiSelection: boolean
+    depthOffset: number
+    checkedItemIds?: string[]
+    onItemChecked?: (id: string, checked: boolean) => void
+}
+
+export const TreeNodeDisplayIconWrapper = ({
+    item,
+    expandedItemIds,
+    defaultNodeIcon,
+    handleClick,
+    enableMultiSelection,
+    depthOffset,
+    checkedItemIds,
+    onItemChecked,
+}: TreeNodeDisplayIconWrapperProps): JSX.Element => {
+    return (
+        <>
+            {/* 
+                The idea here is:
+                - if there are no checked items, on hover of the display icon, show the checkbox INSTEAD of the display icon
+                - if there are checked items, show both the checkbox and the display icon ([checkbox] [display icon] [button]) 
+            */}
+            <div
+                className={cn(
+                    'absolute flex items-center justify-center bg-transparent flex-shrink-0 h-[var(--button-height-base)] z-3',
+                    {
+                        // Apply group class only when there are no checked items
+                        'group/lemon-tree-icon-wrapper': checkedItemIds?.length === 0,
+                    }
+                )}
+                // Since we need to make this element hoverable, we cannot pointer-events: none, so we pass onClick to mimic the sibling button click
+                onClick={() => {
+                    handleClick(item)
+                }}
+            >
+                <TreeNodeDisplayCheckbox
+                    item={item}
+                    handleCheckedChange={(checked) => {
+                        onItemChecked?.(item.id, checked)
+                    }}
+                    className={cn('absolute z-2', {
+                        // Apply hidden class only when hovering the (conditional)group and there are no checked items
+                        'hidden group-hover/lemon-tree-icon-wrapper:block': checkedItemIds?.length === 0,
+                    })}
+                    style={{
+                        left: `${depthOffset + 5}px`,
+                    }}
+                />
+
+                <div
+                    className="absolute"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
+                        left: enableMultiSelection ? `${depthOffset + 28}px` : `${depthOffset + 5}px`,
+                    }}
+                >
+                    <TreeNodeDisplayIcon
+                        item={item}
+                        expandedItemIds={expandedItemIds ?? []}
+                        defaultNodeIcon={defaultNodeIcon}
+                    />
+                </div>
+            </div>
+        </>
+    )
+}
+
 type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
     style?: CSSProperties
     handleCheckedChange?: (checked: boolean) => void
+    className?: string
 }
 
 export const TreeNodeDisplayCheckbox = ({
     item,
     handleCheckedChange,
     style,
+    className,
 }: TreeNodeDisplayCheckboxProps): JSX.Element => {
     const isChecked = item.checked
 
     return (
         <div
-            className="absolute size-5"
+            className={cn('size-5', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
         >
-            <div className={cn(ICON_CLASSES, 'z-3 relative')}>
+            <div className={ICON_CLASSES}>
                 <LemonCheckbox
                     className="size-5 ml-[2px]"
                     checked={isChecked ?? false}
@@ -40,7 +116,7 @@ export const TreeNodeDisplayCheckbox = ({
     )
 }
 
-type IconProps = {
+type TreeNodeDisplayIconProps = {
     item: TreeDataItem
     expandedItemIds: string[]
     defaultNodeIcon?: React.ReactNode
@@ -48,7 +124,11 @@ type IconProps = {
 
 // Get display item for the tree node
 // This is used to render the tree node in the tree view
-export function renderTreeNodeDisplayIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): JSX.Element {
+export const TreeNodeDisplayIcon = ({
+    item,
+    expandedItemIds,
+    defaultNodeIcon,
+}: TreeNodeDisplayIconProps): JSX.Element => {
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
     const isFile = item.record?.type === 'file'
@@ -63,7 +143,7 @@ export function renderTreeNodeDisplayIcon({ item, expandedItemIds, defaultNodeIc
     }
 
     return (
-        <div className="flex gap-1 relative group/lemon-tree-icon-group [&_svg]:size-4">
+        <div className="flex gap-1 relative [&_svg]:size-4 group-hover/lemon-tree-icon-wrapper:opacity-0">
             {isFolder && (
                 <div
                     className={cn(

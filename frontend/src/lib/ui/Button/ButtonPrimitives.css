@@ -1,4 +1,4 @@
-.button-root,
+/* Anything you need to override in the button primitive, take out the tailwind class and make a regular css rule */
 .button-primitive {
     --button-padding-x-sm: 4px;
     --button-padding-x-base: 6px;
