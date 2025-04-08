@@ -1,11 +1,12 @@
 from decimal import Decimal
-from typing import Optional
 
 from freezegun import freeze_time
 from unittest.mock import patch
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.web_analytics.revenue_example_events_query_runner import RevenueExampleEventsQueryRunner
+from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
+    RevenueExampleEventsQueryRunner,
+)
+
 from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
@@ -113,19 +114,21 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run_revenue_example_events_query(
         self,
         revenue_tracking_config: RevenueTrackingConfig,
-        limit_context: Optional[LimitContext] = None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueExampleEventsQuery(
-                revenueTrackingConfig=revenue_tracking_config,
-            )
-            runner = RevenueExampleEventsQueryRunner(team=self.team, query=query, limit_context=limit_context)
+            self.team.revenue_tracking_config = revenue_tracking_config.model_dump()
+            self.team.save()
+
+            runner = RevenueExampleEventsQueryRunner(team=self.team, query=RevenueExampleEventsQuery())
+
             response = runner.calculate()
             RevenueExampleEventsQueryResponse.model_validate(response)
+
             return response
 
     def test_no_crash_when_no_data(self):
-        self._run_revenue_example_events_query(EMPTY_REVENUE_TRACKING_CONFIG)
+        results = self._run_revenue_example_events_query(EMPTY_REVENUE_TRACKING_CONFIG).results
+        assert len(results.results) == 0
 
     def test_single_event(self):
         s11 = str(uuid7("2023-12-02"))
