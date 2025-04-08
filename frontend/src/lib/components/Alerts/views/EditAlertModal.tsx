@@ -35,6 +35,7 @@ import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
+import { SlackTargetSelector } from './SlackTargetSelector'
 
 export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {
     if (!alert.checks || alert.checks.length === 0) {
@@ -338,14 +339,25 @@ export function EditAlertModal({
                                                 }))}
                                             />
                                         </LemonField>
-                                        <div>and notify</div>
-                                        <div className="flex-auto">
-                                            <MemberSelectMultiple
-                                                value={alertForm.subscribed_users?.map((u) => u.id) ?? []}
-                                                idKey="id"
-                                                onChange={(value) => setAlertFormValue('subscribed_users', value)}
-                                            />
-                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="deprecated-space-y-2">
+                                <h3>Notification</h3>
+                                <div className="flex gap-4 items-center">
+                                    <div>email</div>
+                                    <div className="flex-auto">
+                                        <MemberSelectMultiple
+                                            value={alertForm.subscribed_users?.map((u) => u.id) ?? []}
+                                            idKey="id"
+                                            onChange={(value) => setAlertFormValue('subscribed_users', value)}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="deprecated-space-y-5">
+                                    <div className="flex flex-col">
+                                        <SlackTargetSelector onChange={() => {}} value={null} />
                                     </div>
                                 </div>
                             </div>

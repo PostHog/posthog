@@ -14,6 +14,7 @@ SubTemplateId = Literal[
     "activity-log",
     "error-tracking-issue-created",
     "error-tracking-issue-reopened",
+    "insight-alert-firing",
 ]
 
 
@@ -169,5 +170,11 @@ SUB_TEMPLATE_COMMON: dict[SubTemplateId, HogFunctionSubTemplate] = {
         name="Issue reopened",
         type="internal_destination",
         filters={"events": [{"id": "$error_tracking_issue_reopened", "type": "events"}]},
+    ),
+    "insight-alert-firing": HogFunctionSubTemplate(
+        id="insight-alert-firing",
+        name="Insight alert firing",
+        type="internal_destination",
+        filters={"events": [{"id": "$insight_alert_firing", "type": "events"}]},
     ),
 }
