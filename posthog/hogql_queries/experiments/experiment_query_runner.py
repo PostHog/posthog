@@ -484,7 +484,7 @@ class ExperimentQueryRunner(QueryRunner):
         if not isinstance(self.metric, ExperimentMeanMetric):
             return metric_events_query
 
-        if self.metric.lower_bound_percentile:
+        if self.metric.lower_bound_percentile is not None:
             lower_bound_expr = parse_expr(
                 "quantile({level})(value)",
                 placeholders={"level": ast.Constant(value=self.metric.lower_bound_percentile)},
@@ -492,7 +492,7 @@ class ExperimentQueryRunner(QueryRunner):
         else:
             lower_bound_expr = parse_expr("min(value)")
 
-        if self.metric.upper_bound_percentile:
+        if self.metric.upper_bound_percentile is not None:
             upper_bound_expr = parse_expr(
                 "quantile({level})(value)",
                 placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
