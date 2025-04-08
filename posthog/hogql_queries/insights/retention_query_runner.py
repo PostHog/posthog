@@ -583,7 +583,10 @@ class RetentionQueryRunner(QueryRunner):
                 breakdown_results = [
                     {
                         "values": [
-                            result_dict.get((start_interval, return_interval), {"count": 0})
+                            {
+                                **result_dict.get((start_interval, return_interval), {"count": 0}),
+                                "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
+                            }
                             for return_interval in range(self.query_date_range.lookahead)
                         ],
                         "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
@@ -604,7 +607,10 @@ class RetentionQueryRunner(QueryRunner):
             results = [
                 {
                     "values": [
-                        result_dict.get((start_interval, return_interval), {"count": 0})
+                        {
+                            **result_dict.get((start_interval, return_interval), {"count": 0}),
+                            "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
+                        }
                         for return_interval in range(self.query_date_range.lookahead)
                     ],
                     "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
