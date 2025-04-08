@@ -1,18 +1,9 @@
-import { CAMPAIGN_PROPERTIES, SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS } from 'lib/taxonomy'
+import { SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS } from 'lib/taxonomy'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { CoreFilterDefinition } from '~/types'
 
 describe('taxonomy', () => {
-    describe('event properties', () => {
-        it('should have definitions for all campaign properties', () => {
-            const eventProperties = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)
-            for (const property of CAMPAIGN_PROPERTIES) {
-                expect(eventProperties).toContain(property)
-            }
-        })
-    })
-
     describe('person properties', () => {
         // check that initial properties have been set up correctly
         it('should have an $initial_referring_domain property', () => {

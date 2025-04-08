@@ -1,29 +1,3 @@
-/** Same as https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts */
-// Ideally this would be imported from posthog-js, we just need to start exporting the list there
-export const CAMPAIGN_PROPERTIES: string[] = [
-    'utm_source',
-    'utm_medium',
-    'utm_campaign',
-    'utm_content',
-    'utm_term',
-    'gclid', // google ads
-    'gad_source', // google ads
-    'gclsrc', // google ads 360
-    'dclid', // google display ads
-    'gbraid', // google ads, web to app
-    'wbraid', // google ads, app to web
-    'fbclid', // facebook
-    'msclkid', // microsoft
-    'twclid', // twitter
-    'li_fat_id', // linkedin
-    'mc_cid', // mailchimp campaign id
-    'igshid', // instagram
-    'ttclid', // tiktok
-    'rdt_cid', // reddit
-    'irclid', // impact
-    '_kx', // klaviyo
-]
-
 export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     '$referring_domain',
     'utm_source',
