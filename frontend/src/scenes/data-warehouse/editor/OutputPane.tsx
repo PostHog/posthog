@@ -283,6 +283,8 @@ export function OutputPane(): JSX.Element {
         })
     }, [response])
 
+    const hasColumns = columns.length > 1
+
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-primary">
             <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[50px] border-b">
@@ -314,8 +316,9 @@ export function OutputPane(): JSX.Element {
                             }}
                         />
                     )}
-                    {activeTab === OutputTab.Results && exportContext && columns.length > 0 && (
+                    {activeTab === OutputTab.Results && exportContext && (
                         <ExportButton
+                            disabledReason={!hasColumns ? 'No results to export' : undefined}
                             type="secondary"
                             items={[
                                 {
@@ -329,15 +332,18 @@ export function OutputPane(): JSX.Element {
                             ]}
                         />
                     )}
-                    {activeTab === OutputTab.Visualization && columns.length > 0 && (
+                    {activeTab === OutputTab.Visualization && (
                         <>
                             <div className="flex justify-between flex-wrap">
                                 <div className="flex items-center" />
                                 <div className="flex items-center">
                                     <div className="flex gap-2 items-center flex-wrap">
-                                        <TableDisplay />
+                                        <TableDisplay
+                                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                                        />
 
                                         <LemonButton
+                                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
                                             type="secondary"
                                             icon={<IconGear />}
                                             onClick={() => toggleChartSettingsPanel()}
@@ -368,7 +374,11 @@ export function OutputPane(): JSX.Element {
                                             </LemonButton>
                                         )}
                                         {!editingInsight && (
-                                            <LemonButton type="primary" onClick={() => saveAsInsight()}>
+                                            <LemonButton
+                                                disabledReason={!hasColumns ? 'No results to save' : undefined}
+                                                type="primary"
+                                                onClick={() => saveAsInsight()}
+                                            >
                                                 Create insight
                                             </LemonButton>
                                         )}
@@ -376,6 +386,15 @@ export function OutputPane(): JSX.Element {
                                 </div>
                             </div>
                         </>
+                    )}
+                    {activeTab === OutputTab.Results && (
+                        <LemonButton
+                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                            type="primary"
+                            onClick={() => setActiveTab(OutputTab.Visualization)}
+                        >
+                            Visualize
+                        </LemonButton>
                     )}
                 </div>
             </div>

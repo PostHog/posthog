@@ -4,7 +4,6 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { genericOperatorMap } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
@@ -16,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { PropertyOperator, SessionRecordingPlaylistType, UniversalFilterValue } from '~/types'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
