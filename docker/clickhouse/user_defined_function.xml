@@ -25,6 +25,10 @@
             <name>prop_vals</name>
         </argument>
         <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
+        </argument>
+        <argument>
             <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
@@ -57,6 +61,10 @@
         <argument>
             <type>Array(UInt64)</type>
             <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
         </argument>
         <argument>
             <type>Array(Tuple(Nullable(Float64), UUID, UInt64, Array(Int8)))</type>
@@ -93,6 +101,10 @@
             <name>prop_vals</name>
         </argument>
         <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
+        </argument>
+        <argument>
             <type>Array(Tuple(Nullable(Float64), UUID, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
@@ -125,6 +137,10 @@
         <argument>
             <type>Array(Array(String))</type>
             <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
         </argument>
         <argument>
             <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
