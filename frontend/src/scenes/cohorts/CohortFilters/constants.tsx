@@ -3,6 +3,7 @@ import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import {
     CohortEventFiltersField,
+    CohortGroupPropertiesValuesField,
     CohortNumberField,
     CohortPersonPropertiesValuesField,
     CohortRelativeAndExactTimeField,
@@ -16,6 +17,7 @@ import {
     CohortClientErrors,
     CohortEventFiltersFieldProps,
     CohortFieldProps,
+    CohortGroupPropertiesValuesFieldProps,
     CohortNumberFieldProps,
     CohortPersonPropertiesValuesFieldProps,
     CohortRelativeAndExactTimeFieldProps,
@@ -135,6 +137,18 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
                 label: 'Have the property',
             },
             [BehavioralEventType.NotHaveProperty]: {
+                label: 'Do not have the property',
+            },
+        },
+    },
+    [FieldOptionsType.GroupPropertyBehavioral]: {
+        label: 'Group Properties',
+        type: FieldOptionsType.GroupPropertyBehavioral,
+        values: {
+            [BehavioralEventType.HaveGroupProperty]: {
+                label: 'Have the property',
+            },
+            [BehavioralEventType.NotHaveGroupProperty]: {
                 label: 'Do not have the property',
             },
         },
@@ -621,6 +635,56 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
         ],
     },
+    ...Array.from({ length: 5 }, (_, i) => [
+        {
+            [BehavioralEventType.HaveGroupProperty + `_${i}`]: {
+                type: BehavioralFilterKey.Group,
+                value: BehavioralEventType.HaveGroupProperty + `_${i}`,
+                negation: false,
+                group_type_index: i,
+                fields: [
+                    {
+                        fieldKey: 'key',
+                        type: FilterType.GroupProperties,
+                    },
+                    {
+                        fieldKey: 'operator',
+                        type: FilterType.MathOperator,
+                        defaultValue: PropertyOperator.Exact,
+                    },
+                    {
+                        fieldKey: 'value_property',
+                        type: FilterType.GroupPropertyValues,
+                    },
+                ],
+            },
+        },
+        {
+            [BehavioralEventType.NotHaveGroupProperty + `_${i}`]: {
+                type: BehavioralFilterKey.Group,
+                value: BehavioralEventType.NotHaveGroupProperty + `_${i}`,
+                negation: true,
+                group_type_index: i,
+                fields: [
+                    {
+                        fieldKey: 'key',
+                        type: FilterType.GroupProperties,
+                    },
+                    {
+                        fieldKey: 'operator',
+                        type: FilterType.MathOperator,
+                        defaultValue: PropertyOperator.Exact,
+                    },
+                    {
+                        fieldKey: 'value_property',
+                        type: FilterType.GroupPropertyValues,
+                    },
+                ],
+            },
+        },
+    ])
+        .flat()
+        .reduce((acc, obj) => ({ ...acc, ...obj }), {}),
     [BehavioralCohortType.InCohort]: {
         type: BehavioralFilterKey.Cohort,
         value: BehavioralCohortType.InCohort,
@@ -849,13 +913,17 @@ export const COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME = Object.entries(ROWS)
 
 // Building blocks of a row
 export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.Element> = {
-    [FilterType.Behavioral]: function _renderField(p) {
+    [FilterType.Behavioral]: function _renderField(p: CohortGroupPropertiesValuesFieldProps) {
+        const groupFieldTypes = Array.from(p.groupTypes.values()).map((groupType) => {
+            return `${FieldOptionsType.GroupPropertyBehavioral}_${groupType.group_type_index}` as FieldOptionsType
+        })
         return (
             <CohortSelectorField
                 {...p}
                 fieldOptionGroupTypes={[
                     FieldOptionsType.EventBehavioral,
                     FieldOptionsType.PersonPropertyBehavioral,
+                    ...groupFieldTypes,
                     FieldOptionsType.CohortBehavioral,
                     FieldOptionsType.LifecycleBehavioral,
                 ]}
@@ -930,6 +998,40 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
             />
         )
     },
+    // ...Array.from({ length: 5 }, (_, i) => ({
+    //     [FilterType.GroupProperties + `_${i}`]: function _renderField(p) {
+    //         return (
+    //             <CohortTaxonomicField
+    //                 {...(p as CohortGroupPropertiesValuesFieldProps)}
+    //                 taxonomicGroupTypes={[`${TaxonomicFilterGroupType.GroupsPrefix}_${i}` as TaxonomicFilterGroupType]}
+    //                 placeholder="Choose group property"
+    //             />
+    //         )
+    //     },
+    // })).reduce((acc, obj) => ({ ...acc, ...obj }), {}),
+    [FilterType.GroupProperties]: function _renderField(p) {
+        return (
+            <CohortTaxonomicField
+                {...(p as CohortGroupPropertiesValuesFieldProps)}
+                taxonomicGroupTypes={[
+                    `${TaxonomicFilterGroupType.GroupsPrefix}_${p.criteria.group_type_index}` as TaxonomicFilterGroupType,
+                ]}
+                placeholder="Choose group property"
+            />
+        )
+    },
+    [FilterType.GroupPropertyValues]: function _renderField(p) {
+        return p.criteria['operator'] &&
+            [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(p.criteria['operator']) ? (
+            <></>
+        ) : (
+            <CohortGroupPropertiesValuesField
+                {...(p as CohortGroupPropertiesValuesFieldProps)}
+                propertyKey={p.criteria.key}
+                operator={p.criteria['operator'] ?? undefined}
+            />
+        )
+    },
     [FilterType.Number]: function _renderField(p) {
         return <CohortNumberField {...(p as CohortNumberFieldProps)} />
     },
@@ -964,6 +1066,8 @@ export const CRITERIA_VALIDATIONS: Record<
     [FilterType.EventFilters]: () => CohortClientErrors.EmptyEventFilters,
     [FilterType.PersonProperties]: () => CohortClientErrors.EmptyPersonProperties,
     [FilterType.PersonPropertyValues]: () => CohortClientErrors.EmptyPersonPropertyValues,
+    [FilterType.GroupProperties]: () => CohortClientErrors.EmptyGroupProperties,
+    [FilterType.GroupPropertyValues]: () => CohortClientErrors.EmptyGroupPropertyValues,
     [FilterType.EventType]: () => CohortClientErrors.EmptyEventType,
     [FilterType.Number]: (d) => (Number(d) > 1 ? undefined : CohortClientErrors.EmptyNumber),
     [FilterType.NumberTicker]: () => CohortClientErrors.EmptyNumberTicker,

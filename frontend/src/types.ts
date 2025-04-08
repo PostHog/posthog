@@ -3831,6 +3831,8 @@ export enum BehavioralEventType {
     NotPerformSequenceEvents = 'not_performed_event_sequence',
     HaveProperty = 'have_property',
     NotHaveProperty = 'not_have_property',
+    HaveGroupProperty = 'have_group_property',
+    NotHaveGroupProperty = 'not_have_group_property',
 }
 
 export enum BehavioralCohortType {
