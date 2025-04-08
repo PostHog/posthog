@@ -380,7 +380,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'core-memory',
                 title: 'Memory',
                 description:
-                    'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want Max to remember, you can edit or remove them below.',
+                    'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don\'t want Max to remember, you can edit or remove them below.',
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
