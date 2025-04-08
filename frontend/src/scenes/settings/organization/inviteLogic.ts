@@ -30,10 +30,10 @@ const EMPTY_INVITE: InviteRowState = {
 
 export const inviteLogic = kea<inviteLogicType>([
     path(['scenes', 'organization', 'Settings', 'inviteLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight']],
         actions: [router, ['locationChanged']],
-    }),
+    })),
     actions({
         showInviteModal: true,
         hideInviteModal: true,

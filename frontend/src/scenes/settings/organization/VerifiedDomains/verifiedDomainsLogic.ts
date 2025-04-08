@@ -32,7 +32,7 @@ export const isSecureURL = (url: string): boolean => {
 
 export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     path(['scenes', 'organization', 'verifiedDomainsLogic']),
-    connect({ values: [organizationLogic, ['currentOrganization']], logic: [userLogic] }),
+    connect(() => ({ values: [organizationLogic, ['currentOrganization']], logic: [userLogic] })),
     actions({
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
         setAddModalShown: (shown: boolean) => ({ shown }),

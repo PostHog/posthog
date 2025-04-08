@@ -2266,6 +2266,7 @@ export type BreakdownType =
     | 'cohort'
     | 'person'
     | 'event'
+    | 'event_metadata'
     | 'group'
     | 'session'
     | 'hogql'
@@ -3903,6 +3904,7 @@ export interface SlackChannelType {
     is_private: boolean
     is_ext_shared: boolean
     is_member: boolean
+    is_private_without_access?: boolean
 }
 
 export interface SharingConfigurationType {
@@ -4915,11 +4917,13 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
-    | 'automation'
+
+export type HogFunctionKind = 'messaging_campaign' | null
 
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
+    kind?: HogFunctionKind
     icon_url?: string
     name: string
     description: string
@@ -4961,7 +4965,17 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    | 'id'
+    | 'type'
+    | 'kind'
+    | 'name'
+    | 'description'
+    | 'hog'
+    | 'inputs_schema'
+    | 'filters'
+    | 'icon_url'
+    | 'masking'
+    | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean

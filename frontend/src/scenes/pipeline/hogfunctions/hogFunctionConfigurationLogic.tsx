@@ -167,6 +167,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
 
     return {
         type: template.type ?? 'destination',
+        kind: template.kind,
         name: template.name,
         description: template.description,
         inputs_schema: template.inputs_schema,
@@ -180,7 +181,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
         hog: template.hog,
         icon_url: template.icon_url,
         inputs: getInputs(template.inputs_schema),
-        enabled: template.type !== 'broadcast',
+        enabled: true,
     }
 }
 
@@ -395,6 +396,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         id: res.id,
                         template_id: res.template?.id,
                         template_name: res.template?.name,
+                        type: res.type,
+                        enabled: res.enabled,
                     })
 
                     lemonToast.success('Configuration saved')
@@ -1184,7 +1187,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!values.hogFunction) {
                 return
             }
-            const { id, name, type, template } = values.hogFunction
+            const { id, name, type, template, kind } = values.hogFunction
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -1193,12 +1196,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(hogFunctionUrl(type, id, template?.id))
+                        router.actions.replace(hogFunctionUrl(type, id, template?.id, kind))
                     }
                 },
             })
 
-            router.actions.replace(hogFunctionUrl(type, undefined, template?.id))
+            router.actions.replace(hogFunctionUrl(type, undefined, template?.id, kind))
         },
 
         persistForUnload: () => {
@@ -1233,7 +1236,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template.id))
+                router.actions.replace(
+                    hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template.id, hogFunction.kind)
+                )
             }
         },
         sparklineQuery: async (sparklineQuery) => {
