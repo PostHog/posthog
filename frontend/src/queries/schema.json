@@ -15421,6 +15421,11 @@
                 "date_to": {
                     "type": ["string", "null"]
                 },
+                "direction": {
+                    "default": "DESC",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
                 "distinct_ids": {
                     "items": {
                         "type": "string"

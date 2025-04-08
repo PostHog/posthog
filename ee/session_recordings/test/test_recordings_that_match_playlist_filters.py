@@ -14,6 +14,7 @@ from posthog.schema import (
     RecordingOrder,
     RecordingPropertyFilter,
     RecordingsQuery,
+    Direction,
 )
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -189,6 +190,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
             },
             "filter_test_accounts": False,
             "order": RecordingOrder.START_TIME,
+            "direction": Direction.DESC,
         }
 
         assert mock_list_recordings_from_query.call_args[0] == (
@@ -210,6 +212,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
                 offset=None,
                 operand=FilterLogicalOperator.AND_,
                 order=RecordingOrder.START_TIME,
+                direction=Direction.DESC,
                 person_uuid=None,
                 properties=[],
                 response=None,
@@ -288,6 +291,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
             name="test",
             filters={
                 "order": "start_time",
+                "direction": "DESC",
                 "date_to": None,
                 "duration": [{"key": "active_seconds", "type": "recording", "value": 5, "operator": "gt"}],
                 "date_from": "-3d",
@@ -328,6 +332,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
                 offset=None,
                 operand=FilterLogicalOperator.AND_,
                 order=RecordingOrder.START_TIME,
+                direction=Direction.DESC,
                 person_uuid=None,
                 properties=[],
                 response=None,

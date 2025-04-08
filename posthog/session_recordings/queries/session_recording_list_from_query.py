@@ -1,4 +1,5 @@
-from typing import Any, cast, Optional, Union
+import re
+from typing import Any, cast, Optional, Union, Literal
 from datetime import datetime, timedelta, UTC
 
 import posthoganalytics
@@ -167,7 +168,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         return [
             ast.OrderExpr(
                 expr=parse_expr(order_by),
-                order=direction,
+                order=cast(Literal["ASC", "DESC"], direction),
             )
         ]
 
