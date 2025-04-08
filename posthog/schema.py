@@ -1623,6 +1623,11 @@ class RecordingPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class Direction(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class RefreshType(StrEnum):
     ASYNC_ = "async"
     ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
@@ -7665,6 +7670,7 @@ class RecordingsQuery(BaseModel):
     console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
     date_from: Optional[str] = "-3d"
     date_to: Optional[str] = None
+    direction: Optional[Direction] = Direction.DESC
     distinct_ids: Optional[list[str]] = None
     events: Optional[list[dict[str, Any]]] = None
     filter_test_accounts: Optional[bool] = None
@@ -7696,7 +7702,6 @@ class RecordingsQuery(BaseModel):
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
-    direction: Optional[Literal["ASC", "DESC"]] = "DESC"
     person_uuid: Optional[str] = None
     properties: Optional[
         list[
@@ -9239,7 +9244,6 @@ class DataTableNode(BaseModel):
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
-        RecordingsQuery,
         TracesQuery,
     ] = Field(..., description="Source of the events")
 
