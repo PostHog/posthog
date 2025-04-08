@@ -1,4 +1,4 @@
-import { IconArrowRight, IconCheck, IconCheckCircle, IconUpload, IconX } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -99,7 +99,7 @@ export function StartupProgram(): JSX.Element {
         <div className="mx-auto max-w-[1200px]">
             <div className="flex flex-col items-center mb-8">
                 {isYC ? (
-                    <div className="flex flex-col items-center">
+                    <div className="flex flex-col items-center mt-8">
                         <div className="px-4 w-full max-w-100 mb-4">
                             <YCHog className="h-auto" />
                         </div>
@@ -334,15 +334,13 @@ export function StartupProgram(): JSX.Element {
                                             </div>
                                         )}
                                         {ycValidationState === 'valid' && (
-                                            <LemonBanner type="success">
-                                                <div className="flex items-center gap-2">
-                                                    <IconCheckCircle className="text-xl" />
-                                                    <span>
-                                                        We were able to confirm your YC membership
-                                                        {verifiedCompanyName && ` for ${verifiedCompanyName}`}!
-                                                    </span>
-                                                </div>
-                                            </LemonBanner>
+                                            <div className="flex items-center gap-2 text-success">
+                                                <IconCheck className="shrink-0" />
+                                                <span>
+                                                    We were able to confirm your YC membership
+                                                    {verifiedCompanyName && ` for ${verifiedCompanyName}`}!
+                                                </span>
+                                            </div>
                                         )}
                                         {ycValidationState === 'invalid' && (
                                             <>
