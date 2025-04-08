@@ -138,9 +138,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         )
 
     def get_query(self):
+        # Check if the most recent _timestamp is within five minutes of the current time
+        # proxy for a live session
         ongoing_expr = ast.CompareOperation(
             left=ast.Call(name="max", args=[ast.Field(chain=["s", "_timestamp"])]),
-            right=ast.Constant(value=datetime.now(UTC) - timedelta(minutes=5)),
+            right=ast.Constant(
+                # provided in a placeholder, so we can pass now from python to make tests easier 🙈
+                value=datetime.now(UTC) - timedelta(minutes=5),
+            ),
             op=ast.CompareOperationOp.GtEq,
         )
 
