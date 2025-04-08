@@ -64,7 +64,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.columns, ["group_name", "key", "group.$delete"])
         self.assertEqual(result.results[0][0], "org0.inc")
         self.assertEqual(result.results[1][0], "org1.inc")
         self.assertEqual(result.results[2][0], "org2.inc")
@@ -83,7 +83,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.columns, ["group_name", "key", "group.$delete"])
         self.assertEqual(result.results[0][0], "org2.inc")
 
     @freeze_time("2025-01-01")
@@ -101,7 +101,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
+        self.assertEqual(result.columns, ["group_name", "key", "properties.arr", "group.$delete"])
         self.assertEqual(result.results[0][0], "org0.inc")
         self.assertEqual(result.results[0][2], 150)
         self.assertEqual(result.results[1][2], 0)
@@ -122,7 +122,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.columns, ["group_name", "key", "group.$delete"])
         self.assertEqual(result.results[0][0], "org2.inc")
 
     @freeze_time("2025-01-01")
@@ -143,7 +143,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
+        self.assertEqual(result.columns, ["group_name", "key", "properties.arr", "group.$delete"])
         self.assertEqual(result.results[0][2], 300)
         self.assertEqual(result.results[1][2], 150)
         self.assertEqual(result.results[2][2], 0)
@@ -161,7 +161,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
+        self.assertEqual(result.columns, ["group_name", "key", "properties.arr", "group.$delete"])
         self.assertEqual(result.results[0][2], 0)
         self.assertEqual(result.results[1][2], 150)
         self.assertEqual(result.results[2][2], 300)
@@ -178,7 +178,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.columns, ["group_name", "key", "group.$delete"])
         self.assertEqual(result.results[0][0], "org2.inc")
         self.assertEqual(result.results[1][0], "org1.inc")
         self.assertEqual(result.results[2][0], "org0.inc")
@@ -207,7 +207,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.columns, ["group_name", "key", "group.$delete"])
         self.assertEqual(result.results[0][0], "org0.inc")
 
     @freeze_time("2025-01-01")
@@ -234,7 +234,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 2)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
+        self.assertEqual(result.columns, ["group_name", "key", "properties.arr", "group.$delete"])
         self.assertEqual(result.results[0][2], 150)
         self.assertEqual(result.results[1][2], 300)
 
@@ -291,6 +291,6 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
+        self.assertEqual(result.columns, ["group_name", "key", "properties.arr", "group.$delete"])
         self.assertEqual(result.results[0][0], "org0.inc")
         self.assertEqual(result.results[0][2], 200)

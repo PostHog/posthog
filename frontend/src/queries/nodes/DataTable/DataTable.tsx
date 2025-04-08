@@ -9,6 +9,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useCallback, useState } from 'react'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { GroupDeleteModal } from 'scenes/groups/GroupDeleteModal'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 
@@ -625,6 +626,7 @@ export function DataTable({
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <PersonDeleteModal />
+                    <GroupDeleteModal />
                 </div>
             </BindLogic>
         </BindLogic>

@@ -20,7 +20,7 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
-from posthog.models.group.util import raw_create_group_ch
+from posthog.models.group.util import raw_create_group_ch, raw_delete_group_ch
 from posthog.models.group_type_mapping import GroupTypeMapping
 from loginas.utils import is_impersonated_session
 
@@ -158,6 +158,36 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
 
         serializer = self.get_serializer(queryset, many=True)
         return response.Response(serializer.data)
+
+    @action(methods=["DELETE"], detail=False)
+    def delete_group(self, request: request.Request, *args, **kwargs):
+        """
+        Delete an individual group
+        """
+        try:
+            group = self.get_queryset().get()
+            group_id = group.id
+            group_key = group.group_key
+            group.delete()
+            raw_delete_group_ch(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                sync=True,
+            )
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=group_id,
+                scope="Group",
+                activity="deleted",
+                detail=Detail(name=str(group_key)),
+            )
+            return response.Response(status=status.HTTP_202_ACCEPTED)
+        except Group.DoesNotExist:
+            raise NotFound()
 
     @extend_schema(
         parameters=[
