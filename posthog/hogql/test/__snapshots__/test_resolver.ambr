@@ -7642,7 +7642,7 @@
       aliases: {}
       anonymous_tables: []
       columns: {
-        _max_timestamp: <recursion ...>
+        max(timestamp): <recursion ...>
       }
       ctes: {}
       tables: {

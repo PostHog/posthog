@@ -1,8 +1,8 @@
 # serializer version: 1
 # name: TestActorsPropertyTaxonomyQueryRunner.test_group_property_taxonomy_query_runner
   '''
-  SELECT groupArray(5)(prop) AS _groupArray_5_prop,
-         count() AS _count
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT groups.properties___industry AS prop
      FROM
@@ -28,8 +28,8 @@
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_group_property_taxonomy_query_runner.1
   '''
-  SELECT groupArray(5)(prop) AS _groupArray_5_prop,
-         count() AS _count
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT groups.`properties___does not exist` AS prop
      FROM
@@ -55,8 +55,8 @@
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_group_property_taxonomy_query_runner.2
   '''
-  SELECT groupArray(5)(prop) AS _groupArray_5_prop,
-         count() AS _count
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT groups.properties___employee_count AS prop
      FROM
@@ -82,8 +82,8 @@
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_max_value_count
   '''
-  SELECT groupArray(1)(prop) AS _groupArray_1_prop,
-         count() AS _count
+  SELECT groupArray(1)(prop) AS `groupArray(1)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT persons.properties___age AS prop
      FROM
@@ -111,8 +111,8 @@
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_person_property_taxonomy_query_runner
   '''
-  SELECT groupArray(5)(prop) AS _groupArray_5_prop,
-         count() AS _count
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT persons.properties___email AS prop
      FROM
@@ -140,8 +140,8 @@
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_person_property_taxonomy_query_runner.1
   '''
-  SELECT groupArray(5)(prop) AS _groupArray_5_prop,
-         count() AS _count
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT persons.`properties___does not exist` AS prop
      FROM
@@ -169,8 +169,8 @@
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_person_property_taxonomy_query_runner.2
   '''
-  SELECT groupArray(5)(prop) AS _groupArray_5_prop,
-         count() AS _count
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT persons.properties___age AS prop
      FROM
