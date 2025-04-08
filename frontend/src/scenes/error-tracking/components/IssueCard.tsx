@@ -2,7 +2,7 @@ import { IconChevronDown, IconWarning } from '@posthog/icons'
 import { LemonCard, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { cn } from 'lib/utils/css-classes'
 import { match, P } from 'ts-pattern'
 
@@ -51,7 +51,7 @@ export function IssueCard(): JSX.Element {
                     inModal={true}
                     size="xsmall"
                     type="secondary"
-                    disabledReason={sessionId ? undefined : 'No recording available'}
+                    disabledReason={mightHaveRecording(properties) ? undefined : 'No recording available'}
                 />
             </div>
             <div className="flex justify-between items-center">
