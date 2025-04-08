@@ -401,6 +401,7 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
+    allow_advertising_retargeting?: boolean
     metadata?: OrganizationMetadata
     member_count: number
 }

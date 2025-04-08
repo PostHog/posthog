@@ -1,12 +1,15 @@
 from functools import cached_property
 from typing import Any, Optional, Union, cast
 
+import posthoganalytics
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, permissions, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-import posthoganalytics
+from sentry_sdk import capture_exception
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -14,10 +17,13 @@ from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
-from posthog.event_usage import report_organization_deleted, groups
+from posthog.event_usage import (
+    groups,
+    report_organization_action,
+    report_organization_deleted,
+)
 from posthog.models import Organization, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
@@ -29,13 +35,14 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     extract_organization,
 )
+from posthog.rbac.migrations.rbac_feature_flag_migration import (
+    rbac_feature_flag_role_access_migration,
+)
+from posthog.rbac.migrations.rbac_team_migration import (
+    rbac_team_access_control_migration,
+)
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from rest_framework.decorators import action
-from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
-from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
-from sentry_sdk import capture_exception
-from drf_spectacular.utils import extend_schema
-from posthog.event_usage import report_organization_action
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -104,6 +111,7 @@ class OrganizationSerializer(
             "enforce_2fa",
             "member_count",
             "is_ai_data_processing_approved",
+            "allow_advertising_retargeting",
         ]
         read_only_fields = [
             "id",
