@@ -2,6 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.early_access_features.backend.api as early_access_feature
+import products.payments.backend.api as payments
 from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -175,6 +176,7 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
+
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 
 projects_router.register(
@@ -402,6 +404,8 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
+router.register(r"payments", payments.StripeWebhookViewSet, "payments")
+
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402

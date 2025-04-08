@@ -89,6 +89,7 @@ from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.payments.backend.models import PaymentProduct, PaymentTransaction
 
 __all__ = [
     "AlertConfiguration",
@@ -190,4 +191,6 @@ __all__ = [
     "Prompt",
     "PromptSequence",
     "UserPromptState",
+    "PaymentProduct",
+    "PaymentTransaction",
 ]

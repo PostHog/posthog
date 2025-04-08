@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
     "products.early_access_features",  # TODO: add this automatically
     "products.editor",
+    "products.payments",
 ]
 
 
