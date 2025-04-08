@@ -98,6 +98,10 @@ type DragAndDropProps = {
 type DraggableProps = DragAndDropProps & {
     enableDragging: boolean
     className?: string
+    checkedItemsData?: {
+        ids: string[]
+        items: Record<string, TreeDataItem>
+    }
 }
 
 export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
@@ -108,6 +112,13 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         transform,
     } = useDraggable({
         id: props.id,
+        data: props.checkedItemsData
+            ? {
+                  multiDrag: true,
+                  ids: props.checkedItemsData.ids,
+                  items: props.checkedItemsData.items,
+              }
+            : undefined,
     })
 
     // Filter out the Enter key from drag listeners
@@ -133,6 +144,9 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
           }
         : undefined
 
+    // Create a custom drag overlay for multiple items
+    const isMultiDrag = props.checkedItemsData && props.checkedItemsData.ids.length > 1
+
     return (
         // Apply transform to the entire container and make it the drag reference
         <div
@@ -141,6 +155,8 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
             {...(props.enableDragging ? listeners : {})}
+            data-multi-drag={isMultiDrag ? 'true' : undefined}
+            data-multi-drag-count={isMultiDrag ? props.checkedItemsData?.ids.length : undefined}
         >
             <div
                 {...attributes}
