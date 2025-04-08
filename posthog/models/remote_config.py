@@ -164,7 +164,6 @@ class RemoteConfig(UUIDModel):
             config["elementsChainAsString"] = True
 
         # MARK: Session Recording
-        # KLUDGE: this is duplicated in posthog/api/decide.py
         session_recording_config_response: bool | dict = False
 
         # TODO: Support the domain based check for recordings (maybe do it client side)?
