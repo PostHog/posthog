@@ -31,7 +31,7 @@ class EditorSemanticSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
         )
 
         results: list[EditorSemanticSearchResponseItem] = []
-        columns = ["artifact_id", "distance", "obfuscatedPath", "lineStart", "lineEnd"]
+        columns = ["artifactId", "distance", "obfuscatedPath", "lineStart", "lineEnd"]
         for result in response.results:
             results.append(EditorSemanticSearchResponseItem(**{column: result[i] for i, column in enumerate(columns)}))
 
