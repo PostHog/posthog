@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -158,6 +159,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         (d) => !updatedInsight.dashboards?.includes(d)
                     )
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
+                    values.insight.short_id && refreshTreeItem('insight', String(values.insight.short_id))
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
@@ -178,6 +180,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     dashboardsModel.actions.updateDashboardInsight(response)
                     actions.loadTags()
 
+                    refreshTreeItem('insight', values.insight.short_id)
                     lemonToast.success(`Updated insight`, {
                         button: {
                             label: 'Undo',
