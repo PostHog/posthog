@@ -8135,6 +8135,9 @@
                     "const": "ExperimentMetric",
                     "type": "string"
                 },
+                "lower_bound_percentile": {
+                    "type": "number"
+                },
                 "metric_type": {
                     "const": "mean",
                     "type": "string"
@@ -8144,6 +8147,12 @@
                 },
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "time_window_hours": {
+                    "type": "number"
+                },
+                "upper_bound_percentile": {
+                    "type": "number"
                 }
             },
             "required": ["kind", "metric_type", "source"],
@@ -8152,12 +8161,18 @@
         "ExperimentMeanMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "lower_bound_percentile": {
+                    "type": "number"
+                },
                 "metric_type": {
                     "const": "mean",
                     "type": "string"
                 },
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "upper_bound_percentile": {
+                    "type": "number"
                 }
             },
             "required": ["metric_type", "source"],
@@ -8196,6 +8211,18 @@
         "ExperimentMetricMathType": {
             "enum": ["total", "sum"],
             "type": "string"
+        },
+        "ExperimentMetricOutlierHandling": {
+            "additionalProperties": false,
+            "properties": {
+                "lower_bound_percentile": {
+                    "type": "number"
+                },
+                "upper_bound_percentile": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
         },
         "ExperimentMetricSource": {
             "anyOf": [
