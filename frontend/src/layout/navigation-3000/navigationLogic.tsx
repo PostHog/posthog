@@ -1,11 +1,11 @@
 import {
     IconAI,
     IconArrowUpRight,
-    IconCoffee,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
     IconGraph,
+    IconGroups,
     IconHome,
     IconLive,
     IconLogomark,
@@ -498,7 +498,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             ? {
                                   identifier: Scene.Groups,
                                   label: 'B2B analytics',
-                                  icon: <IconCoffee />,
+                                  icon: <IconGroups />,
                                   to: urls.groups(0),
                                   sideAction:
                                       groupTypes.size > 1 && !showGroupsIntroductionPage
