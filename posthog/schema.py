@@ -1733,6 +1733,32 @@ class RootAssistantMessage1(BaseModel):
     )
 
 
+class SDKUsageData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: list[str] = Field(..., max_length=2, min_length=2)
+    libs: dict[str, dict[str, dict[str, float]]]
+
+
+class Level(StrEnum):
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+
+
+class SDKWarning(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    latestAvailableVersion: Optional[str] = None
+    latestUsedVersion: str
+    level: Level
+    lib: str
+    message: Optional[str] = None
+    numVersionsBehind: Optional[float] = None
+
+
 class SamplingRate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3080,6 +3106,14 @@ class RevenueTrackingConfig(BaseModel):
     baseCurrency: Optional[CurrencyCode] = CurrencyCode.USD
     dataWarehouseTables: Optional[list[RevenueTrackingDataWarehouseTable]] = []
     events: Optional[list[RevenueTrackingEventItem]] = []
+
+
+class SDKDeprecationWarningsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    usageData: SDKUsageData
+    warnings: list[SDKWarning]
 
 
 class SavedInsightNode(BaseModel):

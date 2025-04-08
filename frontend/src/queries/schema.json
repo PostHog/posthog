@@ -15383,6 +15383,75 @@
                 }
             ]
         },
+        "SDKDeprecationWarningsResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "usageData": {
+                    "$ref": "#/definitions/SDKUsageData"
+                },
+                "warnings": {
+                    "items": {
+                        "$ref": "#/definitions/SDKWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["warnings", "usageData"],
+            "type": "object"
+        },
+        "SDKUsageData": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "libs": {
+                    "additionalProperties": {
+                        "additionalProperties": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "type": "object"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["libs", "dateRange"],
+            "type": "object"
+        },
+        "SDKWarning": {
+            "additionalProperties": false,
+            "properties": {
+                "latestAvailableVersion": {
+                    "type": "string"
+                },
+                "latestUsedVersion": {
+                    "type": "string"
+                },
+                "level": {
+                    "enum": ["error", "warning", "info"],
+                    "type": "string"
+                },
+                "lib": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "numVersionsBehind": {
+                    "type": "number"
+                }
+            },
+            "required": ["lib", "latestUsedVersion", "level"],
+            "type": "object"
+        },
         "SamplingRate": {
             "additionalProperties": false,
             "properties": {
