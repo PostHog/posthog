@@ -60,7 +60,7 @@ export function PathsV2(): JSX.Element {
     const [nodes, setNodes] = useState<PathNodeData[]>([])
 
     const { insightProps } = useValues(insightLogic)
-    const { insightQuery, paths, pathsFilter, insightDataLoading, insightDataError, theme } = useValues(
+    const { insightQuery, paths, insightDataLoading, insightDataError, theme } = useValues(
         pathsV2DataLogic(insightProps)
     )
 
@@ -73,14 +73,14 @@ export function PathsV2(): JSX.Element {
         const elements = canvasContainerRef.current?.querySelectorAll(`.PathsV2__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
-        renderPathsV2(canvasRef, canvasWidth, canvasHeight, paths, pathsFilter || {}, setNodes)
+        renderPathsV2(canvasRef, canvasWidth, canvasHeight, paths, setNodes)
 
         // Proper cleanup
         return () => {
             const elements = canvasContainerRef.current?.querySelectorAll(`.PathsV2__canvas`)
             elements?.forEach((node) => node?.parentNode?.removeChild(node))
         }
-    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter])
+    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme])
 
     if (insightDataError) {
         return <InsightErrorState query={insightQuery} excludeDetail />

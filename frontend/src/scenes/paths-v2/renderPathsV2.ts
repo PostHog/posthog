@@ -3,8 +3,6 @@ import * as Sankey from 'd3-sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import { PathsFilter } from '~/queries/schema/schema-general'
-
 import { PathNodeData, PathTargetLink } from './pathUtils'
 import { PathNodeType, Paths } from './types'
 
@@ -96,7 +94,7 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
         ])
 }
 
-const appendNodes = (svg: any, nodes: PathNodeData[], pathsFilter: PathsFilter): void => {
+const appendNodes = (svg: any, nodes: PathNodeData[]): void => {
     svg.append('g')
         .selectAll('rect')
         .data(nodes)
@@ -179,7 +177,6 @@ export function renderPathsV2(
     _canvasWidth: number | undefined,
     _canvasHeight: number | undefined,
     paths: Paths,
-    pathsFilter: PathsFilter,
     setNodes: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
     const canvasWidth = _canvasWidth || FALLBACK_CANVAS_WIDTH
@@ -206,7 +203,7 @@ export function renderPathsV2(
     const { nodes, links } = sankey(clonedPaths)
 
     appendLinks(svg, links)
-    appendNodes(svg, nodes, pathsFilter)
+    appendNodes(svg, nodes)
 
     // :TRICKY: this needs to come last, as d3 mutates data in place and otherwise
     // we won't have node positions.
