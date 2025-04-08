@@ -98,7 +98,7 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>Link {checkedItemsCount} selected items here</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {item.record?.path ? (
+                {item.record?.path && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
                         onClick={(e: any) => {
@@ -128,7 +128,7 @@ export function ProjectTree(): JSX.Element {
                             deleteItem(item.record as unknown as FileSystemEntry)
                         }}
                     >
-                        <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>Delete and move to 'Unfiled'</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
                 {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
@@ -283,6 +283,21 @@ export function ProjectTree(): JSX.Element {
                         return undefined
                     }
                     return <DropdownMenuGroup>{renderMenuItems(item, DropdownMenuItem)}</DropdownMenuGroup>
+                }}
+                emptySpaceContextMenu={() => {
+                    return (
+                        <ContextMenuGroup>
+                            <ContextMenuItem
+                                asChild
+                                onClick={(e: any) => {
+                                    e.stopPropagation()
+                                    createFolder('')
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                            </ContextMenuItem>
+                        </ContextMenuGroup>
+                    )
                 }}
             />
         </PanelLayoutPanel>

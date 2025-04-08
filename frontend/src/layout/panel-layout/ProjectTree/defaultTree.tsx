@@ -163,7 +163,6 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             path: 'Error tracking',
             icon: <IconWarning />,
             href: () => urls.errorTracking(),
-            flag: FEATURE_FLAGS.ERROR_TRACKING,
         },
         {
             path: 'Heatmaps',

@@ -162,7 +162,10 @@ export const inviteLogic = kea<inviteLogicType>([
             }
 
             if (inviteCount > 0) {
-                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+                // We want to avoid this updating the team before the onboarding is finished
+                setTimeout(() => {
+                    activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+                }, 1000)
             }
         },
     })),
