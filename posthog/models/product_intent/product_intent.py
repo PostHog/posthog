@@ -12,7 +12,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamMixin
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
 
@@ -56,7 +56,7 @@ class ProductIntentSerializer(serializers.Serializer):
     intent_context = serializers.CharField(required=False, default="unknown")
 
 
-class ProductIntent(UUIDModel):
+class ProductIntent(UUIDModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -104,7 +104,9 @@ class ProductIntent(UUIDModel):
 
     def has_activated_error_tracking(self) -> bool:
         # the team has resolved any issues
-        return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+        return ErrorTrackingIssue.objects.filter(
+            team__in=self.team.root_team.all_teams, status=ErrorTrackingIssue.Status.RESOLVED
+        ).exists()
 
     def has_activated_surveys(self) -> bool:
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
@@ -136,7 +138,9 @@ class ProductIntent(UUIDModel):
         return total_groups >= 2
 
     def has_activated_session_replay(self) -> bool:
-        has_viewed_five_recordings = SessionRecordingViewed.objects.filter(team=self.team).count() >= 5
+        has_viewed_five_recordings = (
+            SessionRecordingViewed.objects.filter(team__in=self.team.root_team.all_teams).count() >= 5
+        )
 
         intent = ProductIntent.objects.filter(
             team=self.team,
