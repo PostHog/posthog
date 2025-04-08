@@ -33,7 +33,6 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.product_intent.product_intent import calculate_product_activation
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
