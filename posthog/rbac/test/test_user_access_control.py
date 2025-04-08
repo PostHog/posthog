@@ -454,6 +454,48 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
         self.assertCountEqual([self.file_b], filtered_for_other)
 
+    def test_project_admin_allows_visibility_even_if_none(self):
+        """
+        If the user is an 'admin' at the project level, they can see items even if there's
+        a 'none' row for the resource in that project.
+        """
+        # 1) Mark file_b with "none" for everyone (global none).
+        AccessControl.objects.create(
+            team=self.team,
+            resource="my_resource",
+            resource_id="def",
+            access_level="none",
+        )
+
+        # 2) Give self.user "admin" at the project level.
+        #    This means resource='project', resource_id = team.id (string-cast if needed).
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),  # important if resource_id is stored as string
+            access_level="admin",
+            organization_member=None,  # global rule (no specific org member), or you can tie to the user
+            team=self.team,
+        )
+
+        queryset = FileSystem.objects.all()
+        # Now, because user is project admin, they should see file_b despite 'none'
+        filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+
+        # 3) Remove the "admin" row, confirm user no longer sees file_b.
+        AccessControl.objects.filter(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+        ).delete()
+        self._clear_uac_caches()
+
+        queryset = FileSystem.objects.all()
+        filtered_for_user_after_removal = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        # Now user is no longer project admin, so file_b is excluded again (they're not the creator).
+        self.assertCountEqual([self.file_a], filtered_for_user_after_removal)
+
 
 # class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
 #     def setUp(self):
