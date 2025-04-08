@@ -133,16 +133,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             false,
             {
                 queueAction: async ({ action }) => {
-                    actions.removeQueuedAction(action)
                     if ((action.type === 'prepare-move' || action.type === 'prepare-link') && action.newPath) {
                         const verb = action.type === 'prepare-link' ? 'link' : 'move'
                         const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
                         try {
                             const response = await api.fileSystem.count(action.item.id)
+                            actions.removeQueuedAction(action)
                             if (response && response.count > MOVE_ALERT_LIMIT) {
                                 const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
                                 if (!confirm(confirmMessage)) {
-                                    actions.removeQueuedAction(action)
                                     return false
                                 }
                             }
@@ -150,12 +149,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         } catch (error) {
                             console.error(`Error ${verbing} item:`, error)
                             lemonToast.error(`Error ${verbing} item: ${error}`)
+                            actions.removeQueuedAction(action)
                         }
                     } else if (action.type === 'move' && action.newPath) {
                         try {
                             const oldPath = action.item.path
                             const newPath = action.newPath
                             await api.fileSystem.move(action.item.id, newPath)
+                            actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
                             lemonToast.success('Item moved successfully', {
                                 button: {
@@ -169,11 +170,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         } catch (error) {
                             console.error('Error moving item:', error)
                             lemonToast.error(`Error moving item: ${error}`)
+                            actions.removeQueuedAction(action)
                         }
                     } else if (action.type === 'link' && action.newPath) {
                         try {
                             const newPath = action.newPath
                             const newItem = await api.fileSystem.link(action.item.id, newPath)
+                            actions.removeQueuedAction(action)
                             if (newItem) {
                                 actions.createSavedItem(newItem)
                             }
@@ -184,10 +187,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         } catch (error) {
                             console.error('Error linking item:', error)
                             lemonToast.error(`Error linking item: ${error}`)
+                            actions.removeQueuedAction(action)
                         }
                     } else if (action.type === 'create') {
                         try {
                             const response = await api.fileSystem.create(action.item)
+                            actions.removeQueuedAction(action)
                             actions.createSavedItem(response)
                             lemonToast.success('Folder created successfully', {
                                 button: {
@@ -202,14 +207,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         } catch (error) {
                             console.error('Error creating folder:', error)
                             lemonToast.error(`Error creating folder: ${error}`)
+                            actions.removeQueuedAction(action)
                         }
                     } else if (action.type === 'prepare-delete' && action.item.id) {
                         try {
                             const response = await api.fileSystem.count(action.item.id)
+                            actions.removeQueuedAction(action)
                             if (response && response.count > DELETE_ALERT_LIMIT) {
                                 const confirmMessage = `You're about to move ${response.count} items into 'Unfiled'. Are you sure?`
                                 if (!confirm(confirmMessage)) {
-                                    actions.removeQueuedAction(action)
                                     return false
                                 }
                             }
@@ -217,15 +223,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         } catch (error) {
                             console.error('Error deleting item:', error)
                             lemonToast.error(`Error deleting item: ${error}`)
+                            actions.removeQueuedAction(action)
                         }
                     } else if (action.type === 'delete' && action.item.id) {
                         try {
                             await api.fileSystem.delete(action.item.id)
+                            actions.removeQueuedAction(action)
                             actions.deleteSavedItem(action.item)
                             lemonToast.success('Item deleted successfully')
                         } catch (error) {
                             console.error('Error deleting item:', error)
                             lemonToast.error(`Error deleting item: ${error}`)
+                            actions.removeQueuedAction(action)
                         }
                     }
                     return true
@@ -435,7 +444,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }, {} as Record<string, FileSystemEntry[]>)
 
                 for (const action of pendingActions) {
-                    if (action.type === 'move' && action.newPath) {
+                    if ((action.type === 'move' || action.type === 'prepare-move') && action.newPath) {
                         if (!itemsByPath[action.path] || itemsByPath[action.path].length === 0) {
                             console.error("Item not found, can't move", action.path)
                             continue
@@ -467,15 +476,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                     ]
                                 }
                                 delete itemsByPath[action.path]
-                            } else {
+                            } else if (item.id === action.item.id) {
                                 if (!itemsByPath[action.newPath]) {
-                                    itemsByPath[action.newPath] = [
-                                        ...(itemsByPath[action.newPath] ?? []),
-                                        { ...item, path: action.newPath, _loading: true },
-                                    ]
-                                    delete itemsByPath[action.path]
+                                    itemsByPath[action.newPath] = []
+                                }
+                                itemsByPath[action.newPath] = [
+                                    ...itemsByPath[action.newPath],
+                                    { ...item, path: action.newPath, _loading: true },
+                                ]
+                                if (itemsByPath[action.path].length > 1) {
+                                    itemsByPath[action.path] = itemsByPath[action.path].filter((i) => i.id !== item.id)
                                 } else {
-                                    console.error("Item already exists, can't move", action.newPath)
+                                    delete itemsByPath[action.path]
                                 }
                             }
                         }
