@@ -18,7 +18,7 @@ import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
-    productKey: ProductKey | null
+    onCompleteOnboarding?: (key: ProductKey) => void
 }
 
 export enum OnboardingStepKey {
@@ -33,6 +33,8 @@ export enum OnboardingStepKey {
     DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
     SESSION_REPLAY = 'session_replay',
     AUTHORIZED_DOMAINS = 'authorized_domains',
+    SOURCE_MAPS = 'source_maps',
+    ALERTS = 'alerts',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
@@ -63,6 +65,8 @@ export const getProductUri = (productKey: ProductKey): string => {
             return urls.featureFlag('new')
         case ProductKey.SURVEYS:
             return urls.surveyTemplates()
+        case ProductKey.ERROR_TRACKING:
+            return urls.errorTracking()
         default:
             return urls.default()
     }
@@ -73,7 +77,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     path(['scenes', 'onboarding', 'onboardingLogic']),
     // connect this so we start collecting live events the whole time during onboarding
     connect(liveEventsTableLogic({ showLiveStreamErrorToast: false })),
-    connect({
+    connect(() => ({
         values: [
             billingLogic,
             ['billing'],
@@ -96,10 +100,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
         ],
-    }),
+    })),
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
-        setProductKey: (productKey: string | null) => ({ productKey }),
+        setProductKey: (productKey: ProductKey | null) => ({ productKey }),
         completeOnboarding: (options?: { redirectUrlOverride?: string }) => ({
             redirectUrlOverride: options?.redirectUrlOverride,
         }),
@@ -115,7 +119,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     }),
     reducers(() => ({
         productKey: [
-            null as string | null,
+            null as ProductKey | null,
             {
                 setProductKey: (_, { productKey }) => productKey,
             },
@@ -268,7 +272,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setProduct: ({ product }) => {
             if (!product) {
                 window.location.href = urls.default()
@@ -315,6 +319,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             if (values.productKey) {
                 const productKey = values.productKey
+                props.onCompleteOnboarding?.(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
                 teamLogic.actions.updateCurrentTeam({
                     has_completed_onboarding_for: {
@@ -392,7 +397,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.setSubscribedDuringOnboarding(true)
             }
             if (productKey !== values.productKey) {
-                actions.setProductKey(productKey)
+                actions.setProductKey(productKey as ProductKey)
             }
 
             // Reset onboarding steps so they can be populated upon render in the component.

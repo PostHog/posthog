@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
@@ -303,7 +304,9 @@ export const surveyLogic = kea<surveyLogicType>([
                 return await api.surveys.create(sanitizeQuestions(surveyPayload))
             },
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+                const response = await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+                refreshTreeItem('survey', props.id)
+                return response
             },
             launchSurvey: async () => {
                 const startDate = dayjs()
@@ -1584,11 +1587,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     appearance: sanitizedAppearance && {
                         backgroundColor: validateColor(sanitizedAppearance.backgroundColor, 'background color'),
                         borderColor: validateColor(sanitizedAppearance.borderColor, 'border color'),
-                        ratingButtonActiveColor: validateColor(
-                            sanitizedAppearance.ratingButtonActiveColor,
-                            'rating button active color'
-                        ),
-                        ratingButtonColor: validateColor(sanitizedAppearance.ratingButtonColor, 'rating button color'),
+                        // Only validate rating button colors if there's a rating question
+                        ...(questions.some((q) => q.type === SurveyQuestionType.Rating) && {
+                            ratingButtonActiveColor: validateColor(
+                                sanitizedAppearance.ratingButtonActiveColor,
+                                'rating button active color'
+                            ),
+                            ratingButtonColor: validateColor(
+                                sanitizedAppearance.ratingButtonColor,
+                                'rating button color'
+                            ),
+                        }),
                         submitButtonColor: validateColor(sanitizedAppearance.submitButtonColor, 'button color'),
                         submitButtonTextColor: validateColor(
                             sanitizedAppearance.submitButtonTextColor,

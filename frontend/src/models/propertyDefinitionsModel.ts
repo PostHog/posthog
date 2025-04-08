@@ -159,9 +159,9 @@ const constructValuesEndpoint = (
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']],
-    }),
+    })),
     actions({
         // public
         loadPropertyDefinitions: (

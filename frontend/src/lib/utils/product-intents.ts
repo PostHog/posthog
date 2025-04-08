@@ -18,6 +18,9 @@ export enum ProductIntentContext {
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',
 
+    // Session Replay
+    SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
+
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
     ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',

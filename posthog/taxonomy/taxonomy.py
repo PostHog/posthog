@@ -160,7 +160,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_enrollment_update": {
             "label": "Feature Enrollment",
-            "description": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
+            "description": "When a user enrolls with a feature.",
+            "description_llm": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
         },
         "$capture_metrics": {
             "label": "Capture Metrics",
@@ -190,6 +191,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$rageclick": {
             "label": "Rageclick",
             "description": "A user has rapidly and repeatedly clicked in a single place",
+        },
+        "$dead_click": {
+            "label": "Dead click",
+            "description": "A user has clicked on something that is probably not clickable",
         },
         "$exception": {
             "label": "Exception",
@@ -265,14 +270,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "href": {
             "label": "Target (href)",
-            "description": "Filter on the href attribute of the element.",
+            "description": "Filter on the `href` attribute of the element.",
             "examples": ["https://posthog.com/about"],
         },
     },
     "metadata": {
         "distinct_id": {
             "label": "Distinct ID",
-            "description": "The current distinct ID of the user",
+            "description": "The current distinct ID of the user.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
         "timestamp": {
@@ -288,6 +293,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["$pageview"],
             "system": True,
             "ignored_in_assistant": True,
+        },
+        "person_id": {
+            "label": "Person ID",
+            "description": "The ID of the person, depending on the person properties mode.",
+            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
     },
     "event_properties": {
@@ -499,7 +509,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["/e/"],
         },
         "$exception_capture_endpoint_suffix": {
-            "label": "Exception capture endpoint",
+            "label": "Exception capture endpoint suffix",
             "description": "Endpoint used by posthog-js exception autocapture.",
             "examples": ["/e/"],
         },
@@ -584,7 +594,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$replay_script_config": {
             "label": "Replay script config",
             "description": "Sets an alternative recorder script for the web sdk.",
-            "examples": ['{"script": "recorder-next""}'],
+            "examples": ['{"script": "recorder-next"}'],
             "system": True,
         },
         "$session_recording_url_trigger_activated_session": {
@@ -604,7 +614,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$cymbal_errors": {
             "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions",
+            "description": "Errors encountered while trying to process exceptions.",
             "system": True,
         },
         "$geoip_city_name": {
@@ -682,6 +692,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "If provided by the licensed geoip database",
             "examples": ["null", "0.1"],
             "ignored_in_assistant": True,
+            "system": True,
         },
         "$geoip_subdivision_3_name": {
             "label": "Subdivision 3 Name",
@@ -791,7 +802,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$plugins_succeeded": {
             "label": "Plugins Succeeded",
-            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method processEvent).",
+            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method `processEvent`).",
         },
         "$groups": {
             "label": "Groups",
@@ -841,11 +852,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$plugins_failed": {
             "label": "Plugins Failed",
-            "description": "Plugins that failed to process the event (plugin method processEvent).",
+            "description": "Plugins that failed to process the event (plugin method `processEvent`).",
         },
         "$plugins_deferred": {
             "label": "Plugins Deferred",
-            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method onEvent).",
+            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method `onEvent`).",
         },
         "$$plugin_metrics": {
             "label": "Plugin Metric",
@@ -1031,7 +1042,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$user_id": {
             "label": "User ID",
-            "description": "This variable will be set to the distinct ID if you've called posthog.identify('distinct id'). If the user is anonymous, it'll be empty.",
+            "description": "This variable will be set to the distinct ID if you've called `posthog.identify('distinct id')`. If the user is anonymous, it'll be empty.",
         },
         "$ip": {
             "label": "IP Address",
@@ -1085,7 +1096,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag_request_id": {
             "label": "Feature Flag Request ID",
-            "description": "The unique identifier for the request that retrieved this feature flag result. Primarily used by PostHog support for debugging issues with feature flags.",
+            "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
         },
         "$feature_flag_version": {
@@ -1543,7 +1554,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_latency": {
             "label": "AI Latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds",
-            "examples": [1000],
+            "examples": [0.361],
         },
         "$ai_model": {
             "label": "AI Model (LLM)",
@@ -1631,7 +1642,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "session_properties": {
         "$session_duration": {
             "label": "Session duration",
-            "description": "The duration of the session being tracked in seconds.",
+            "description": "The duration of the session being tracked. Learn more about how PostHog tracks sessions in [our documentation](https://posthog.com/docs/user-guides/sessions).\n\nNote: If the duration is formatted as a single number (not `HH:MM:SS`), it's in seconds.",
             "examples": ["30", "146", "2"],
             "type": "Numeric",
         },
@@ -1649,55 +1660,55 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$entry_current_url": {
             "label": "Entry URL",
-            "description": "The first URL visited in this session",
+            "description": "The first URL visited in this session.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$entry_pathname": {
             "label": "Entry pathname",
-            "description": "The first pathname visited in this session",
+            "description": "The first pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
         "$end_current_url": {
-            "label": "Entry URL",
-            "description": "The first URL visited in this session",
+            "label": "End URL",
+            "description": "The last URL visited in this session.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$end_pathname": {
-            "label": "Entry pathname",
-            "description": "The first pathname visited in this session",
+            "label": "End pathname",
+            "description": "The last pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
         "$exit_current_url": {
             "label": "Exit URL",
-            "description": "The last URL visited in this session",
+            "description": "The last URL visited in this session. (deprecated, use $end_current_url)",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$exit_pathname": {
             "label": "Exit pathname",
-            "description": "The last pathname visited in this session",
+            "description": "The last pathname visited in this session. (deprecated, use $end_pathname)",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
         "$pageview_count": {
             "label": "Pageview count",
-            "description": "The number of page view events in this session",
+            "description": "The number of page view events in this session.",
             "examples": ["123"],
             "type": "Numeric",
         },
         "$autocapture_count": {
             "label": "Autocapture count",
-            "description": "The number of autocapture events in this session",
+            "description": "The number of autocapture events in this session.",
             "examples": ["123"],
             "type": "Numeric",
         },
         "$screen_count": {
             "label": "Screen count",
-            "description": "The number of screen events in this session",
+            "description": "The number of screen events in this session.",
             "examples": ["123"],
             "type": "Numeric",
         },
@@ -1774,6 +1785,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
 }
+
+# copy distinct_id to event properties (needs to be done before copying to person properties, so it exists in person properties as well)
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["distinct_id"] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][
+    "distinct_id"
+]
+
+# copy meta properties to event_metadata
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"] = {}
+for key in ["distinct_id", "timestamp", "event", "person_id"]:
+    CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
+
 
 for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
     if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):

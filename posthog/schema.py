@@ -2823,6 +2823,7 @@ class HogQLQueryModifiers(BaseModel):
     sessionTableVersion: Optional[SessionTableVersion] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     useMaterializedViews: Optional[bool] = None
+    usePresortedEventsTable: Optional[bool] = None
 
 
 class HogQuery(BaseModel):
@@ -2948,7 +2949,6 @@ class QueryResponseAlternative8(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
@@ -5835,7 +5835,6 @@ class HogQLMetadataResponse(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None

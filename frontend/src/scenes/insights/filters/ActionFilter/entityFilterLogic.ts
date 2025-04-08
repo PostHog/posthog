@@ -74,9 +74,9 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     props({} as EntityFilterProps),
     key((props) => props.typeKey),
     path((key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key]),
-    connect({
+    connect(() => ({
         logic: [eventUsageLogic],
-    }),
+    })),
     actions({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
         updateFilterMath: (

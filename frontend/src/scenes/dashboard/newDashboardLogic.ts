@@ -102,10 +102,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     props({} as NewDashboardLogicProps),
     key(({ featureFlagId }) => featureFlagId ?? 'new'),
     path(['scenes', 'dashboard', 'newDashboardLogic']),
-    connect({
+    connect(() => ({
         logic: [dashboardsModel],
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         showNewDashboardModal: true,
