@@ -13,6 +13,8 @@ const CHROME_EXTENSION_DENY_LIST: Record<string, string> = {
     mloajfnmjckfjbeeofcdaecbelnblden: 'snap and read',
     aitopia: 'aitopia',
     becfinhbfclcgokjlobojlnldbfillpf: 'aitopia',
+    fnliebffpgomomjeflboommgbdnjadbh: 'sublime pop-up',
+    'sublime-root': 'sublime pop-up',
 }
 
 interface IsStrippable {

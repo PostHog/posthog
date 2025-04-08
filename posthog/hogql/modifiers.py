@@ -100,6 +100,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
+    if modifiers.usePresortedEventsTable is None:
+        modifiers.usePresortedEventsTable = False
+
     if modifiers.propertyGroupsMode is None and is_cloud():
         modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 

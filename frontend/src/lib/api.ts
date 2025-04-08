@@ -72,6 +72,7 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
+    HogFunctionKind,
     HogFunctionStatus,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
@@ -389,6 +390,9 @@ class ApiRequest {
     }
     public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id).addPathComponent('move')
+    }
+    public fileSystemLink(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('link')
     }
     public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
@@ -1284,6 +1288,9 @@ const api = {
         async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
         },
+        async link(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLink(id).create({ data: { new_path: newPath } })
+        },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
         },
@@ -2053,9 +2060,13 @@ const api = {
         async list({
             filters,
             types,
+            kinds,
+            excludeKinds,
         }: {
             filters?: any
             types?: HogFunctionTypeType[]
+            kinds?: HogFunctionKind[]
+            excludeKinds?: HogFunctionKind[]
         }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -2063,6 +2074,8 @@ const api = {
                     filters,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
+                    ...(kinds ? { kind: kinds.join(',') } : {}),
+                    ...(excludeKinds ? { exclude_kind: excludeKinds.join(',') } : {}),
                 })
                 .get()
         },

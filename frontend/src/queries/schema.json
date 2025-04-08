@@ -657,7 +657,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2150,6 +2150,7 @@
                 "cohort",
                 "person",
                 "event",
+                "event_metadata",
                 "group",
                 "session",
                 "hogql",
@@ -9950,6 +9951,9 @@
                 },
                 "useMaterializedViews": {
                     "type": "boolean"
+                },
+                "usePresortedEventsTable": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -11196,7 +11200,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "group", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NodeKind": {
@@ -16946,7 +16950,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query"],
+            "required": ["type", "query", "answer"],
             "type": "object"
         },
         "VizSpecificOptions": {

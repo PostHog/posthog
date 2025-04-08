@@ -1576,7 +1576,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 {
                     "plugin": mock_geoip_plugin.id,
                     "enabled": True,
-                    "order": 0,
+                    "order": 1,
                     "config": json.dumps({"bar": "very secret value"}),
                 },
                 format="multipart",
