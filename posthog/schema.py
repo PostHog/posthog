@@ -9241,7 +9241,6 @@ class DataTableNode(BaseModel):
         ExperimentTrendsQuery,
         RecordingsQuery,
         TracesQuery,
-        VectorSearchQuery,
     ] = Field(..., description="Source of the events")
 
 
