@@ -615,7 +615,7 @@ function TriggerMatchChoice(): JSX.Element {
                         labelInMenu: (
                             <SelectOption
                                 title="All"
-                                description="Every single filter must match"
+                                description="Every trigger must match"
                                 value="all"
                                 selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
                             />
@@ -627,7 +627,7 @@ function TriggerMatchChoice(): JSX.Element {
                         labelInMenu: (
                             <SelectOption
                                 title="Any"
-                                description="One or more filters must match"
+                                description="One or more triggers must match"
                                 value="any"
                                 selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
                             />
