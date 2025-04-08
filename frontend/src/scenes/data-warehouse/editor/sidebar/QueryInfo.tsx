@@ -59,7 +59,7 @@ const OPTIONS = [
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
     const { editingView } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery } = useActions(multitabEditorLogic)
+    const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
 
     const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
         useValues(dataWarehouseViewsLogic)
@@ -144,21 +144,21 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 </p>
                                 <LemonButton
                                     onClick={() => {
-                                        return (
-                                            editingView &&
+                                        if (editingView) {
                                             updateDataWarehouseSavedQuery({
                                                 id: editingView.id,
                                                 sync_frequency: '24hour',
                                                 types: [[]],
                                                 lifecycle: 'create',
                                             })
-                                        )
+                                        } else {
+                                            saveAsView({ materializeAfterSave: true })
+                                        }
                                     }}
                                     type="primary"
-                                    disabledReason={editingView ? undefined : 'You must save the view first'}
                                     loading={updatingDataWarehouseSavedQuery}
                                 >
-                                    Materialize
+                                    {editingView ? 'Materialize' : 'Save and materialize'}
                                 </LemonButton>
                             </div>
                         )}

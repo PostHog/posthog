@@ -97,6 +97,7 @@ class AssistantDurationRange(BaseModel):
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
 
@@ -384,6 +385,7 @@ class BreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -1359,6 +1361,7 @@ class MatchedRecordingEvent(BaseModel):
 class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -1687,19 +1690,6 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     )
     property: Optional[str] = None
     static: Optional[CurrencyCode] = None
-
-
-class RevenueTrackingDataWarehouseTable(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    distinctIdColumn: str
-    revenueColumn: str
-    revenueCurrencyColumn: Optional[RevenueCurrencyPropertyConfig] = Field(
-        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
-    )
-    tableName: str
-    timestampColumn: str
 
 
 class RevenueTrackingEventItem(BaseModel):
@@ -2820,6 +2810,7 @@ class HogQLQueryModifiers(BaseModel):
     sessionTableVersion: Optional[SessionTableVersion] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     useMaterializedViews: Optional[bool] = None
+    usePresortedEventsTable: Optional[bool] = None
 
 
 class HogQuery(BaseModel):
@@ -2945,7 +2936,6 @@ class QueryResponseAlternative8(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
@@ -3075,7 +3065,6 @@ class RevenueTrackingConfig(BaseModel):
         extra="forbid",
     )
     baseCurrency: Optional[CurrencyCode] = CurrencyCode.USD
-    dataWarehouseTables: Optional[list[RevenueTrackingDataWarehouseTable]] = []
     events: Optional[list[RevenueTrackingEventItem]] = []
 
 
@@ -5831,7 +5820,6 @@ class HogQLMetadataResponse(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
@@ -6865,7 +6853,6 @@ class RevenueExampleDataWarehouseTablesQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleDataWarehouseTablesQueryResponse] = None
-    revenueTrackingConfig: RevenueTrackingConfig
 
 
 class RevenueExampleEventsQuery(BaseModel):
@@ -6879,7 +6866,6 @@ class RevenueExampleEventsQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleEventsQueryResponse] = None
-    revenueTrackingConfig: RevenueTrackingConfig
 
 
 class SessionAttributionExplorerQuery(BaseModel):
@@ -6998,9 +6984,7 @@ class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Optional[
-        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    ] = None
+    answer: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None

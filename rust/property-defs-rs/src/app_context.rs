@@ -11,6 +11,7 @@ use crate::{
     metrics_consts::{
         CACHE_WARMING_STATE, GROUP_TYPE_CACHE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME,
         SINGLE_UPDATE_ISSUE_TIME, UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME,
+        V2_ISOLATED_DB_SELECTED,
     },
     types::{GroupType, Update},
 };
@@ -23,7 +24,19 @@ const PG_CONSTRAINT_CODES: [&str; 7] = [
 ];
 
 pub struct AppContext {
+    // this points to the (original, shared) CLOUD PG instance
+    // in both property-defs-rs and property-defs-rs-v2 deployments.
+    // the v2 deployment will use this pool to access tables that
+    // aren't slated to migrate to the isolated PROPDEFS DB in production
     pub pool: PgPool,
+
+    // this is only used by the property-defs-rs-v2 deployments, and
+    // only when the enabled_v2 config is set. This maps to the new
+    // PROPDEFS isolated PG instances in production, and the local
+    // Docker Compose DB in dev/test/CI. This will be *UNSET* in
+    // "v1" (property-defs-rs) deployments
+    pub propdefs_pool: Option<PgPool>,
+
     pub query_manager: Manager,
     pub liveness: HealthRegistry,
     pub worker_liveness: HealthHandle,
@@ -32,13 +45,28 @@ pub struct AppContext {
     pub skip_writes: bool,
     pub skip_reads: bool,
     pub group_type_cache: Cache<String, i32>, // Keyed on group-type name, and team id
+
+    // TEMPORARY: used to gate the process_batch_v2 write path until it becomes the new default
     pub enable_v2: bool,
+
+    // this will gate access to code specifically for use in the new mirror deployment
+    // and is INDEPENDENT of enable_v2. The main thing it gates at first is use of
+    // the new DB client pointed at the isolated Postgres "propdefs" instances in deploy
+    pub enable_mirror: bool,
 }
 
 impl AppContext {
     pub async fn new(config: &Config, qmgr: Manager) -> Result<Self, sqlx::Error> {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let pool = options.connect(&config.database_url).await?;
+        let orig_pool = options.connect(&config.database_url).await?;
+
+        let v2_pool = match config.enable_mirror {
+            true => {
+                let v2_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+                Some(v2_options.connect(&config.database_propdefs_url).await?)
+            }
+            _ => None,
+        };
 
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
@@ -48,7 +76,8 @@ impl AppContext {
         let group_type_cache = Cache::new(config.group_type_cache_size);
 
         Ok(Self {
-            pool,
+            pool: orig_pool,
+            propdefs_pool: v2_pool,
             query_manager: qmgr,
             liveness,
             worker_liveness,
@@ -58,6 +87,7 @@ impl AppContext {
             skip_reads: config.skip_reads,
             group_type_cache,
             enable_v2: config.enable_v2,
+            enable_mirror: config.enable_mirror,
         })
     }
 
@@ -80,7 +110,20 @@ impl AppContext {
 
         let transaction_time = common_metrics::timing_guard(UPDATE_TRANSACTION_TIME, &[]);
         if !self.skip_writes && !self.skip_reads {
-            let mut tx = self.pool.begin().await?;
+            // if enable_mirror is TRUE and we are in the mirror deploy: use propdefs write DB.
+            let mut write_pool = &self.pool;
+            if self.enable_mirror {
+                if let Some(resolved) = &self.propdefs_pool {
+                    metrics::counter!(
+                        V2_ISOLATED_DB_SELECTED,
+                        &[(String::from("processor"), String::from("v1"))]
+                    )
+                    .increment(1);
+                    write_pool = resolved;
+                }
+            }
+
+            let mut tx = write_pool.begin().await?;
 
             for update in updates {
                 let issue_time = common_metrics::timing_guard(SINGLE_UPDATE_ISSUE_TIME, &[]);
@@ -105,11 +148,11 @@ impl AppContext {
                         // and we're (hopefully) catching the frequent constraint errors above
                         metrics::counter!(UPDATES_SKIPPED, &[("reason", "unhandled_fail")])
                             .increment(1);
-                        tx.rollback().await?;
                         error!(
                             "Unhandled issue update error, bubbling up to batch: {:?}",
                             e
                         );
+                        tx.rollback().await?;
                         issue_time.label("outcome", "abort");
                         return Err(e);
                     }

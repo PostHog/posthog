@@ -66,6 +66,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         types: string[][]
                         sync_frequency?: string
                         lifecycle?: string
+                        shouldRematerialize?: boolean
                     }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
@@ -98,6 +99,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     sync_frequency: payload.sync_frequency,
                 })
             }
+
+            if (payload?.shouldRematerialize) {
+                actions.runDataWarehouseSavedQuery(payload.id)
+            }
+
             actions.loadDatabase()
             lemonToast.success('View updated')
         },

@@ -657,7 +657,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2150,6 +2150,7 @@
                 "cohort",
                 "person",
                 "event",
+                "event_metadata",
                 "group",
                 "session",
                 "hogql",
@@ -9769,9 +9770,6 @@
                 "isValid": {
                     "type": "boolean"
                 },
-                "isValidView": {
-                    "type": "boolean"
-                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -9949,6 +9947,9 @@
                     "type": "string"
                 },
                 "useMaterializedViews": {
+                    "type": "boolean"
+                },
+                "usePresortedEventsTable": {
                     "type": "boolean"
                 }
             },
@@ -11196,7 +11197,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "group", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NodeKind": {
@@ -12226,9 +12227,6 @@
                             "$ref": "#/definitions/QueryIndexUsage"
                         },
                         "isValid": {
-                            "type": "boolean"
-                        },
-                        "isValidView": {
                             "type": "boolean"
                         },
                         "notices": {
@@ -15142,12 +15140,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleDataWarehouseTablesQueryResponse": {
@@ -15217,12 +15212,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleEventsQueryResponse": {
@@ -15280,13 +15272,6 @@
                     "$ref": "#/definitions/CurrencyCode",
                     "default": "USD"
                 },
-                "dataWarehouseTables": {
-                    "default": [],
-                    "items": {
-                        "$ref": "#/definitions/RevenueTrackingDataWarehouseTable"
-                    },
-                    "type": "array"
-                },
                 "events": {
                     "default": [],
                     "items": {
@@ -15295,32 +15280,7 @@
                     "type": "array"
                 }
             },
-            "required": ["baseCurrency", "events", "dataWarehouseTables"],
-            "type": "object"
-        },
-        "RevenueTrackingDataWarehouseTable": {
-            "additionalProperties": false,
-            "properties": {
-                "distinctIdColumn": {
-                    "type": "string"
-                },
-                "revenueColumn": {
-                    "type": "string"
-                },
-                "revenueCurrencyColumn": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
-                    "default": {
-                        "static": "USD"
-                    }
-                },
-                "tableName": {
-                    "type": "string"
-                },
-                "timestampColumn": {
-                    "type": "string"
-                }
-            },
-            "required": ["tableName", "distinctIdColumn", "timestampColumn", "revenueColumn", "revenueCurrencyColumn"],
+            "required": ["baseCurrency", "events"],
             "type": "object"
         },
         "RevenueTrackingEventItem": {
@@ -16946,7 +16906,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query"],
+            "required": ["type", "query", "answer"],
             "type": "object"
         },
         "VizSpecificOptions": {
