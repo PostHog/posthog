@@ -73,7 +73,7 @@ const ContextMenuContent = React.forwardRef<
                 )}
                 {...props}
             >
-                <ScrollableShadows direction="vertical" styledScrollbars innerClassName="p-1 ">
+                <ScrollableShadows direction="vertical" styledScrollbars innerClassName="p-1 max-h-[calc(90vh-100px)]">
                     {children}
                 </ScrollableShadows>
             </ContextMenuPrimitive.Content>
