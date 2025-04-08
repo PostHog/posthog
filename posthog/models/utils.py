@@ -356,3 +356,45 @@ def validate_rate_limit(value):
             "%(value)s is not a valid rate limit format. Use formats like '5/s', '10/min', '2/hour', '1/day'.",
             params={"value": value},
         )
+
+
+class RootTeamQuerySet(models.QuerySet):
+    def filter(self, *args, **kwargs):
+        from posthog.models.team import Team
+        from django.db.models import Q, Subquery
+
+        # TODO: Handle team as a an object as well
+
+        if "team_id" in kwargs:
+            team_id = kwargs.pop("team_id")
+            parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
+            team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
+                team_id=team_id, team__parent_team_id__isnull=True
+            )
+            return super().filter(team_filter, *args, **kwargs)
+        return super().filter(*args, **kwargs)
+
+
+class RootTeamManager(models.Manager):
+    def get_queryset(self):
+        return RootTeamQuerySet(self.model, using=self._db)
+
+    def filter(self, *args, **kwargs):
+        return self.get_queryset().filter(*args, **kwargs)
+
+
+class RootTeamMixin(models.Model):
+    """
+    This ensures that when the related team has a parent team, the model will use the parent team instead.
+    This should apply to all models that should be "Project" scoped instead of "Environment" scoped.
+    """
+
+    objects = RootTeamManager()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if self.team and self.team.parent_team:
+            self.team = self.team.parent_team
+        super().save(*args, **kwargs)
