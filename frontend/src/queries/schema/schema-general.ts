@@ -1993,10 +1993,16 @@ export type ExperimentMeanMetric = ExperimentMetricBaseProperties & {
     source: ExperimentMetricSource
 }
 
+export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
+    metric.metric_type === ExperimentMetricType.MEAN
+
 export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
     series: ExperimentFunnelMetricStep[]
 }
+
+export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
+    metric.metric_type === ExperimentMetricType.FUNNEL
 
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>

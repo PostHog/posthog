@@ -17872,6 +17872,38 @@
         },
         "integer": {
             "type": "integer"
+        },
+        "isExperimentFunnelMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentFunnelMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentMeanMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
         }
     }
 }
