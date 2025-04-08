@@ -39,8 +39,9 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
         loadFromRawIds: (rawIds: ErrorTrackingStackFrame['raw_id'][]) => ({ rawIds }),
         loadForSymbolSet: (symbolSetId: ErrorTrackingSymbolSet['id']) => ({ symbolSetId }),
         setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
-        reverseFrameOrder: (reverseOrder: boolean) => ({ reverseOrder }),
         highlightRecordPart: (part: FingerprintRecordPart | null) => ({ part }),
+        setFrameOrderReversed: (reverseOrder: boolean) => ({ reverseOrder }),
+        setShowFingerprint: (showFingerprint: boolean) => ({ showFingerprint }),
     }),
 
     reducers(() => ({
@@ -51,11 +52,18 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                 setShowAllFrames: (_, { showAllFrames }) => showAllFrames,
             },
         ],
+        showFingerprint: [
+            false,
+            { persist: true },
+            {
+                setShowFingerprint: (_, { showFingerprint }) => showFingerprint,
+            },
+        ],
         frameOrderReversed: [
             false,
             { persist: true },
             {
-                reverseFrameOrder: (_, { reverseOrder }) => reverseOrder,
+                setFrameOrderReversed: (_, { reverseOrder }) => reverseOrder,
             },
         ],
         highlightedRecordPart: [
