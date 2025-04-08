@@ -226,10 +226,13 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             // Optimistic UI updates before sending updates to the backend
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+            if (schemaIndex === -1) {
+                lemonToast.error('Schema not found')
+                return
+            }
             clonedSource.schemas[schemaIndex].table = undefined
             clonedSource.schemas[schemaIndex].status = undefined
             clonedSource.schemas[schemaIndex].last_synced_at = undefined
-
             actions.loadSourceSuccess(clonedSource)
 
             try {
