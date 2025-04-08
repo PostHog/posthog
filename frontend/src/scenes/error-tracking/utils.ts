@@ -250,7 +250,7 @@ export function defaultSearchParams({ searchQuery, filterGroup, filterTestAccoun
     return searchParams
 }
 
-export function cancelEvent(event: React.MouseEvent<HTMLDivElement>): void {
+export function cancelEvent(event: React.MouseEvent<HTMLDivElement> | Event): void {
     event.preventDefault()
     event.stopPropagation()
 }
