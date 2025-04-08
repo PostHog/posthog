@@ -334,7 +334,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         showIntervalSelect: false,
                         insightProps: createInsightProps(tileId),
                         layout: layout ?? {
-                            className: '',
+                            className: 'flex flex-col h-full min-h-[400px]',
                         },
                         docs: {
                             title,
@@ -400,10 +400,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 TileId.PAGE_REPORTS_OUTBOUND_CLICKS,
                                 'Outbound Clicks',
                                 'External links users click on this page',
-                                queries.outboundClicksQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.outboundClicksQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
@@ -418,19 +415,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 TileId.PAGE_REPORTS_CHANNELS,
                                 'Channels',
                                 'Marketing channels bringing users to this page',
-                                queries.channelsQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.channelsQuery
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_REFERRERS,
                                 'Referrers',
                                 'Websites referring traffic to this page',
-                                queries.referrersQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.referrersQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
@@ -445,28 +436,19 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 TileId.PAGE_REPORTS_DEVICE_TYPES,
                                 'Device Types',
                                 'Types of devices used to access this page',
-                                queries.deviceTypeQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.deviceTypeQuery
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_BROWSERS,
                                 'Browsers',
                                 'Browsers used to access this page',
-                                queries.browserQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.browserQuery
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_OPERATING_SYSTEMS,
                                 'Operating Systems',
                                 'Operating systems used to access this page',
-                                queries.osQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.osQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
@@ -481,46 +463,31 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 TileId.PAGE_REPORTS_COUNTRIES,
                                 'Countries',
                                 'Countries where users access this page from',
-                                queries.countriesQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.countriesQuery
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_REGIONS,
                                 'Regions',
                                 'Regions where users access this page from',
-                                queries.regionsQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.regionsQuery
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_CITIES,
                                 'Cities',
                                 'Cities where users access this page from',
-                                queries.citiesQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.citiesQuery
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_TIMEZONES,
                                 'Timezones',
                                 'Timezones where users access this page from',
-                                queries.timezonesQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.timezonesQuery
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_LANGUAGES,
                                 'Languages',
                                 'Languages of users accessing this page',
-                                queries.languagesQuery,
-                                {
-                                    className: 'flex flex-col h-full min-h-[400px]',
-                                }
+                                queries.languagesQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
