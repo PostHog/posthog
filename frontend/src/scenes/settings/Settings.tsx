@@ -170,7 +170,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     const settings = settingsInSidebar ? [selectedSetting] : allSettings
 
     return (
-        <div className="gap-y-8">
+        <div className="flex flex-col gap-y-8">
             {settings.length ? (
                 settings.map((x) => (
                     <div key={x.id} className="relative last:mb-4">
