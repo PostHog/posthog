@@ -35,6 +35,7 @@ import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { AvailableFeature, MultivariateFlagOptions } from '~/types'
 import { SessionReplayUrlTriggerConfig } from '~/types'
 
@@ -611,10 +612,26 @@ function TriggerMatchChoice(): JSX.Element {
                     {
                         label: 'all',
                         value: 'all',
+                        labelInMenu: (
+                            <SelectOption
+                                title="All"
+                                description="Every single filter must match"
+                                value="all"
+                                selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
+                            />
+                        ),
                     },
                     {
                         label: 'any',
                         value: 'any',
+                        labelInMenu: (
+                            <SelectOption
+                                title="Any"
+                                description="One or more filters must match"
+                                value="any"
+                                selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
+                            />
+                        ),
                     },
                 ]}
                 dropdownMatchSelectWidth={false}
