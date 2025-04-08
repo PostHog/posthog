@@ -1,8 +1,8 @@
 from functools import cached_property
 import json
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Q, OuterRef, Subquery, Case, When, Value, F, IntegerField, Model, QuerySet
-from django.db.models.functions import Coalesce
+from django.db.models import Q, OuterRef, Case, When, Value, Model, QuerySet, Exists, CharField
+from django.db.models.functions import Cast
 from rest_framework import serializers
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
@@ -448,33 +448,34 @@ class UserAccessControl:
 
     def filter_and_annotate_file_system_queryset(self, queryset: QuerySet["FileSystem"]) -> QuerySet["FileSystem"]:
         """
-        Annotate each FileSystem with the effective_access_level and exclude items with
-        level = 'none' (unless the user is the creator or is staff/org-admin).
+        Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
+        and exclude items that end up with 'none', unless the user is the creator or project-admin or org-admin/staff.
         """
-
         user = self._user
         org_membership = self._organization_membership
 
-        # If staff or organization admin => skip extra filtering; user can see everything
+        # 1) If the user is staff or org-admin, they can see everything
         if user.is_staff or (org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN):
             return queryset
 
-        # 1) We’ll map each `access_level` to an integer: none=0, viewer=1, editor=2 (default=2)
-        access_level_order_case = Case(
-            When(access_level="none", then=Value(0)),
-            When(access_level="viewer", then=Value(1)),
-            When(access_level="editor", then=Value(2)),
-            default=Value(2),  # default to 'editor'
-            output_field=IntegerField(),
+        # Subquery to check if user has "admin" on the FileSystem's team/project
+        is_admin_for_project_subquery = (
+            AccessControl.objects.filter(
+                team_id=OuterRef("team_id"),
+                resource="project",
+                resource_id=Cast(OuterRef("team_id"), CharField()),
+            )
+            .filter(
+                Q(organization_member__user=user)
+                | Q(role__in=self._user_role_ids)
+                | Q(organization_member=None, role=None)
+            )
+            .filter(access_level="admin")
+            .values("pk")[:1]
         )
 
-        # 2) Build a Subquery that finds the highest relevant access level row
-        #    matching (team_id, resource=FileSystem.type, resource_id=FileSystem.ref).
-        #    Must match at least one of these conditions:
-        #       - organization_member__user = self._user
-        #       - role__in = self._user_role_ids
-        #       - organization_member = None and role = None (global default)
-        highest_level_subquery = (
+        # Subquery to check whether the user has "none" for this specific FileSystem
+        is_none_subquery = (
             AccessControl.objects.filter(
                 team_id=OuterRef("team_id"),
                 resource=OuterRef("type"),
@@ -485,23 +486,31 @@ class UserAccessControl:
                 | Q(role__in=self._user_role_ids)
                 | Q(organization_member=None, role=None)
             )
-            .annotate(level_value=access_level_order_case)
-            .order_by(-F("level_value"))
-            .values("level_value")[:1]
+            .filter(access_level="none")
+            .values("pk")[:1]
         )
 
-        # 3) Annotate the queryset with 'effective_access_level'.
+        # 2) Annotate the project-admin check + the is_none check
         queryset = queryset.annotate(
-            effective_access_level=Coalesce(
-                Subquery(highest_level_subquery),
-                Value(2),  # 'editor' by default if no AccessControl rows
-                output_field=IntegerField(),
+            is_project_admin=Exists(is_admin_for_project_subquery),
+            is_none_access=Exists(is_none_subquery),
+        )
+
+        # 3) Compute effective_access_level:
+        #
+        #    - If is_none_access is True => "none"
+        #    - Else => "some" ("editor" or "viewer")
+        queryset = queryset.annotate(
+            effective_access_level=Case(
+                When(is_none_access=True, then=Value("none")),
+                default=Value("some"),
+                output_field=CharField(),
             )
         )
 
-        # 4) Exclude items that have 'none' (0) unless user is the creator
-        #    i.e. skip items where effective_access_level=0 AND created_by != user
-        queryset = queryset.exclude(Q(effective_access_level=0) & ~Q(created_by=user))
+        # 4) Exclude items that are "none" if the user is not the creator,
+        #    not a project admin, and not an org-admin/staff (already handled in step #1).
+        queryset = queryset.exclude(Q(effective_access_level="none") & Q(is_project_admin=False) & ~Q(created_by=user))
 
         return queryset
 

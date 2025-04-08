@@ -385,8 +385,8 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         # We can also check the .effective_access_level annotation:
         a_for_user = filtered_for_user.get(id=self.file_a.id)
         b_for_user = filtered_for_user.get(id=self.file_b.id)
-        self.assertEqual(a_for_user.effective_access_level, 2)  # type: ignore
-        self.assertEqual(b_for_user.effective_access_level, 2)  # type: ignore
+        self.assertEqual(a_for_user.effective_access_level, "some")  # type: ignore
+        self.assertEqual(b_for_user.effective_access_level, "some")  # type: ignore
 
     def test_none_access_on_resource_excludes_items_for_non_creator(self):
         """
