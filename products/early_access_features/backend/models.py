@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 from django.db import models
-from posthog.models.utils import UUIDModel, RootTeamMixin, sane_repr
 from django.db.models import QuerySet
+from posthog.models.utils import UUIDModel, RootTeamMixin, sane_repr
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 

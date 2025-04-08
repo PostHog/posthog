@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.models.team import Team
-from .utils import RootTeamMixin
+from posthog.models.utils import RootTeamMixin
 
 
 class DataColorTheme(RootTeamMixin, models.Model):

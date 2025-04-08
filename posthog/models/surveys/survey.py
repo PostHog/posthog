@@ -7,7 +7,7 @@ from django.db import models
 from django.db.models import QuerySet
 
 from posthog.models import Action
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamMixin
 from django.contrib.postgres.fields import ArrayField
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation

@@ -6,7 +6,7 @@ from django.db import models
 from django.db.models import QuerySet
 
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamMixin
 from posthog.utils import generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 

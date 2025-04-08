@@ -4,7 +4,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import RootTeamMixin, RootTeamManager, sane_repr
+from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from django.db.models import QuerySet
 
 from posthog.utils import absolute_uri
@@ -90,7 +90,7 @@ class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # DEPRECATED: using the new "is_sharing_enabled" relation instead
     is_shared = models.BooleanField(default=False)
 
-    objects = DashboardManager()
+    objects = DashboardManager()  # type: ignore
     objects_including_soft_deleted: models.Manager["Dashboard"] = RootTeamManager()
 
     __repr__ = sane_repr("team_id", "id", "name")

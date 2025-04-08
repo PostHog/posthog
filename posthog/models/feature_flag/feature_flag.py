@@ -14,6 +14,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.signals import mutable_receiver
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.utils import RootTeamMixin
 
 from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
@@ -22,7 +23,6 @@ from posthog.constants import (
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
-from posthog.models.utils import RootTeamMixin
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 

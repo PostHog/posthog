@@ -2,7 +2,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import UniqueConstraint
 
-from posthog.models.utils import RootTeamMixin, RootTeamManager, UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamManager, RootTeamMixin
 
 
 class DashboardTemplateManager(RootTeamManager):
@@ -10,8 +10,8 @@ class DashboardTemplateManager(RootTeamManager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class DashboardTemplate(RootTeamMixin, UUIDModel):
-    objects = DashboardTemplateManager()
+class DashboardTemplate(UUIDModel, RootTeamMixin):
+    objects = DashboardTemplateManager()  # type: ignore
     objects_including_soft_deleted = RootTeamManager()
 
     class Scope(models.TextChoices):

@@ -389,12 +389,15 @@ class RootTeamMixin(models.Model):
     This should apply to all models that should be "Project" scoped instead of "Environment" scoped.
     """
 
+    # Set the default manager - any models that inherit from this mixin and set a custom
+    # manager (e.g. `objects = CustomManager()`) will override this, so that custom manager
+    # should inherit from RootTeamManager.
     objects = RootTeamManager()
 
     class Meta:
         abstract = True
 
-    def save(self, *args, **kwargs):
-        if self.team and self.team.parent_team:
-            self.team = self.team.parent_team
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
+            self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)

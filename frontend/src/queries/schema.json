@@ -15140,12 +15140,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleDataWarehouseTablesQueryResponse": {
@@ -15215,12 +15212,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleEventsQueryResponse": {
@@ -15278,13 +15272,6 @@
                     "$ref": "#/definitions/CurrencyCode",
                     "default": "USD"
                 },
-                "dataWarehouseTables": {
-                    "default": [],
-                    "items": {
-                        "$ref": "#/definitions/RevenueTrackingDataWarehouseTable"
-                    },
-                    "type": "array"
-                },
                 "events": {
                     "default": [],
                     "items": {
@@ -15293,32 +15280,7 @@
                     "type": "array"
                 }
             },
-            "required": ["baseCurrency", "events", "dataWarehouseTables"],
-            "type": "object"
-        },
-        "RevenueTrackingDataWarehouseTable": {
-            "additionalProperties": false,
-            "properties": {
-                "distinctIdColumn": {
-                    "type": "string"
-                },
-                "revenueColumn": {
-                    "type": "string"
-                },
-                "revenueCurrencyColumn": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
-                    "default": {
-                        "static": "USD"
-                    }
-                },
-                "tableName": {
-                    "type": "string"
-                },
-                "timestampColumn": {
-                    "type": "string"
-                }
-            },
-            "required": ["tableName", "distinctIdColumn", "timestampColumn", "revenueColumn", "revenueCurrencyColumn"],
+            "required": ["baseCurrency", "events"],
             "type": "object"
         },
         "RevenueTrackingEventItem": {
@@ -17910,6 +17872,38 @@
         },
         "integer": {
             "type": "integer"
+        },
+        "isExperimentFunnelMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentFunnelMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentMeanMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
         }
     }
 }

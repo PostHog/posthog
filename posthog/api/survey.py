@@ -63,7 +63,9 @@ class SurveyEventName(str, Enum):
 
 class EventStats(TypedDict):
     total_count: int
+    total_count_only_seen: int
     unique_persons: int
+    unique_persons_only_seen: int  # unique_persons - dismissed - sent
     first_seen: str | None
     last_seen: str | None
 
@@ -71,6 +73,8 @@ class EventStats(TypedDict):
 class SurveyRates(TypedDict):
     response_rate: float
     dismissal_rate: float
+    unique_users_response_rate: float
+    unique_users_dismissal_rate: float
 
 
 SurveyStats = TypedDict(
@@ -833,18 +837,26 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
+                "unique_persons_only_seen": 0,  # Calculated later in _get_survey_stats
+                "total_count_only_seen": 0,  # Calculated later in _get_survey_stats
             },
             "survey dismissed": {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
+                # These fields are not applicable/calculated for dismissed/sent
+                "unique_persons_only_seen": 0,
+                "total_count_only_seen": 0,
             },
             "survey sent": {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
+                # These fields are not applicable/calculated for dismissed/sent
+                "unique_persons_only_seen": 0,
+                "total_count_only_seen": 0,
             },
         }
 
@@ -855,6 +867,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "unique_persons": unique_persons,
                 "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
                 "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
+                # Ensure these are initialized to 0
+                "unique_persons_only_seen": 0,
+                "total_count_only_seen": 0,
             }
 
             if event_name == SurveyEventName.SHOWN.value:
@@ -864,6 +879,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif event_name == SurveyEventName.SENT.value:
                 stats["survey sent"] = event_stats
 
+        # REMOVED calculation block for _only_seen fields from here.
         return stats
 
     def _calculate_rates(self, stats: SurveyStats) -> SurveyRates:
@@ -878,15 +894,22 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         rates: SurveyRates = {
             "response_rate": 0.0,
             "dismissal_rate": 0.0,
+            "unique_users_response_rate": 0.0,
+            "unique_users_dismissal_rate": 0.0,
         }
 
         shown_count = stats["survey shown"]["total_count"]
         if shown_count > 0:
             sent_count = stats["survey sent"]["total_count"]
             dismissed_count = stats["survey dismissed"]["total_count"]
+            unique_users_shown_count = stats["survey shown"]["unique_persons"]
+            unique_users_sent_count = stats["survey sent"]["unique_persons"]
+            unique_users_dismissed_count = stats["survey dismissed"]["unique_persons"]
             rates = {
                 "response_rate": round(sent_count / shown_count * 100, 2),
                 "dismissal_rate": round(dismissed_count / shown_count * 100, 2),
+                "unique_users_response_rate": round(unique_users_sent_count / unique_users_shown_count * 100, 2),
+                "unique_users_dismissal_rate": round(unique_users_dismissed_count / unique_users_shown_count * 100, 2),
             }
         return rates
 
@@ -902,19 +925,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             Dictionary containing survey statistics and rates
         """
         parsed_from, parsed_to = self._validate_and_parse_dates(date_from, date_to)
-
-        # Build cache key based on parameters
-        cache_key_parts = [f"survey_stats_{self.team_id}"]
-        if survey_id:
-            cache_key_parts.append(str(survey_id))
-        # Use parsed dates for cache key to ensure consistent caching regardless of input timezone
-        cache_key_parts.extend([str(parsed_from), str(parsed_to)])
-        cache_key = "_".join(cache_key_parts)
-
-        # Try to get cached results first
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            return cached_data
 
         # Build query parameters
         params: dict[str, Any] = {"team_id": str(self.team_id)}
@@ -938,12 +948,20 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 Survey.objects.filter(team_id=self.team_id, archived=False).values_list("id", flat=True)
             )
             if not active_survey_ids:
-                return {"stats": {}, "rates": {"response_rate": 0.0, "dismissal_rate": 0.0}}
+                return {
+                    "stats": {},
+                    "rates": {
+                        "response_rate": 0.0,
+                        "dismissal_rate": 0.0,
+                        "unique_users_response_rate": 0.0,
+                        "unique_users_dismissal_rate": 0.0,
+                    },
+                }
             survey_filter = "AND JSONExtractString(properties, '$survey_id') IN %(survey_ids)s"
             params["survey_ids"] = [str(id) for id in active_survey_ids]
 
-        results = sync_execute(
-            f"""
+        # Query 1: Base Stats (Similar to original query)
+        base_stats_query = f"""
             SELECT
                 event as event_name,
                 count() as total_count,
@@ -956,33 +974,70 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {survey_filter}
             {date_filter}
             GROUP BY event
-            """,
-            {
-                **params,
-                "shown": SurveyEventName.SHOWN.value,
-                "dismissed": SurveyEventName.DISMISSED.value,
-                "sent": SurveyEventName.SENT.value,
-            },
-        )
+        """
+        query_params = {
+            **params,
+            "shown": SurveyEventName.SHOWN.value,
+            "dismissed": SurveyEventName.DISMISSED.value,
+            "sent": SurveyEventName.SENT.value,
+        }
+        results_base = sync_execute(base_stats_query, query_params)
 
-        stats = self._process_survey_results(results)
+        # Query 2: Count of unique persons who both dismissed AND sent
+        dismissed_and_sent_query = f"""
+            SELECT count()
+            FROM (
+                SELECT person_id
+                FROM events
+                WHERE team_id = %(team_id)s
+                  AND event IN (%(dismissed)s, %(sent)s)
+                  {survey_filter}
+                  {date_filter}
+                GROUP BY person_id
+                HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
+                   AND sum(if(event = %(sent)s, 1, 0)) > 0
+            ) AS PersonsWithBothEvents
+        """
+        dismissed_and_sent_count_result = sync_execute(dismissed_and_sent_query, query_params)
+        dismissed_and_sent_count = dismissed_and_sent_count_result[0][0] if dismissed_and_sent_count_result else 0
+
+        # Process initial stats
+        stats = self._process_survey_results(results_base)
+
+        # Adjust dismissed unique count
+        if "survey dismissed" in stats:
+            stats["survey dismissed"]["unique_persons"] -= dismissed_and_sent_count
+            # Ensure it doesn't go below zero, although logically it shouldn't
+            stats["survey dismissed"]["unique_persons"] = max(0, stats["survey dismissed"]["unique_persons"])
+
+        # Recalculate derived 'only_seen' counts based on final counts
+        if "survey shown" in stats:
+            # Get final counts, defaulting to 0 if a category has no events
+            unique_shown = stats.get("survey shown", {}).get("unique_persons", 0)
+            unique_dismissed = stats.get("survey dismissed", {}).get("unique_persons", 0)  # Use adjusted count
+            unique_sent = stats.get("survey sent", {}).get("unique_persons", 0)
+
+            total_shown = stats.get("survey shown", {}).get("total_count", 0)
+            total_dismissed = stats.get("survey dismissed", {}).get("total_count", 0)
+            total_sent = stats.get("survey sent", {}).get("total_count", 0)
+
+            # Calculate unique persons who only saw the survey
+            stats["survey shown"]["unique_persons_only_seen"] = unique_shown - unique_dismissed - unique_sent
+            stats["survey shown"]["unique_persons_only_seen"] = max(
+                0, stats["survey shown"]["unique_persons_only_seen"]
+            )
+
+            # Calculate total count for those who only saw the survey
+            stats["survey shown"]["total_count_only_seen"] = total_shown - total_dismissed - total_sent
+            stats["survey shown"]["total_count_only_seen"] = max(0, stats["survey shown"]["total_count_only_seen"])
+
+        # Calculate rates using the adjusted stats
         rates = self._calculate_rates(stats)
 
         response_data = {
             "stats": stats,
             "rates": rates,
         }
-
-        # Cache results with appropriate timeout
-        if parsed_to:
-            # Cache for 1 hour if looking at historical data
-            if parsed_to < datetime.now(UTC):
-                cache.set(cache_key, response_data, timeout=3600)  # 1 hour cache
-            else:
-                # Cache for 15 minutes if looking at recent/current data
-                cache.set(cache_key, response_data, timeout=900)
-        else:
-            cache.set(cache_key, response_data, timeout=900)
 
         return response_data
 

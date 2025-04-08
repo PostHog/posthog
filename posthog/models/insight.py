@@ -30,7 +30,7 @@ class InsightManager(RootTeamManager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Insight(FileSystemSyncMixin, RootTeamMixin, models.Model):
+class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
     reports or part of a dashboard.
@@ -102,8 +102,8 @@ class Insight(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     __repr__ = sane_repr("team_id", "id", "short_id", "name")
 
-    objects = InsightManager()
-    objects_including_soft_deleted = RootTeamManager()
+    objects = InsightManager()  # type: ignore
+    objects_including_soft_deleted: models.Manager["Insight"] = RootTeamManager()
 
     class Meta:
         db_table = "posthog_dashboarditem"
