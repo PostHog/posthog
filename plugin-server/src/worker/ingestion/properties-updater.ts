@@ -16,7 +16,6 @@ interface PropertiesUpdate {
 export async function upsertGroup(
     db: DB,
     teamId: TeamId,
-    projectId: TeamId,
     groupTypeIndex: GroupTypeIndex,
     groupKey: string,
     properties: Properties,
@@ -93,7 +92,7 @@ export async function upsertGroup(
         }
         if (error instanceof RaceConditionError) {
             // Try again - lock the row and insert!
-            return upsertGroup(db, teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
+            return upsertGroup(db, teamId, groupTypeIndex, groupKey, properties, timestamp)
         }
         throw error
     }

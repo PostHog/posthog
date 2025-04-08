@@ -169,7 +169,7 @@ export class EventsProcessor {
             properties = await addGroupProperties(team.id, team.project_id, properties, this.groupTypeManager)
 
             if (event === '$groupidentify') {
-                await this.upsertGroup(team.id, team.project_id, properties, timestamp)
+                await this.upsertGroup(team, team.id, properties, timestamp)
             }
         }
 
@@ -180,7 +180,6 @@ export class EventsProcessor {
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
             teamId: team.id,
-            projectId: team.project_id,
         }
     }
 
@@ -241,7 +240,6 @@ export class EventsProcessor {
             properties: JSON.stringify(properties ?? {}),
             timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
             team_id: teamId,
-            project_id: projectId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
@@ -256,7 +254,7 @@ export class EventsProcessor {
 
     emitEvent(rawEvent: RawClickHouseEvent, team: Team): Promise<void> {
         // NOTE: We add extra properties to the produced event as the prop-defs service needs them
-        const kafkaEvent: RawKafkaEvent = {
+        const kafkaEvent: RawClickHouseEvent & { project_id: number; root_project_id: number } = {
             ...rawEvent,
             // NOTE: project_id will be removed once the service is updated using the new root_project_id
             project_id: team.root_team_id,
@@ -283,29 +281,16 @@ export class EventsProcessor {
             })
     }
 
-    private async upsertGroup(
-        teamId: TeamId,
-        projectId: ProjectId,
-        properties: Properties,
-        timestamp: DateTime
-    ): Promise<void> {
+    private async upsertGroup(team: Team, properties: Properties, timestamp: DateTime): Promise<void> {
         if (!properties['$group_type'] || !properties['$group_key']) {
             return
         }
 
         const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
-        const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
+        const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(team, groupType)
 
         if (groupTypeIndex !== null) {
-            await upsertGroup(
-                this.db,
-                teamId,
-                projectId,
-                groupTypeIndex,
-                groupKey.toString(),
-                groupPropertiesToSet || {},
-                timestamp
-            )
+            await upsertGroup(this.db, team, groupTypeIndex, groupKey.toString(), groupPropertiesToSet || {}, timestamp)
         }
     }
 
