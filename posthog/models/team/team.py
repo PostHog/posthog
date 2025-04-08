@@ -140,6 +140,13 @@ class TeamManager(models.Manager):
                 if name := kwargs.get("name"):
                     project_kwargs["name"] = name
                 kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
+            else:
+                # NOTE: Interim code until we remove Project - we fill the parent_team_id field
+                project_id = kwargs.get("project_id", kwargs.get("project").id)
+
+                if project_id != kwargs["id"]:
+                    kwargs["parent_team_id"] = project_id
+
             return super().create(**kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
