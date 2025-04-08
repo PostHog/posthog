@@ -337,7 +337,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         surveyUserStats: {
             loadSurveyUserStats: async (): Promise<SurveyStats | null> => {
-                if (props.id === NEW_SURVEY.id) {
+                if (props.id === NEW_SURVEY.id || values.survey.start_date === null) {
                     return null
                 }
                 const survey: Survey = values.survey as Survey
