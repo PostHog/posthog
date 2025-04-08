@@ -22,8 +22,8 @@ class HogQLGeneratorArgs(BaseModel):
 
 class HogQLGeneratorTool(MaxTool):
     name: str = "generate_hogql_query"
-    description: str = "Generate a hogQL query to answer the user's question."
-    thinking_message: str = "Coming up with a hogQL query"
+    description: str = "Generate an SQL query to answer the user's question"
+    thinking_message: str = "Coming up with an SQL query"
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
@@ -60,11 +60,15 @@ class HogQLGeneratorTool(MaxTool):
         )
 
         chain = prompt | self._model
-        result = chain.invoke({**self.context})
 
-        result = self._parse_output(result, hogql_context)
+        for _ in range(3):
+            try:
+                result = chain.invoke({**self.context})
+                parsed_result = self._parse_output(result, hogql_context)
+            except PydanticOutputParserException as e:
+                prompt += f"Avoid this error: {str(e)}"
 
-        return "```sql\n" + result + "\n```", result
+        return "```sql\n" + parsed_result + "\n```", parsed_result
 
     @property
     def _model(self):

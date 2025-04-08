@@ -133,14 +133,13 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             </div>
             <MaxTool
                 name="generate_hogql_query"
-                displayName="Generate hogQL query"
+                displayName="Write and tweak SQL"
                 context={{
                     current_query: queryInput,
                 }}
                 callback={(toolOutput: string) => {
                     setSuggestedQueryInput(toolOutput)
                 }}
-                initialMaxPrompt="Generate "
             >
                 <QueryPane
                     originalValue={
