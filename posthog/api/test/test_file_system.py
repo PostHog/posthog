@@ -1,10 +1,12 @@
 from rest_framework import status
 from posthog.api.file_system import has_permissions_to_access_tree_view
 from posthog.test.base import APIBaseTest
-from posthog.models import FeatureFlag, Dashboard, Experiment, Insight, Notebook
+from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook
 from posthog.models.file_system.file_system import FileSystem
 from unittest.mock import patch
 from rest_framework.exceptions import PermissionDenied
+import pytest
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestFileSystemAPIPermissions(APIBaseTest):
@@ -631,3 +633,180 @@ class TestFileSystemAPI(APIBaseTest):
         # The full path "A/B/C" should NOT be created by assure_parent_folders.
         folder_abc = FileSystem.objects.filter(team=self.team, path="A/B/C").first()
         self.assertIsNone(folder_abc)
+
+
+@pytest.mark.ee  # Mark these tests to run only if EE code is available (for AccessControl)
+class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
+    """
+    These tests confirm that 'filter_and_annotate_file_system_queryset' actually
+    excludes items marked 'none' from the user's perspective, triggers 404 on
+    detail endpoints, etc., unless the user is the creator, staff, or project admin.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Enable advanced permissions & role-based access
+        self.organization.available_product_features = [
+            {"key": "advanced_permissions", "name": "advanced_permissions"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+
+        # Make our main user NOT staff => must rely on feature flag or ACL
+        self.user.is_staff = False
+        self.user.save()
+
+        # Another user in the same organization
+        self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testpass")
+
+        # Create two files:
+        # file_a => (type="doc", ref="FileA")
+        # file_b => (type="doc", ref="FileB")
+        # That way, we can create AccessControl rows that match resource="doc", resource_id="FileB"
+        self.file_a = FileSystem.objects.create(
+            team=self.team,
+            path="Docs/FileA",
+            depth=2,
+            type="doc",
+            ref="FileA",
+            created_by=self.user,
+        )
+        self.file_b = FileSystem.objects.create(
+            team=self.team,
+            path="Docs/FileB",
+            depth=2,
+            type="doc",
+            ref="FileB",
+            created_by=self.other_user,
+        )
+        self.folder = FileSystem.objects.create(
+            team=self.team,
+            path="Docs",
+            depth=2,
+            type="folder",
+            created_by=self.user,
+        )
+
+    def _create_access_control(self, resource, resource_id, access_level, organization_member=None, role=None):
+        """
+        Helper to create an AccessControl row. Ensures 'team' is set.
+        """
+        return AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=organization_member,
+            role=role,
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_list_excludes_items_with_none_access(self, mock_flag):
+        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+        # The user is not staff, not the creator of file_b => 'none' should exclude it
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+
+        # We'll see Docs/FileA but not Docs/FileB
+        paths = {item["path"] for item in data["results"]}
+        self.assertIn("Docs/FileA", paths)
+        self.assertNotIn("Docs/FileB", paths)
+
+        # Meanwhile, the other_user is the creator of file_b => they can see it
+        self.client.force_login(self.other_user)
+        response2 = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(response2.status_code, status.HTTP_200_OK, response2.json())
+        data2 = response2.json()
+        paths2 = {item["path"] for item in data2["results"]}
+        # other_user sees both items, since file_a is not blocked, file_b is created_by them
+        self.assertIn("Docs/FileA", paths2)
+        self.assertIn("Docs/FileB", paths2)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_excludes_none_access_objects(self, mock_flag):
+        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+
+        # Attempt to delete file_b => expect 404 because user doesn't see it
+        url = f"/api/projects/{self.team.id}/file_system/{self.file_b.id}/"
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Confirm we can still delete file_a (which isn't restricted).
+        url_a = f"/api/projects/{self.team.id}/file_system/{self.file_a.id}/"
+        resp_a = self.client.delete(url_a)
+        self.assertEqual(resp_a.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FileSystem.objects.filter(pk=self.file_a.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_move_excludes_none_access_objects(self, mock_flag):
+        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+        url = f"/api/projects/{self.team.id}/file_system/{self.file_b.id}/move"
+        resp = self.client.post(url, {"new_path": "NewDocs/FileB"})
+        # Because user doesn't see file_b => 404
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_link_and_count_on_none_access(self, mock_flag):
+        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+
+        # link
+        link_url = f"/api/projects/{self.team.id}/file_system/{self.file_b.id}/link"
+        resp_link = self.client.post(link_url, {"new_path": "Anywhere/FileBCopy"})
+        self.assertEqual(resp_link.status_code, status.HTTP_404_NOT_FOUND)
+
+        count_url = f"/api/projects/{self.team.id}/file_system/{self.folder.id}/count"
+        resp = self.client.post(count_url)
+        self.assertEqual(resp.json()["count"], 1)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_project_admin_override_none_access(self, mock_flag):
+        # Mark file_b => none for everyone
+        AccessControl.objects.create(
+            team=self.team,
+            resource="doc",
+            resource_id="FileB",
+            access_level="none",
+        )
+        # Confirm by default we don't see file_b
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        resp = self.client.get(list_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        paths = {item["path"] for item in resp.json()["results"]}
+        self.assertNotIn("Docs/FileB", paths)
+
+        # Now give the user "admin" on the entire project
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+        )
+
+        # Re-list => user can see file_b now
+        resp2 = self.client.get(list_url)
+        self.assertEqual(resp2.status_code, status.HTTP_200_OK)
+        paths2 = {item["path"] for item in resp2.json()["results"]}
+        self.assertIn("Docs/FileB", paths2)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_staff_user_sees_all_despite_none(self, mock_flag):
+        # Mark the user staff => skip ACL
+        self.user.is_staff = True
+        self.user.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="doc",
+            resource_id="FileB",
+            access_level="none",
+        )
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        resp = self.client.get(list_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        paths = {item["path"] for item in resp.json()["results"]}
+
+        # staff user sees everything
+        self.assertIn("Docs/FileA", paths)
+        self.assertIn("Docs/FileB", paths)

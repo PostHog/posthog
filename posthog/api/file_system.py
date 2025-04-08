@@ -17,6 +17,7 @@ from posthog.models.user import User
 from posthog.models.team import Team
 
 
+# TODO: remove this once we release the flag as an early access feature
 def has_permissions_to_access_tree_view(user, team):
     tree_view_enabled = posthoganalytics.feature_enabled(
         "tree-view",
@@ -146,7 +147,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.type == "folder":
-            FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").delete()
+            qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+            if self.user_access_control:
+                qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+            qs.delete()
         instance.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -159,9 +163,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         retroactively_fix_folders_and_depth(self.team, cast(User, request.user))
 
+        if self.user_access_control:
+            qs = FileSystem.objects.filter(id__in=[f.id for f in files])
+            qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+            file_count = qs.count()
+        else:
+            file_count = len(files)
+
         return Response(
             {
-                "count": len(files),
+                "count": file_count,
             },
             status=status.HTTP_200_OK,
         )
@@ -180,7 +191,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
-                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                # ADDED: Filter out items the user shouldn't see or act on
+                qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+                if self.user_access_control:
+                    qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+                for file in qs:
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
                     file.save()
@@ -219,7 +234,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"detail": "Cannot link folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
-                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+                if self.user_access_control:
+                    qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+
+                for file in qs:
                     file.pk = None  # This removes the id
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
@@ -252,8 +271,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         if instance.type != "folder":
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
-        count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
-        return Response({"count": count}, status=status.HTTP_200_OK)
+
+        qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+        if self.user_access_control:
+            qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+
+        return Response({"count": qs.count()}, status=status.HTTP_200_OK)
 
 
 def assure_parent_folders(path: str, team: Team, created_by: User) -> None:
