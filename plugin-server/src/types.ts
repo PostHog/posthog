@@ -1113,50 +1113,7 @@ export type IngestEventResponse =
     | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
     | { success: false; error: string }
 
-export enum UnixTimestampPropertyTypeFormat {
-    UNIX_TIMESTAMP = 'unix_timestamp',
-    UNIX_TIMESTAMP_MILLISECONDS = 'unix_timestamp_milliseconds',
-}
-
-export enum DateTimePropertyTypeFormat {
-    ISO8601_DATE = 'YYYY-MM-DDThh:mm:ssZ',
-    FULL_DATE = 'YYYY-MM-DD hh:mm:ss',
-    FULL_DATE_INCREASING = 'DD-MM-YYYY hh:mm:ss',
-    DATE = 'YYYY-MM-DD',
-    RFC_822 = 'rfc_822',
-    WITH_SLASHES = 'YYYY/MM/DD hh:mm:ss',
-    WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
-}
-
-export enum PropertyType {
-    DateTime = 'DateTime',
-    String = 'String',
-    Numeric = 'Numeric',
-    Boolean = 'Boolean',
-}
-
-export enum PropertyDefinitionTypeEnum {
-    Event = 1,
-    Person = 2,
-    Group = 3,
-    Session = 4,
-}
-
 export type ResolvedGroups = Record<string, number>
-
-export interface PropertyDefinitionType {
-    id: string
-    name: string
-    is_numerical: boolean
-    team_id: number
-    project_id: number | null
-    property_type: PropertyType | null
-    type: PropertyDefinitionTypeEnum
-    group_type_name?: string
-    group_type_index?: number | null
-    volume_30_day?: number | null
-    query_usage_30_day?: number | null
-}
 
 export interface EventPropertyType {
     id: string
