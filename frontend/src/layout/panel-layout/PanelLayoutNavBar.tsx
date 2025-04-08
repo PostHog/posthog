@@ -59,10 +59,21 @@ const panelStyles = cva({
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier, toggleLayoutNavCollapsed } =
-        useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, activePanelIdentifier, mainContentRef, isLayoutPanelPinned, isLayoutNavCollapsed } =
-        useValues(panelLayoutLogic)
+    const {
+        showLayoutPanel,
+        setActivePanelIdentifier,
+        clearActivePanelIdentifier,
+        toggleLayoutNavCollapsed,
+        setVisibleSideAction,
+    } = useActions(panelLayoutLogic)
+    const {
+        isLayoutPanelVisible,
+        activePanelIdentifier,
+        mainContentRef,
+        isLayoutPanelPinned,
+        isLayoutNavCollapsed,
+        visibleSideAction,
+    } = useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { mobileLayout: isMobileLayout, navbarItems } = useValues(navigation3000Logic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
@@ -424,6 +435,48 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         >
                                                                             {item.sideAction.icon}
                                                                         </ButtonPrimitive>
+                                                                    </ListBox.Item>
+                                                                )}
+
+                                                            {!isLayoutNavCollapsed &&
+                                                                item.sideAction &&
+                                                                item.identifier === 'Groups' &&
+                                                                item.sideAction.dropdown?.overlay && (
+                                                                    <ListBox.Item
+                                                                        asChild
+                                                                        key={`${item.identifier}-dropdown`}
+                                                                    >
+                                                                        <Popover
+                                                                            visible={
+                                                                                visibleSideAction === item.identifier
+                                                                            }
+                                                                            overlay={item.sideAction.dropdown.overlay}
+                                                                            placement={
+                                                                                item.sideAction.dropdown.placement
+                                                                            }
+                                                                            showArrow={false}
+                                                                            onClickInside={() => {
+                                                                                setVisibleSideAction('')
+                                                                            }}
+                                                                        >
+                                                                            <ButtonPrimitive
+                                                                                sideActionRight
+                                                                                active={
+                                                                                    visibleSideAction ===
+                                                                                    item.identifier
+                                                                                }
+                                                                                onClick={() => {
+                                                                                    visibleSideAction ===
+                                                                                    item.identifier
+                                                                                        ? setVisibleSideAction('')
+                                                                                        : setVisibleSideAction(
+                                                                                              item.identifier
+                                                                                          )
+                                                                                }}
+                                                                            >
+                                                                                <IconChevronRight className="size-3 text-secondary" />
+                                                                            </ButtonPrimitive>
+                                                                        </Popover>
                                                                     </ListBox.Item>
                                                                 )}
                                                         </ButtonGroupPrimitive>
