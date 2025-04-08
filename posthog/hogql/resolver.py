@@ -211,9 +211,9 @@ class Resolver(CloningVisitor):
             elif isinstance(new_expr, ast.Alias):
                 alias = new_expr.alias
             elif isinstance(new_expr.type, ast.CallType):
-                from posthog.hogql.printer import print_ast_call
+                from posthog.hogql.printer import print_prepared_ast
 
-                alias = print_ast_call(new_expr, self.context)
+                alias = print_prepared_ast(node=new_expr, context=self.context, dialect="hogql")
             else:
                 alias = None
 
