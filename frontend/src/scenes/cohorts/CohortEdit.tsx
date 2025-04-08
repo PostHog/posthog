@@ -49,7 +49,14 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
     return (
         <div className="cohort">
-            <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
+            <Form
+                id="cohort"
+                logic={cohortEditLogic}
+                props={logicProps}
+                formKey="cohort"
+                enableFormOnSubmit
+                className={cohort.is_calculating ? 'pointer-events-none opacity-50' : ''}
+            >
                 <PageHeader
                     buttons={
                         <div className="flex items-center gap-2">
@@ -60,7 +67,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     onClick={() => {
                                         router.actions.push(urls.cohorts())
                                     }}
-                                    disabled={cohortLoading}
+                                    disabledReason={cohortLoading ? 'Cohort is loading' : undefined}
                                 >
                                     Cancel
                                 </LemonButton>
