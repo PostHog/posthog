@@ -33,6 +33,7 @@ import {
     SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveySchedule,
+    SurveyStats,
 } from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
@@ -90,12 +91,6 @@ export interface SurveyLogicProps {
 export interface SurveyMetricsQueries {
     surveysShown: DataTableNode
     surveysDismissed: DataTableNode
-}
-
-export interface SurveyUserStats {
-    seen: number
-    dismissed: number
-    sent: number
 }
 
 export interface SurveyRatingResults {
@@ -249,6 +244,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -340,56 +336,17 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         surveyUserStats: {
-            loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
+            loadSurveyUserStats: async (): Promise<SurveyStats> => {
                 const survey: Survey = values.survey as Survey
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
+                const stats = await api.surveys.getSurveyStats({
+                    surveyId: props.id,
+                    dateFrom: startDate,
+                    dateTo: endDate,
+                })
 
-                const answerFilter = createAnswerFilterHogQLExpression(values.answerFilters, survey)
-
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING SURVEY USER STATS
-                        SELECT
-                            (SELECT COUNT(DISTINCT person_id)
-                                FROM events
-                                WHERE event = 'survey shown'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters}),
-                                    (SELECT COUNT(DISTINCT person_id)
-                                    FROM events
-                                    WHERE event = 'survey dismissed'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters}),
-                                    (SELECT COUNT(DISTINCT person_id)
-                                    FROM events
-                                    WHERE event = 'survey sent'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters})
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
-
-                const responseJSON = await api.query(query)
-                const { results } = responseJSON
-                if (results && results[0]) {
-                    const [totalSeen, dismissed, sent] = results[0]
-                    const onlySeen = totalSeen - dismissed - sent
-                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
-                }
-                return { seen: 0, dismissed: 0, sent: 0 }
+                return stats
             },
         },
         surveyRatingResults: {
@@ -837,6 +794,13 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
     reducers({
+        filterSurveyStatsByDistinctId: [
+            true,
+            { persist: true },
+            {
+                setFilterSurveyStatsByDistinctId: (_, { filterByDistinctId }) => filterByDistinctId,
+            },
+        ],
         isEditingSurvey: [
             false,
             {
