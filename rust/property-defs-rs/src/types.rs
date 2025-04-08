@@ -362,7 +362,7 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
             } else {
                 Some(PropertyValueType::String)
             }
-        }
+        },
 
         Value::Number(_) => Some(PropertyValueType::Numeric),
 
