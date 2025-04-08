@@ -22,6 +22,9 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from collections.abc import Generator, Callable
 from typing import Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -92,7 +95,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     return
                 yield chunk.encode()
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e), 'status_code': 500})}\n\n".encode()
+            logger.exception(f"Error in LLM proxy stream: {e}")
+            yield f"data: {json.dumps({'error': 'An internal error occurred', 'status_code': 500})}\n\n".encode()
 
     def _create_streaming_response(self, stream: Generator[bytes, None, None]) -> StreamingHttpResponse:
         """Creates a properly configured SSE streaming response"""
@@ -154,7 +158,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
             return self._create_streaming_response(stream)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            logger.exception(f"Error in LLM proxy: {e}")
+            return Response({"error": "An internal error occurred"}, status=500)
 
     def _get_completion_provider(self, data: dict) -> Any:
         """Factory method for completion providers"""
