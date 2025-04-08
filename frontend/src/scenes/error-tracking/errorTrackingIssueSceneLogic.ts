@@ -181,10 +181,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             (s) => [s.exceptionAttributes],
             (attributes: ExceptionAttributes | null) => attributes?.fingerprintRecords,
         ],
-        hasNonInAppFrames: [
-            (s) => [s.exceptionList],
-            (excList: ErrorTrackingException[]) => hasNonInAppFrames(excList),
-        ],
         hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
         sessionId: [
             (s) => [s.properties],
