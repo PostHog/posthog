@@ -10,6 +10,13 @@ import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP 
 export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
+export const SEARCHABLE_EXCEPTION_PROPERTIES = [
+    '$exception_types',
+    '$exception_values',
+    '$exception_sources',
+    '$exception_functions',
+]
+
 const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
 const sumVolumes = (...arrays: number[][]): number[] =>
     arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))

@@ -6,9 +6,18 @@ import {
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    ChartDisplayType,
+    EventPropertyFilter,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
 
-import { resolveDateRange } from './utils'
+import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
 
 export const errorTrackingQuery = ({
     orderBy,
@@ -73,11 +82,13 @@ export const errorTrackingIssueEventsQuery = ({
     issueId,
     filterTestAccounts,
     filterGroup,
+    searchQuery,
     dateRange,
 }: {
     issueId: string | null
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
+    searchQuery: string
     dateRange: DateRange
 }): DataTableNode | null => {
     if (!issueId) {
@@ -92,6 +103,20 @@ export const errorTrackingIssueEventsQuery = ({
     const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = group.values as AnyPropertyFilter[]
+
+    if (searchQuery) {
+        properties.push(
+            ...SEARCHABLE_EXCEPTION_PROPERTIES.map(
+                (prop): EventPropertyFilter => ({
+                    type: PropertyFilterType.Event,
+                    operator: PropertyOperator.IContains,
+                    key: prop,
+                    value: searchQuery,
+                })
+            )
+        )
+    }
+
     const where = [`'${issueId}' == issue_id`]
 
     const eventsQuery: EventsQuery = {
