@@ -405,7 +405,7 @@ class PathsV2QueryRunner(QueryRunner):
                 /* Replace source_step with "other", when it's not found in the top targets subquery for the previous step. */
                 CASE
                     -- always keep dropoffs
-                    WHEN p.source_step = '$$_posthog_dropoff_$$'
+                    WHEN p.source_step = {POSTHOG_DROPOFF}
                     -- always keep nulls, they indicate the path start
                     OR p.source_step IS NULL
                     -- lookup step in the subquery
@@ -416,7 +416,7 @@ class PathsV2QueryRunner(QueryRunner):
                 /* Replace target_step with "other", when it's not found in the top targets subquery. */
                 CASE
                     -- always keep dropoffs
-                    WHEN p.target_step = '$$_posthog_dropoff_$$'
+                    WHEN p.target_step = {POSTHOG_DROPOFF}
                     -- lookup step in the subquery
                     OR t.target_step != '' THEN p.target_step
                     ELSE {POSTHOG_OTHER}

@@ -228,7 +228,7 @@ class TestPathsV2(SharedSetup):
                 PathsV2Item(step_index=2.0, source_step="b", target_step="b", value=1.0),
                 PathsV2Item(step_index=3.0, source_step="b", target_step="c", value=1.0),
                 PathsV2Item(step_index=4.0, source_step="c", target_step="c", value=1.0),
-                PathsV2Item(step_index=5.0, source_step="c", target_step="$$_posthog_dropoff_$$", value=1.0),
+                PathsV2Item(step_index=5.0, source_step="c", target_step=POSTHOG_DROPOFF, value=1.0),
             ],
         )
 
@@ -244,7 +244,7 @@ class TestPathsV2(SharedSetup):
             [
                 PathsV2Item(step_index=1.0, source_step="a", target_step="b", value=1.0),
                 PathsV2Item(step_index=2.0, source_step="b", target_step="c", value=1.0),
-                PathsV2Item(step_index=3.0, source_step="c", target_step="$$_posthog_dropoff_$$", value=1.0),
+                PathsV2Item(step_index=3.0, source_step="c", target_step=POSTHOG_DROPOFF, value=1.0),
             ],
         )
 
@@ -284,7 +284,7 @@ class TestPathsV2(SharedSetup):
                 PathsV2Item(step_index=2.0, source_step="b", target_step="b", value=1.0),
                 PathsV2Item(step_index=3.0, source_step="b", target_step="c", value=1.0),
                 PathsV2Item(step_index=4.0, source_step="c", target_step="c", value=1.0),
-                PathsV2Item(step_index=5.0, source_step="c", target_step="$$_posthog_dropoff_$$", value=1.0),
+                PathsV2Item(step_index=5.0, source_step="c", target_step=POSTHOG_DROPOFF, value=1.0),
             ],
         )
 
