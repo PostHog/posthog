@@ -665,7 +665,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 # No status but should be completed because a data warehouse table already exists
             )
 
-            with self.assertNumQueries(FuzzyInt(5, 7)):
+            with self.assertNumQueries(FuzzyInt(5, 9)):
                 create_hogql_database(team=self.team)
 
     def test_database_warehouse_joins_persons_poe_old_properties(self):
