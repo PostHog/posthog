@@ -341,7 +341,11 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                                 id="data-warehouse-schema-delete"
                                                                 type="tertiary"
                                                                 onClick={() => {
-                                                                    if (window.confirm(`Are you sure you want to delete the table ${schema.table.name} from PostHog?`)) {
+                                                                    if (
+                                                                        window.confirm(
+                                                                            `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
+                                                                        )
+                                                                    ) {
                                                                         deleteTable(schema)
                                                                     }
                                                                 }}
