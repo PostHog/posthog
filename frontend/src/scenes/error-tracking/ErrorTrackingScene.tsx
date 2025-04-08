@@ -27,13 +27,7 @@ import { InsightLogicProps } from '~/types'
 
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
-import {
-    DateRangeFilter,
-    ErrorTrackingFilters,
-    FilterGroup,
-    InternalAccountsFilter,
-    UniversalSearch,
-} from './ErrorTrackingFilters'
+import { DateRangeFilter, ErrorTrackingFilters, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -82,7 +76,6 @@ export function ErrorTrackingScene(): JSX.Element {
                 <ErrorTrackingFilters>
                     <DateRangeFilter />
                     <FilterGroup />
-                    <UniversalSearch />
                     <InternalAccountsFilter />
                 </ErrorTrackingFilters>
                 <LemonDivider className="mt-2" />
