@@ -65,6 +65,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return state ? { ...state, status } : null
             },
         },
+        summary: {},
     }),
 
     selectors({
