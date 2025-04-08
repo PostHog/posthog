@@ -50,7 +50,7 @@ export function convertFileSystemEntryToTreeDataItem({
                 id,
                 name: folderName,
                 displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm ?? ''} />,
-                record: { type: 'folder', id, path: fullPath },
+                record: { type: 'folder', id: null, path: fullPath },
                 children: [],
                 checked: checkedItems[id],
             }
@@ -87,11 +87,22 @@ export function convertFileSystemEntryToTreeDataItem({
             currentLevel = folderNode.children!
         }
 
-        if (
-            item.type === 'folder' &&
-            currentLevel.find((node) => node.record?.path === item.path && node.record?.type === 'folder')
-        ) {
-            continue
+        let accumulatedChildren: TreeDataItem[] = []
+        if (item.type === 'folder') {
+            const folderMatch = (node: TreeDataItem): boolean =>
+                node.record?.path === item.path && node.record?.type === 'folder'
+            const existingFolder = currentLevel.find(folderMatch)
+            if (existingFolder) {
+                if (existingFolder.id) {
+                    continue
+                } else {
+                    // We have a folder without an id, but the incoming one has an id. Remove the current one
+                    currentLevel = currentLevel.filter((node) => !folderMatch(node))
+                    if (existingFolder.children) {
+                        accumulatedChildren = [...accumulatedChildren, ...existingFolder.children]
+                    }
+                }
+            }
         }
 
         // Create the actual item node.
@@ -119,6 +130,9 @@ export function convertFileSystemEntryToTreeDataItem({
         if (item.type === 'folder') {
             if (!node.children) {
                 node.children = []
+            }
+            if (accumulatedChildren) {
+                node.children = [...node.children, ...accumulatedChildren]
             }
             if (folderStates[item.path] === 'has-more') {
                 node.children.push({
@@ -170,9 +184,9 @@ export function convertFileSystemEntryToTreeDataItem({
             folderNode.children.push({
                 id: `${root}-folder-empty/${folderNode.id}`,
                 name: 'Empty folder',
-                displayName: <em className="text-muted">Empty folder</em>,
-                icon: <IconPlus />,
+                displayName: <span className="italic text-tertiary pl-2">Empty folder</span>,
                 disableSelect: true,
+                type: 'empty-folder',
             })
         }
         if (indeterminateFolders[folderNode.id] && !folderNode.checked) {

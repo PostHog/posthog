@@ -46,7 +46,7 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
     hogql_context: HogQLContext
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        database = create_hogql_database(self._team.pk)
+        database = create_hogql_database(team=self._team)
         self.hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
 
         serialized_database = serialize_database(self.hogql_context)

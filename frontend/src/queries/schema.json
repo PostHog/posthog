@@ -9770,9 +9770,6 @@
                 "isValid": {
                     "type": "boolean"
                 },
-                "isValidView": {
-                    "type": "boolean"
-                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -9950,6 +9947,9 @@
                     "type": "string"
                 },
                 "useMaterializedViews": {
+                    "type": "boolean"
+                },
+                "usePresortedEventsTable": {
                     "type": "boolean"
                 }
             },
@@ -12227,9 +12227,6 @@
                             "$ref": "#/definitions/QueryIndexUsage"
                         },
                         "isValid": {
-                            "type": "boolean"
-                        },
-                        "isValidView": {
                             "type": "boolean"
                         },
                         "notices": {
@@ -16947,7 +16944,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query"],
+            "required": ["type", "query", "answer"],
             "type": "object"
         },
         "VizSpecificOptions": {
