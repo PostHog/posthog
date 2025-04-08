@@ -297,7 +297,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         if (notebook.content === values.localContent) {
                             actions.clearLocalContent()
                         }
-                        refreshTreeItem('notebook', String(notebook.short_id))
+                        refreshTreeItem('notebook', String(values.notebook.short_id))
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
