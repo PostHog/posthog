@@ -4,6 +4,12 @@ use redis::RedisError;
 use tracing::warn;
 use super::CacheOperations;
 
+#[async_trait::async_trait]
+pub trait RedisClientOperations {
+    async fn get_keys(&self, keys: &[String]) -> Result<Vec<Option<String>>, RedisError>;
+    async fn set_keys(&self, updates: &[(String, String)], ttl: u64) -> Result<(), RedisError>;
+}
+
 #[derive(Clone)]
 pub struct RedisCacheClient {
     conn: redis::aio::ConnectionManager,
@@ -16,7 +22,10 @@ impl RedisCacheClient {
             conn,
         })
     }
+}
 
+#[async_trait::async_trait]
+impl RedisClientOperations for RedisCacheClient {
     async fn get_keys(&self, keys: &[String]) -> Result<Vec<Option<String>>, RedisError> {
         let mut conn = self.conn.clone();
         redis::cmd("MGET")
@@ -42,27 +51,34 @@ impl RedisCacheClient {
 }
 
 #[derive(Clone)]
-pub struct RedisCache {
-    client: RedisCacheClient,
+pub struct RedisCache<T: RedisClientOperations + Clone = RedisCacheClient> {
+    client: T,
     ttl: u64,
     batch_fetch_limit: usize,
     batch_update_limit: usize,
 }
 
-impl RedisCache {
-    pub async fn new(client: redis::Client, ttl: u64, batch_fetch_limit: usize, batch_update_limit: usize) -> Result<Self, RedisError> {
-        let redis_client = RedisCacheClient::new(client).await?;
-        Ok(Self {
-            client: redis_client,
+impl<T: RedisClientOperations + Clone> RedisCache<T> {
+    pub fn new(client: T, ttl: u64, batch_fetch_limit: usize, batch_update_limit: usize) -> Self {
+        Self {
+            client,
             ttl,
             batch_fetch_limit,
             batch_update_limit,
-        })
+        }
+    }
+}
+
+// Add a constructor specifically for RedisCacheClient since it needs async initialization
+impl RedisCache<RedisCacheClient> {
+    pub async fn new_redis(client: redis::Client, ttl: u64, batch_fetch_limit: usize, batch_update_limit: usize) -> Result<Self, RedisError> {
+        let redis_client = RedisCacheClient::new(client).await?;
+        Ok(Self::new(redis_client, ttl, batch_fetch_limit, batch_update_limit))
     }
 }
 
 #[async_trait::async_trait]
-impl CacheOperations for RedisCache {
+impl<T: RedisClientOperations + Clone + Send + Sync> CacheOperations for RedisCache<T> {
     async fn insert_batch(&self, updates: &[Update]) -> Result<(), CacheError> {
         if updates.is_empty() {
             return Ok(());
