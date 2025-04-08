@@ -8,14 +8,10 @@ import { match } from 'ts-pattern'
 
 import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
-import {
-    DEFAULT_ERROR_TRACKING_DATE_RANGE,
-    DEFAULT_ERROR_TRACKING_FILTER_GROUP,
-    errorTrackingLogic,
-} from './errorTrackingLogic'
+import { errorTrackingLogic } from './errorTrackingLogic'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
-import { generateDateRangeLabel } from './utils'
+import { defaultSearchParams, generateDateRangeLabel } from './utils'
 
 export type SparklineSelectedPeriod = 'custom' | 'day'
 
@@ -24,10 +20,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     connect(() => ({
         values: [errorTrackingLogic, ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
-        actions: [
-            errorTrackingLogic,
-            ['setAssignee', 'setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
-        ],
+        actions: [errorTrackingLogic, ['setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts']],
     })),
 
     actions({
@@ -146,22 +139,16 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 replace: boolean
             }
         ] => {
-            const searchParams: Params = {
-                orderBy: values.orderBy,
-                status: values.status,
+            const searchParams = defaultSearchParams({
+                dateRange: values.dateRange,
+                searchQuery: values.searchQuery,
+                filterGroup: values.filterGroup,
                 filterTestAccounts: values.filterTestAccounts,
-                orderDirection: values.orderDirection,
-            }
+            })
 
-            if (values.searchQuery) {
-                searchParams.searchQuery = values.searchQuery
-            }
-            if (!objectsEqual(values.filterGroup, DEFAULT_ERROR_TRACKING_FILTER_GROUP)) {
-                searchParams.filterGroup = values.filterGroup
-            }
-            if (!objectsEqual(values.dateRange, DEFAULT_ERROR_TRACKING_DATE_RANGE)) {
-                searchParams.dateRange = values.dateRange
-            }
+            searchParams.status = values.status
+            searchParams.orderBy = values.orderBy
+            searchParams.orderDirection = values.orderDirection
 
             if (!objectsEqual(searchParams, router.values.searchParams)) {
                 return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
@@ -193,18 +180,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             }
             if (params.status && !equal(params.status, values.status)) {
                 actions.setStatus(params.status)
-            }
-            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
-                actions.setDateRange(params.dateRange)
-            }
-            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
-                actions.setFilterGroup(params.filterGroup)
-            }
-            if (params.filterTestAccounts && !equal(params.filterTestAccounts, values.filterTestAccounts)) {
-                actions.setFilterTestAccounts(params.filterTestAccounts)
-            }
-            if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
-                actions.setSearchQuery(params.searchQuery)
             }
             if (params.orderDirection && !equal(params.orderDirection, values.orderDirection)) {
                 actions.setOrderDirection(params.orderDirection)
