@@ -103,14 +103,13 @@ export function PathsV2(): JSX.Element {
 
                             // aggregated "other" nodes
                             '--paths-node--other': theme?.['preset-2'] || '#000000',
+                            '--paths-node--other-hover': lightenDarkenColor(theme?.['preset-2'] || '#000000', -20),
 
                             // dropoff nodes
-                            '--paths-node--dropoff': 'rgba(220, 53, 69, 0.7)', //theme?.['preset-1'] || '#000000',
+                            '--paths-node--dropoff': '#db3707',
+                            '--paths-node--dropoff-hover': lightenDarkenColor('#db3707', -20),
 
                             '--paths-link': theme?.['preset-1'] || '#000000',
-                            // '--paths-link--hover': lightenDarkenColor(theme?.['preset-1'] || '#000000', -20),
-
-                            // '--paths-dropoff': 'rgba(220,53,69,0.7)',
                         } as React.CSSProperties
                     }
                 >

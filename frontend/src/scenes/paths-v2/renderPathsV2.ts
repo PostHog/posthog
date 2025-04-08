@@ -3,6 +3,7 @@ import * as Sankey from 'd3-sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
+import { POSTHOG_DROPOFF, POSTHOG_OTHER } from './constants'
 import { PathNodeData, PathTargetLink } from './pathUtils'
 import { PathNodeType, Paths } from './types'
 
@@ -94,6 +95,16 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
         ])
 }
 
+const getNodeColor = (node: PathNodeData, isHovering = false): string => {
+    if (node.name.includes(POSTHOG_OTHER)) {
+        return isHovering ? 'var(--paths-node--other-hover)' : 'var(--paths-node--other)'
+    } else if (node.name.includes(POSTHOG_DROPOFF)) {
+        return isHovering ? 'var(--paths-node--dropoff-hover)' : 'var(--paths-node--dropoff)'
+    }
+
+    return isHovering ? 'var(--paths-node--hover)' : 'var(--paths-node)'
+}
+
 const appendNodes = (svg: any, nodes: PathNodeData[]): void => {
     svg.append('g')
         .selectAll('rect')
@@ -104,22 +115,14 @@ const appendNodes = (svg: any, nodes: PathNodeData[]): void => {
         .attr('rx', NODE_BORDER_RADIUS)
         .attr('height', (node: PathNodeData) => Math.max(node.y1 - node.y0, NODE_MIN_HEIGHT))
         .attr('width', (node: PathNodeData) => node.x1 - node.x0 + 2 * NODE_BORDER_RADIUS)
-        .attr('fill', (node: PathNodeData) => {
-            if (node.type === PathNodeType.Other) {
-                return 'var(--paths-node--other)'
-            } else if (node.type === PathNodeType.Dropoff) {
-                return 'var(--paths-node--dropoff)'
-            }
-
-            return 'var(--paths-node)'
-        })
+        .attr('fill', (node: PathNodeData) => getNodeColor(node))
         .attr('id', (node: PathNodeData) => `node-${node.index}`)
         .style('cursor', 'pointer')
         .on('mouseover', (_event: MouseEvent, node: PathNodeData) => {
             svg.selectAll('path').attr('opacity', LINK_OPACITY_DEEMPHASIZED)
 
             // apply effect to hovered node
-            const nodeColor = 'var(--paths-node--hover)'
+            const nodeColor = getNodeColor(node, true)
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
             // recursively apply effect to incoming links
@@ -144,7 +147,7 @@ const appendNodes = (svg: any, nodes: PathNodeData[]): void => {
         })
         .on('mouseleave', (_event: MouseEvent, node: PathNodeData) => {
             // reset hovered node
-            const nodeColor = 'var(--paths-node)'
+            const nodeColor = getNodeColor(node, false)
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
             // reset all links
