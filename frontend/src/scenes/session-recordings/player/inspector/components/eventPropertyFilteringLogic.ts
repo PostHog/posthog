@@ -1,8 +1,8 @@
 import { connect, kea, path, selectors } from 'kea'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 
 import type { eventPropertyFilteringLogicType } from './eventPropertyFilteringLogicType'
