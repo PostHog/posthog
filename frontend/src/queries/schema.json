@@ -657,7 +657,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2150,6 +2150,7 @@
                 "cohort",
                 "person",
                 "event",
+                "event_metadata",
                 "group",
                 "session",
                 "hogql",
@@ -9769,9 +9770,6 @@
                 "isValid": {
                     "type": "boolean"
                 },
-                "isValidView": {
-                    "type": "boolean"
-                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -9949,6 +9947,9 @@
                     "type": "string"
                 },
                 "useMaterializedViews": {
+                    "type": "boolean"
+                },
+                "usePresortedEventsTable": {
                     "type": "boolean"
                 }
             },
@@ -11196,7 +11197,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "group", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NodeKind": {
@@ -12226,9 +12227,6 @@
                             "$ref": "#/definitions/QueryIndexUsage"
                         },
                         "isValid": {
-                            "type": "boolean"
-                        },
-                        "isValidView": {
                             "type": "boolean"
                         },
                         "notices": {
@@ -16946,7 +16944,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query"],
+            "required": ["type", "query", "answer"],
             "type": "object"
         },
         "VizSpecificOptions": {

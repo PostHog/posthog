@@ -39,7 +39,6 @@ import {
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
-import { PersonDashboard } from './PersonDashboard'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -107,7 +106,6 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 
 export function PersonScene(): JSX.Element | null {
     const {
-        showCustomerSuccessDashboards,
         feedEnabled,
         person,
         personLoading,
@@ -354,13 +352,6 @@ export function PersonScene(): JSX.Element | null {
                             />
                         ),
                     },
-                    showCustomerSuccessDashboards
-                        ? {
-                              key: PersonsTabType.DASHBOARD,
-                              label: 'Dashboard',
-                              content: <PersonDashboard person={person} />,
-                          }
-                        : false,
                 ]}
             />
 

@@ -275,6 +275,7 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
+    usePresortedEventsTable?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -413,7 +414,6 @@ export enum QueryIndexUsage {
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
-    isValidView?: boolean
     isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
@@ -2327,7 +2327,10 @@ export interface DateRange {
     explicitDate?: boolean | null
 }
 
-export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session' | 'hogql'>
+export type MultipleBreakdownType = Extract<
+    BreakdownType,
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql'
+>
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null

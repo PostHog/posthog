@@ -26,6 +26,7 @@ import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
@@ -1415,7 +1416,6 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
-    DASHBOARD = 'dashboard',
 }
 
 export enum LayoutView {
@@ -1991,6 +1991,8 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
+    breakdown_colors?: BreakdownColorConfig[]
+    data_color_theme_id?: number | null
 }
 
 export enum TemplateAvailabilityContext {
@@ -2264,6 +2266,7 @@ export type BreakdownType =
     | 'cohort'
     | 'person'
     | 'event'
+    | 'event_metadata'
     | 'group'
     | 'session'
     | 'hogql'
@@ -2866,6 +2869,27 @@ export enum SurveyPartialResponses {
     No = 'false',
 }
 
+export interface SurveyDisplayConditions {
+    url: string
+    selector?: string
+    seenSurveyWaitPeriodInDays?: number
+    urlMatchType?: SurveyMatchType
+    deviceTypes?: string[]
+    deviceTypesMatchType?: SurveyMatchType
+    actions: {
+        values: {
+            id: number
+            name: string
+        }[]
+    } | null
+    events: {
+        repeatedActivation?: boolean
+        values: {
+            name: string
+        }[]
+    } | null
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -2877,26 +2901,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters?: FeatureFlagFilters
-    conditions: {
-        url: string
-        selector?: string
-        seenSurveyWaitPeriodInDays?: number
-        urlMatchType?: SurveyMatchType
-        deviceTypes?: string[]
-        deviceTypesMatchType?: SurveyMatchType
-        actions: {
-            values: {
-                id: number
-                name: string
-            }[]
-        } | null
-        events: {
-            repeatedActivation?: boolean
-            values: {
-                name: string
-            }[]
-        } | null
-    } | null
+    conditions: SurveyDisplayConditions | null
     appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
@@ -3899,6 +3904,7 @@ export interface SlackChannelType {
     is_private: boolean
     is_ext_shared: boolean
     is_member: boolean
+    is_private_without_access?: boolean
 }
 
 export interface SharingConfigurationType {
@@ -4809,7 +4815,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
-    | ProductKey.WEB_ANALYTICS,
+    | ProductKey.WEB_ANALYTICS
+    | ProductKey.ERROR_TRACKING,
     OnboardingProduct
 >
 
@@ -4910,11 +4917,13 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
-    | 'automation'
+
+export type HogFunctionKind = 'messaging_campaign' | null
 
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
+    kind?: HogFunctionKind
     icon_url?: string
     name: string
     description: string
@@ -4956,7 +4965,17 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    | 'id'
+    | 'type'
+    | 'kind'
+    | 'name'
+    | 'description'
+    | 'hog'
+    | 'inputs_schema'
+    | 'filters'
+    | 'icon_url'
+    | 'masking'
+    | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean

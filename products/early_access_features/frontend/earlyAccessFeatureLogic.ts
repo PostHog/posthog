@@ -7,12 +7,14 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     Breadcrumb,
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
+    ProjectTreeRef,
 } from '~/types'
 
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
@@ -133,6 +135,10 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 },
             ],
         ],
+        projectTreeRef: [
+            () => [(_, props: EarlyAccessFeatureLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'early_access_feature', ref: String(id) }),
+        ],
     }),
     listeners(({ actions, values, props }) => ({
         updateStage: async ({ stage }) => {
@@ -141,6 +147,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     ...values.earlyAccessFeature,
                     stage: stage,
                 }))
+            if (props.id) {
+                refreshTreeItem('early_access_feature', props.id)
+            }
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()
         },

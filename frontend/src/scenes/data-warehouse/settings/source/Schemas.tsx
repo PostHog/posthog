@@ -57,8 +57,10 @@ const StatusTagSetting: Record<string, LemonTagType> = {
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { updateSchema, reloadSchema, resyncSchema, setIsProjectTime } = useActions(dataWarehouseSourceSettingsLogic)
-    const { isProjectTime } = useValues(dataWarehouseSourceSettingsLogic)
+    const { updateSchema, reloadSchema, resyncSchema, deleteTable, setIsProjectTime } = useActions(
+        dataWarehouseSourceSettingsLogic
+    )
+    const { isProjectTime, source } = useValues(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
@@ -321,6 +323,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                         type="tertiary"
                                                         size="xsmall"
                                                         key={`reload-data-warehouse-schema-${schema.id}`}
+                                                        id="data-warehouse-schema-reload"
                                                         onClick={() => {
                                                             reloadSchema(schema)
                                                         }}
@@ -333,12 +336,39 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                                 type="tertiary"
                                                                 size="xsmall"
                                                                 key={`resync-data-warehouse-schema-${schema.id}`}
+                                                                id="data-warehouse-schema-resync"
                                                                 onClick={() => {
                                                                     resyncSchema(schema)
                                                                 }}
                                                                 status="danger"
                                                             >
                                                                 Resync
+                                                            </LemonButton>
+                                                        </Tooltip>
+                                                    )}
+                                                    {schema.table && (
+                                                        <Tooltip
+                                                            title={`Delete this table from PostHog. ${
+                                                                source?.source_type
+                                                                    ? `This will not delete the data in ${source.source_type}`
+                                                                    : ''
+                                                            }`}
+                                                        >
+                                                            <LemonButton
+                                                                status="danger"
+                                                                id="data-warehouse-schema-delete"
+                                                                type="tertiary"
+                                                                onClick={() => {
+                                                                    if (
+                                                                        window.confirm(
+                                                                            `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
+                                                                        )
+                                                                    ) {
+                                                                        deleteTable(schema)
+                                                                    }
+                                                                }}
+                                                            >
+                                                                Delete table from PostHog
                                                             </LemonButton>
                                                         </Tooltip>
                                                     )}
