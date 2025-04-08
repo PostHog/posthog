@@ -1,7 +1,7 @@
 import { Meta, Story } from '@storybook/react'
 import { useState } from 'react'
 
-import { ChartDisplayType, InsightColor, InsightShortId, QueryBasedInsightModel, TrendsFilterType } from '~/types'
+import { InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -157,25 +157,6 @@ export const InsightCard: Story = (args) => {
                     {
                         ...EXAMPLE_FUNNEL,
                         name: 'What a plentiful funnel',
-                    } as unknown as QueryBasedInsightModel
-                }
-                rename={() => {}}
-                duplicate={() => {}}
-                placement="SavedInsightGrid"
-                loading={args.loading}
-                apiErrored={args.apiErrored}
-                highlighted={args.highlighted}
-                timedOut={args.timedOut}
-                showResizeHandles={args.resizable}
-            />
-            <InsightCardComponent
-                insight={
-                    {
-                        ...EXAMPLE_TRENDS,
-                        filters: {
-                            ...EXAMPLE_TRENDS.filters,
-                            display: 'totally_wrong_display_type' as ChartDisplayType,
-                        } as TrendsFilterType,
                     } as unknown as QueryBasedInsightModel
                 }
                 rename={() => {}}
