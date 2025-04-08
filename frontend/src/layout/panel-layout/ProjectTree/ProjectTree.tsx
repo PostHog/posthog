@@ -196,6 +196,7 @@ export function ProjectTree(): JSX.Element {
                     return window.location.href.endsWith(item.record?.href)
                 }}
                 enableMultiSelection={checkedItemsCount !== '0'}
+                checkedItemIds={Object.keys(checkedItems).filter((key) => checkedItems[key] === true)}
                 onItemChecked={onItemChecked}
                 onNodeClick={(node) => {
                     if (!isLayoutPanelPinned) {

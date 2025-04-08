@@ -20,8 +20,8 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/Co
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
 import {
-    renderTreeNodeDisplayCheckbox,
     renderTreeNodeDisplayIcon,
+    TreeNodeDisplayCheckbox,
     TreeNodeDraggable,
     TreeNodeDroppable,
 } from './LemonTreeUtils'
@@ -105,6 +105,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isFinishedBuildingTreeData?: boolean
     /** The context menu to render for the empty space. */
     emptySpaceContextMenu?: () => React.ReactNode
+    /** The IDs of the checked items. */
+    checkedItemIds?: string[]
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -162,6 +164,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             itemContextMenu,
             enableMultiSelection = false,
             onItemChecked,
+            checkedItemIds,
             isDragging,
             ...props
         },
@@ -240,22 +243,16 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className="group/lemon-tree-button-group relative"
                                                 groupVariant="side-action-group"
                                             >
-                                                {enableMultiSelection && (
-                                                    <div
-                                                        className="absolute size-5"
-                                                        // eslint-disable-next-line react/forbid-dom-props
-                                                        style={{ left: `${DEPTH_OFFSET + 5}px` }}
-                                                    >
-                                                        {/* Checkbox left */}
-                                                        {renderTreeNodeDisplayCheckbox({
-                                                            item,
-                                                            expandedItemIds: expandedItemIds ?? [],
-                                                            enableMultiSelection,
-                                                            handleCheckedChange: (checked) => {
-                                                                onItemChecked?.(item.id, checked)
-                                                            },
-                                                        })}
-                                                    </div>
+                                                {enableMultiSelection && !isEmptyFolder && (
+                                                    <TreeNodeDisplayCheckbox
+                                                        item={item}
+                                                        handleCheckedChange={(checked) => {
+                                                            onItemChecked?.(item.id, checked)
+                                                        }}
+                                                        style={{
+                                                            left: `${DEPTH_OFFSET + 5}px`,
+                                                        }}
+                                                    />
                                                 )}
 
                                                 <ButtonPrimitive
@@ -410,6 +407,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             itemContextMenu={itemContextMenu}
                                             enableMultiSelection={enableMultiSelection}
                                             onItemChecked={onItemChecked}
+                                            checkedItemIds={checkedItemIds}
                                             isDragging={isDragging}
                                             {...props}
                                         />
@@ -463,6 +461,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             enableMultiSelection = false,
             onItemChecked,
             emptySpaceContextMenu,
+            checkedItemIds,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -490,6 +489,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
         const [isDragging, setIsDragging] = useState(false)
+        const [checkedItemIdsState, setCheckedItemIdsState] = useState<string[]>(checkedItemIds ?? [])
 
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
@@ -1028,6 +1028,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             }
         }, [expandedItemIds, expandedItemIdsState])
 
+        useEffect(() => {
+            if (checkedItemIds && JSON.stringify(checkedItemIds) !== JSON.stringify(checkedItemIdsState)) {
+                setCheckedItemIdsState(checkedItemIds)
+            }
+        }, [checkedItemIds, checkedItemIdsState])
+
         return (
             <DndContext
                 sensors={sensors}
@@ -1080,7 +1086,19 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             }}
                             itemContextMenu={itemContextMenu}
                             enableMultiSelection={enableMultiSelection}
-                            onItemChecked={onItemChecked}
+                            onItemChecked={(id, checked) => {
+                                // Update local state
+                                setCheckedItemIdsState((prev) => {
+                                    if (checked) {
+                                        return [...prev, id]
+                                    }
+                                    return prev.filter((itemId) => itemId !== id)
+                                })
+
+                                // Call prop callback if provided
+                                onItemChecked?.(id, checked)
+                            }}
+                            checkedItemIds={checkedItemIdsState}
                             isDragging={isDragging}
                             {...props}
                         />

@@ -2,41 +2,42 @@ import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { IconChevronRight, IconDocument, IconFolder, IconFolderOpen } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
+import { CSSProperties } from 'react'
 
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
 
 const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
 
-type CheckboxProps = {
+type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
-    expandedItemIds: string[]
-    enableMultiSelection?: boolean
+    style?: CSSProperties
     handleCheckedChange?: (checked: boolean) => void
 }
 
-// Render an icon or checkbox
-export function renderTreeNodeDisplayCheckbox({
+export const TreeNodeDisplayCheckbox = ({
     item,
-    enableMultiSelection = false,
     handleCheckedChange,
-}: CheckboxProps): JSX.Element {
-    const isChecked = !!item.checked
+    style,
+}: TreeNodeDisplayCheckboxProps): JSX.Element => {
+    const isChecked = item.checked
 
     return (
-        <>
-            {((enableMultiSelection && !item.disableSelect) || isChecked) && (
-                <div className={cn(ICON_CLASSES, 'z-3 relative')}>
-                    <LemonCheckbox
-                        className="size-5 ml-[2px]"
-                        checked={item.checked ?? false}
-                        onChange={(checked) => {
-                            handleCheckedChange?.(checked)
-                        }}
-                    />
-                </div>
-            )}
-        </>
+        <div
+            className="absolute size-5"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={style}
+        >
+            <div className={cn(ICON_CLASSES, 'z-3 relative')}>
+                <LemonCheckbox
+                    className="size-5 ml-[2px]"
+                    checked={isChecked ?? false}
+                    onChange={(checked) => {
+                        handleCheckedChange?.(checked)
+                    }}
+                />
+            </div>
+        </div>
     )
 }
 
