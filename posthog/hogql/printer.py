@@ -384,6 +384,9 @@ class _Printer(Visitor):
                         else:
                             # Non-unique hidden alias. Skip.
                             column = column.expr
+                    elif isinstance(column, ast.Call):
+                        column_alias = print_prepared_ast(column, self.context, dialect="hogql")
+                        column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
                 columns = [self.visit(column) for column in node.select]

@@ -347,7 +347,6 @@
   FROM events
   WHERE event = '$exception'
     AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND not(JSONHas(properties, '$sentry_event_id'))
   GROUP BY team_id
   '''
 # ---

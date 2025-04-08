@@ -1692,19 +1692,6 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     static: Optional[CurrencyCode] = None
 
 
-class RevenueTrackingDataWarehouseTable(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    distinctIdColumn: str
-    revenueColumn: str
-    revenueCurrencyColumn: Optional[RevenueCurrencyPropertyConfig] = Field(
-        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
-    )
-    tableName: str
-    timestampColumn: str
-
-
 class RevenueTrackingEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2949,7 +2936,6 @@ class QueryResponseAlternative8(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
@@ -3079,7 +3065,6 @@ class RevenueTrackingConfig(BaseModel):
         extra="forbid",
     )
     baseCurrency: Optional[CurrencyCode] = CurrencyCode.USD
-    dataWarehouseTables: Optional[list[RevenueTrackingDataWarehouseTable]] = []
     events: Optional[list[RevenueTrackingEventItem]] = []
 
 
@@ -5835,7 +5820,6 @@ class HogQLMetadataResponse(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
@@ -6869,7 +6853,6 @@ class RevenueExampleDataWarehouseTablesQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleDataWarehouseTablesQueryResponse] = None
-    revenueTrackingConfig: RevenueTrackingConfig
 
 
 class RevenueExampleEventsQuery(BaseModel):
@@ -6883,7 +6866,6 @@ class RevenueExampleEventsQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleEventsQueryResponse] = None
-    revenueTrackingConfig: RevenueTrackingConfig
 
 
 class SessionAttributionExplorerQuery(BaseModel):
@@ -8050,6 +8032,10 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
 
 
+class ExperimentMetric(RootModel[Union[ExperimentMeanMetric, ExperimentFunnelMetric]]):
+    root: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+
+
 class ExperimentMetricTypeProps(RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]]):
     root: Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]
 
@@ -8517,6 +8503,21 @@ class RetentionQuery(BaseModel):
     response: Optional[RetentionQueryResponse] = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
+class NamedArgs1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+
+
+class IsExperimentFunnelMetric(BaseModel):
+    namedArgs: Optional[NamedArgs1] = None
+
+
+class IsExperimentMeanMetric(BaseModel):
+    namedArgs: Optional[NamedArgs1] = None
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):

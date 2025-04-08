@@ -1,11 +1,11 @@
 import {
     IconAI,
     IconArrowUpRight,
-    IconCoffee,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
     IconGraph,
+    IconGroups,
     IconHome,
     IconLive,
     IconLogomark,
@@ -14,6 +14,7 @@ import {
     IconNotebook,
     IconPeople,
     IconPieChart,
+    IconPiggyBank,
     IconPlug,
     IconPlusSmall,
     IconRewindPlay,
@@ -498,8 +499,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             ? {
                                   identifier: Scene.Groups,
                                   label: 'B2B analytics',
-                                  icon: <IconCoffee />,
+                                  icon: <IconGroups />,
                                   to: urls.groups(0),
+                                  tag: 'alpha' as const,
                                   sideAction:
                                       groupTypes.size > 1 && !showGroupsIntroductionPage
                                           ? {
@@ -639,6 +641,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconMegaphone />,
                                   to: urls.messagingBroadcasts(),
                                   tag: 'alpha' as const,
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'beta' as const,
                               }
                             : null,
                     ].filter(isNotNil) as NavbarItem[],

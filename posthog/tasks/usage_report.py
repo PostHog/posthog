@@ -847,7 +847,6 @@ def get_teams_with_exceptions_captured_in_period(
         SELECT team_id, COUNT() as count
         FROM events
         WHERE event = '$exception' AND timestamp between %(begin)s AND %(end)s
-        AND not(JSONHas(properties, '$sentry_event_id'))
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},

@@ -6,7 +6,6 @@ import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/u
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
@@ -41,6 +40,7 @@ import {
     isInsightVizNode,
     isNodeWithSource,
 } from '~/queries/utils'
+import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     AccessLevel,
     CohortType,
