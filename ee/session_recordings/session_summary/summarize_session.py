@@ -81,8 +81,6 @@ class ReplaySummarizer:
         short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
         # Render all templates
         # TODO Optimize prompt (reduce input count, simplify instructions)
-        # summary_template = get_template(f"session_summaries/single-replay_base-prompt_VERBOSE.djt")
-        # summary_example = get_template(f"session_summaries/single-replay_example_VERBOSE.yml").render()
         summary_template = get_template(f"session_summaries/single-replay_base-prompt.djt")
         summary_example = get_template(f"session_summaries/single-replay_example.yml").render()
         rendered_summary_prompt = summary_template.render(
