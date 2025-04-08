@@ -264,6 +264,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -279,6 +280,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -358,6 +360,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -450,6 +453,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -576,6 +580,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -591,6 +596,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -681,6 +687,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -803,6 +810,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1185,6 +1193,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -1200,6 +1209,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1279,6 +1289,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1347,16 +1358,6 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.10
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.11
-  '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
@@ -1376,17 +1377,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.12
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.13
+# name: TestDecide.test_flag_with_behavioural_cohorts.11
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -1414,11 +1405,12 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.14
+# name: TestDecide.test_flag_with_behavioural_cohorts.12
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1485,7 +1477,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.15
+# name: TestDecide.test_flag_with_behavioural_cohorts.13
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -1497,11 +1489,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.16
+# name: TestDecide.test_flag_with_behavioural_cohorts.14
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1575,7 +1568,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.17
+# name: TestDecide.test_flag_with_behavioural_cohorts.15
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -1584,7 +1577,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.18
+# name: TestDecide.test_flag_with_behavioural_cohorts.16
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -1600,7 +1593,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.19
+# name: TestDecide.test_flag_with_behavioural_cohorts.17
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -1612,6 +1605,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -1627,6 +1621,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1702,6 +1697,48 @@
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.18
+  '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_team"."project_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.19
+  '''
+  SELECT "posthog_group"."id",
+         "posthog_group"."team_id",
+         "posthog_group"."group_key",
+         "posthog_group"."group_type_index",
+         "posthog_group"."group_properties",
+         "posthog_group"."created_at",
+         "posthog_group"."properties_last_updated_at",
+         "posthog_group"."properties_last_operation",
+         "posthog_group"."version"
+  FROM "posthog_group"
+  WHERE "posthog_group"."team_id" = 99999
+  LIMIT 21
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.2
@@ -1847,6 +1884,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1957,6 +1995,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -1972,6 +2011,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2087,6 +2127,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2193,6 +2234,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -2208,6 +2250,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2287,6 +2330,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2355,16 +2399,6 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.10
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDecide.test_flag_with_regular_cohorts.11
-  '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
@@ -2384,17 +2418,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.12
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDecide.test_flag_with_regular_cohorts.13
+# name: TestDecide.test_flag_with_regular_cohorts.11
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -2422,11 +2446,12 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.14
+# name: TestDecide.test_flag_with_regular_cohorts.12
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2493,7 +2518,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.15
+# name: TestDecide.test_flag_with_regular_cohorts.13
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -2505,11 +2530,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.16
+# name: TestDecide.test_flag_with_regular_cohorts.14
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2583,7 +2609,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.17
+# name: TestDecide.test_flag_with_regular_cohorts.15
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -2592,7 +2618,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.18
+# name: TestDecide.test_flag_with_regular_cohorts.16
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -2608,7 +2634,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.19
+# name: TestDecide.test_flag_with_regular_cohorts.17
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -2620,6 +2646,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -2635,6 +2662,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2712,6 +2740,44 @@
                                               'site_app'))
   '''
 # ---
+# name: TestDecide.test_flag_with_regular_cohorts.18
+  '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_team"."project_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_flag_with_regular_cohorts.19
+  '''
+  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
+          AND "posthog_person"."properties" ? '$some_prop_1'
+          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id_1'
+         AND "posthog_persondistinctid"."team_id" = 99999
+         AND "posthog_person"."team_id" = 99999)
+  '''
+# ---
 # name: TestDecide.test_flag_with_regular_cohorts.2
   '''
   SELECT "posthog_remoteconfig"."id",
@@ -2757,7 +2823,7 @@
           AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id_1'
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
          AND "posthog_persondistinctid"."team_id" = 99999
          AND "posthog_person"."team_id" = 99999)
   '''
@@ -2843,6 +2909,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2953,6 +3020,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -2968,6 +3036,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -3083,6 +3152,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -3182,6 +3252,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -3288,6 +3359,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -3303,6 +3375,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -3385,6 +3458,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -3468,6 +3542,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -3594,6 +3669,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -3609,6 +3685,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -3778,6 +3855,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -3793,6 +3871,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -3872,6 +3951,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -3955,6 +4035,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -4334,6 +4415,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -4349,6 +4431,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -4428,6 +4511,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -4520,6 +4604,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -4646,6 +4731,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -4661,6 +4747,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -4751,6 +4838,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -4873,6 +4961,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -5006,6 +5095,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -5132,6 +5222,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -5147,6 +5238,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -5304,6 +5396,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -5430,6 +5523,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -5445,6 +5539,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -5829,6 +5924,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -5844,6 +5940,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -5923,6 +6020,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -5991,16 +6089,6 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.10
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.11
-  '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
@@ -6020,17 +6108,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.12
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.13
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.11
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -6058,11 +6136,12 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.14
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.12
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -6129,7 +6208,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.15
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.13
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -6141,11 +6220,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.16
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.14
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -6219,7 +6299,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.17
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.15
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -6228,7 +6308,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.18
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.16
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -6244,7 +6324,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.19
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.17
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -6256,6 +6336,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -6271,6 +6352,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -6346,6 +6428,97 @@
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.18
+  '''
+  SELECT "posthog_remoteconfig"."id",
+         "posthog_remoteconfig"."team_id",
+         "posthog_remoteconfig"."config",
+         "posthog_remoteconfig"."updated_at",
+         "posthog_remoteconfig"."synced_at"
+  FROM "posthog_remoteconfig"
+  WHERE "posthog_remoteconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.19
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."person_processing_opt_out",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_masking_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."flags_persistence_default",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
+         "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
+         "posthog_team"."api_query_rate_limit"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.2
@@ -6362,96 +6535,6 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.20
   '''
-  SELECT "posthog_remoteconfig"."id",
-         "posthog_remoteconfig"."team_id",
-         "posthog_remoteconfig"."config",
-         "posthog_remoteconfig"."updated_at",
-         "posthog_remoteconfig"."synced_at"
-  FROM "posthog_remoteconfig"
-  WHERE "posthog_remoteconfig"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.21
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."onboarding_tasks",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_web_vitals_opt_in",
-         "posthog_team"."autocapture_web_vitals_allowed_metrics",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."person_processing_opt_out",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_recording_masking_config",
-         "posthog_team"."session_recording_url_trigger_config",
-         "posthog_team"."session_recording_url_blocklist_config",
-         "posthog_team"."session_recording_event_trigger_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."survey_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."capture_dead_clicks",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."flags_persistence_default",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."human_friendly_comparison_periods",
-         "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."default_data_theme",
-         "posthog_team"."extra_settings",
-         "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.22
-  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
@@ -6459,7 +6542,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.23
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.21
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -6475,7 +6558,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.24
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.22
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -6487,6 +6570,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -6502,6 +6586,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -6579,7 +6664,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.25
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.23
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -6605,7 +6690,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.26
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.24
   '''
   SELECT "posthog_group"."id",
          "posthog_group"."team_id",
@@ -6621,7 +6706,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.27
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.25
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -6633,11 +6718,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.28
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.26
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -6711,7 +6797,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.29
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.27
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -6720,11 +6806,134 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.28
+  '''
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginconfig"."web_token",
+         "posthog_plugin"."config_schema",
+         "posthog_pluginconfig"."config"
+  FROM "posthog_pluginconfig"
+  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
+  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
+  WHERE ("posthog_pluginconfig"."enabled"
+         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
+         AND "posthog_pluginconfig"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.29
+  '''
+  SELECT "posthog_hogfunction"."id",
+         "posthog_hogfunction"."team_id",
+         "posthog_hogfunction"."name",
+         "posthog_hogfunction"."description",
+         "posthog_hogfunction"."created_at",
+         "posthog_hogfunction"."created_by_id",
+         "posthog_hogfunction"."deleted",
+         "posthog_hogfunction"."updated_at",
+         "posthog_hogfunction"."enabled",
+         "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
+         "posthog_hogfunction"."icon_url",
+         "posthog_hogfunction"."hog",
+         "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
+         "posthog_hogfunction"."inputs_schema",
+         "posthog_hogfunction"."inputs",
+         "posthog_hogfunction"."encrypted_inputs",
+         "posthog_hogfunction"."filters",
+         "posthog_hogfunction"."mappings",
+         "posthog_hogfunction"."masking",
+         "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
+         "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."person_processing_opt_out",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_masking_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."flags_persistence_default",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
+         "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
+         "posthog_team"."api_query_rate_limit"
+  FROM "posthog_hogfunction"
+  INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
+         AND "posthog_hogfunction"."team_id" = 99999
+         AND "posthog_hogfunction"."type" IN ('site_destination',
+                                              'site_app'))
+  '''
+# ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.3
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -6800,122 +7009,44 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.30
   '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginconfig"."web_token",
-         "posthog_plugin"."config_schema",
-         "posthog_pluginconfig"."config"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.31
   '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id",
-         "posthog_hogfunction"."execution_order",
-         "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."onboarding_tasks",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_web_vitals_opt_in",
-         "posthog_team"."autocapture_web_vitals_allowed_metrics",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."person_processing_opt_out",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_recording_masking_config",
-         "posthog_team"."session_recording_url_trigger_config",
-         "posthog_team"."session_recording_url_blocklist_config",
-         "posthog_team"."session_recording_event_trigger_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."survey_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."capture_dead_clicks",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."flags_persistence_default",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."human_friendly_comparison_periods",
-         "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."default_data_theme",
-         "posthog_team"."extra_settings",
-         "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
-  FROM "posthog_hogfunction"
-  INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_hogfunction"."deleted"
-         AND "posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
+  SELECT "posthog_group"."id",
+         "posthog_group"."team_id",
+         "posthog_group"."group_key",
+         "posthog_group"."group_type_index",
+         "posthog_group"."group_properties",
+         "posthog_group"."created_at",
+         "posthog_group"."properties_last_updated_at",
+         "posthog_group"."properties_last_operation",
+         "posthog_group"."version"
+  FROM "posthog_group"
+  WHERE "posthog_group"."team_id" = 99999
+  LIMIT 21
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.32
@@ -7081,6 +7212,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -7096,6 +7228,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -7211,6 +7344,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -7317,6 +7451,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -7332,6 +7467,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -7411,6 +7547,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -7479,16 +7616,6 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.10
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.11
-  '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
@@ -7508,17 +7635,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.12
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.13
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.11
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -7546,11 +7663,12 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.14
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.12
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -7617,7 +7735,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.15
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.13
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -7629,11 +7747,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.16
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.14
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -7707,7 +7826,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.17
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.15
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -7716,7 +7835,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.18
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.16
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -7732,7 +7851,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.19
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.17
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -7744,6 +7863,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -7759,6 +7879,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -7834,6 +7955,97 @@
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.18
+  '''
+  SELECT "posthog_remoteconfig"."id",
+         "posthog_remoteconfig"."team_id",
+         "posthog_remoteconfig"."config",
+         "posthog_remoteconfig"."updated_at",
+         "posthog_remoteconfig"."synced_at"
+  FROM "posthog_remoteconfig"
+  WHERE "posthog_remoteconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.19
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."person_processing_opt_out",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_masking_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."flags_persistence_default",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
+         "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
+         "posthog_team"."api_query_rate_limit"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.2
@@ -7850,96 +8062,6 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.20
   '''
-  SELECT "posthog_remoteconfig"."id",
-         "posthog_remoteconfig"."team_id",
-         "posthog_remoteconfig"."config",
-         "posthog_remoteconfig"."updated_at",
-         "posthog_remoteconfig"."synced_at"
-  FROM "posthog_remoteconfig"
-  WHERE "posthog_remoteconfig"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.21
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."onboarding_tasks",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_web_vitals_opt_in",
-         "posthog_team"."autocapture_web_vitals_allowed_metrics",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."person_processing_opt_out",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_recording_masking_config",
-         "posthog_team"."session_recording_url_trigger_config",
-         "posthog_team"."session_recording_url_blocklist_config",
-         "posthog_team"."session_recording_event_trigger_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."survey_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."capture_dead_clicks",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."flags_persistence_default",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."human_friendly_comparison_periods",
-         "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."default_data_theme",
-         "posthog_team"."extra_settings",
-         "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.22
-  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
@@ -7947,7 +8069,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.23
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.21
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -7963,7 +8085,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.24
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.22
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -7975,6 +8097,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -7990,6 +8113,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -8067,7 +8191,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.25
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.23
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -8093,7 +8217,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.26
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.24
   '''
   SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
           AND "posthog_person"."properties" ? '$some_prop_1'
@@ -8105,7 +8229,7 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.27
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.25
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -8117,11 +8241,12 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.28
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.26
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -8195,7 +8320,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.29
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.27
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -8204,11 +8329,134 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.28
+  '''
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginconfig"."web_token",
+         "posthog_plugin"."config_schema",
+         "posthog_pluginconfig"."config"
+  FROM "posthog_pluginconfig"
+  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
+  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
+  WHERE ("posthog_pluginconfig"."enabled"
+         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
+         AND "posthog_pluginconfig"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.29
+  '''
+  SELECT "posthog_hogfunction"."id",
+         "posthog_hogfunction"."team_id",
+         "posthog_hogfunction"."name",
+         "posthog_hogfunction"."description",
+         "posthog_hogfunction"."created_at",
+         "posthog_hogfunction"."created_by_id",
+         "posthog_hogfunction"."deleted",
+         "posthog_hogfunction"."updated_at",
+         "posthog_hogfunction"."enabled",
+         "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
+         "posthog_hogfunction"."icon_url",
+         "posthog_hogfunction"."hog",
+         "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
+         "posthog_hogfunction"."inputs_schema",
+         "posthog_hogfunction"."inputs",
+         "posthog_hogfunction"."encrypted_inputs",
+         "posthog_hogfunction"."filters",
+         "posthog_hogfunction"."mappings",
+         "posthog_hogfunction"."masking",
+         "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
+         "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."person_processing_opt_out",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_masking_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."flags_persistence_default",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
+         "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
+         "posthog_team"."api_query_rate_limit"
+  FROM "posthog_hogfunction"
+  INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
+         AND "posthog_hogfunction"."team_id" = 99999
+         AND "posthog_hogfunction"."type" IN ('site_destination',
+                                              'site_app'))
+  '''
+# ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.3
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -8284,122 +8532,40 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.30
   '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginconfig"."web_token",
-         "posthog_plugin"."config_schema",
-         "posthog_pluginconfig"."config"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.31
   '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id",
-         "posthog_hogfunction"."execution_order",
-         "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."onboarding_tasks",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_web_vitals_opt_in",
-         "posthog_team"."autocapture_web_vitals_allowed_metrics",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."person_processing_opt_out",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_recording_masking_config",
-         "posthog_team"."session_recording_url_trigger_config",
-         "posthog_team"."session_recording_url_blocklist_config",
-         "posthog_team"."session_recording_event_trigger_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."survey_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."capture_dead_clicks",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."flags_persistence_default",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."human_friendly_comparison_periods",
-         "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."default_data_theme",
-         "posthog_team"."extra_settings",
-         "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
-  FROM "posthog_hogfunction"
-  INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_hogfunction"."deleted"
-         AND "posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
+  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
+          AND "posthog_person"."properties" ? '$some_prop_1'
+          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
+         AND "posthog_persondistinctid"."team_id" = 99999
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.32
@@ -8553,6 +8719,7 @@
          "posthog_hogfunction"."updated_at",
          "posthog_hogfunction"."enabled",
          "posthog_hogfunction"."type",
+         "posthog_hogfunction"."kind",
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
@@ -8568,6 +8735,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -8683,6 +8851,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",

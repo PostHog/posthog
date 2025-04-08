@@ -323,12 +323,16 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                 "filter_test_accounts": False,
             },
         )
-        file = FileSystem.objects.filter(team=self.team, type="hog/destination", ref=str(hog_function_3.id)).first()
+        file = FileSystem.objects.filter(
+            team=self.team, type="hog_function/destination", ref=str(hog_function_3.id)
+        ).first()
         assert file is not None
         assert file.path == "Unfiled/Destinations/func 3"
 
         hog_function_3.deleted = True
         hog_function_3.save()
 
-        file = FileSystem.objects.filter(team=self.team, type="hog/destination", ref=str(hog_function_3.id)).first()
+        file = FileSystem.objects.filter(
+            team=self.team, type="hog_function/destination", ref=str(hog_function_3.id)
+        ).first()
         assert file is None

@@ -85,7 +85,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries'], userLogic, ['user']],
         actions: [
             dataWarehouseViewsLogic,
@@ -98,7 +98,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             outputPaneLogic,
             ['setActiveTab'],
         ],
-    }),
+    })),
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),

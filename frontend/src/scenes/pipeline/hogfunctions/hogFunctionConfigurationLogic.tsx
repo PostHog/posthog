@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
+import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { hogFunctionNewUrl, hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
@@ -166,6 +167,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
 
     return {
         type: template.type ?? 'destination',
+        kind: template.kind,
         name: template.name,
         description: template.description,
         inputs_schema: template.inputs_schema,
@@ -179,7 +181,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
         hog: template.hog,
         icon_url: template.icon_url,
         inputs: getInputs(template.inputs_schema),
-        enabled: template.type !== 'broadcast',
+        enabled: true,
     }
 }
 
@@ -719,7 +721,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     timestamp: dayjs().toISOString(),
                     elements_chain: '',
                     url: `${window.location.origin}/project/${currentProject?.id}/events/`,
-                    ...(logicProps.logicKey === 'errorTracking'
+                    ...(logicProps.logicKey === ERROR_TRACKING_LOGIC_KEY
                         ? {
                               event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
                               properties: {
@@ -1185,7 +1187,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!values.hogFunction) {
                 return
             }
-            const { id, name, type, template } = values.hogFunction
+            const { id, name, type, template, kind } = values.hogFunction
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -1194,12 +1196,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(hogFunctionUrl(type, id, template?.id))
+                        router.actions.replace(hogFunctionUrl(type, id, template?.id, kind))
                     }
                 },
             })
 
-            router.actions.replace(hogFunctionUrl(type, undefined, template?.id))
+            router.actions.replace(hogFunctionUrl(type, undefined, template?.id, kind))
         },
 
         persistForUnload: () => {
@@ -1234,7 +1236,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template.id))
+                router.actions.replace(
+                    hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template.id, hogFunction.kind)
+                )
             }
         },
         sparklineQuery: async (sparklineQuery) => {

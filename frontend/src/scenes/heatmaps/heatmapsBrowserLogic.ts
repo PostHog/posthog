@@ -49,7 +49,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
-    connect({
+    connect(() => ({
         values: [
             authorizedUrlListLogic({
                 ...defaultAuthorizedUrlProperties,
@@ -60,7 +60,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             ['heatmapEmpty'],
         ],
         actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref']],
-    }),
+    })),
 
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),

@@ -29,7 +29,7 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 
 export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     path(['toolbar', 'elements', 'heatmapToolbarMenuLogic']),
-    connect({
+    connect(() => ({
         values: [
             currentPageLogic,
             ['href', 'wildcardHref'],
@@ -66,7 +66,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'setHeatmapScrollY',
             ],
         ],
-    }),
+    })),
     actions({
         getElementStats: (url?: string | null) => ({
             url,

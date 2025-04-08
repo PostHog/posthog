@@ -143,6 +143,7 @@ export function ProjectTree(): JSX.Element {
                         >
                             <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                         </MenuItem>
+                        <MenuSeparator />
                         {treeItemsNew.map((treeItem: any) => (
                             <MenuItem
                                 key={treeItem.id}
@@ -282,6 +283,21 @@ export function ProjectTree(): JSX.Element {
                         return undefined
                     }
                     return <DropdownMenuGroup>{renderMenuItems(item, DropdownMenuItem)}</DropdownMenuGroup>
+                }}
+                emptySpaceContextMenu={() => {
+                    return (
+                        <ContextMenuGroup>
+                            <ContextMenuItem
+                                asChild
+                                onClick={(e: any) => {
+                                    e.stopPropagation()
+                                    createFolder('')
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                            </ContextMenuItem>
+                        </ContextMenuGroup>
+                    )
                 }}
             />
         </PanelLayoutPanel>
