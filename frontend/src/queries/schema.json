@@ -9770,9 +9770,6 @@
                 "isValid": {
                     "type": "boolean"
                 },
-                "isValidView": {
-                    "type": "boolean"
-                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -12230,9 +12227,6 @@
                             "$ref": "#/definitions/QueryIndexUsage"
                         },
                         "isValid": {
-                            "type": "boolean"
-                        },
-                        "isValidView": {
                             "type": "boolean"
                         },
                         "notices": {

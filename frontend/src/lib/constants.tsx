@@ -183,7 +183,6 @@ export const FEATURE_FLAGS = {
     HOG: 'hog', // owner: @mariusandra
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
-    ERROR_TRACKING: 'error-tracking', // owner: #team-error-tracking
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
@@ -240,8 +239,6 @@ export const FEATURE_FLAGS = {
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
     SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN: 'session-recordings-playlist-count-column', // owner: @pauldambra #team-replay
     ONBOARDING_NEW_INSTALLATION_STEP: 'onboarding-new-installation-step', // owner: @joshsny #team-growth
-    WEB_ANALYTICS_TREND_VIZ_TOGGLE: 'web-analytics-trend-viz-toggle', // owner: @lricoy #team-web-analytics
-    WEB_ANALYTICS_HIDE_MODAL_ACTORS: 'web-analytics-hide-modal-actors', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
     AI_SETUP_WIZARD: 'ai-setup-wizard', // owner: @joshsny #team-growth
