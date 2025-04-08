@@ -25,10 +25,12 @@ if [ -d "$RUST_MIGRATIONS" ]; then
   rm -f "$RUST_MIGRATIONS/*"
 fi
 mkdir -p "$RUST_MIGRATIONS"
+
+# Step 2: create static migrations to set up the DB for creation of the exported schemas
 echo "CREATE EXTENSION IF NOT EXISTS pg_trgm;" > "${RUST_MIGRATIONS}/${MIGRATION_COUNTER}_posthog_gin_extension.sql"
 MIGRATION_COUNTER=$((MIGRATION_COUNTER + 1))
 
-# Step 2: add a migration file for each table we need to export
+# Step 3: add a migration file for each table we need to export
 # from the 'public.posthog_*' set of tables. Please add more
 # here as needed rather than harcoding duplicates in the workspace
 POSTHOG_TABLES=( \
@@ -41,13 +43,15 @@ POSTHOG_TABLES=( \
   "posthog_errortrackingissue" \
   "posthog_errortrackingissueassignment" \
   "posthog_errortrackingissuefingerprint" \
-  "posthog_errortrackingissuefingerprint_id_seq" \
   "posthog_errortrackingissuefingerprintv2" \
   "posthog_errortrackingstackframe" \
   "posthog_errortrackingsymbolset" \
   "posthog_project")
 
 for table_name in "${POSTHOG_TABLES[@]}"; do
+  TMP_FILE_1="$RUST_MIGRATIONS/${table_name}_1.sql.tmp"
+  TMP_FILE_2="$RUST_MIGRATIONS/${table_name}_2.sql.tmp"
+  TMP_FILE_3="$RUST_MIGRATIONS/${table_name}_3.sql.tmp"
   MIGRATION_FILE="$RUST_MIGRATIONS/${MIGRATION_COUNTER}_${table_name}_schema.sql"
   MIGRATION_COUNTER=$((MIGRATION_COUNTER + 1))
 
@@ -57,9 +61,15 @@ for table_name in "${POSTHOG_TABLES[@]}"; do
     --host localhost \
     --port 5432 \
     --dbname test_posthog \
-    --file="$MIGRATION_FILE" \
+    --file="$TMP_FILE_1" \
     --schema-only \
+    --schema public \
     --table "$table_name"
-  #awk '{gsub(/public\./, ""); print}' "$TMP_FILE" > "$MIGRATION_FILE"
-  #rm "$TMP_FILE"
+
+  sed '/SELECT pg_catalog\.set_config/d' "$TMP_FILE_1" > "$TMP_FILE_2"
+  sed '/SET /d' "$TMP_FILE_2" > "$TMP_FILE_3"
+  awk '{gsub(/public\./, ""); print}' "$TMP_FILE_3" > "$MIGRATION_FILE"
 done
+
+# Step 4: clean up the tempfiles!
+find "${RUST_MIGRATIONS}" -name '*.tmp' -delete
