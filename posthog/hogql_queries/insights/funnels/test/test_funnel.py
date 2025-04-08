@@ -4933,15 +4933,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             query = FunnelsQuery(
                 series=[
                     EventsNode(event="step one"),
-                    EventsNode(event="step two", optional=True),
+                    EventsNode(event="step two"),  # Optional
                     EventsNode(event="step three"),
-                    EventsNode(event="step four", optional=True),
+                    EventsNode(event="step four"),  # Optional
                     EventsNode(event="step five"),
                 ],
                 dateRange=DateRange(
                     date_from="2012-01-01 00:00:00",
                     date_to="2012-02-01 23:59:59",
                 ),
+                funnelsFilter=FunnelsFilter(optional=[2, 4]),
             )
 
             result = FunnelsQueryRunner(query=query, team=self.team).calculate().results

@@ -1101,7 +1101,7 @@ export type FunnelsFilter = {
     useUdf?: boolean
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
-    /** A list of indices of optional steps */
+    /** A list of indices of optional steps. One indexed. */
     /** @default [] */
     optional?: integer[]
 }
