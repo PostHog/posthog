@@ -19,6 +19,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
@@ -401,6 +402,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     })
 
                     lemonToast.success('Configuration saved')
+                    refreshTreeItem('hog_function/', res.id)
 
                     return res
                 },
