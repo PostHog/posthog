@@ -93,7 +93,7 @@ function getTooltip(count: number, total: number, isFilteredByDistinctId: boolea
     const singular = isFilteredByDistinctId ? 'user' : 'response'
     const plural = isFilteredByDistinctId ? 'users' : 'responses'
 
-    if (total === 0) {
+    if (total <= 0) {
         return `${humanFriendlyNumber(count)} ${isFilteredByDistinctId ? 'unique' : ''} ${pluralize(
             count,
             singular,
