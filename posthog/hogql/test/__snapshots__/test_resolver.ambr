@@ -7641,7 +7641,9 @@
     type: {
       aliases: {}
       anonymous_tables: []
-      columns: {}
+      columns: {
+        max(timestamp): <recursion ...>
+      }
       ctes: {}
       tables: {
         events: <recursion ...>

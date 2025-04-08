@@ -13,9 +13,9 @@ import type { metalyticsLogicType } from './metalyticsLogicType'
 
 export const metalyticsLogic = kea<metalyticsLogicType>([
     path(['lib', 'components', 'metalytics', 'metalyticsLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], membersLogic, ['members']],
-    }),
+    })),
 
     loaders(({ values }) => ({
         viewCount: [

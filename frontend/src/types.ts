@@ -4815,7 +4815,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
-    | ProductKey.WEB_ANALYTICS,
+    | ProductKey.WEB_ANALYTICS
+    | ProductKey.ERROR_TRACKING,
     OnboardingProduct
 >
 
@@ -4916,11 +4917,13 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
-    | 'automation'
+
+export type HogFunctionKind = 'messaging_campaign' | null
 
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
+    kind?: HogFunctionKind
     icon_url?: string
     name: string
     description: string
@@ -4962,7 +4965,17 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    | 'id'
+    | 'type'
+    | 'kind'
+    | 'name'
+    | 'description'
+    | 'hog'
+    | 'inputs_schema'
+    | 'filters'
+    | 'icon_url'
+    | 'masking'
+    | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean

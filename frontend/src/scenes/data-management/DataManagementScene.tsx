@@ -120,9 +120,9 @@ const tabs: Record<
 
 const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
     path(['scenes', 'events', 'dataManagementSceneLogic']),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setTab: (tab: DataManagementTab) => ({ tab }),
     }),

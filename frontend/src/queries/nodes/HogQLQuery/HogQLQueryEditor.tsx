@@ -24,7 +24,7 @@ export interface HogQLQueryEditorProps {
     setQuery?: (query: HogQLQuery) => void
     onChange?: (query: string) => void
     embedded?: boolean
-    editorFooter?: (hasErrors: boolean, errors: string | null, isValidView: boolean) => JSX.Element
+    editorFooter?: (hasErrors: boolean, errors: string | null) => JSX.Element
     queryResponse?: Record<string, any>
 }
 
@@ -72,7 +72,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         metadataFilters: props.query.filters,
     }
 
-    const { hasErrors, error, isValidView } = useValues(codeEditorLogic(codeEditorLogicProps))
+    const { hasErrors, error } = useValues(codeEditorLogic(codeEditorLogicProps))
 
     const { editingView } = useValues(
         dataWarehouseSceneLogic({
@@ -172,7 +172,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 </div>
                 <div className="flex flex-row px-px">
                     {props.editorFooter ? (
-                        props.editorFooter(hasErrors, error, isValidView)
+                        props.editorFooter(hasErrors, error)
                     ) : (
                         <>
                             <div className="flex-1">
@@ -199,13 +199,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={onUpdateView}
                                     type="primary"
                                     center
-                                    disabledReason={
-                                        hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
-                                    }
+                                    disabledReason={hasErrors ? error ?? 'Query has errors' : ''}
                                     data-attr="hogql-query-editor-update-view"
                                 >
                                     Update view
@@ -216,13 +210,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={saveAsView}
                                     type="primary"
                                     center
-                                    disabledReason={
-                                        hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
-                                    }
+                                    disabledReason={hasErrors ? error ?? 'Query has errors' : ''}
                                     data-attr="hogql-query-editor-save-as-view"
                                     tooltip={
                                         <div>

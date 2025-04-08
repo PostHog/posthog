@@ -166,7 +166,7 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
         <div
             ref={setNodeRef}
             className={cn(
-                'transition-all duration-150 rounded',
+                'flex flex-col transition-all duration-150 rounded',
                 props.className,
                 props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary'
             )}

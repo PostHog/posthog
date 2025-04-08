@@ -19,9 +19,9 @@ export const DEFAULT_ERROR_TRACKING_FILTER_GROUP = {
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingLogic']),
 
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),

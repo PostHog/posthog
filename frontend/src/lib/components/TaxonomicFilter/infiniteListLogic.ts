@@ -13,11 +13,11 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { isEmail, isURL } from 'lib/utils'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
