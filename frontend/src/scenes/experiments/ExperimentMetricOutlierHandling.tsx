@@ -24,8 +24,8 @@ export function ExperimentMetricOutlierHandling({
                 />
                 {metric.lower_bound_percentile !== undefined && (
                     <LemonInput
-                        value={metric.lower_bound_percentile}
-                        onChange={(value) => handleSetMetric({ ...metric, lower_bound_percentile: value })}
+                        value={metric.lower_bound_percentile * 100}
+                        onChange={(value) => handleSetMetric({ ...metric, lower_bound_percentile: (value ?? 0) / 100 })}
                         type="number"
                         step={1}
                         suffix={<span className="text-sm">%</span>}
@@ -42,8 +42,8 @@ export function ExperimentMetricOutlierHandling({
                 />
                 {metric.upper_bound_percentile !== undefined && (
                     <LemonInput
-                        value={metric.upper_bound_percentile}
-                        onChange={(value) => handleSetMetric({ ...metric, upper_bound_percentile: value })}
+                        value={metric.upper_bound_percentile * 100}
+                        onChange={(value) => handleSetMetric({ ...metric, upper_bound_percentile: (value ?? 0) / 100 })}
                         type="number"
                         step={1}
                         suffix={<span className="text-sm">%</span>}
