@@ -20,7 +20,6 @@ from posthog.constants import MAX_SLUG_LENGTH
 
 if TYPE_CHECKING:
     from random import Random
-    from posthog.models.team.team import Team
 
 T = TypeVar("T")
 
@@ -395,13 +394,10 @@ class RootTeamMixin(models.Model):
     # should inherit from RootTeamManager.
     objects = RootTeamManager()
 
-    # Type annotation for team to help with type checking
-    team: Optional["Team"] = None
-
     class Meta:
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:
-            self.team = self.team.parent_team
+        if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
+            self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)
