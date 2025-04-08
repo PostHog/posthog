@@ -241,7 +241,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 if (e.message) {
                     lemonToast.error(e.message)
                 } else {
-                    lemonToast.error('Cant delete data at this time')
+                    lemonToast.error("Can't delete data at this time")
                 }
             }
         },
