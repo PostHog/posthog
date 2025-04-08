@@ -1,0 +1,87 @@
+import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+
+import { RecordingUniversalFilters, ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+
+import { playlistLogic } from '../playlist/playlistLogic'
+import { countColumn } from '../saved-playlists/SavedSessionRecordingPlaylists'
+import { SavedSessionRecordingPlaylistsEmptyState } from '../saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
+import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
+
+export function SavedFilters({
+    setFilters,
+}: {
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+}): JSX.Element {
+    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const { savedFilters, savedFiltersLoading, pagination } = useValues(savedFiltersLogic)
+    const { deletePlaylist } = useActions(savedFiltersLogic)
+    const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
+
+    if (savedFiltersLoading || savedFilters.results?.length === 0) {
+        return <SavedSessionRecordingPlaylistsEmptyState />
+    }
+
+    const nameColumn = (): LemonTableColumn<SessionRecordingPlaylistType, 'name'> => {
+        return {
+            title: 'Name',
+            dataIndex: 'name',
+            render: function Render(name, { short_id, derived_name }) {
+                const filter = savedFilters.results.find((filter) => filter.short_id === short_id)
+                return (
+                    <>
+                        <div
+                            onClick={() => {
+                                if (filter && filter.filters) {
+                                    setFilters(filter.filters)
+                                    setIsFiltersExpanded(false)
+                                    setActiveFilterTab('filters')
+                                }
+                            }}
+                            className="cursor-pointer text-current hover:text-accent"
+                        >
+                            {name || derived_name || 'Unnamed'}
+                        </div>
+                    </>
+                )
+            },
+        }
+    }
+
+    const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
+        countColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
+        nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
+        {
+            width: 0,
+            render: function Render(_, playlist) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => deletePlaylist(playlist)}
+                                    fullWidth
+                                    loading={savedFiltersLoading}
+                                >
+                                    Delete saved filter
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
+    ]
+
+    return (
+        <LemonTable
+            loading={savedFiltersLoading}
+            dataSource={savedFilters.results}
+            columns={columns}
+            pagination={pagination}
+            noSortingCancellation
+        />
+    )
+}
