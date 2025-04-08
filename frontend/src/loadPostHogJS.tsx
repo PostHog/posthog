@@ -28,7 +28,7 @@ export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
         const PREVIEW_FLAGS_V2_CONFIG = {
             rolloutPercentage: 1,
-            includedHashes: new Set(['3a4a1aa4']),
+            includedHashes: new Set(['593cb24f9928bab39ec383c06c908481880d5099']),
         }
 
         posthog.init(
