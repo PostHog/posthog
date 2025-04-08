@@ -1998,6 +1998,8 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         from posthog.models.organization import OrganizationMembership
         from posthog.tasks.usage_report import capture_report
 
+        # set the user level to 15 - higher levels are added first in case we need to truncate
+        OrganizationMembership.objects.filter(user=self.user).update(level=15)
         # Create additional test users in the organization
         users = [self.user]  # Include existing test user
         for i in range(2001):  # Create 2001 users to test truncation
