@@ -10,10 +10,10 @@ import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/Lem
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import {
     CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
-    getCoreFilterDefinition,
     KNOWN_PROMOTED_PROPERTY_PARENTS,
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
 } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { isObject, isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'

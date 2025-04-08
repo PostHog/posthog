@@ -1,6 +1,6 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { pluralize } from 'lib/utils'
 
 import { InsightActorsQuery, InsightActorsQueryOptionsResponse } from '~/queries/schema/schema-general'

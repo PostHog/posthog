@@ -4,7 +4,7 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { genericOperatorMap } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'

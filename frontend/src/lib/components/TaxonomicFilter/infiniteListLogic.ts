@@ -13,7 +13,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { isEmail, isURL } from 'lib/utils'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'

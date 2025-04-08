@@ -13,7 +13,8 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import {
