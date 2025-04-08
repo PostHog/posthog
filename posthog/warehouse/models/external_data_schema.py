@@ -222,7 +222,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def delete_table(self):
         if self.table is not None:
             client = get_s3_client()
-            client.delete(self.table.url_pattern, recursive=True)
+            client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
 
             self.table.soft_delete()
             self.table_id = None
