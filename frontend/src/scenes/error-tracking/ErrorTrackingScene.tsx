@@ -71,9 +71,7 @@ export function ErrorTrackingScene(): JSX.Element {
         <ErrorTrackingSetupPrompt>
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
-                {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
-                    <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-                ) : (
+                {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? null : (
                     <IngestionStatusCheck />
                 )}
                 <ErrorTrackingFilters />
