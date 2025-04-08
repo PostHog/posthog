@@ -98,6 +98,7 @@ from posthog.warehouse.models.table import (
     DataWarehouseTable,
     DataWarehouseTableColumns,
 )
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from products.revenue_analytics.backend.models import RevenueAnalyticsRevenueView
 
 if TYPE_CHECKING:
@@ -396,12 +397,13 @@ def create_hogql_database(
                 warehouse_tables[table.name] = s3_table
 
     # For every Stripe source, let's generate its own revenue view
+    # Prefetch related schemas and tables to avoid N+1
     with timings.measure("revenue_analytics_views"):
         with timings.measure("select"):
             stripe_sources = list(
-                ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE).exclude(
-                    deleted=True
-                )
+                ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE)
+                .exclude(deleted=True)
+                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
             )
 
         for stripe_source in stripe_sources:

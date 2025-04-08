@@ -630,9 +630,11 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with self.assertNumQueries(FuzzyInt(5, 7)):
                 create_hogql_database(team=self.team)
 
+    # We keep adding sources, credentials and tables, number of queries should be stable
     def test_external_data_source_is_not_n_plus_1(self) -> None:
+        num_queries = FuzzyInt(5, 10)
+
         for i in range(10):
-            # we keep adding sources, credentials and tables, number of queries should be stable
             source = ExternalDataSource.objects.create(
                 team=self.team,
                 source_id=f"source_id_{i}",
@@ -662,10 +664,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 table=warehouse_table,
                 should_sync=True,
                 last_synced_at="2024-01-01",
-                # No status but should be completed because a data warehouse table already exists
             )
 
-            with self.assertNumQueries(FuzzyInt(5, 9)):
+            with self.assertNumQueries(num_queries):
                 create_hogql_database(team=self.team)
 
     def test_database_warehouse_joins_persons_poe_old_properties(self):

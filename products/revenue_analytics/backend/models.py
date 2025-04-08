@@ -1,7 +1,6 @@
 from typing import cast, Optional
 
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.schema import CurrencyCode
@@ -68,17 +67,17 @@ class RevenueAnalyticsRevenueView(SavedQuery):
 
         # The table we care about is the one with schema `Charge` since from there we can get
         # the data we need in our view
-        try:
-            schema: ExternalDataSchema = ExternalDataSchema.objects.get(
-                source=source, name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER
-            )
-            table: Optional[DataWarehouseTable] = cast(
-                Optional[DataWarehouseTable], schema.table
-            )  # Weird cast because pydantic is weird
-        except (ExternalDataSchema.DoesNotExist, DataWarehouseTable.DoesNotExist):
+        schema = next(
+            (schema for schema in source.schemas.all() if schema.name == STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER), None
+        )
+
+        if schema is None:
             return None
 
-        if table is None:
+        # Weird cast because pydantic is weird
+        table: Optional[DataWarehouseTable] = cast(Optional[DataWarehouseTable], schema.table)
+
+        if schema.table is None:
             return None
 
         team = table.team
