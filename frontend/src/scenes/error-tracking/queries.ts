@@ -102,7 +102,7 @@ export const errorTrackingIssueEventsQuery = ({
     // row expansion only works when you fetch the entire event with '*'
     const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
     const group = filterGroup.values[0] as UniversalFiltersGroup
-    const properties = group.values as AnyPropertyFilter[]
+    const properties = [...group.values] as AnyPropertyFilter[]
 
     if (searchQuery) {
         properties.push(

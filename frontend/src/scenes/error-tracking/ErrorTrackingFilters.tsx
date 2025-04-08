@@ -71,7 +71,7 @@ const UniversalSearch = (): JSX.Element => {
     }
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
-        taxonomicFilterLogicKey: 'error-tracking',
+        taxonomicFilterLogicKey,
         taxonomicGroupTypes,
         onChange: (taxonomicGroup, value, item, originalQuery) => {
             searchInputRef.current?.blur()
