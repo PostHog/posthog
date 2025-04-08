@@ -26,7 +26,7 @@ key_events:
           what: ['signup_start']
 
     - event_id: 'ev_012jkl'
-      description: 'Payment submission failed with error 422. Card validation failed due to API error. User shown validation error message.'
+      description: 'User tried to pay, but payment submission failed with error 422. Card validation failed due to API error. User saw the validation error message.'
       error: true
       importance: 1.0
       tags:
@@ -34,7 +34,7 @@ key_events:
           what: ['payment']
 
     - event_id: 'ev_345mno'
-      description: 'Second payment attempt. Payment validation successful after user updated payment information.'
+      description: 'Second payment attempt. User was able to pay successfully after updating payment information.'
       error: false
       importance: 1.0
       tags:

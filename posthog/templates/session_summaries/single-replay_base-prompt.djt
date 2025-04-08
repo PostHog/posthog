@@ -84,7 +84,9 @@ Your task is to analyze these events chronologically and create a concise, reada
 6. Generate a concise summary of the session:
    - Highlight the key events and user actions. 
    - Don't pick more than 10 events. 
+   - Write 1-3 short, clear sentences per event as a description.
    - Keep the event description short and focused (for example, instead of starting with "User clicked" start with just "Clicked").
+   - Keep technical details when relevant, but present them clearly (for example, instead of "API exception was logged during the login" say "user wasn't able to login because of API error").
 </summary_instructions>
 
 <tag_categorization>
