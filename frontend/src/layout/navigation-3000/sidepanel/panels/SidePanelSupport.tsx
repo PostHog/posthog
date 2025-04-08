@@ -206,10 +206,7 @@ export function SidePanelSupport(): JSX.Element {
     const { billing, billingLoading } = useValues(billingLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
 
-    // Add isDevelopment check for debug purposes
-    const isDevelopment = process.env.NODE_ENV === 'development'
-
-    // Check for support access
+    // Check for support access - paid plans or active trials only
     const canEmail =
         billing?.subscription_level === 'paid' ||
         billing?.subscription_level === 'custom' ||
@@ -218,8 +215,11 @@ export function SidePanelSupport(): JSX.Element {
     // Check if we're on a paid plan or active trial
     const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'
 
-    // Conditionally show email support based on development mode and cloud status
-    const showEmailSupport = isDevelopment ? canEmail : preflight?.cloud && canEmail
+    // Show email support only to paid/trial users on cloud or in development
+    const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
+
+    // Show Max AI to all cloud users regardless of plan or in development
+    const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
 
     // Ensure billing data is loaded before showing support options
     const isBillingLoaded = !billingLoading && billing !== undefined
@@ -303,8 +303,8 @@ export function SidePanelSupport(): JSX.Element {
                         />
                     ) : (
                         <>
-                            {/* Max AI section - show for same users who can access email support */}
-                            {showEmailSupport && isBillingLoaded && (
+                            {/* Max AI section - show for all cloud users */}
+                            {showMaxAI && isBillingLoaded && (
                                 <Section title="Ask Max AI">
                                     <div>
                                         <p>Max AI can now answer 80%+ of the support questions we receive! Nice.</p>
