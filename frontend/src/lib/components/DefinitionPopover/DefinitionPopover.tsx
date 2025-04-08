@@ -8,9 +8,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CoreFilterDefinition, UserBasicType } from '~/types'
 
 interface DefinitionPopoverProps {

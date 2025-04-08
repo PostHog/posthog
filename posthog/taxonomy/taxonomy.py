@@ -594,7 +594,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$replay_script_config": {
             "label": "Replay script config",
             "description": "Sets an alternative recorder script for the web sdk.",
-            "examples": ['{"script": "recorder-next""}'],
+            "examples": ['{"script": "recorder-next"}'],
             "system": True,
         },
         "$session_recording_url_trigger_activated_session": {
