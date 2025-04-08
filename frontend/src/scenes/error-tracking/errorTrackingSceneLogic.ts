@@ -115,12 +115,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             (dateRange) => {
                 const customLabel = generateDateRangeLabel(dateRange)
                 return match(dateRange.date_from)
-                    .with('-24h', () => [
-                        {
-                            value: 'day',
-                            label: '24h',
-                        },
-                    ])
+                    .with('-24h', () => [])
                     .otherwise(() => [
                         {
                             value: 'custom',
