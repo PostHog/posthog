@@ -398,7 +398,6 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    propertyDefs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
@@ -1129,16 +1128,6 @@ export interface JobsConsumerControl {
 export type IngestEventResponse =
     | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
     | { success: false; error: string }
-
-export interface EventDefinitionType {
-    id: string
-    name: string
-    volume_30_day: number | null
-    query_usage_30_day: number | null
-    team_id: number
-    project_id: number | null
-    created_at: string // DateTime
-}
 
 export enum UnixTimestampPropertyTypeFormat {
     UNIX_TIMESTAMP = 'unix_timestamp',
