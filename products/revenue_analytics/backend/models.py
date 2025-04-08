@@ -2,6 +2,7 @@ from typing import cast, Optional
 
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.schema import CurrencyCode
 from posthog.hogql.database.models import (
@@ -74,11 +75,15 @@ class RevenueAnalyticsRevenueView(SavedQuery):
         if schema is None:
             return None
 
-        # Weird cast because pydantic is weird
-        table: Optional[DataWarehouseTable] = cast(Optional[DataWarehouseTable], schema.table)
+        # Casts because pydantic is weird and we need to guarantee it's not Optional
+        # even though we've checked for None above
+        schema = cast(ExternalDataSchema, schema)
 
         if schema.table is None:
             return None
+
+        # Same as above, need to guarantee it's not None
+        table = cast(DataWarehouseTable, schema.table)
 
         team = table.team
         revenue_config = team.revenue_config
