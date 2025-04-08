@@ -27,7 +27,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardTextTileModal', 'logic']),
     props({} as TextCardModalProps),
     key((props) => `textCardModalLogic-${props.dashboard.id}-${props.textTileId}`),
-    connect({ actions: [dashboardsModel, ['updateDashboard']] }),
+    connect(() => ({ actions: [dashboardsModel, ['updateDashboard']] })),
     listeners(({ props, actions }) => ({
         submitTextTileFailure: (error) => {
             if (props.dashboard && props.textTileId) {

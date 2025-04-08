@@ -13,7 +13,7 @@ import { userLogic } from './userLogic'
 
 export const appContextLogic = kea<appContextLogicType>([
     path(['scenes', 'appContextLogic']),
-    connect({
+    connect(() => ({
         actions: [
             userLogic,
             ['loadUserSuccess'],
@@ -24,7 +24,7 @@ export const appContextLogic = kea<appContextLogicType>([
             projectLogic,
             ['loadCurrentProject'],
         ],
-    }),
+    })),
     afterMount(({ actions }) => {
         const appContext = getAppContext()
         const preloadedUser = appContext?.current_user

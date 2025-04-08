@@ -32,7 +32,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -96,7 +96,7 @@
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -219,7 +219,7 @@
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT events.`$group_0` AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1036,7 +1036,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1110,7 +1110,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1174,7 +1174,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1238,7 +1238,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1302,7 +1302,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1366,7 +1366,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1442,7 +1442,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1509,7 +1509,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1596,7 +1596,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1663,7 +1663,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1735,7 +1735,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1807,7 +1807,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1871,7 +1871,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1935,7 +1935,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2009,11 +2009,11 @@
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime64(3, \'UTC\'), `subscription_customer_id` String')) AS subscriptions
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS subscriptions
         LEFT JOIN
           (SELECT customers.customer_email AS customer_email,
                   customers.customer_id AS subscriptions__subscription_customer___customer_id
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`customer_id` String, `customer_name` String, `customer_email` String, `customer_created_at` DateTime64(3, \'UTC\')') AS customers) AS subscriptions__subscription_customer ON equals(subscriptions.subscription_customer_id, subscriptions__subscription_customer.subscriptions__subscription_customer___customer_id)
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS customers) AS subscriptions__subscription_customer ON equals(subscriptions.subscription_customer_id, subscriptions__subscription_customer.subscriptions__subscription_customer___customer_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,

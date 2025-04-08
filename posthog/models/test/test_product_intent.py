@@ -365,3 +365,23 @@ class TestProductIntent(BaseTest):
         self.team.save()
 
         assert self.product_intent.has_activated_product_analytics() is True
+
+    def test_has_activated_surveys_with_launched(self):
+        self.product_intent.product_type = "surveys"
+        self.product_intent.save()
+
+        Survey.objects.create(team=self.team, name="Survey Test", start_date=datetime.now(tz=UTC))
+        assert self.product_intent.has_activated_surveys() is True
+
+    def test_has_not_activated_surveys_with_no_surveys(self):
+        self.product_intent.product_type = "surveys"
+        self.product_intent.save()
+
+        assert self.product_intent.has_activated_surveys() is False
+
+    def test_has_not_activated_surveys_with_unlaunched_survey(self):
+        self.product_intent.product_type = "surveys"
+        self.product_intent.save()
+
+        Survey.objects.create(team=self.team, name="Survey Test")
+        assert self.product_intent.has_activated_surveys() is False

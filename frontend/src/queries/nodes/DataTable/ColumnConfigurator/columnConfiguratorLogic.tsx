@@ -26,9 +26,9 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     props({} as ColumnConfiguratorLogicProps),
     path(['queries', 'nodes', 'DataTable', 'columnConfiguratorLogic']),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         actions: [eventUsageLogic, ['reportDataTableColumnsUpdated'], groupsModel, ['setDefaultColumns']],
-    }),
+    })),
     actions({
         showModal: true,
         hideModal: true,

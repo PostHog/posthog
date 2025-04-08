@@ -42,7 +42,7 @@ const savedQueriesfuse = new Fuse<DataWarehouseSavedQuery>([], {
 
 export const editorSidebarLogic = kea<editorSidebarLogicType>([
     path(['data-warehouse', 'editor', 'editorSidebarLogic']),
-    connect({
+    connect(() => ({
         values: [
             sceneLogic,
             ['activeScene', 'sceneParams'],
@@ -61,7 +61,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-    }),
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [

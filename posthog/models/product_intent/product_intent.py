@@ -107,6 +107,9 @@ class ProductIntent(UUIDModel):
         # the team has resolved any issues
         return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
 
+    def has_activated_surveys(self) -> bool:
+        return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
+
     def has_activated_feature_flags(self) -> bool:
         # Get feature flags that have at least one filter group, excluding ones used by experiments and surveys
         experiment_flags = Experiment.objects.filter(team=self.team).values_list("feature_flag_id", flat=True)
@@ -174,6 +177,7 @@ class ProductIntent(UUIDModel):
             "session_replay": self.has_activated_session_replay,
             "error_tracking": self.has_activated_error_tracking,
             "product_analytics": self.has_activated_product_analytics,
+            "surveys": self.has_activated_surveys,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():
