@@ -41,8 +41,10 @@ class InkeepProvider:
             )
         except openai.APIError as e:
             yield f"data: {json.dumps({'type': 'error', 'error': f'Inkeep API error: {str(e)}'})}\n\n"
+            return
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error: {str(e)}'})}\n\n"
+            return
 
         for chunk in stream:
             delta = chunk.choices[0].delta

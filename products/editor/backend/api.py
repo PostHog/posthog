@@ -29,7 +29,19 @@ class ServerSentEventRenderer(BaseRenderer):
     format = "txt"
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
+        if isinstance(data, dict | list):
+            return None
         return data
+
+
+class JSONRenderer(BaseRenderer):
+    media_type = "application/json"
+    format = "json"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if isinstance(data, dict | list):
+            return json.dumps(data).encode()
+        return None
 
 
 SUPPORTED_MODELS_WITH_THINKING = AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING
@@ -57,7 +69,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
     authentication_classes = [PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated]
-    renderer_classes = [ServerSentEventRenderer]
+    renderer_classes = [JSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
         return [EditorProxyBurstRateThrottle(), EditorProxySustainedRateThrottle()]
@@ -107,7 +119,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 return Response({"error": "You are not authorized to use this feature"}, status=400)
 
             serializer = serializer_class(data=request.data)
-            serializer.is_valid(raise_exception=True)
+            if not serializer.is_valid():
+                return Response({"error": serializer.errors}, status=400)
 
             provider = provider_factory(serializer.validated_data)
             if isinstance(provider, Response):  # Error response

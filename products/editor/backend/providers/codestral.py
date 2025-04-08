@@ -45,14 +45,17 @@ class CodestralProvider:
         Generator function that yields SSE formatted data
         """
 
-        response = self.client.fim.stream(
-            model=self.model_id,
-            prompt=prompt,
-            suffix=suffix,
-            temperature=CodestralConfig.TEMPERATURE,
-            top_p=CodestralConfig.TOP_P,
-            stop=stop,
-        )
-        for chunk in response:
-            data = chunk.data.choices[0].delta.content
-            yield f"data: {json.dumps({'type': 'text', 'text': data})}\n\n"
+        try:
+            response = self.client.fim.stream(
+                model=self.model_id,
+                prompt=prompt,
+                suffix=suffix,
+                temperature=CodestralConfig.TEMPERATURE,
+                top_p=CodestralConfig.TOP_P,
+                stop=stop,
+            )
+            for chunk in response:
+                data = chunk.data.choices[0].delta.content
+                yield f"data: {json.dumps({'type': 'text', 'text': data})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
