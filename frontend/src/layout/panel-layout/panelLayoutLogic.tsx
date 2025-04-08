@@ -10,9 +10,9 @@ export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
-    connect({
+    connect(() => ({
         values: [navigation3000Logic, ['mobileLayout']],
-    }),
+    })),
     actions({
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
@@ -33,7 +33,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             { persist: true },
             {
                 showLayoutNavBar: (_, { visible }) => visible,
-                mobileLayout: () => true,
+                mobileLayout: () => false,
             },
         ],
         isLayoutNavbarVisibleForMobile: [
@@ -48,6 +48,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             {
                 showLayoutPanel: () => true,
                 toggleLayoutPanelPinned: () => false,
+            },
+        ],
+        isLayoutNavbarVisible: [
+            false,
+            { persist: true },
+            {
+                showLayoutNavBar: (_, { visible }) => visible,
             },
         ],
         isLayoutPanelVisible: [

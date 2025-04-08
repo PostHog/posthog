@@ -216,6 +216,15 @@ class Team(UUIDClassicModel):
         related_name="teams",
         related_query_name="team",
     )
+    # NOTE: The deletion is not cascade due to us wanting to first of all solve deletion properly before allowing cascading deletes
+    parent_team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.SET_NULL,
+        related_name="child_teams",
+        related_query_name="child_team",
+        null=True,
+    )
+    # NOTE: To be removed in favour of parent_team
     project = models.ForeignKey(
         "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )

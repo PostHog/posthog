@@ -48,6 +48,7 @@ import {
     shortTimeZone,
     stringOperatorMap,
     toParams,
+    wordPluralize,
 } from './utils'
 
 describe('lib/utils', () => {
@@ -206,6 +207,17 @@ describe('lib/utils', () => {
             expect(pluralize(28321, 'member')).toEqual('28,321 members')
             expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
             expect(pluralize(3, 'word', undefined, false)).toEqual('words')
+        })
+    })
+
+    describe('wordPluralize()', () => {
+        it('handles singular cases', () => {
+            expect(wordPluralize('company')).toEqual('companies')
+            expect(wordPluralize('person')).toEqual('people')
+            expect(wordPluralize('bacterium')).toEqual('bacteria')
+            expect(wordPluralize('word')).toEqual('words')
+            expect(wordPluralize('child')).toEqual('children')
+            expect(wordPluralize('knife')).toEqual('knives')
         })
     })
 
