@@ -203,6 +203,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
+    REVENUE_ANALYTICS = 'revenue_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -2888,6 +2889,37 @@ export interface SurveyDisplayConditions {
             name: string
         }[]
     } | null
+}
+
+export interface SurveyStats {
+    stats: {
+        'survey shown': {
+            total_count: number
+            total_count_only_seen: number
+            unique_persons: number
+            unique_persons_only_seen: number
+            first_seen: string | null
+            last_seen: string | null
+        }
+        'survey dismissed': {
+            total_count: number
+            unique_persons: number
+            first_seen: string | null
+            last_seen: string | null
+        }
+        'survey sent': {
+            total_count: number
+            unique_persons: number
+            first_seen: string | null
+            last_seen: string | null
+        }
+    }
+    rates: {
+        response_rate: number
+        dismissal_rate: number
+        unique_users_response_rate: number
+        unique_users_dismissal_rate: number
+    }
 }
 
 export interface Survey {

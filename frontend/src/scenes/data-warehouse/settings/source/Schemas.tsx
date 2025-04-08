@@ -322,6 +322,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                     <LemonButton
                                                         type="tertiary"
                                                         size="xsmall"
+                                                        fullWidth
                                                         key={`reload-data-warehouse-schema-${schema.id}`}
                                                         id="data-warehouse-schema-reload"
                                                         onClick={() => {
@@ -335,6 +336,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                             <LemonButton
                                                                 type="tertiary"
                                                                 size="xsmall"
+                                                                fullWidth
                                                                 key={`resync-data-warehouse-schema-${schema.id}`}
                                                                 id="data-warehouse-schema-resync"
                                                                 onClick={() => {
@@ -358,6 +360,8 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                                 status="danger"
                                                                 id="data-warehouse-schema-delete"
                                                                 type="tertiary"
+                                                                fullWidth
+                                                                size="xsmall"
                                                                 onClick={() => {
                                                                     if (
                                                                         window.confirm(

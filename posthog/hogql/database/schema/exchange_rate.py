@@ -5,7 +5,6 @@ from posthog.schema import (
     CurrencyCode,
     RevenueTrackingConfig,
     RevenueTrackingEventItem,
-    RevenueTrackingDataWarehouseTable,
 )
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.database.models import (
@@ -210,82 +209,3 @@ def revenue_where_expr_for_events(config: Union[RevenueTrackingConfig, dict, Non
         return exprs[0]
 
     return ast.Or(exprs=exprs)
-
-
-# ##############################################
-# Revenue from data warehouse tables
-
-
-# Given a data warehouse config and the base config, figure out what the currency should look like
-def currency_expression_for_data_warehouse(
-    config: RevenueTrackingConfig, data_warehouse_config: RevenueTrackingDataWarehouseTable
-) -> ast.Expr:
-    # Shouldn't happen but we need it here to make the type checker happy
-    if not data_warehouse_config.revenueCurrencyColumn:
-        return ast.Constant(value=(config.baseCurrency or DEFAULT_CURRENCY).value)
-
-    if data_warehouse_config.revenueCurrencyColumn.property:
-        return ast.Call(
-            name="upper",
-            args=[
-                ast.Field(chain=[data_warehouse_config.tableName, data_warehouse_config.revenueCurrencyColumn.property])
-            ],
-        )
-
-    currency = data_warehouse_config.revenueCurrencyColumn.static or config.baseCurrency or DEFAULT_CURRENCY
-    return ast.Constant(value=currency.value)
-
-
-def revenue_expression_for_data_warehouse(
-    config: RevenueTrackingConfig,
-    data_warehouse_config: RevenueTrackingDataWarehouseTable,
-    do_currency_conversion: bool = True,
-) -> ast.Expr:
-    # Convert the revenue to the base currency based on `data_warehouse_config.revenueCurrencyColumn`
-    # Otherwise, assume we're already in the base currency
-    # Also, assume that `base_currency` is USD by default, it'll be empty for most customers
-    if data_warehouse_config.revenueCurrencyColumn and do_currency_conversion:
-        value_expr = ast.Call(
-            name="if",
-            args=[
-                ast.Call(name="isNull", args=[currency_expression_for_data_warehouse(config, data_warehouse_config)]),
-                ast.Call(
-                    name="toDecimal",
-                    args=[
-                        ast.Field(chain=[data_warehouse_config.tableName, data_warehouse_config.revenueColumn]),
-                        ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
-                    ],
-                ),
-                convert_currency_call(
-                    ast.Field(chain=[data_warehouse_config.tableName, data_warehouse_config.revenueColumn]),
-                    currency_expression_for_data_warehouse(config, data_warehouse_config),
-                    ast.Constant(value=(config.baseCurrency or DEFAULT_CURRENCY).value),
-                    ast.Call(
-                        name="_toDate",
-                        args=[
-                            # Because we can have nullable timestamp columns, we need to handle that case
-                            # by converting to a default value of 0
-                            ast.Call(
-                                name="ifNull",
-                                args=[
-                                    ast.Field(
-                                        chain=[data_warehouse_config.tableName, data_warehouse_config.timestampColumn]
-                                    ),
-                                    ast.Call(name="toDateTime", args=[ast.Constant(value=0)]),
-                                ],
-                            )
-                        ],
-                    ),
-                ),
-            ],
-        )
-    else:
-        value_expr = ast.Call(
-            name="toDecimal",
-            args=[
-                ast.Field(chain=[data_warehouse_config.tableName, data_warehouse_config.revenueColumn]),
-                ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
-            ],
-        )
-
-    return value_expr
