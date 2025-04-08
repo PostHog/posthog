@@ -10,7 +10,6 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
 import { IssueCard } from './components/IssueCard'
-import { ErrorTrackingFilters, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { GenericSelect } from './issue/GenericSelect'
@@ -74,10 +73,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <div className="ErrorTrackingIssue space-y-2">
                 <IssueCard />
                 <Metadata />
-                <ErrorTrackingFilters>
-                    <FilterGroup />
-                    <InternalAccountsFilter />
-                </ErrorTrackingFilters>
                 <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
                     <EventsTab />
                 </LemonCard>

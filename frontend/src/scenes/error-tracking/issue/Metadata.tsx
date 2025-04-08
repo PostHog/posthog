@@ -9,7 +9,7 @@ import { match } from 'ts-pattern'
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { SparklineChart, SparklineDatum, SparklineEvent } from '../components/SparklineChart/SparklineChart'
-import { DateRangeFilter } from '../ErrorTrackingFilters'
+import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from '../ErrorTrackingFilters'
 import { useSparklineDataIssueScene } from '../hooks/use-sparkline-data'
 import { useSparklineEvents } from '../hooks/use-sparkline-events'
 import { useSparklineOptions } from '../hooks/use-sparkline-options'
@@ -53,16 +53,10 @@ export const Metadata = (): JSX.Element => {
             hoverEffect={false}
             className="grid grid-cols-[minmax(180px,min-content)_1fr] grid-rows-[50px_minmax(200px,_1fr)] p-0 overflow-hidden items-center"
         >
-            <div className="border-r h-full flex items-center justify-center p-2 border-b">
+            <div className="h-full flex items-center justify-center p-2 border-b col-span-2 w-full gap-2">
                 <DateRangeFilter fullWidth />
-            </div>
-            <div className="h-full p-1 row-span-2">
-                <SparklineChart
-                    data={sparklineData}
-                    events={sparklineEvents}
-                    options={sparklineOptions}
-                    className="h-full"
-                />
+                <FilterGroup />
+                <InternalAccountsFilter />
             </div>
             <div className="border-r h-full">
                 {match(hoveredDatum)
@@ -72,6 +66,14 @@ export const Metadata = (): JSX.Element => {
                     .with({ type: 'datum' }, (s) => renderDataPoint(s.data))
                     .with({ type: 'event' }, (s) => renderEventPoint(s.data))
                     .otherwise(() => null)}
+            </div>
+            <div className="h-full p-1">
+                <SparklineChart
+                    data={sparklineData}
+                    events={sparklineEvents}
+                    options={sparklineOptions}
+                    className="h-full"
+                />
             </div>
         </LemonCard>
     )
