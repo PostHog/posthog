@@ -12,7 +12,7 @@ import {
     CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
     KNOWN_PROMOTED_PROPERTY_PARENTS,
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
-} from 'lib/taxonomy'
+} from '~/taxonomy/taxonomy'
 import { isObject, isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
