@@ -1,4 +1,4 @@
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
@@ -380,7 +380,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'core-memory',
                 title: 'Memory',
                 description:
-                    'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don\'t want Max to remember, you can edit or remove them below.',
+                    "Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want Max to remember, you can edit or remove them below.",
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
@@ -666,7 +666,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Customization IRL',
                 component: (
                     <div>
-                        Grab some <a href="https://posthog.com/merch" target="_blank" rel="noopener noreferrer">PostHog merch</a> to customize yourself outside of the app
+                        Grab some{' '}
+                        <Link to="https://posthog.com/merch" target="_blank">
+                            PostHog merch
+                        </Link>{' '}
+                        to customize yourself outside of the app
                     </div>
                 ),
             },
