@@ -15,7 +15,7 @@ import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
-export const API_KEY_SCOPE_PRESETS = [
+export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     {
         value: 'zapier',
@@ -47,6 +47,7 @@ export const API_KEY_SCOPE_PRESETS = [
             'property_definition:read',
             'event_definition:read',
         ],
+        isCloudOnly: true,
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
