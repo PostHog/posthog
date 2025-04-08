@@ -67,17 +67,20 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
         updatingDataWarehouseSavedQuery,
         initialDataWarehouseSavedQueryLoading,
         dataModelingJobs,
+        hasMoreJobsToLoad,
     } = useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery, loadDataModelingJobs } = useActions(dataWarehouseViewsLogic)
+    const { updateDataWarehouseSavedQuery, loadDataModelingJobs, loadOlderDataModelingJobs, resetDataModelingJobs } =
+        useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
     useEffect(() => {
         if (editingView) {
+            resetDataModelingJobs()
             loadDataModelingJobs(editingView.id)
         }
-    }, [editingView, loadDataModelingJobs])
+    }, [editingView?.id, loadDataModelingJobs, resetDataModelingJobs])
 
     if (initialDataWarehouseSavedQueryLoading) {
         return (
@@ -176,16 +179,14 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         )}
                     </div>
                 </div>
-                {savedQuery && dataModelingJobs?.results && dataModelingJobs.results.length > 0 && (
+                {savedQuery && (
                     <>
                         <div>
                             <h3>Materialization Runs</h3>
-                            <p>
-                                Below are the last 10 runs for this materialized view. These can be scheduled or run on
-                                demand.
-                            </p>
+                            <p>The last runs for this materialized view. These can be scheduled or run on demand.</p>
                         </div>
                         <LemonTable
+                            loading={initialDataWarehouseSavedQueryLoading}
                             dataSource={dataModelingJobs?.results || []}
                             columns={[
                                 {
@@ -235,6 +236,20 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                             ]}
                             nouns={['run', 'runs']}
                             emptyState="No runs available"
+                            footer={
+                                hasMoreJobsToLoad && (
+                                    <div className="flex items-center m-2">
+                                        <LemonButton
+                                            center
+                                            fullWidth
+                                            onClick={() => loadOlderDataModelingJobs()}
+                                            loading={initialDataWarehouseSavedQueryLoading}
+                                        >
+                                            Load older runs
+                                        </LemonButton>
+                                    </div>
+                                )
+                            }
                         />
                     </>
                 )}
