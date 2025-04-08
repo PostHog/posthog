@@ -542,7 +542,15 @@ const teamActionsMapping: Record<
     primary_dashboard: () => null,
     slack_incoming_webhook: () => null,
     timezone: () => null,
-    surveys_opt_in: () => null,
+    surveys_opt_in: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [<>{change?.after ? 'enabled' : 'disabled'} surveys</>],
+        }
+    },
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,
