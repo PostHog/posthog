@@ -3499,6 +3499,10 @@ export interface Experiment {
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
+        exposure_estimate_config?: {
+            event: string
+            properties: AnyPropertyFilter[]
+        } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number
         recommended_sample_size?: number
