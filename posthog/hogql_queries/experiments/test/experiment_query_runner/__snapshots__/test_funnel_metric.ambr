@@ -475,7 +475,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -503,9 +503,9 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@posthog.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -550,7 +550,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -578,9 +578,9 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@earlierevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -625,7 +625,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -653,9 +653,9 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@laterevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -702,7 +702,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
-                  nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -728,7 +728,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
-                  nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -750,7 +750,7 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
-                     nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
               FROM person
               WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version
@@ -807,7 +807,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
-                  nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -833,7 +833,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
-                  nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -855,7 +855,7 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
-                     nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
               FROM person
               WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version
@@ -912,7 +912,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
-                  nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -938,7 +938,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
-                  nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -960,7 +960,7 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
-                     nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
               FROM person
               WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version
@@ -1008,7 +1008,7 @@
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1022,9 +1022,9 @@
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id) AS exposure_data ON equals(events.person_id, exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@posthog.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1062,7 +1062,7 @@
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1076,9 +1076,9 @@
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id) AS exposure_data ON equals(events.person_id, exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@earlierevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1116,7 +1116,7 @@
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1130,9 +1130,9 @@
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id) AS exposure_data ON equals(events.person_id, exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(nullIf(nullIf(events.mat_pp_email, ''), 'null')), '%@laterevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
