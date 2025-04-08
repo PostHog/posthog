@@ -21,7 +21,7 @@ const SortingKeyToLabel = {
 
 function getLabel(filters: RecordingUniversalFilters): string {
     if (filters.order === 'start_time') {
-        return filters.direction === 'newer' ? 'Latest' : 'Oldest'
+        return filters.direction === 'ASC' ? 'Oldest' : 'Latest'
     }
     return SortingKeyToLabel[filters.order || 'start_time']
 }
@@ -42,13 +42,13 @@ function SortedBy({
                     items: [
                         {
                             label: 'Latest',
-                            onClick: () => setFilters({ order: 'start_time', direction: 'newer' }),
-                            active: filters.order === 'start_time' && filters.direction === 'newer',
+                            onClick: () => setFilters({ order: 'start_time', direction: 'DESC' }),
+                            active: filters.order === 'start_time' && filters.direction === 'DESC',
                         },
                         {
                             label: 'Oldest',
-                            onClick: () => setFilters({ order: 'start_time', direction: 'older' }),
-                            active: filters.order === 'start_time' && filters.direction === 'older',
+                            onClick: () => setFilters({ order: 'start_time', direction: 'ASC' }),
+                            active: filters.order === 'start_time' && filters.direction === 'ASC',
                         },
                     ],
                 },
