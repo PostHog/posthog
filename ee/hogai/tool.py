@@ -72,6 +72,7 @@ class MaxTool(BaseTool):
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
+        self._team_id = config["configurable"].get("team_id")
         return self._run_impl(*args, **kwargs)
 
     @property

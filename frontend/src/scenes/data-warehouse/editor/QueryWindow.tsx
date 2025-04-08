@@ -7,6 +7,7 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
+import MaxTool from 'scenes/max/MaxTool'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
@@ -119,37 +120,47 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     </LemonButton>
                 )}
             </div>
-            <QueryPane
-                queryInput={queryInput}
-                sourceQuery={sourceQuery.source}
-                promptError={null}
-                codeEditorProps={{
-                    queryKey: codeEditorKey,
-                    onChange: (v) => {
-                        setQueryInput(v ?? '')
-                    },
-                    onMount: (editor, monaco) => {
-                        onSetMonacoAndEditor(monaco, editor)
-                    },
-                    onPressCmdEnter: (value, selectionType) => {
-                        if (value && selectionType === 'selection') {
-                            runQuery(value)
-                        } else {
-                            runQuery()
-                        }
-                    },
-                    onError: (error, isValidView) => {
-                        setError(error)
-                        setIsValidView(isValidView)
-                    },
-                    onMetadata: (metadata) => {
-                        setMetadata(metadata)
-                    },
-                    onMetadataLoading: (loading) => {
-                        setMetadataLoading(loading)
-                    },
+            <MaxTool
+                name="generate_hogql_query"
+                displayName="Generate hogQL query"
+                context={{
+                    current_query: queryInput,
                 }}
-            />
+                callback={() => {}}
+                initialMaxPrompt="Generate "
+            >
+                <QueryPane
+                    queryInput={queryInput}
+                    sourceQuery={sourceQuery.source}
+                    promptError={null}
+                    codeEditorProps={{
+                        queryKey: codeEditorKey,
+                        onChange: (v) => {
+                            setQueryInput(v ?? '')
+                        },
+                        onMount: (editor, monaco) => {
+                            onSetMonacoAndEditor(monaco, editor)
+                        },
+                        onPressCmdEnter: (value, selectionType) => {
+                            if (value && selectionType === 'selection') {
+                                runQuery(value)
+                            } else {
+                                runQuery()
+                            }
+                        },
+                        onError: (error, isValidView) => {
+                            setError(error)
+                            setIsValidView(isValidView)
+                        },
+                        onMetadata: (metadata) => {
+                            setMetadata(metadata)
+                        },
+                        onMetadataLoading: (loading) => {
+                            setMetadataLoading(loading)
+                        },
+                    }}
+                />
+            </MaxTool>
             <InternalQueryWindow />
         </div>
     )
