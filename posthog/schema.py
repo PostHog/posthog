@@ -472,8 +472,9 @@ class CodebaseTreeResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    artifactId: str
-    parentArtifactId: str
+    id: str
+    parentId: str
+    type: str
 
 
 class CompareFilter(BaseModel):
@@ -8105,7 +8106,6 @@ class CodebaseTreeQuery(BaseModel):
     )
     branch: Optional[str] = None
     codebaseId: str
-    embedding: list[float]
     kind: Literal["CodebaseTreeQuery"] = "CodebaseTreeQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"

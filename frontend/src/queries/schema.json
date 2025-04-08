@@ -5431,12 +5431,6 @@
                 "codebaseId": {
                     "type": "string"
                 },
-                "embedding": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
-                },
                 "kind": {
                     "const": "CodebaseTreeQuery",
                     "type": "string"
@@ -5452,7 +5446,7 @@
                     "type": "number"
                 }
             },
-            "required": ["branch", "codebaseId", "embedding", "kind", "userId"],
+            "required": ["branch", "codebaseId", "kind", "userId"],
             "type": "object"
         },
         "CodebaseTreeQueryResponse": {
@@ -5498,14 +5492,17 @@
         "CodebaseTreeResponseItem": {
             "additionalProperties": false,
             "properties": {
-                "artifactId": {
+                "id": {
                     "type": "string"
                 },
-                "parentArtifactId": {
+                "parentId": {
+                    "type": "string"
+                },
+                "type": {
                     "type": "string"
                 }
             },
-            "required": ["artifactId", "parentArtifactId"],
+            "required": ["id", "parentId", "type"],
             "type": "object"
         },
         "CohortPropertyFilter": {

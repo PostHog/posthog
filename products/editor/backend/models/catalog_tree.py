@@ -1,10 +1,13 @@
+from collections.abc import Sequence
 from typing import Literal, TypedDict
+
+ArtifactType = Literal["file", "dir"]
 
 
 class SerializedArtifact(TypedDict):
-    artifact_id: str
-    artifact_type: Literal["file", "dir"]
-    children: list["SerializedArtifact"]
+    id: str
+    type: ArtifactType
+    parent_id: str | None
 
 
 class ArtifactNode:
@@ -14,18 +17,20 @@ class ArtifactNode:
         self.children = children
 
     @staticmethod
-    def build_tree(files: list[SerializedArtifact]) -> "ArtifactNode":
+    def build_tree(files: Sequence[SerializedArtifact]) -> "ArtifactNode":
         nodes = {}
         for file in files:
-            nodes[file["artifact_id"]] = ArtifactNode(file["artifact_id"], file["artifact_type"], [])
+            nodes[file["id"]] = ArtifactNode(file["id"], file["type"], [])
 
+        # Build parent-child relationships
         for file in files:
-            nodes[file["artifact_id"]].children = [nodes[child["artifact_id"]] for child in file["children"]]
+            if file["parent_id"] is not None:
+                nodes[file["parent_id"]].children.append(nodes[file["id"]])
 
-        return nodes[files[0]["artifact_id"]]
+        return nodes[files[0]["id"]]
 
     @staticmethod
-    def compare(server: "ArtifactNode", client: "ArtifactNode") -> dict[str, list[tuple[str, Literal["file", "dir"]]]]:
+    def compare(server: "ArtifactNode", client: "ArtifactNode") -> tuple[list[str], list[str]]:
         """
         Compare server and client nodes recursively and return added/deleted nodes.
 
@@ -41,14 +46,14 @@ class ArtifactNode:
 
         # If node types are different, consider it a deletion and addition
         if server.type != client.type:
-            result["deleted"].append((server.hash, server.type))
-            result["added"].append((client.hash, client.type))
+            result["deleted"].append(server.hash)
+            result["added"].append(client.hash)
             return result
 
         # For files, if hashes differ, it's a deletion and addition
         if server.type == "file" and server.hash != client.hash:
-            result["deleted"].append((server.hash, server.type))
-            result["added"].append((client.hash, client.type))
+            result["deleted"].append(server.hash)
+            result["added"].append(client.hash)
             return result
 
         # For directories, recursively compare children
@@ -57,14 +62,14 @@ class ArtifactNode:
             client_children_map = {child.hash: child for child in client.children}
 
             # Find deleted nodes (in server but not in client)
-            for hash, node in server_children_map.items():
+            for hash in server_children_map.keys():
                 if hash not in client_children_map:
-                    result["deleted"].append((hash, node.type))
+                    result["deleted"].append(hash)
 
             # Find added nodes (in client but not in server)
-            for hash, node in client_children_map.items():
+            for hash in client_children_map.keys():
                 if hash not in server_children_map:
-                    result["added"].append((hash, node.type))
+                    result["added"].append(hash)
 
             # For nodes that exist in both, compare recursively
             for hash in set(server_children_map.keys()) & set(client_children_map.keys()):

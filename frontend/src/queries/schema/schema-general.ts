@@ -2609,15 +2609,15 @@ export type EditorSemanticSearchQueryResponse = AnalyticsQueryResponseBase<Edito
 export type CachedEditorSemanticSearchQueryResponse = CachedQueryResponse<EditorSemanticSearchQueryResponse>
 
 export interface CodebaseTreeResponseItem {
-    artifactId: string
-    parentArtifactId: string
+    id: string
+    parentId: string | null
+    type: string
 }
 
 export type CodebaseTreeResponse = CodebaseTreeResponseItem[]
 
 export interface CodebaseTreeQuery extends DataNode<CodebaseTreeQueryResponse> {
     kind: NodeKind.CodebaseTreeQuery
-    embedding: number[]
     userId: number
     codebaseId: string
     branch: string | null
