@@ -14,6 +14,7 @@ import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/se
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionReplaySceneLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { PropertyOperator, SessionRecordingPlaylistType, UniversalFilterValue } from '~/types'
 
@@ -79,6 +80,7 @@ export async function updatePlaylist(
     silent: boolean = false
 ): Promise<SessionRecordingPlaylistType> {
     const newPlaylist = await api.recordings.updatePlaylist(shortId, playlist)
+    refreshTreeItem('session_recording_playlist', shortId)
     if (!silent) {
         lemonToast.success('Playlist updated successfully')
     }

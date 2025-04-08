@@ -8,8 +8,6 @@ import { OnboardingStep } from '../OnboardingStep'
 export function OnboardingDataWarehouseSourcesStep({
     stepKey = OnboardingStepKey.INSTALL,
 }: {
-    usersAction?: string
-    subtitle?: string
     stepKey?: OnboardingStepKey
 }): JSX.Element {
     const { goToNextStep } = useActions(onboardingLogic)

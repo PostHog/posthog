@@ -271,7 +271,12 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
             label: canConfigurePlugins ? 'Edit configuration' : 'View configuration',
             to:
                 'hog_function' in node && node.hog_function
-                    ? hogFunctionUrl(node.hog_function.type, node.hog_function.id)
+                    ? hogFunctionUrl(
+                          node.hog_function.type,
+                          node.hog_function.id,
+                          node.hog_function.template?.id,
+                          node.hog_function.kind
+                      )
                     : urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Configuration),
         },
         {
