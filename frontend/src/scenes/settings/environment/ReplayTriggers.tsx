@@ -571,7 +571,6 @@ function MinimumDurationSetting(): JSX.Element | null {
     return (
         <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}>
             <>
-                <LemonDivider dashed />
                 <div className="flex flex-row justify-between">
                     <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
                     <LemonSelect
