@@ -1,5 +1,6 @@
 import { LemonTable } from '@posthog/lemon-ui'
-import { PaymentsTabs } from 'scenes/payments/components/PaymentsTabs'
+
+import { PaymentsTabs } from '../../components/PaymentsTabs'
 
 export function PaymentsProductsScene(): JSX.Element {
     return (

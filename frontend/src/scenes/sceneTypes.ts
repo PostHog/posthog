@@ -92,6 +92,10 @@ export enum Scene {
     MessagingBroadcasts = 'MessagingBroadcasts',
     MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
+    PaymentsOverview = 'PaymentsOverview',
+    PaymentsProducts = 'PaymentsProducts',
+    PaymentsTransactions = 'PaymentsTransactions',
+    PaymentsSettings = 'PaymentsSettings',
 }
 
 export type SceneProps = Record<string, any>

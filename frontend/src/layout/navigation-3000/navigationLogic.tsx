@@ -595,12 +595,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tag: 'alpha' as const,
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.PAYMENTS]
+                        featureFlags[FEATURE_FLAGS.FEATURE_PAYMENTS]
                             ? {
-                                  identifier: 'Payments',
+                                  identifier: Scene.PaymentsOverview,
                                   label: 'Payments',
                                   icon: <IconHandMoney />,
                                   to: urls.paymentsOverview(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         {

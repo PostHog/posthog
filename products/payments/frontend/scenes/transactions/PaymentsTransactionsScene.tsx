@@ -1,4 +1,4 @@
-import { PaymentsTabs } from 'scenes/payments/components/PaymentsTabs'
+import { PaymentsTabs } from '../../components/PaymentsTabs'
 
 export function PaymentsTransactionsScene(): JSX.Element {
     return (

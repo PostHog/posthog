@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
-import { PaymentsTabs } from 'scenes/payments/components/PaymentsTabs'
 import { Settings } from 'scenes/settings/Settings'
+
+import { PaymentsTabs } from '../../components/PaymentsTabs'
 
 const SETTINGS_LOGIC_KEY = 'paymentsSettings'
 
