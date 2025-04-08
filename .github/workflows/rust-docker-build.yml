@@ -39,9 +39,6 @@ jobs:
                     - image: property-defs-rs
                       dockerfile: ./rust/Dockerfile
                       project: vznmbshh6q
-                    - image: property-defs-rs-v2
-                      dockerfile: ./rust/Dockerfile
-                      project: vznmbshh6q
                     - image: cymbal
                       dockerfile: ./rust/Dockerfile
                       project: 8dq0xkk0ck
@@ -62,7 +59,6 @@ jobs:
             cyclotron-fetch_digest: ${{ steps.digest.outputs.cyclotron-fetch_digest }}
             cyclotron-janitor_digest: ${{ steps.digest.outputs.cyclotron-janitor_digest }}
             property-defs-rs_digest: ${{ steps.digest.outputs.property-defs-rs_digest }}
-            property-defs-rs-v2_digest: ${{ steps.digest.outputs.property-defs-rs_digest }}
             batch-import-worker_digest: ${{ steps.digest.outputs.batch-import-worker_digest }}
             hook-api_digest: ${{ steps.digest.outputs.hook-api_digest }}
             hook-janitor_digest: ${{ steps.digest.outputs.hook-janitor_digest }}
@@ -173,10 +169,6 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.property-defs-rs_digest }}'
-                    - release: property-defs-rs-v2
-                      values:
-                          image:
-                              sha: '${{ needs.build.outputs.property-defs-rs-v2_digest }}'
                     - release: feature-flags
                       values:
                           image:

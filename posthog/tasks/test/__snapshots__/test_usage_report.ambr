@@ -202,7 +202,7 @@
          count(1) cnt,
          sum(read_bytes) read_bytes
   FROM clusterAllReplicas(posthog, system.query_log)
-  WHERE type != 'QueryStart'
+  WHERE type = 'QueryFinish'
     AND is_initial_query
     AND event_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND team_id > 0

@@ -19,11 +19,12 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { cn } from 'lib/utils/css-classes'
 import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
+import { isCoreFilter } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
     CohortType,

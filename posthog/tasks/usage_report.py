@@ -684,7 +684,7 @@ def get_teams_with_api_queries_metrics(
     query = f"""
         SELECT JSONExtractInt(log_comment, 'team_id') team_id, count(1) cnt, sum(read_bytes) read_bytes
         FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
-        WHERE type != 'QueryStart'
+        WHERE type = 'QueryFinish'
         AND is_initial_query
         AND event_time between %(begin)s AND %(end)s
         AND team_id > 0
