@@ -340,7 +340,11 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                                 status="danger"
                                                                 id="data-warehouse-schema-delete"
                                                                 type="tertiary"
-                                                                onClick={() => deleteTable(schema)}
+                                                                onClick={() => {
+                                                                    if (window.confirm(`Are you sure you want to delete the table ${schema.table.name} from PostHog?`)) {
+                                                                        deleteTable(schema)
+                                                                    }
+                                                                }}
                                                             >
                                                                 Delete table from PostHog
                                                             </LemonButton>
