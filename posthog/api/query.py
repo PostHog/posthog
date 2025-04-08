@@ -61,7 +61,6 @@ from posthog.schema import (
 )
 from typing import cast
 
-
 # Create a dedicated thread pool for query processing
 # Setting max_workers to ensure we don't overwhelm the system
 # while still allowing concurrent queries
@@ -138,10 +137,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
-        with suppress(Exception, ValueError):
+        with suppress(Exception):
             request_id = structlog.get_context(logger).get("request_id")
-            uuid.UUID(request_id)  # just to verify it is a real UUID
             if request_id:
+                uuid.UUID(request_id)  # just to verify it is a real UUID
                 tag_queries(http_request_id=request_id)
         try:
             query, client_query_id, execution_mode = _process_query_request(
@@ -154,7 +153,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
-                user=request.user,
+                user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             )
             if isinstance(result, BaseModel):
