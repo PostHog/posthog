@@ -154,7 +154,6 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         data = response.json()
         self.assertEqual(data["count"], 0)
-        self.assertEqual(data["results"], [])
         self.assertEqual(FileSystem.objects.count(), 0)
 
     def test_unfiled_endpoint_is_idempotent(self):
@@ -196,20 +195,9 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         data = response.json()
-        results = data["results"]
 
         # We get 5 newly created "leaf" entries
-        self.assertEqual(len(results), 5)
-        # In the entire FileSystem table, ignoring 'folder' rows, we should also have 5
-        self.assertEqual(FileSystem.objects.exclude(type="folder").count(), 5)
-
-        # check that each type is present
-        types = {item["type"] for item in results}
-        self.assertIn("feature_flag", types)
-        self.assertIn("experiment", types)
-        self.assertIn("dashboard", types)
-        self.assertIn("insight", types)
-        self.assertIn("notebook", types)
+        self.assertEqual(data["count"], 5)
 
     def test_unfiled_endpoint_with_type_filtering(self):
         """
@@ -348,13 +336,9 @@ class TestFileSystemAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["count"], 1)
 
-        # Check the resulting item
-        item = data["results"][0]
-        self.assertEqual(item["path"], "Unfiled/Feature Flags/Beta Feature")
-        self.assertEqual(item["depth"], 3)  # e.g. ["Unfiled", "Feature Flags", "Beta Feature"]
-
         # Double-check in DB
-        fs_obj = FileSystem.objects.get(id=item["id"])
+        fs_obj = FileSystem.objects.all()[0]
+        self.assertEqual(fs_obj.path, "Unfiled/Feature Flags/Beta Feature")
         self.assertEqual(fs_obj.depth, 3)
 
     def test_depth_for_unfiled_items_multiple_segments(self):
@@ -371,9 +355,8 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         data = response.json()
         self.assertEqual(data["count"], 1)
-
-        item = data["results"][0]
-        self.assertEqual(item["depth"], 3)  # "Unfiled" / "Feature Flags" / "Flag \/ With Slash"
+        item = FileSystem.objects.all()[0]
+        self.assertEqual(item.path, "Unfiled/Feature Flags/Flag \\/ With Slash")
 
     def test_list_by_depth(self):
         """

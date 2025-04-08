@@ -138,6 +138,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.order_by("path")
 
+        if self.user_access_control:
+            queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+
         return queryset
 
     def destroy(self, request, *args, **kwargs):
@@ -158,7 +161,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(
             {
-                "results": FileSystemSerializer(files, many=True).data,
                 "count": len(files),
             },
             status=status.HTTP_200_OK,

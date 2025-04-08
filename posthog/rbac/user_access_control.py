@@ -1,7 +1,8 @@
 from functools import cached_property
 import json
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Model, Q, QuerySet
+from django.db.models import Q, OuterRef, Subquery, Case, When, Value, F, IntegerField, Model, QuerySet
+from django.db.models.functions import Coalesce
 from rest_framework import serializers
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
@@ -17,6 +18,7 @@ from posthog.models.scopes import APIScopeObject, API_SCOPE_OBJECTS
 
 if TYPE_CHECKING:
     from ee.models import AccessControl
+    from posthog.models.file_system.file_system import FileSystem
 
     _AccessControl = AccessControl
 else:
@@ -441,6 +443,67 @@ class UserAccessControl:
                 queryset = queryset.exclude(Q(id__in=blocked_resource_ids) & ~Q(created_by=self._user))
             else:
                 queryset = queryset.exclude(id__in=blocked_resource_ids)
+
+        return queryset
+
+    def filter_and_annotate_file_system_queryset(self, queryset: QuerySet["FileSystem"]) -> QuerySet["FileSystem"]:
+        """
+        Annotate each FileSystem with the effective_access_level and exclude items with
+        level = 'none' (unless the user is the creator or is staff/org-admin).
+        """
+
+        user = self._user
+        org_membership = self._organization_membership
+
+        # If staff or organization admin => skip extra filtering; user can see everything
+        if user.is_staff or (org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN):
+            return queryset
+
+        # 1) We’ll map each `access_level` to an integer: none=0, viewer=1, editor=2 (default=2)
+        access_level_order_case = Case(
+            When(access_level="none", then=Value(0)),
+            When(access_level="viewer", then=Value(1)),
+            When(access_level="editor", then=Value(2)),
+            default=Value(2),  # default to 'editor'
+            output_field=IntegerField(),
+        )
+
+        # 2) Build a Subquery that finds the highest relevant access level row
+        #    matching (team_id, resource=FileSystem.type, resource_id=FileSystem.ref).
+        #    Must match at least one of these conditions:
+        #       - organization_member__user = self._user
+        #       - role__in = self._user_role_ids
+        #       - organization_member = None and role = None (global default)
+        from ee.models.rbac.access_control import AccessControl  # Make sure this import works in your setup
+
+        highest_level_subquery = (
+            AccessControl.objects.filter(
+                team_id=OuterRef("team_id"),
+                resource=OuterRef("type"),
+                resource_id=OuterRef("ref"),
+            )
+            .filter(
+                Q(organization_member__user=user)
+                | Q(role__in=self._user_role_ids)
+                | Q(organization_member=None, role=None)
+            )
+            .annotate(level_value=access_level_order_case)
+            .order_by(-F("level_value"))
+            .values("level_value")[:1]
+        )
+
+        # 3) Annotate the queryset with 'effective_access_level'.
+        queryset = queryset.annotate(
+            effective_access_level=Coalesce(
+                Subquery(highest_level_subquery),
+                Value(2),  # 'editor' by default if no AccessControl rows
+                output_field=IntegerField(),
+            )
+        )
+
+        # 4) Exclude items that have 'none' (0) unless user is the creator
+        #    i.e. skip items where effective_access_level=0 AND created_by != user
+        queryset = queryset.exclude(Q(effective_access_level=0) & ~Q(created_by=user))
 
         return queryset
 
