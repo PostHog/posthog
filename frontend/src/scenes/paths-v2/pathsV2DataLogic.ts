@@ -6,6 +6,7 @@ import { PathsLink, PathsV2Item } from '~/queries/schema/schema-general'
 import { isPathsV2Query } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
+import { POSTHOG_DROPOFF, POSTHOG_OTHER } from './constants'
 import type { pathsV2DataLogicType } from './pathsV2DataLogicType'
 import { PathNodeType, Paths } from './types'
 
@@ -58,9 +59,9 @@ export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
 
                 const nodes = Array.from(uniqueNodeNames).map((nodeName) => ({
                     name: nodeName,
-                    type: nodeName.includes('$$__posthog_dropoff__$$')
+                    type: nodeName.includes(POSTHOG_DROPOFF)
                         ? PathNodeType.Dropoff
-                        : nodeName.includes('$$__posthog_other__$$')
+                        : nodeName.includes(POSTHOG_OTHER)
                         ? PathNodeType.Other
                         : PathNodeType.Node,
                     step_index: parseInt(nodeName.split('_')[0], 10),
