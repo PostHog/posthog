@@ -7,7 +7,6 @@ import { cn } from 'lib/utils/css-classes'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { cancelEvent } from '../utils'
 import { Collapsible } from './Collapsible'
 import { ContextDisplay } from './ContextDisplay'
 import { StacktraceDisplay } from './StacktraceDisplay'
@@ -50,6 +49,7 @@ export function IssueCard(): JSX.Element {
                 <StacktraceExpander />
                 <IssueCardActions>
                     <LemonSwitch
+                        id="show-all-frames"
                         label="Show all frames"
                         checked={showAllFrames}
                         size="xsmall"
@@ -57,6 +57,7 @@ export function IssueCard(): JSX.Element {
                         onChange={setShowAllFrames}
                     />
                     <LemonSwitch
+                        id="show-context"
                         label="Show context"
                         checked={showContext}
                         size="xsmall"
@@ -103,7 +104,7 @@ function StacktraceExpander(): JSX.Element {
 
 function IssueCardActions({ children }: { children: React.ReactNode }): JSX.Element {
     return (
-        <div className="flex justify-between items-center gap-1" onClick={cancelEvent}>
+        <div className="flex justify-between items-center gap-1" onClick={(e) => e.stopPropagation()}>
             {children}
         </div>
     )
