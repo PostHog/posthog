@@ -3,7 +3,7 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
-import { match } from 'ts-pattern'
+import { match, P } from 'ts-pattern'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -119,7 +119,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const runtime: Runtime = match<string, Runtime>($lib)
         .with('posthog-python', () => 'python')
         .with('posthog-node', () => 'node')
-        .with('web', () => 'web')
+        .with(P.union('posthog-js', 'web'), () => 'web')
         .otherwise(() => 'unknown')
 
     return {

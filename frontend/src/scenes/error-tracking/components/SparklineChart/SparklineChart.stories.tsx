@@ -95,6 +95,9 @@ function buildSparklineOptions(): SparklineOptions {
         hoverBackgroundColor: 'var(--primitive-neutral-700)',
         axisColor: 'var(--primitive-neutral-300)',
         eventLabelHeight: 20,
+        eventMinSpace: 2,
+        eventLabelPaddingX: 5,
+        eventLabelPaddingY: 3,
         borderRadius: 5,
     }
 }
