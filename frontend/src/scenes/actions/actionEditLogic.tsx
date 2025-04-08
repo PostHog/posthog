@@ -115,7 +115,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                 lemonToast.success(`Action saved`)
                 actions.resetAction(updatedAction)
-                refreshTreeItem('action', action.id)
+                refreshTreeItem('action', String(action.id))
                 if (!props.id) {
                     router.actions.push(urls.action(action.id))
                 } else {

@@ -884,7 +884,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (response?.id) {
                 const experimentId = response.id
-                refreshTreeItem('experiment', experimentId)
+                refreshTreeItem('experiment', String(experimentId))
                 router.actions.push(urls.experiment(experimentId))
                 actions.addToExperiments(response)
                 lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
@@ -1370,7 +1370,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
-                refreshTreeItem('experiment', values.experimentId)
+                refreshTreeItem('experiment', String(values.experimentId))
                 actions.setUnmodifiedExperiment(structuredClone(response))
                 return response
             },

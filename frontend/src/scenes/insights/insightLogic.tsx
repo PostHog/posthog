@@ -159,7 +159,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         (d) => !updatedInsight.dashboards?.includes(d)
                     )
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
-                    refreshTreeItem('insight', values.insight.short_id)
+                    values.insight.short_id && refreshTreeItem('insight', String(values.insight.short_id))
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {

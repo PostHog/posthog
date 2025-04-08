@@ -692,7 +692,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             }
                         )
                     }
-                    refreshTreeItem('feature_flag', savedFlag.id)
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
@@ -726,7 +726,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             }
                         )
                     }
-                    refreshTreeItem('feature_flag', savedFlag.id)
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
 
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
