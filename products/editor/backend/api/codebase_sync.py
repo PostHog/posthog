@@ -1,14 +1,14 @@
-from django.forms import ValidationError
+from typing import cast
+
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.schema import CachedCodebaseTreeQueryResponse, CodebaseTreeQuery
-from products.editor.backend.models.catalog_tree import ArtifactNode
+from posthog.models import User
 from products.editor.backend.models.codebase import Codebase
-from products.editor.backend.queries.codebase_tree import CodebaseTreeQueryRunner
+from products.editor.backend.services.codebase_sync import CodebaseSyncService
 
 
 class CodebaseSerializer(serializers.ModelSerializer):
@@ -49,44 +49,6 @@ class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, views
         serializer = self.get_serializer(None, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
-
-        query_runner = CodebaseTreeQueryRunner(
-            query=CodebaseTreeQuery(
-                userId=request.user.id,
-                codebaseId=codebase.id,
-                branch=validated_data.get("branch"),
-            ),
-            team=self.team,
-        )
-        response = query_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        if not isinstance(response, CachedCodebaseTreeQueryResponse):
-            raise ValidationError("Failed to load the tree.")
-
-        # handle new codebase
-        if not response.results:
-            pass
-        else:
-            client_tree = ArtifactNode.build_tree(validated_data["tree"])
-            server_tree = ArtifactNode.build_tree(server_node.model_dump() for server_node in response.results)
-
-            added, deleted = ArtifactNode.compare(server_tree, client_tree)
-
-            # Delete nodes from the current codebase state
-
-        return query_runner
-
-    # def _delete_nodes(self, team: Team, user: User):
-    #     query = "INSERT INTO codebase_catalog (team_id, user_id, codebase_id, artifact_id, branch, parent_artifact_id, is_deleted) VALUES"
-    #     args: dict[str, Any] = {}
-    #     for i, (artifact_id, parent_artifact_id) in enumerate(nodes):
-    #         args.update(
-    #             {
-    #                 f"team_id_{i}": self.team.id,
-    #                 f"user_id_{i}": self.request.user.id,
-    #                 f"codebase_id_{i}": codebase.id,
-    #                 f"artifact_id_{i}": artifact_id,
-    #                 f"branch_{i}": branch,
-    #                 f"parent_artifact_id_{i}": parent_artifact_id,
-    #                 f"is_deleted_{i}": True,
-    #             }
-    #         )
+        service = CodebaseSyncService(self.team, cast(User, request.user), codebase, validated_data.get("branch"))
+        leaf_nodes_to_sync = service.sync(validated_data["tree"])
+        return Response(leaf_nodes_to_sync)

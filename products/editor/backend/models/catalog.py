@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     artifact_id String,
     branch Nullable(String),
     parent_artifact_id Nullable(String),
+    type LowCardinality(String),
     timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
     is_deleted UInt8,
 ) ENGINE = {engine}
