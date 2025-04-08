@@ -439,7 +439,7 @@ interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
 }
 
-function featureFlagRecordingEnrolmentFilter(
+function featureFlagRecordingEnrollmentFilter(
     earlyAccessFeature: EarlyAccessFeatureType,
     optedIn: boolean
 ): Partial<RecordingUniversalFilters> {
@@ -493,7 +493,7 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                         content: (
                             <>
                                 <PersonsTableByFilter
-                                    recordingsFilters={featureFlagRecordingEnrolmentFilter(earlyAccessFeature, true)}
+                                    recordingsFilters={featureFlagRecordingEnrollmentFilter(earlyAccessFeature, true)}
                                     properties={[
                                         {
                                             key: featureEnrollmentKey,
@@ -511,7 +511,7 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                         label: optedOutCount !== null ? `Opted-Out Users (${optedOutCount})` : 'Opted-Out Users',
                         content: (
                             <PersonsTableByFilter
-                                recordingsFilters={featureFlagRecordingEnrolmentFilter(earlyAccessFeature, false)}
+                                recordingsFilters={featureFlagRecordingEnrollmentFilter(earlyAccessFeature, false)}
                                 properties={[
                                     {
                                         key: featureEnrollmentKey,
