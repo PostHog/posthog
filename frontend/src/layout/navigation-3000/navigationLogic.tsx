@@ -500,7 +500,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'B2B analytics',
                                   icon: <IconGroups />,
                                   to: urls.groups(0),
-                                  tag: 'beta' as const,
+                                  tag: 'alpha' as const,
                                   sideAction:
                                       groupTypes.size > 1 && !showGroupsIntroductionPage
                                           ? {
