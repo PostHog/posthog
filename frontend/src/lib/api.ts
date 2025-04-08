@@ -126,6 +126,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyStats,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -2607,6 +2608,43 @@ const api = {
             }
             return await apiRequest.create()
         },
+        async getSurveyStats({
+            surveyId,
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            surveyId: Survey['id']
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+
+            return await apiRequest.withQueryString(queryParams).get()
+        },
+        async getGlobalSurveyStats({
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().surveys().withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+            return await apiRequest.get()
+        },
     },
 
     dataWarehouseTables: {
@@ -2751,6 +2789,9 @@ const api = {
         },
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
+        },
+        async delete_data(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('delete_data').delete()
         },
         async logs(
             schemaId: ExternalDataSourceSchema['id'],

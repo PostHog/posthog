@@ -414,7 +414,6 @@ export enum QueryIndexUsage {
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
-    isValidView?: boolean
     isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
@@ -1764,7 +1763,6 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
     kind: NodeKind.RevenueExampleEventsQuery
-    revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
@@ -1781,7 +1779,6 @@ export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<Revenu
 export interface RevenueExampleDataWarehouseTablesQuery
     extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
     kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
-    revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
@@ -2776,18 +2773,6 @@ export interface RevenueTrackingEventItem {
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
 }
 
-export interface RevenueTrackingDataWarehouseTable {
-    tableName: string
-    distinctIdColumn: string
-    timestampColumn: string
-    revenueColumn: string
-
-    /**
-     * @default {"static": "USD"}
-     */
-    revenueCurrencyColumn: RevenueCurrencyPropertyConfig
-}
-
 export interface RevenueTrackingConfig {
     /**
      * @default 'USD'
@@ -2798,9 +2783,4 @@ export interface RevenueTrackingConfig {
      * @default []
      */
     events: RevenueTrackingEventItem[]
-
-    /**
-     * @default []
-     */
-    dataWarehouseTables: RevenueTrackingDataWarehouseTable[]
 }

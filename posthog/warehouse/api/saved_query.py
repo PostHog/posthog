@@ -14,7 +14,6 @@ from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
@@ -172,9 +171,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         context = HogQLContext(team_id=team_id, enable_select_queries=True)
         select_ast = parse_select(query["query"])
-        _is_valid_view = is_valid_view(select_ast)
-        if not _is_valid_view:
-            raise exceptions.ValidationError(detail="Ensure all fields are aliased")
 
         try:
             print_ast(
