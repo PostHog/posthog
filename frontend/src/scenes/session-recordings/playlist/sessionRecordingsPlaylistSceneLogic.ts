@@ -39,9 +39,9 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistSceneLogic', key]),
     props({} as SessionRecordingsPlaylistLogicProps),
     key((props) => props.shortId),
-    connect({
+    connect(() => ({
         values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeScene']],
-    }),
+    })),
     actions({
         updatePlaylist: (properties?: Partial<SessionRecordingPlaylistType>, silent = false) => ({
             properties,

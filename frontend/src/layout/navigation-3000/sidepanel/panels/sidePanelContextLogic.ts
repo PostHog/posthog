@@ -27,9 +27,9 @@ export const activityFiltersForScene = (sceneConfig: SceneConfig | null): SidePa
 
 export const sidePanelContextLogic = kea<sidePanelContextLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelContextLogic']),
-    connect({
+    connect(() => ({
         values: [sceneLogic, ['sceneConfig']],
-    }),
+    })),
 
     selectors({
         sceneSidePanelContext: [

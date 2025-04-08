@@ -20,9 +20,9 @@ import type { dashboardsModelType } from './dashboardsModelType'
 
 export const dashboardsModel = kea<dashboardsModelType>([
     path(['models', 'dashboardsModel']),
-    connect({
+    connect(() => ({
         actions: [tagsModel, ['loadTags']],
-    }),
+    })),
     actions(() => ({
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,

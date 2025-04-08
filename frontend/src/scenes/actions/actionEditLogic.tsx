@@ -36,7 +36,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     path((key) => ['scenes', 'actions', 'actionEditLogic', key]),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
-    connect({
+    connect(() => ({
         actions: [
             actionsModel,
             ['loadActions'],
@@ -46,7 +46,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             ['loadTags'],
         ],
         values: [sceneLogic, ['activeScene']],
-    }),
+    })),
     actions({
         setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({
             action,
