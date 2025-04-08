@@ -142,7 +142,6 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         <div
             className={cn('relative w-full', props.className)}
             ref={setNodeRef}
-            // style={style}
             {...(props.enableDragging ? listeners : {})}
             data-multi-drag={isMultiDrag ? 'true' : undefined}
             data-multi-drag-count={isMultiDrag ? props.checkedItemsData?.ids.length : undefined}
