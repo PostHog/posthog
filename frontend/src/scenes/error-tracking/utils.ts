@@ -4,6 +4,7 @@ import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'li
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
+export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
