@@ -597,6 +597,18 @@ class Team(UUIDClassicModel):
     def root_team_id(self) -> int:
         return self.parent_team_id if self.parent_team_id else self.id
 
+    @property
+    def child_teams(self) -> QuerySet["Team"]:
+        if self.parent_team_id:
+            # This team is a child team, so it has no child teams
+            return Team.objects.none()
+
+        return Team.objects.filter(parent_team_id=self.id)
+
+    @property
+    def all_teams(self) -> QuerySet["Team"]:
+        return [self, *list(self.child_teams)]
+
     def __str__(self):
         if self.name:
             return self.name

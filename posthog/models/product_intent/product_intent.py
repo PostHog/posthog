@@ -104,7 +104,9 @@ class ProductIntent(UUIDModel, RootTeamMixin):
 
     def has_activated_error_tracking(self) -> bool:
         # the team has resolved any issues
-        return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+        return ErrorTrackingIssue.objects.filter(
+            team__in=self.team.root_team.all_teams, status=ErrorTrackingIssue.Status.RESOLVED
+        ).exists()
 
     def has_activated_surveys(self) -> bool:
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
@@ -136,7 +138,9 @@ class ProductIntent(UUIDModel, RootTeamMixin):
         return total_groups >= 2
 
     def has_activated_session_replay(self) -> bool:
-        has_viewed_five_recordings = SessionRecordingViewed.objects.filter(team=self.team).count() >= 5
+        has_viewed_five_recordings = (
+            SessionRecordingViewed.objects.filter(team__in=self.team.root_team.all_teams).count() >= 5
+        )
 
         intent = ProductIntent.objects.filter(
             team=self.team,
