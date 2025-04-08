@@ -391,6 +391,10 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * @default "start_time"
      * */
     order?: RecordingOrder
+    /**
+     * @default "DESC"
+     * */
+    direction?: 'ASC' | 'DESC'
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>

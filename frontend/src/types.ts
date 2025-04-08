@@ -1154,7 +1154,7 @@ export interface LegacyRecordingFilters {
     operand?: FilterLogicalOperator
 }
 
-export type SortDirection = 'newer' | 'older'
+export type SortDirection = 'ASC' | 'DESC'
 
 export interface RecordingUniversalFilters {
     date_from?: string | null
