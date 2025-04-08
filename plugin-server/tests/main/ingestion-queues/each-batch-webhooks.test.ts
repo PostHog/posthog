@@ -30,7 +30,6 @@ const kafkaEvent: RawClickHouseEvent = {
     elements_chain: '',
     timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     team_id: 2,
-    project_id: 2 as ProjectId,
     distinct_id: 'my_id',
     created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',

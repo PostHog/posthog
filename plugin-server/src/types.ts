@@ -37,7 +37,6 @@ import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
-import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { PluginInstance } from './worker/vm/lazy'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
@@ -371,7 +370,6 @@ export interface Hub extends PluginsServerConfig {
     teamManagerLazy: TeamManagerLazy
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
-    rootAccessManager: RootAccessManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     appMetrics: AppMetrics
@@ -1114,14 +1112,6 @@ export type IngestEventResponse =
     | { success: false; error: string }
 
 export type ResolvedGroups = Record<string, number>
-
-export interface EventPropertyType {
-    id: string
-    event: string
-    property: string
-    team_id: number
-    project_id: number | null
-}
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 

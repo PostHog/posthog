@@ -1327,21 +1327,6 @@ export class DB {
         return (await this.clickhouseQuery(query)).data as ClickhouseGroup[]
     }
 
-    public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<Team[]> {
-        const selectResult = await this.postgres.query<Team>(
-            PostgresUse.COMMON_READ,
-            'SELECT * from posthog_team WHERE organization_id = (SELECT id from posthog_organization WHERE plugins_access_level = $1)',
-            [OrganizationPluginsAccessLevel.ROOT],
-            'getTeamsInOrganizationsWithRootPluginAccess'
-        )
-        for (const row of selectResult.rows) {
-            // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-            // but this is not a problem for project_id, which is a long long way from that limit.
-            row.project_id = Number(row.project_id) as ProjectId
-        }
-        return selectResult.rows
-    }
-
     public async getPluginSource(pluginId: Plugin['id'], filename: string): Promise<string | null> {
         const { rows }: { rows: { source: string }[] } = await this.postgres.query(
             PostgresUse.COMMON_READ,

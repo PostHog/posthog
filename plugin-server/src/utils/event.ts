@@ -133,7 +133,6 @@ export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostInge
         eventUuid: event.uuid,
         event: event.event!,
         teamId: event.team_id,
-        projectId: event.project_id,
         distinctId: event.distinct_id,
         properties,
         timestamp: clickHouseTimestampToISO(event.timestamp),
