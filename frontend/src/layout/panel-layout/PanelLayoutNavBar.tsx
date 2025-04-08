@@ -458,6 +458,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                             onClickInside={() => {
                                                                                 setVisibleSideAction('')
                                                                             }}
+                                                                            onClickOutside={() => {
+                                                                                setVisibleSideAction('')
+                                                                            }}
                                                                         >
                                                                             <ButtonPrimitive
                                                                                 sideActionRight
