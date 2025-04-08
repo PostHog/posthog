@@ -26,10 +26,7 @@ export function IssueCard(): JSX.Element {
         >
             <Collapsible isExpanded={showStacktrace} className="pb-2 flex w-full" minHeight="calc(var(--spacing) * 13)">
                 <StacktraceDisplay
-                    className={cn('flex-grow', {
-                        'w-2/3': showContext,
-                        'w-full': !showContext,
-                    })}
+                    className={cn('flex-grow', showContent ? 'w-2/3' : 'w-full')}
                     truncateMessage={!showStacktrace}
                 />
                 <ContextDisplay
