@@ -28,6 +28,26 @@ export const API_KEY_SCOPE_PRESETS = [
         label: 'Project & user management',
         scopes: ['project:write', 'organization:read', 'organization_member:write'],
     },
+    {
+        value: 'editor',
+        label: 'PostHog Editor',
+        scopes: [
+            'insight:read',
+            'project:read',
+            'organization:read',
+            'user:read',
+            'feature_flag:read',
+            'session_recording:read',
+            'session_recording_playlist:read',
+            'survey:read',
+            'dashboard:read',
+            'error_tracking:read',
+            'experiment:read',
+            'query:read',
+            'property_definition:read',
+            'event_definition:read',
+        ],
+    },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
 
