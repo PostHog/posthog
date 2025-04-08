@@ -20,6 +20,7 @@ from posthog.constants import MAX_SLUG_LENGTH
 
 if TYPE_CHECKING:
     from random import Random
+    from posthog.models.team.team import Team
 
 T = TypeVar("T")
 
@@ -389,7 +390,13 @@ class RootTeamMixin(models.Model):
     This should apply to all models that should be "Project" scoped instead of "Environment" scoped.
     """
 
+    # Set the default manager - any models that inherit from this mixin and set a custom
+    # manager (e.g. `objects = CustomManager()`) will override this, so that custom manager
+    # should inherit from RootTeamManager.
     objects = RootTeamManager()
+
+    # Type annotation for team to help with type checking
+    team: Optional["Team"] = None
 
     class Meta:
         abstract = True

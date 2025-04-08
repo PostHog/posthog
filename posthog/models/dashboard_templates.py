@@ -11,7 +11,7 @@ class DashboardTemplateManager(RootTeamManager):
 
 
 class DashboardTemplate(UUIDModel, RootTeamMixin):
-    objects = DashboardTemplateManager()
+    objects = DashboardTemplateManager()  # type: ignore
     objects_including_soft_deleted = RootTeamManager()
 
     class Scope(models.TextChoices):

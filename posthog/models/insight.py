@@ -103,7 +103,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     __repr__ = sane_repr("team_id", "id", "short_id", "name")
 
-    objects = InsightManager()
+    objects = InsightManager()  # type: ignore
     objects_including_soft_deleted: models.Manager["Insight"] = RootTeamManager()
 
     class Meta:

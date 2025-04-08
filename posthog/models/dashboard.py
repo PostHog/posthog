@@ -90,7 +90,7 @@ class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # DEPRECATED: using the new "is_sharing_enabled" relation instead
     is_shared = models.BooleanField(default=False)
 
-    objects = DashboardManager()
+    objects = DashboardManager()  # type: ignore
     objects_including_soft_deleted: models.Manager["Dashboard"] = RootTeamManager()
 
     __repr__ = sane_repr("team_id", "id", "name")

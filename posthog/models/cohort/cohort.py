@@ -107,7 +107,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
-    objects = CohortManager()
+    objects = CohortManager()  # type: ignore
 
     def __str__(self):
         return self.name or "Untitled cohort"
