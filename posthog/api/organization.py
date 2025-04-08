@@ -272,6 +272,14 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 groups=groups(organization),
             )
+        if "allow_advertising_retargeting" in request.data:
+            retargeting_value = request.data["allow_advertising_retargeting"]
+            organization = self.get_object()
+            posthoganalytics.group_identify(
+                "organization",
+                str(organization.id),
+                properties={"allow_advertising_retargeting": retargeting_value},
+            )
 
         return super().update(request, *args, **kwargs)
 

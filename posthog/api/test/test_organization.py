@@ -1,19 +1,20 @@
-from rest_framework import status
-from unittest.mock import patch, ANY
 from typing import cast
+from unittest.mock import ANY, patch
 
-from posthog.models import Organization, OrganizationMembership, Team, FeatureFlag
+from rest_framework import status
+from rest_framework.test import APIRequestFactory
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+from ee.models.rbac.access_control import AccessControl
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from ee.models.rbac.role import Role, RoleMembership
+from posthog.api.organization import OrganizationSerializer
+from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
-from posthog.api.organization import OrganizationSerializer
-from rest_framework.test import APIRequestFactory
 from posthog.user_permissions import UserPermissions
-from ee.models.rbac.role import Role, RoleMembership
-from ee.models.rbac.access_control import AccessControl
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -227,6 +228,25 @@ class TestOrganizationAPI(APIBaseTest):
                 "attr": None,
             },
         )
+
+    @patch("posthoganalytics.group_identify")
+    def test_update_organization_advertising_retargeting(self, mock_group_identify):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.allow_advertising_retargeting = True
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}", {"allow_advertising_retargeting": False}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_group_identify.assert_called_once_with(
+            "organization",
+            str(self.organization.id),
+            properties={"allow_advertising_retargeting": False},
+        )
+        self.organization.refresh_from_db()
+        assert self.organization.allow_advertising_retargeting is False
 
 
 def create_organization(name: str) -> Organization:
