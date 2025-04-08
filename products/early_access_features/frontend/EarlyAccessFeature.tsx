@@ -439,7 +439,7 @@ interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
 }
 
-function featureFlagEnrolmentFilter(
+function featureFlagRecordingEnrolmentFilter(
     earlyAccessFeature: EarlyAccessFeatureType,
     optedIn: boolean
 ): Partial<RecordingUniversalFilters> {
@@ -478,10 +478,8 @@ function featureFlagEnrolmentFilter(
 }
 
 export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
-    const { activeTab } = useValues(earlyAccessFeatureLogic)
+    const { activeTab, optedInCount, optedOutCount, featureEnrollmentKey } = useValues(earlyAccessFeatureLogic)
     const { setActiveTab } = useActions(earlyAccessFeatureLogic)
-
-    const key = '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
 
     return (
         <>
@@ -491,14 +489,14 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                 tabs={[
                     {
                         key: EarlyAccessFeatureTabs.OptedIn,
-                        label: 'Opted-In Users',
+                        label: optedInCount !== null ? `Opted-In Users (${optedInCount})` : 'Opted-In Users',
                         content: (
                             <>
                                 <PersonsTableByFilter
-                                    recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, true)}
+                                    recordingsFilters={featureFlagRecordingEnrolmentFilter(earlyAccessFeature, true)}
                                     properties={[
                                         {
-                                            key: key,
+                                            key: featureEnrollmentKey,
                                             type: PropertyFilterType.Person,
                                             operator: PropertyOperator.Exact,
                                             value: ['true'],
@@ -510,13 +508,13 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                     },
                     {
                         key: EarlyAccessFeatureTabs.OptedOut,
-                        label: 'Opted-Out Users',
+                        label: optedOutCount !== null ? `Opted-Out Users (${optedOutCount})` : 'Opted-Out Users',
                         content: (
                             <PersonsTableByFilter
-                                recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, false)}
+                                recordingsFilters={featureFlagRecordingEnrolmentFilter(earlyAccessFeature, false)}
                                 properties={[
                                     {
-                                        key: key,
+                                        key: featureEnrollmentKey,
                                         type: PropertyFilterType.Person,
                                         operator: PropertyOperator.Exact,
                                         value: ['false'],
