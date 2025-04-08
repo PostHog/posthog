@@ -185,34 +185,35 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'An unexpected error or unhandled exception in your application',
         },
         $web_vitals: {
-            label: 'Web Vitals',
+            label: 'Web vitals',
             description: 'Automatically captured web vitals data',
         },
         $ai_generation: {
-            label: 'AI Generation',
-            description: 'A call to a generative AI model (LLM)',
-        },
-        $ai_trace: {
-            label: 'AI Trace',
-            description:
-                'A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls',
-        },
-        $ai_span: {
-            label: 'AI Span',
-            description:
-                'A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)',
-        },
-        $ai_embedding: {
-            label: 'AI Embedding',
-            description: 'A call to an embedding model',
+            label: 'AI generation (LLM)',
+            description: 'A call to an LLM model. Contains the input prompt, output, model used and costs.',
         },
         $ai_metric: {
-            label: 'AI Metric',
-            description: 'An evaluation metric for a trace of generative AI models (LLMs)',
+            label: 'AI metric (LLM)',
+            description:
+                'An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.',
         },
         $ai_feedback: {
-            label: 'AI Feedback',
-            description: 'User-provided feedback for a trace of a generative AI model (LLM)',
+            label: 'AI feedback (LLM)',
+            description: 'User-provided feedback for a trace of a generative AI model (LLM).',
+        },
+        $ai_trace: {
+            label: 'AI trace (LLM)',
+            description:
+                'A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls.',
+        },
+        $ai_span: {
+            label: 'AI span (LLM)',
+            description:
+                'A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs).',
+        },
+        $ai_embedding: {
+            label: 'AI embedding (LLM)',
+            description: 'A call to an embedding model.',
         },
         // Mobile SDKs events
         'Application Opened': {
@@ -283,6 +284,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['$pageview'],
             system: true,
         },
+        person_id: {
+            label: 'Person ID',
+            description: 'The ID of the person, depending on the person properties mode.',
+            examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
+    },
+    event_metadata: {
+        // Values are copied from 'metadata' below.
     },
     event_properties: {
         $python_runtime: {
@@ -422,7 +431,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $time: {
             label: '$time (deprecated)',
             description:
-                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
+                'Use the SQL field `timestamp` instead. This field was previously set on some client side events.',
             system: true,
             examples: ['1681211521.345'],
         },
@@ -503,32 +512,37 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         // exception tracking
         $exception_list: {
             label: 'Exception list',
-            description: 'List of one or more associated exceptions',
+            description: 'List of one or more associated exceptions.',
+        },
+        $exception_level: {
+            label: 'Exception level',
+            description: 'Exception categorized by severity.',
+            examples: ['error'],
         },
         $exception_type: {
             label: 'Exception type',
-            description: 'Exception categorized into types',
+            description: 'Exception categorized into types.',
             examples: ['Error'],
         },
         $exception_message: {
-            label: 'Exception Message',
-            description: 'The message detected on the error',
+            label: 'Exception message',
+            description: 'The message detected on the error.',
         },
         $exception_fingerprint: {
             label: 'Exception fingerprint',
-            description: 'A fingerprint used to group issues, can be set clientside',
+            description: 'A fingerprint used to group issues, can be set clientside.',
         },
         $exception_proposed_fingerprint: {
             label: 'Exception proposed fingerprint',
-            description: 'The fingerprint used to group issues. Auto generated unless provided clientside',
+            description: 'The fingerprint used to group issues. Auto generated unless provided clientside.',
         },
         $exception_issue_id: {
             label: 'Exception issue ID',
-            description: 'The id of the issue the fingerprint was associated with at ingest time',
+            description: 'The id of the issue the fingerprint was associated with at ingest time.',
         },
         $exception_source: {
             label: 'Exception source',
-            description: 'The source of the exception',
+            description: 'The source of the exception.',
             examples: ['JS file'],
         },
         $exception_lineno: {
@@ -545,7 +559,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception_is_synthetic: {
             label: 'Exception is synthetic',
-            description: 'Whether this was detected as a synthetic exception',
+            description: 'Whether this was detected as a synthetic exception.',
         },
         $exception_stack_trace_raw: {
             label: 'Exception raw stack trace',
@@ -553,15 +567,15 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception_handled: {
             label: 'Exception was handled',
-            description: 'Whether this was a handled or unhandled exception',
+            description: 'Whether this was a handled or unhandled exception.',
         },
         $exception_personURL: {
             label: 'Exception person URL',
-            description: 'The PostHog person that experienced the exception',
+            description: 'The PostHog person that experienced the exception.',
         },
         $cymbal_errors: {
             label: 'Exception processing errors',
-            description: 'Errors encountered while trying to process exceptions',
+            description: 'Errors encountered while trying to process exceptions.',
             system: true,
         },
         $exception_capture_endpoint: {
@@ -570,7 +584,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['/e/'],
         },
         $exception_capture_endpoint_suffix: {
-            label: 'Exception capture endpoint',
+            label: 'Exception capture endpoint suffix',
             description: 'Endpoint used by posthog-js exception autocapture.',
             examples: ['/e/'],
         },
@@ -581,7 +595,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         // TODO - most of the rest of these are legacy, I think?
         $sentry_exception: {
             label: 'Sentry exception',
-            description: 'Raw Sentry exception data',
+            description: 'Raw Sentry exception data.',
             system: true,
         },
         $sentry_exception_message: {
@@ -589,7 +603,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $sentry_exception_type: {
             label: 'Sentry exception type',
-            description: 'Class name of the exception object',
+            description: 'Class name of the exception object.',
         },
         $sentry_tags: {
             label: 'Sentry tags',
@@ -620,7 +634,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $geoip_continent_code: {
             label: 'Continent Code',
             description: `Code of the continent matched to this event's IP address.`,
-            examples: ['OC', 'AS', ' NA'],
+            examples: ['OC', 'AS', 'NA'],
         },
         $geoip_postal_code: {
             label: 'Postal Code',
@@ -720,6 +734,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The manufacturer of the device',
             examples: ['Apple', 'Samsung'],
         },
+        $device_name: {
+            label: 'Device Name',
+            description: 'Name of the device',
+            examples: ['iPhone 12 Pro', 'Samsung Galaxy 10'],
+        },
         $is_emulator: {
             label: 'Is Emulator',
             description: 'Indicates whether the app is running on an emulator or a physical device',
@@ -734,11 +753,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Is iOS App Running on Mac',
             description: 'Indicates whether the app is an iOS app running on macOS (Apple Silicon)',
             examples: ['true', 'false'],
-        },
-        $device_name: {
-            label: 'Device Name',
-            description: 'Name of the device',
-            examples: ['iPhone 12 Pro', 'Samsung Galaxy 10'],
         },
         $locale: {
             label: 'Locale',
@@ -911,7 +925,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $timestamp: {
             label: 'Timestamp (deprecated)',
             description:
-                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
+                'Use the SQL field `timestamp` instead. This field was previously set on some client side events.',
             examples: ['2023-05-20T15:30:00Z'],
             system: true,
         },
@@ -1497,6 +1511,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The number of tokens in the input prmopt that was sent to the LLM API',
             examples: [23],
         },
+        $ai_output: {
+            label: 'AI Output (LLM)',
+            description: 'The output JSON that was received from the LLM API',
+            examples: [
+                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
+            ],
+        },
         $ai_output_choices: {
             label: 'AI Output (LLM)',
             description: 'The output message choices JSON that was received from the LLM API',
@@ -1776,6 +1797,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
 CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
 // add distinct_id to event properties before copying to person properties so it exists in person properties as well
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
+// Copy meta properties to event_metadata
+for (const key of ['distinct_id', 'timestamp', 'event', 'person_id']) {
+    CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[key] = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata[key]
+}
 
 for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)) {
     if (PERSON_PROPERTIES_ADAPTED_FROM_EVENT.has(key) || key.startsWith('$geoip_')) {

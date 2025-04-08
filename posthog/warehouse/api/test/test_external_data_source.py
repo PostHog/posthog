@@ -1,3 +1,4 @@
+import typing as t
 import uuid
 from unittest.mock import patch
 
@@ -16,7 +17,9 @@ from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from posthog.warehouse.models.external_data_schema import (
+    sync_frequency_interval_to_sync_frequency,
+)
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -656,18 +659,38 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
         ) as validate_credentials_mock:
-            validate_credentials_mock.return_value = False
+            validate_credentials_mock.side_effect = Exception("Invalid API key")
 
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "client_secret": "blah",
-                    "account_id": "blah",
+                    "stripe_secret_key": "invalid_key",
                 },
             )
 
             assert response.status_code == 400
+            assert response.json()["message"] == "Invalid credentials: Stripe secret is incorrect"
+
+    def test_database_schema_stripe_permissions_error(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            from posthog.temporal.data_imports.pipelines.stripe import StripePermissionError
+
+            missing_permissions = {"Account": "Error message for Account", "Invoice": "Error message for Invoice"}
+            validate_credentials_mock.side_effect = StripePermissionError(missing_permissions)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "stripe_secret_key": "invalid_key",
+                },
+            )
+
+            assert response.status_code == 400
+            assert "Stripe API key lacks permissions for Account, Invoice" in response.json()["message"]
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
@@ -969,3 +992,157 @@ class TestExternalDataSource(APIBaseTest):
 
         assert source.job_inputs["stripe_secret_key"] == "sk_test_123"
         assert source.job_inputs["stripe_account_id"] == "blah"
+
+    def test_update_then_get_external_data_source_with_ssh_tunnel(self):
+        """Test that updating a source with SSH tunnel info properly normalizes the structure and
+        manipulates the flattened structure.
+        """
+        # First create a source without SSH tunnel
+        source = self._create_external_data_source()
+
+        # Update with SSH tunnel config
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+            data={
+                "job_inputs": {
+                    "ssh-tunnel": {
+                        "enabled": True,
+                        "host": "ssh.example.com",
+                        "port": 22,
+                        "auth_type": {
+                            "selection": "username_password",
+                            "username": "testuser",
+                            "password": "testpass",
+                            "passphrase": "testphrase",
+                            "private_key": "testkey",
+                        },
+                    }
+                },
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Verify the SSH tunnel config was normalized correctly
+        source.refresh_from_db()
+        assert source.job_inputs["ssh_tunnel_enabled"] == "True"
+        assert source.job_inputs["ssh_tunnel_host"] == "ssh.example.com"
+        assert source.job_inputs["ssh_tunnel_port"] == "22"
+        assert source.job_inputs["ssh_tunnel_auth_type"] == "username_password"
+        assert source.job_inputs["ssh_tunnel_auth_type_username"] == "testuser"
+        assert source.job_inputs["ssh_tunnel_auth_type_password"] == "testpass"
+        assert source.job_inputs["ssh_tunnel_auth_type_passphrase"] == "testphrase"
+        assert source.job_inputs["ssh_tunnel_auth_type_private_key"] == "testkey"
+
+        # Test the to_representation from flattened to nested structure
+        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "job_inputs" in data
+        assert "ssh-tunnel" in data["job_inputs"]
+        ssh_tunnel = data["job_inputs"]["ssh-tunnel"]
+
+        assert ssh_tunnel["enabled"] == "True"
+        assert ssh_tunnel["host"] == "ssh.example.com"
+        assert ssh_tunnel["port"] == "22"
+        assert "auth_type" in ssh_tunnel
+        assert ssh_tunnel["auth_type"]["selection"] == "username_password"
+        assert ssh_tunnel["auth_type"]["username"] == "testuser"
+        assert ssh_tunnel["auth_type"]["password"] == "testpass"
+        assert ssh_tunnel["auth_type"]["passphrase"] == "testphrase"
+        assert ssh_tunnel["auth_type"]["private_key"] == "testkey"
+
+    def test_snowflake_auth_type_create_and_update(self):
+        """Test that we can create and update the auth type for a Snowflake source"""
+        with patch("posthog.warehouse.api.external_data_source.get_snowflake_schemas") as mocked_get_snowflake_schemas:
+            mocked_get_snowflake_schemas.return_value = {"my_table": "something"}
+
+            # Create a Snowflake source with password auth
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/",
+                data={
+                    "prefix": "",
+                    "payload": {
+                        "source_type": "Snowflake",
+                        "account_id": "my_account_id",
+                        "database": "my_database",
+                        "warehouse": "my_warehouse",
+                        "auth_type": {
+                            "selection": "password",
+                            "username": "my_username",
+                            "password": "my_password",
+                            "private_key": "",
+                            "passphrase": "",
+                        },
+                        "role": "my_role",
+                        "schema": "my_schema",
+                        "schemas": [
+                            {
+                                "name": "my_table",
+                                "should_sync": True,
+                                "sync_type": "full_refresh",
+                                "incremental_field": None,
+                                "incremental_field_type": None,
+                            },
+                        ],
+                    },
+                    "source_type": "Snowflake",
+                },
+            )
+        assert response.status_code == 201, response.json()
+        assert len(ExternalDataSource.objects.all()) == 1
+
+        source = response.json()
+        source_model = ExternalDataSource.objects.get(id=source["id"])
+
+        assert source_model.job_inputs is not None
+        job_inputs: dict[str, t.Any] = source_model.job_inputs
+        assert job_inputs["account_id"] == "my_account_id"
+        assert job_inputs["database"] == "my_database"
+        assert job_inputs["warehouse"] == "my_warehouse"
+        assert job_inputs["auth_type"] == "password"
+        assert job_inputs["user"] == "my_username"
+        assert job_inputs["password"] == "my_password"
+        assert job_inputs["passphrase"] == ""
+        assert job_inputs["private_key"] == ""
+        assert job_inputs["role"] == "my_role"
+        assert job_inputs["schema"] == "my_schema"
+
+        # Update the source with a new auth type
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source_model.pk}/",
+            data={
+                "job_inputs": {
+                    "role": "my_role",
+                    "user": "my_username",
+                    "schema": "my_schema",
+                    "database": "my_database",
+                    "warehouse": "my_warehouse",
+                    "account_id": "my_account_id",
+                    "auth_type": {
+                        "selection": "keypair",
+                        "username": "my_username",
+                        "private_key": "my_private_key",
+                        "passphrase": "my_passphrase",
+                    },
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+
+        source_model.refresh_from_db()
+
+        assert source_model.job_inputs is not None
+        job_inputs = source_model.job_inputs
+        assert job_inputs["account_id"] == "my_account_id"
+        assert job_inputs["database"] == "my_database"
+        assert job_inputs["warehouse"] == "my_warehouse"
+        assert job_inputs["auth_type"] == "keypair"
+        assert job_inputs["user"] == "my_username"
+        assert job_inputs["passphrase"] == "my_passphrase"
+        assert job_inputs["private_key"] == "my_private_key"
+        assert job_inputs["role"] == "my_role"
+        assert job_inputs["schema"] == "my_schema"

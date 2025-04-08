@@ -5,7 +5,6 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
-import { ChatCompletionUserMessageParam } from 'openai/resources/chat/completions'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -18,6 +17,7 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
+    FileSystemCount,
     FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
@@ -48,6 +48,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingJob,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -71,6 +72,7 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
+    HogFunctionKind,
     HogFunctionStatus,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
@@ -385,6 +387,15 @@ class ApiRequest {
     }
     public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id)
+    }
+    public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('move')
+    }
+    public fileSystemLink(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('link')
+    }
+    public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
     }
 
     // # Plugins
@@ -794,16 +805,8 @@ class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
-    public errorTrackingStackFrames({
-        raw_ids,
-        symbol_set,
-    }: {
-        raw_ids?: ErrorTrackingStackFrame['raw_id'][]
-        symbol_set?: ErrorTrackingSymbolSet['id']
-    }): ApiRequest {
-        return this.errorTracking()
-            .addPathComponent('stack_frames')
-            .withQueryString(toParams({ raw_ids, symbol_set }, true))
+    public errorTrackingStackFrames(): ApiRequest {
+        return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
     // # Warehouse
@@ -820,6 +823,18 @@ class ApiRequest {
     }
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
+    // # Data Modeling Jobs (ie) materialized view runs
+    public dataWarehouseDataModelingJobs(
+        savedQueryId: DataWarehouseSavedQuery['id'],
+        pageSize = 10,
+        offset = 0,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('data_modeling_jobs')
+            .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
     }
 
     // # Warehouse view link
@@ -1240,14 +1255,23 @@ const api = {
             limit,
             offset,
             search,
+            ref,
+            type,
+            type__startswith,
         }: {
             parent?: string
             depth?: number
             limit?: number
             offset?: number
             search?: string
+            ref?: string
+            type?: string
+            type__startswith?: string
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset, search }).get()
+            return await new ApiRequest()
+                .fileSystem()
+                .withQueryString({ parent, depth, limit, offset, search, ref, type, type__startswith })
+                .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
@@ -1260,6 +1284,15 @@ const api = {
         },
         async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).delete()
+        },
+        async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
+        },
+        async link(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLink(id).create({ data: { new_path: newPath } })
+        },
+        async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
+            return await new ApiRequest().fileSystemCount(id).create()
         },
     },
 
@@ -1604,6 +1637,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            exclude_core_properties?: boolean
             properties?: string[]
             filter_by_event_names?: boolean
             type?: PropertyDefinitionType
@@ -1630,6 +1664,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            exclude_core_properties?: boolean
             filter_by_event_names?: boolean
             is_feature_flag?: boolean
             limit?: number
@@ -2025,9 +2060,13 @@ const api = {
         async list({
             filters,
             types,
+            kinds,
+            excludeKinds,
         }: {
             filters?: any
             types?: HogFunctionTypeType[]
+            kinds?: HogFunctionKind[]
+            excludeKinds?: HogFunctionKind[]
         }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -2035,6 +2074,8 @@ const api = {
                     filters,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
+                    ...(kinds ? { kind: kinds.join(',') } : {}),
+                    ...(excludeKinds ? { exclude_kind: excludeKinds.join(',') } : {}),
                 })
                 .get()
         },
@@ -2046,6 +2087,9 @@ const api = {
         },
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
+        },
+        async sendBroadcast(id: HogFunctionType['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).withAction('broadcast').create()
         },
         async logs(
             id: HogFunctionType['id'],
@@ -2189,13 +2233,13 @@ const api = {
         async symbolSetStackFrames(
             id: ErrorTrackingSymbolSet['id']
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
-            return await new ApiRequest().errorTrackingStackFrames({ symbol_set: id }).get()
+            return await new ApiRequest().errorTrackingStackFrames().create({ data: { symbol_set: id } })
         },
 
         async stackFrames(
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
-            return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
+            return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
         },
     },
 
@@ -2343,10 +2387,6 @@ const api = {
                 .withAction('recordings')
                 .withAction(session_recording_id)
                 .delete()
-        },
-
-        async aiFilters(messages: ChatCompletionUserMessageParam[]): Promise<{ result: string; data: any }> {
-            return await new ApiRequest().recordings().withAction('ai/filters').create({ data: { messages } })
         },
 
         async aiRegex(regex: string): Promise<{ result: string; data: any }> {
@@ -2632,6 +2672,15 @@ const api = {
                 .dataWarehouseSavedQuery(viewId)
                 .withAction('descendants')
                 .create({ data: { level } })
+        },
+        dataWarehouseDataModelingJobs: {
+            async list(
+                savedQueryId: DataWarehouseSavedQuery['id'],
+                pageSize: number,
+                offset: number
+            ): Promise<PaginatedResponse<DataModelingJob>> {
+                return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
+            },
         },
     },
     externalDataSources: {
@@ -3014,7 +3063,12 @@ const api = {
 
     conversations: {
         async stream(
-            data: { content: string; conversation?: string | null; trace_id: string },
+            data: {
+                content: string
+                contextual_tools?: Record<string, any>
+                conversation?: string | null
+                trace_id: string
+            },
             options?: ApiMethodOptions
         ): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)

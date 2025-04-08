@@ -78,7 +78,16 @@ class MemoryInitializerContextMixin:
         return response.results
 
 
-class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
+class MemoryOnboardingShouldRunMixin(AssistantNode):
+    def should_run(self, _: AssistantState) -> bool:
+        """
+        If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
+        """
+        core_memory = self.core_memory
+        return not core_memory or (not core_memory.is_scraping_pending and not core_memory.is_scraping_finished)
+
+
+class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
     def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
 
@@ -103,13 +112,6 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
                 )
             ]
         )
-
-    def should_run(self, _: AssistantState) -> bool:
-        """
-        If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
-        """
-        core_memory = self.core_memory
-        return not core_memory or (not core_memory.is_scraping_pending and not core_memory.is_scraping_finished)
 
     def router(self, state: AssistantState) -> Literal["initialize_memory", "continue"]:
         last_message = state.messages[-1]
@@ -288,12 +290,15 @@ class core_memory_replace(BaseModel):
 memory_collector_tools = [core_memory_append, core_memory_replace]
 
 
-class MemoryCollectorNode(AssistantNode):
+class MemoryCollectorNode(MemoryOnboardingShouldRunMixin, AssistantNode):
     """
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        if self.should_run(state):
+            return None
+
         node_messages = state.memory_collection_messages or []
 
         prompt = ChatPromptTemplate.from_messages(

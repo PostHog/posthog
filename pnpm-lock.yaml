@@ -560,11 +560,14 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.11.6
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.11.7
+        version: 0.11.7(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
+      '@posthog/products-actions':
+        specifier: workspace:*
+        version: link:../products/actions
       '@posthog/products-dashboards':
         specifier: workspace:*
         version: link:../products/dashboards
@@ -718,9 +721,6 @@ importers:
       chokidar:
         specifier: ^3.5.3
         version: 3.6.0
-      class-variance-authority:
-        specifier: ^0.7.1
-        version: 0.7.1
       classnames:
         specifier: ^2.5.1
         version: 2.5.1
@@ -736,6 +736,9 @@ importers:
       crypto-browserify:
         specifier: ^3.12.0
         version: 3.12.1
+      cva:
+        specifier: 1.0.0-beta.3
+        version: 1.0.0-beta.3(typescript@4.9.5)
       d3:
         specifier: ^7.9.0
         version: 7.9.0
@@ -839,8 +842,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.232.4
-        version: 1.232.4(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.234.10
+        version: 1.234.10(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1535,6 +1538,33 @@ importers:
         specifier: ^10.9.1
         version: 10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)
 
+  products/actions:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   products/dashboards:
     dependencies:
       '@posthog/icons':
@@ -1591,6 +1621,8 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+
+  products/editor: {}
 
   products/experiments:
     dependencies:
@@ -4383,6 +4415,12 @@ packages:
 
   '@posthog/icons@0.11.6':
     resolution: {integrity: sha512-AQxDzr3W5ukP3k7ECxu6aTwTP765XticGE6zUMI2Fb8/4nPD8xzautY48W8d3NUFQkODSfedezIPmgZmgL4FHw==}
+    peerDependencies:
+      react: '>=16.14.0'
+      react-dom: '>=16.14.0'
+
+  '@posthog/icons@0.11.7':
+    resolution: {integrity: sha512-gx/2NkYmK8c8ZXovk3lLV2xuwUb8LbrhLpG9/5La5pt+OanVisDjR81yP6dDoYFO3BiBVFqnGLsSxuGqpTgpmg==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -7841,9 +7879,6 @@ packages:
   cjs-module-lexer@1.4.3:
     resolution: {integrity: sha512-9z8TZaGM1pfswYeXrUpzPrkx8UnWYdhJclsiYMm6x/w5+nN+8Tf/LnAgfLGQCm59qAOxU8WwHEq2vNwF6i4j+Q==}
 
-  class-variance-authority@0.7.1:
-    resolution: {integrity: sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==}
-
   classnames@2.5.1:
     resolution: {integrity: sha512-saHYOzhIQs6wy2sVxTM6bUDsQO4F50V9RQ22qBpEdCW+I+/Wmke2HOl6lS6dTpdxVhb88/I6+Hs+438c3lfUow==}
 
@@ -8300,6 +8335,14 @@ packages:
 
   cuint@0.2.2:
     resolution: {integrity: sha512-d4ZVpCW31eWwCMe1YT3ur7mUDnTXbgwyzaL320DrcRT45rfjYxkt5QWLrmOJ+/UEAI2+fQgKe/fCjR8l4TpRgw==}
+
+  cva@1.0.0-beta.3:
+    resolution: {integrity: sha512-CZa8pTkpEygxJRLH9aod/wfnSgK5z/0GJqG/NNehlwam+S8llqCWUXS3eCenvAiW5sTUpwTWE6bJaeeZ/b4pzA==}
+    peerDependencies:
+      typescript: ~4.9.5
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   cwd@0.10.0:
     resolution: {integrity: sha512-YGZxdTTL9lmLkCUTpg4j0zQ7IhRB5ZmqNBbGCl3Tg6MP/d5/6sY7L5mmTjzbc6JKgVZYiqTQTNhPFsbXNGlRaA==}
@@ -13158,8 +13201,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.232.4:
-    resolution: {integrity: sha512-HoNFmiN+0hZkCLQnpA6N5wFlT6Z2a+EfCp0kFY976cjHNQzR4JKJAW8L8j+EVxj/shH1JfA6GVvDKKdRBWN6Aw==}
+  posthog-js@1.234.10:
+    resolution: {integrity: sha512-PCwfDtvzuQU1PfMVxZ/G6K9vQmBZvoIlYjE+3e5trycCd70rKJbPKAQX5cg0bI5+z5HZTcUQdq1A/NvDsMFQeA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -13195,8 +13238,8 @@ packages:
   preact@10.25.4:
     resolution: {integrity: sha512-jLdZDb+Q+odkHJ+MpW/9U5cODzqnB+fy2EiHSZES7ldV5LK7yjlVzTp7R8Xy6W6y75kfK8iWYtFVH7lvjwrCMA==}
 
-  preact@10.26.4:
-    resolution: {integrity: sha512-KJhO7LBFTjP71d83trW+Ilnjbo+ySsaAgCfXOXUlmGzJ4ygYPWmysm77yg4emwfmoz3b22yvH5IsVFHbhUaH5w==}
+  preact@10.26.5:
+    resolution: {integrity: sha512-fmpDkgfGU6JYux9teDWLhj9mKN55tyepwYbxHgQuIxbWQzgFg5vk7Mrrtfx7xRxq798ynkY4DDDxZr235Kk+4w==}
 
   prelude-ls@1.1.2:
     resolution: {integrity: sha512-ESF23V4SKG6lVSGZgYNpbsiaAkdab6ZgOxe52p7+Kid3W3u3bxR4Vfd/o21dmN7jSt0IwgZ4v5MUd26FEtXE9w==}
@@ -15385,8 +15428,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.237.0:
-    resolution: {integrity: sha512-DEU7XnG7iaNIJoNXrWR7qEmrH0nw31Y3uCZX9E7+etHY7uhulCtZaYbACEKH5+4f+1I836SKtsr6FGW7pCUPvQ==}
+  unlayer-types@1.248.0:
+    resolution: {integrity: sha512-jXse36Qo8LT8XsI0/3bVeKe7NV8QGEih+Yji6y4qAQqC4CNWZBJAbofvRS0eb5Ad2uiLdxYQIbRiDQvoy8bkJA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -19439,6 +19482,11 @@ snapshots:
   '@posthog/clickhouse@1.7.0': {}
 
   '@posthog/icons@0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+
+  '@posthog/icons@0.11.7(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -23945,10 +23993,6 @@ snapshots:
 
   cjs-module-lexer@1.4.3: {}
 
-  class-variance-authority@0.7.1:
-    dependencies:
-      clsx: 2.1.1
-
   classnames@2.5.1: {}
 
   clean-css@5.3.2:
@@ -24521,6 +24565,12 @@ snapshots:
   csstype@3.1.1: {}
 
   cuint@0.2.2: {}
+
+  cva@1.0.0-beta.3(typescript@4.9.5):
+    dependencies:
+      clsx: 2.1.1
+    optionalDependencies:
+      typescript: 4.9.5
 
   cwd@0.10.0:
     dependencies:
@@ -27210,7 +27260,7 @@ snapshots:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.26.4
+      preact: 10.26.5
       qs: 6.9.7
       search-insights: 2.13.0
 
@@ -30731,11 +30781,11 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.232.4(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.234.10(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
-      preact: 10.26.4
+      preact: 10.26.5
       web-vitals: 4.2.4
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
@@ -30767,7 +30817,7 @@ snapshots:
 
   preact@10.25.4: {}
 
-  preact@10.26.4: {}
+  preact@10.26.5: {}
 
   prelude-ls@1.1.2: {}
 
@@ -31236,7 +31286,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.237.0
+      unlayer-types: 1.248.0
 
   react-error-overlay@6.0.9: {}
 
@@ -33337,7 +33387,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.237.0: {}
+  unlayer-types@1.248.0: {}
 
   unpipe@1.0.0: {}
 

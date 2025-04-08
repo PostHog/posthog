@@ -18,7 +18,7 @@ export function SearchHighlight({ string, substring, className }: Props): JSX.El
                 <span
                     key={index}
                     className={`text-xs ${
-                        part.toLowerCase() === substring.toLowerCase() ? 'bg-accent-primary bg-opacity-60' : ''
+                        part.toLowerCase() === substring.toLowerCase() ? 'bg-accent bg-opacity-60' : ''
                     }`}
                 >
                     {part}
@@ -115,7 +115,7 @@ export function SearchHighlightMultiple({ string, substring, className }: Props)
     return (
         <div className={`truncate ${className}`}>
             {highlightedParts.map((part, index) => (
-                <span key={index} className={`text-xs ${part.highlight ? 'bg-highlight' : ''}`}>
+                <span key={index} className={part.highlight ? 'bg-accent-highlight-primary' : ''}>
                     {part.text}
                 </span>
             ))}

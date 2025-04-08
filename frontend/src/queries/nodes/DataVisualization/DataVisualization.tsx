@@ -231,7 +231,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                     <AddVariableButton />
 
                                     {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.dataWarehouse()) && ( // decouple this component from insights tab and datawarehouse scene
+                                        !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
                                             <DateRange
                                                 key="date-range"
                                                 query={query.source}

@@ -23,7 +23,9 @@ export function SidebarAccordion({ category }: SidebarAccordionProps): JSX.Eleme
     const isExpanded = !accordionCollapseMapping[key]
 
     // If we have an empty component, always display it when empty
-    const showEmptyComponent = category.emptyComponent && isEmptyDefinitively
+    const showEmptyComponent = category.emptyComponentLogic
+        ? category.emptyComponentLogic(items)
+        : category.emptyComponent && isEmptyDefinitively
 
     return (
         <section
@@ -48,8 +50,8 @@ export function SidebarAccordion({ category }: SidebarAccordionProps): JSX.Eleme
                 </h4>
                 <NewItemButton category={category} />
             </div>
-            {isExpanded && showEmptyComponent && category.emptyComponent}
             {isExpanded && !isEmpty && <SidebarList category={category} />}
+            {isExpanded && showEmptyComponent && category.emptyComponent}
         </section>
     )
 }

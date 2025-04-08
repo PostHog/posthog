@@ -10,7 +10,7 @@ from langchain_core import messages
 from langchain_core.agents import AgentAction
 from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
-from langgraph.errors import NodeInterrupt
+from langgraph.errors import NodeInterrupt, GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
@@ -87,7 +87,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.team,
             conversation or self.conversation,
             HumanMessage(content=message),
-            self.user,
+            user=self.user,
             is_new_conversation=is_new_conversation,
         )
         if test_graph:
@@ -406,6 +406,24 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
             mock.return_value = RunnableLambda(interrupt_graph)
             self._run_assistant_graph(graph, conversation=self.conversation)
+
+    def test_recursion_error_is_handled(self):
+        class FakeStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __iter__(self):
+                raise GraphRecursionError()
+
+        with patch("langgraph.pregel.Pregel.stream", side_effect=FakeStream):
+            output = self._run_assistant_graph(conversation=self.conversation)
+            self.assertEqual(output[0][0], "message")
+            self.assertEqual(output[0][1]["content"], "Hello")
+            self.assertEqual(output[1][0], "message")
+            self.assertEqual(
+                output[1][1]["content"],
+                "The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
+            )
 
     def test_new_conversation_handles_serialized_conversation(self):
         graph = (
@@ -1007,7 +1025,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
-                    "docs": AssistantNodeName.INKEEP_DOCS,
+                    "search_documentation": AssistantNodeName.INKEEP_DOCS,
                     "root": AssistantNodeName.ROOT,
                     "end": AssistantNodeName.END,
                 }

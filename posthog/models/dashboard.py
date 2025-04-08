@@ -56,6 +56,13 @@ class Dashboard(FileSystemSyncMixin, models.Model):
     last_accessed_at = models.DateTimeField(blank=True, null=True)
     filters = models.JSONField(default=dict)
     variables = models.JSONField(default=dict, null=True, blank=True)
+    breakdown_colors = models.JSONField(default=list, null=True, blank=True)
+    data_color_theme = models.ForeignKey(
+        "posthog.DataColorTheme",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
     restriction_level = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
@@ -109,10 +116,10 @@ class Dashboard(FileSystemSyncMixin, models.Model):
         should_delete = self.deleted or (self.creation_mode == "template")
         return FileSystemRepresentation(
             base_folder="Unfiled/Dashboards",
-            type="dashboard",
+            type="dashboard",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",
-            href=f"/dashboards/{self.id}",
+            href=f"/dashboard/{self.id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,

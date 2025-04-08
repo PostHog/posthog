@@ -1,19 +1,19 @@
-import { kea } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier = 'project' // Add more identifiers here for more panels
+export type PanelLayoutNavIdentifier = 'Project' // Add more identifiers here for more panels
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 
-export const panelLayoutLogic = kea<panelLayoutLogicType>({
-    path: ['layout', 'panel-layout', 'panelLayoutLogic'],
-    connect: {
+export const panelLayoutLogic = kea<panelLayoutLogicType>([
+    path(['layout', 'panel-layout', 'panelLayoutLogic']),
+    connect(() => ({
         values: [navigation3000Logic, ['mobileLayout']],
-    },
-    actions: {
+    })),
+    actions({
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
         toggleLayoutPanelPinned: (pinned: boolean) => ({ pinned }),
@@ -25,13 +25,15 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
         clearSearch: true,
         setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
         setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
-    },
-    reducers: {
+        toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
+    }),
+    reducers({
         isLayoutNavbarVisibleForDesktop: [
             true,
+            { persist: true },
             {
                 showLayoutNavBar: (_, { visible }) => visible,
-                mobileLayout: () => true,
+                mobileLayout: () => false,
             },
         ],
         isLayoutNavbarVisibleForMobile: [
@@ -48,8 +50,16 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
                 toggleLayoutPanelPinned: () => false,
             },
         ],
+        isLayoutNavbarVisible: [
+            false,
+            { persist: true },
+            {
+                showLayoutNavBar: (_, { visible }) => visible,
+            },
+        ],
         isLayoutPanelVisible: [
             false,
+            { persist: true },
             {
                 showLayoutPanel: (_, { visible }) => visible,
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned || _,
@@ -64,6 +74,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
         ],
         activePanelIdentifier: [
             '',
+            { persist: true },
             {
                 setActivePanelIdentifier: (_, { identifier }) => identifier,
                 clearActivePanelIdentifier: () => '',
@@ -88,5 +99,18 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
                 setMainContentRef: (_, { ref }) => ref,
             },
         ],
-    },
-})
+        isLayoutNavCollapsedDesktop: [
+            false,
+            { persist: true },
+            {
+                toggleLayoutNavCollapsed: (state, { override }) => override ?? !state,
+            },
+        ],
+    }),
+    selectors({
+        isLayoutNavCollapsed: [
+            (s) => [s.isLayoutNavCollapsedDesktop, s.mobileLayout],
+            (isLayoutNavCollapsedDesktop, mobileLayout): boolean => !mobileLayout && isLayoutNavCollapsedDesktop,
+        ],
+    }),
+])

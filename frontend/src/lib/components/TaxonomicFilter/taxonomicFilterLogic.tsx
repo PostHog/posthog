@@ -13,10 +13,14 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import {
+    getEventDefinitionIcon,
+    getEventMetadataDefinitionIcon,
+    getPropertyDefinitionIcon,
+} from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
@@ -28,7 +32,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActionType,
@@ -92,7 +96,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     props({} as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -104,8 +108,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
             ['columnsJoinedToPersons'],
+            propertyDefinitionsModel,
+            ['eventMetadataPropertyDefinitions'],
         ],
-    }),
+    })),
     actions(() => ({
         moveUp: true,
         moveDown: true,
@@ -189,6 +195,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
+                s.eventMetadataPropertyDefinitions,
             ],
             (
                 teamId,
@@ -199,7 +206,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns,
                 metadataSource,
                 excludedProperties,
-                propertyAllowList
+                propertyAllowList,
+                eventMetadataPropertyDefinitions
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -318,6 +326,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.EventProperties],
                         propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
                         ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Event metadata',
+                        searchPlaceholder: 'event metadata',
+                        type: TaxonomicFilterGroupType.EventMetadata,
+                        options: eventMetadataPropertyDefinitions,
+                        getIcon: (option: PropertyDefinition) => getEventMetadataDefinitionIcon(option),
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.EventMetadata
+                            )
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) => {
+                            return `api/event/values/?key=${encodeURIComponent(key)}&is_column=true`
+                        },
+                        getPopoverHeader: () => 'Event metadata',
                     },
                     {
                         name: 'Feature flags',

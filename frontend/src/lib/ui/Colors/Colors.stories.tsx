@@ -81,26 +81,14 @@ export function BrandAccentColors(): JSX.Element {
     const [primarySaturation, setPrimarySaturation] = useState<number>(isDarkModeOn ? 94 : 100)
     const [primaryLightness, setPrimaryLightness] = useState<number>(isDarkModeOn ? 57 : 48)
 
-    const [secondaryHue, setSecondaryHue] = useState<number>(228)
-    const [secondarySaturation, setSecondarySaturation] = useState<number>(100)
-    const [secondaryLightness, setSecondaryLightness] = useState<number>(56)
-
     useEffect(() => {
-        document.body.style.setProperty(
-            '--accent-primary',
-            `hsl(${primaryHue}deg ${primarySaturation}% ${primaryLightness}%)`
-        )
-        document.body.style.setProperty(
-            '--accent-secondary',
-            `hsl(${secondaryHue}deg ${secondarySaturation}% ${secondaryLightness}%)`
-        )
-    }, [primaryHue, primarySaturation, primaryLightness, secondaryHue, secondarySaturation, secondaryLightness])
+        document.body.style.setProperty('--accent', `hsl(${primaryHue}deg ${primarySaturation}% ${primaryLightness}%)`)
+    }, [primaryHue, primarySaturation, primaryLightness])
 
     return (
         <div className="flex flex-col gap-4">
             <div className="border border-primary flex flex-col gap-2 p-4 items-start">
-                <p className="text-accent-primary">Accent primary</p>
-                <p className="text-accent-secondary">Accent secondary</p>
+                <p className="text-accent">Accent</p>
             </div>
 
             <div className="flex flex-col gap-2 border border-primary rounded-md p-2">
@@ -122,31 +110,7 @@ export function BrandAccentColors(): JSX.Element {
 
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ backgroundColor: `var(--accent-primary)` }}
-                        className="w-12 h-12 rounded border border-primary"
-                    />
-                </div>
-            </div>
-
-            <div className="flex flex-col gap-2 border border-primary rounded-md p-2">
-                <div className="text-primary font-medium">Secondary accent color</div>
-                <div className="flex gap-2">
-                    <label className="flex flex-col gap-1 flex-1">
-                        <label htmlFor="secondary-hue">Hue</label>
-                        <LemonSlider value={secondaryHue} onChange={setSecondaryHue} min={0} max={360} />
-                    </label>
-                    <label className="flex flex-col gap-1 flex-1">
-                        <label htmlFor="secondary-saturation">Saturation</label>
-                        <LemonSlider value={secondarySaturation} onChange={setSecondarySaturation} min={0} max={100} />
-                    </label>
-                    <label className="flex flex-col gap-1 flex-1">
-                        <label htmlFor="secondary-lightness">Lightness</label>
-                        <LemonSlider value={secondaryLightness} onChange={setSecondaryLightness} min={0} max={100} />
-                    </label>
-
-                    <div
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ backgroundColor: `var(--accent-secondary)` }}
+                        style={{ backgroundColor: `var(--accent)` }}
                         className="w-12 h-12 rounded border border-primary"
                     />
                 </div>
@@ -211,24 +175,24 @@ export function SemanticColors(): JSX.Element {
             name: '--text-tertiary',
         },
         // {
-        //     tailwindClass: 'text-accent-primary',
+        //     tailwindClass: 'text-accent',
         //     description: 'the main accent text color',
-        //     variableName: '--accent-primary'
+        //     variableName: '--accent'
         // },
         // {
-        //     tailwindClass: 'text-accent-primary-hover',
+        //     tailwindClass: 'text-accent-hover',
         //     description: 'the main accent text color on hover',
-        //     variableName: '--accent-primary-hover'
+        //     variableName: '--accent-hover'
         // },
         // {
-        //     tailwindClass: 'text-accent-primary-active',
+        //     tailwindClass: 'text-accent-active',
         //     description: 'the main accent text color on active',
-        //     variableName: '--accent-primary-active'
+        //     variableName: '--accent-active'
         // },
         // {
-        //     tailwindClass: 'text-accent-primary-highlight',
+        //     tailwindClass: 'text-accent-highlight-secondary',
         //     description: 'the main accent text color on highlight',
-        //     variableName: '--accent-primary-highlight'
+        //     variableName: '--accent-highlight-secondary'
         // },
         // {
         //     tailwindClass: 'text-accent-secondary',

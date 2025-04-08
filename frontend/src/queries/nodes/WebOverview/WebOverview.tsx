@@ -7,6 +7,7 @@ import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
 import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
 import { urls } from 'scenes/urls'
@@ -14,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
+    CurrencyCode,
     WebOverviewItem,
     WebOverviewItemKind,
     WebOverviewQuery,
@@ -170,19 +172,6 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const getCurrencySymbol = (currency: string): { symbol: string; isPrefix: boolean } => {
-    const formatter = new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: currency,
-    })
-    const parts = formatter.formatToParts(0)
-    const symbol = parts.find((part) => part.type === 'currency')?.value
-
-    const isPrefix = symbol ? parts[0].type === 'currency' : true
-
-    return { symbol: symbol ?? currency, isPrefix }
-}
-
 const formatItem = (
     value: number | undefined,
     kind: WebOverviewItemKind,
@@ -195,7 +184,7 @@ const formatItem = (
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
     } else if (kind === 'currency') {
-        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? 'USD')
+        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? CurrencyCode.USD)
         return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
             isPrefix ? '' : ' ' + symbol
         }`

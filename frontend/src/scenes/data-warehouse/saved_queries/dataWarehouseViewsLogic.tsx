@@ -11,6 +11,8 @@ import { DataWarehouseSavedQuery } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
 
+const REFRESH_INTERVAL = 10000
+
 export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSavedQueriesLogic']),
     connect(() => ({
@@ -64,6 +66,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         types: string[][]
                         sync_frequency?: string
                         lifecycle?: string
+                        shouldRematerialize?: boolean
                     }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
@@ -77,9 +80,16 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, cache }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
+        },
+        loadDataWarehouseSavedQueriesSuccess: () => {
+            clearTimeout(cache.savedQueriesRefreshTimeout)
+
+            cache.savedQueriesRefreshTimeout = setTimeout(() => {
+                actions.loadDataWarehouseSavedQueries()
+            }, REFRESH_INTERVAL)
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // in the case where we are scheduling a materialized view, send an event
@@ -89,6 +99,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     sync_frequency: payload.sync_frequency,
                 })
             }
+
+            if (payload?.shouldRematerialize) {
+                actions.runDataWarehouseSavedQuery(payload.id)
+            }
+
             actions.loadDatabase()
             lemonToast.success('View updated')
         },
@@ -135,9 +150,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
     }),
-    events(({ actions }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
+        },
+        beforeUnmount: () => {
+            clearTimeout(cache.savedQueriesRefreshTimeout)
         },
     })),
 ])

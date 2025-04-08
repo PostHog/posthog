@@ -91,7 +91,7 @@
 
     &:hover .Resizer__handle::after,
     &--resizing .Resizer__handle::after {
-        outline: 3px solid var(--accent-primary);
+        outline: 3px solid var(--accent);
         opacity: 0.25;
     }
 

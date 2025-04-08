@@ -5,13 +5,13 @@ import { useActions, useValues } from 'kea'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { ActionStep } from '~/toolbar/actions/ActionStep'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 import { actionsTabLogic } from '../actions/actionsTabLogic'
 import { ElementStatistic } from './ElementStatistic'
 
 export function ElementInfo(): JSX.Element | null {
-    const { clickCount: totalClickCount, dateRange } = useValues(heatmapLogic)
+    const { clickCount: totalClickCount, dateRange } = useValues(heatmapToolbarMenuLogic)
 
     const { activeMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)

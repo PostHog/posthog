@@ -1,10 +1,44 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { IconChevronRight, IconDocument, IconFolder, IconFolderOpen } from '@posthog/icons'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 
+import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
+
+const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
+
+type CheckboxProps = {
+    item: TreeDataItem
+    expandedItemIds: string[]
+    enableMultiSelection?: boolean
+    handleCheckedChange?: (checked: boolean) => void
+}
+
+// Render an icon or checkbox
+export function renderTreeNodeDisplayCheckbox({
+    item,
+    enableMultiSelection = false,
+    handleCheckedChange,
+}: CheckboxProps): JSX.Element {
+    const isChecked = !!item.checked
+
+    return (
+        <>
+            {((enableMultiSelection && !item.disableSelect) || isChecked) && (
+                <div className={cn(ICON_CLASSES, 'z-3 relative')}>
+                    <LemonCheckbox
+                        className="size-5 ml-[2px]"
+                        checked={item.checked ?? false}
+                        onChange={(checked) => {
+                            handleCheckedChange?.(checked)
+                        }}
+                    />
+                </div>
+            )}
+        </>
+    )
+}
 
 type IconProps = {
     item: TreeDataItem
@@ -12,59 +46,47 @@ type IconProps = {
     defaultNodeIcon?: React.ReactNode
 }
 
-// Get the node or folder icon
-// If no icon is provided, use a defaultNodeIcon icon
-// If no defaultNodeIcon icon is provided, use empty div
-export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): JSX.Element {
-    const ICON_CLASSES = 'text-secondary'
-
+// Get display item for the tree node
+// This is used to render the tree node in the tree view
+export function renderTreeNodeDisplayIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): JSX.Element {
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
     const isFile = item.record?.type === 'file'
+    let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
 
     if (isFolder) {
-        return (
-            // On folder group hover, the chevron icon should fade in and the folder should fade out
-            <div className="relative">
-                <IconWrapper
-                    size="sm"
-                    className={cn(
-                        ICON_CLASSES,
-                        'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button:opacity-100 transition-opacity duration-150'
-                    )}
-                >
-                    <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
-                </IconWrapper>
-                <IconWrapper
-                    className={cn(
-                        ICON_CLASSES,
-                        'group-hover/lemon-tree-button:opacity-10 transition-opacity duration-150'
-                    )}
-                >
-                    {isOpen ? <IconFolderOpen /> : <IconFolder />}
-                </IconWrapper>
-            </div>
-        )
+        iconElement = isOpen ? <IconFolderOpen /> : <IconFolder />
     }
 
     if (isFile) {
-        return (
-            <>
-                <IconWrapper className={ICON_CLASSES}>
-                    <IconDocument />
-                </IconWrapper>
-            </>
-        )
+        iconElement = <IconDocument />
     }
 
     return (
-        <IconWrapper
-            className={cn(ICON_CLASSES, {
-                'text-tertiary': item.disabledReason,
-            })}
-        >
-            {item.icon || defaultNodeIcon || <div />}
-        </IconWrapper>
+        <div className="flex gap-1 relative group/lemon-tree-icon-group [&_svg]:size-4">
+            {isFolder && (
+                <div
+                    className={cn(
+                        ICON_CLASSES,
+                        'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 transition-opacity duration-150'
+                    )}
+                >
+                    <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
+                </div>
+            )}
+            <div
+                className={cn(
+                    ICON_CLASSES,
+                    {
+                        'text-tertiary': item.disabledReason,
+                        'group-hover/lemon-tree-button-group:opacity-0': isFolder,
+                    },
+                    'transition-opacity duration-150'
+                )}
+            >
+                {iconElement}
+            </div>
+        </div>
     )
 }
 
@@ -113,13 +135,19 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
     return (
         // Apply transform to the entire container and make it the drag reference
         <div
-            className={cn('relative', props.className)}
+            className={cn('relative w-full', props.className)}
             ref={setNodeRef}
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
             {...(props.enableDragging ? listeners : {})}
         >
-            <div className="flex-1" {...attributes}>
+            <div
+                {...attributes}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    height: '100%',
+                }}
+            >
                 {props.children}
             </div>
         </div>
@@ -140,7 +168,7 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
             className={cn(
                 'transition-all duration-150 rounded',
                 props.className,
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent-primary bg-accent-primary-highlight'
+                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary'
             )}
         >
             {props.children}

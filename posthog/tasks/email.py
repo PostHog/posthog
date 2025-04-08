@@ -451,10 +451,18 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
 
     # Filter the memberships list to only include users assigned
     if assignment.user:
-        memberships_to_email = [membership for membership in memberships_to_email if membership.user == assignment.user]
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user == assignment.user and membership.user != assigner)
+        ]
     elif assignment.user_group:
         group_users = assignment.user_group.members.all()
-        memberships_to_email = [membership for membership in memberships_to_email if membership.user in group_users]
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user in group_users and membership.user != assigner)
+        ]
 
     campaign_key: str = f"error_tracking_issue_assigned_{assignment.id}_updated_at_{assignment.created_at.timestamp()}"
     message = EmailMessage(

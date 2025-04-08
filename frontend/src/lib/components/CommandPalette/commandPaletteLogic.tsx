@@ -140,7 +140,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
-    connect({
+    connect(() => ({
         actions: [
             router,
             ['push'],
@@ -168,7 +168,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['sidePanelOpen'],
         ],
         logic: [preflightLogic],
-    }),
+    })),
     actions({
         hidePalette: true,
         showPalette: true,
@@ -478,7 +478,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconHogQL,
-                        display: 'Create a new HogQL insight',
+                        display: 'Create a new SQL insight',
                         synonyms: ['hogql', 'sql'],
                         executor: () => {
                             // TODO: Don't reset insight on change
@@ -552,9 +552,9 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconServer,
-                        display: 'Go to Data warehouse',
+                        display: 'Go to SQL editor',
                         executor: () => {
-                            push(urls.dataWarehouse())
+                            push(urls.sqlEditor())
                         },
                     },
                     ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]

@@ -21,7 +21,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_normalize_multiple_groups
@@ -48,7 +49,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_numeric_property
@@ -75,7 +77,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_offset
@@ -100,7 +103,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by
@@ -126,7 +130,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by.1
@@ -152,7 +157,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by.2
@@ -176,7 +182,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_property_columns
@@ -203,7 +210,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_search
@@ -228,7 +236,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_string_property
@@ -253,6 +262,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---

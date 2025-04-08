@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     config::{DEFAULT_QUEUE_DEPTH_LIMIT, DEFAULT_SHARD_HEALTH_CHECK_INTERVAL},
     ops::{
-        manager::{bulk_create_jobs, create_job},
+        manager::{bulk_create_jobs_copy, bulk_create_jobs_upsert, create_job},
         meta::count_total_waiting_jobs,
     },
     JobInit, ManagerConfig, QueueError,
@@ -20,6 +20,7 @@ pub struct Shard {
     pub check_interval: Duration,
     pub depth_limit: u64,
     pub should_compress_vm_state: bool,
+    pub should_use_bulk_job_copy: bool,
 }
 
 pub struct QueueManager {
@@ -39,10 +40,17 @@ impl QueueManager {
                 .unwrap_or(DEFAULT_SHARD_HEALTH_CHECK_INTERVAL) as i64,
         );
         let should_compress_vm_state = config.should_compress_vm_state.unwrap_or(false);
+        let should_use_bulk_job_copy = config.should_use_bulk_job_copy.unwrap_or(false);
 
         for shard in config.shards {
             let pool = shard.connect().await.unwrap();
-            let shard = Shard::new(pool, depth_limit, check_interval, should_compress_vm_state);
+            let shard = Shard::new(
+                pool,
+                depth_limit,
+                check_interval,
+                should_compress_vm_state,
+                should_use_bulk_job_copy,
+            );
             shards.push(shard);
         }
         Ok(Self {
@@ -52,13 +60,18 @@ impl QueueManager {
     }
 
     #[doc(hidden)] // Mostly for testing, but safe to expose
-    pub fn from_pool(pool: PgPool, should_compress_vm_state: bool) -> Self {
+    pub fn from_pool(
+        pool: PgPool,
+        should_compress_vm_state: bool,
+        should_use_bulk_job_copy: bool,
+    ) -> Self {
         Self {
             shards: RwLock::new(vec![Shard::new(
                 pool,
                 DEFAULT_QUEUE_DEPTH_LIMIT,
                 Duration::seconds(DEFAULT_SHARD_HEALTH_CHECK_INTERVAL as i64),
                 should_compress_vm_state,
+                should_use_bulk_job_copy,
             )]),
             next_shard: AtomicUsize::new(0),
         }
@@ -92,7 +105,7 @@ impl QueueManager {
             .next_shard
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let shards = self.shards.read().await;
-        shards[next % shards.len()].bulk_create_jobs(&inits).await
+        shards[next % shards.len()].bulk_create_jobs(inits).await
     }
 
     pub async fn bulk_create_jobs_blocking(
@@ -105,7 +118,7 @@ impl QueueManager {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let shards = self.shards.read().await;
         shards[next % shards.len()]
-            .bulk_create_jobs_blocking(&inits, timeout)
+            .bulk_create_jobs_blocking(inits, timeout)
             .await
     }
 }
@@ -116,6 +129,7 @@ impl Shard {
         depth_limit: u64,
         check_interval: Duration,
         should_compress_vm_state: bool,
+        should_use_bulk_job_copy: bool,
     ) -> Self {
         Self {
             pool,
@@ -123,6 +137,7 @@ impl Shard {
             check_interval,
             depth_limit,
             should_compress_vm_state,
+            should_use_bulk_job_copy,
         }
     }
 
@@ -135,9 +150,13 @@ impl Shard {
     // Inserts a vec of jobs, failing if the shard is at capacity. Note "capacity" here just
     // means "it isn't totally full" - if there's "capacity" for 1 job, and this is a vec of
     // 1000, we still insert all 1000.
-    pub async fn bulk_create_jobs(&self, inits: &[JobInit]) -> Result<Vec<Uuid>, QueueError> {
+    pub async fn bulk_create_jobs(&self, inits: Vec<JobInit>) -> Result<Vec<Uuid>, QueueError> {
         self.insert_guard().await?;
-        bulk_create_jobs(&self.pool, inits, self.should_compress_vm_state).await
+        if self.should_use_bulk_job_copy {
+            bulk_create_jobs_copy(&self.pool, inits, self.should_compress_vm_state).await
+        } else {
+            bulk_create_jobs_upsert(&self.pool, inits, self.should_compress_vm_state).await
+        }
     }
 
     // Inserts a job, blocking until there's capacity (or until the timeout is reached)
@@ -162,7 +181,7 @@ impl Shard {
     // As above, with the same caveats about what "capacity" means
     pub async fn bulk_create_jobs_blocking(
         &self,
-        inits: &[JobInit],
+        inits: Vec<JobInit>,
         timeout: Option<Duration>,
     ) -> Result<Vec<Uuid>, QueueError> {
         let start = Utc::now();
@@ -175,7 +194,11 @@ impl Shard {
             }
         }
 
-        bulk_create_jobs(&self.pool, inits, self.should_compress_vm_state).await
+        if self.should_use_bulk_job_copy {
+            bulk_create_jobs_copy(&self.pool, inits, self.should_compress_vm_state).await
+        } else {
+            bulk_create_jobs_upsert(&self.pool, inits, self.should_compress_vm_state).await
+        }
     }
 
     pub async fn insert_guard(&self) -> Result<(), QueueError> {

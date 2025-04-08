@@ -193,14 +193,14 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Stored USD on the event, but `purchase_a`'s revenueCurrencyProperty is set to static GBP
         assert purchase_a[1] == "purchase_a"
         assert purchase_a[2] == Decimal("42")
-        assert purchase_a[3] == Decimal("48.841532819")  # 42 GBP -> 48.84 EUR
-        assert purchase_a[4] == CurrencyCode.GBP.value
+        assert purchase_a[3] == CurrencyCode.GBP.value
+        assert purchase_a[4] == Decimal("48.841532819")  # 42 GBP -> 48.84 EUR
         assert purchase_a[5] == CurrencyCode.EUR.value
 
         assert purchase_b[1] == "purchase_b"
         assert purchase_b[2] == Decimal("43")
-        assert purchase_b[3] == Decimal("8.0388947625")  # 43 BRL -> 8.03 EUR
-        assert purchase_b[4] == CurrencyCode.BRL.value
+        assert purchase_b[3] == CurrencyCode.BRL.value
+        assert purchase_b[4] == Decimal("8.0388947625")  # 43 BRL -> 8.03 EUR
         assert purchase_b[5] == CurrencyCode.EUR.value
 
     @patch("posthoganalytics.feature_enabled", return_value=False)

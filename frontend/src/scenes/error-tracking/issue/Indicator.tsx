@@ -19,12 +19,13 @@ interface LabelIndicatorProps {
     label: string
     size: 'xsmall' | 'small' | 'medium' | 'large'
     tooltip?: string
+    className?: string
 }
 
-export function LabelIndicator({ intent, label, size, tooltip }: LabelIndicatorProps): JSX.Element {
+export function LabelIndicator({ intent, label, size, tooltip, className }: LabelIndicatorProps): JSX.Element {
     return (
         <Tooltip title={tooltip} placement="right">
-            <div className={clsx('flex items-center', sizeVariants[size])}>
+            <div className={clsx('flex items-center', className, sizeVariants[size])}>
                 <LemonBadge status={intent} size="small" />
                 <div>{label}</div>
             </div>
@@ -50,9 +51,9 @@ export const STATUS_INTENT: Record<ErrorTrackingIssue['status'], Intent> = {
 
 export const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undefined> = {
     suppressed: 'Stop capturing this issue',
-    active: undefined,
+    active: 'Ongoing issue',
     archived: undefined,
-    resolved: undefined,
+    resolved: 'Will become active again on next occurrence',
     pending_release: undefined,
 }
 
@@ -60,15 +61,17 @@ interface StatusIndicatorProps {
     status: IssueStatus
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     withTooltip?: boolean
+    className?: string
 }
 
-export function StatusIndicator({ status, size = 'small', withTooltip }: StatusIndicatorProps): JSX.Element {
+export function StatusIndicator({ status, size = 'small', className, withTooltip }: StatusIndicatorProps): JSX.Element {
     return (
         <LabelIndicator
             intent={STATUS_INTENT[status]}
             size={size}
             label={STATUS_LABEL[status]}
             tooltip={withTooltip ? STATUS_TOOLTIP[status] : undefined}
+            className={className}
         />
     )
 }

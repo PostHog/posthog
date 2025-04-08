@@ -1,8 +1,9 @@
 import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonSnack } from '@posthog/lemon-ui'
+import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -11,10 +12,8 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
-import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -26,8 +25,8 @@ import { AvailableFeature, TeamBasicType } from '~/types'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
-        <div className="flex items-center">
-            <span>{team.name}</span>
+        <div className="flex items-center max-w-full">
+            <span className="truncate">{team.name}</span>
             {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
         </div>
     )
@@ -42,22 +41,28 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
     }, [location.pathname, team.id, team.project_id, currentTeam?.project_id])
 
     return (
-        <LemonButton
-            to={relativeOtherProjectPath}
-            sideAction={{
-                icon: (
-                    <IconWrapper>
-                        <IconGear />
-                    </IconWrapper>
-                ),
-                tooltip: `Go to ${team.name} settings`,
-                to: urls.project(team.id, urls.settings()),
-            }}
-            title={`Switch to project ${team.name}`}
-            fullWidth
-        >
-            <ProjectName team={team} />
-        </LemonButton>
+        <ButtonGroupPrimitive menuItem fullWidth groupVariant="side-action-group">
+            <DropdownMenuItem asChild>
+                <ButtonPrimitive
+                    menuItem
+                    href={relativeOtherProjectPath}
+                    sideActionLeft
+                    tooltip={`Switch to project: ${team.name}`}
+                    tooltipPlacement="right"
+                >
+                    <ProjectName team={team} />
+                </ButtonPrimitive>
+            </DropdownMenuItem>
+            <ButtonPrimitive
+                href={urls.project(team.id, urls.settings('project'))}
+                iconOnly
+                sideActionRight
+                tooltip={`View settings for project: ${team.name}`}
+                tooltipPlacement="right"
+            >
+                <IconGear />
+            </ButtonPrimitive>
+        </ButtonGroupPrimitive>
     )
 }
 
@@ -67,87 +72,88 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { push } = useActions(router)
     const { currentOrganization } = useValues(organizationLogic)
 
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-
     return isAuthenticatedTeam(currentTeam) ? (
-        <DropdownMenu
-            onOpenChange={(open) => {
-                setIsDropdownOpen(open)
-            }}
-        >
+        <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <LemonButton
-                    icon={
-                        <IconWrapper>
-                            <IconFolderOpen />
-                        </IconWrapper>
-                    }
-                    size="small"
-                    className="hover:bg-fill-highlight-100"
-                    sideIcon={
-                        <IconWrapper
-                            size="sm"
-                            className={cn(
-                                'transition-transform duration-200 prefers-reduced-motion:transition-none',
-                                isDropdownOpen ? 'rotate-270' : 'rotate-90'
-                            )}
-                        >
-                            <IconChevronRight />
-                        </IconWrapper>
-                    }
-                >
-                    <span>Project</span>
-                </LemonButton>
+                <ButtonPrimitive>
+                    <IconFolderOpen className="text-tertiary" />
+                    Project
+                    <IconChevronRight
+                        className={`
+                        size-3 
+                        text-secondary 
+                        rotate-90 
+                        group-data-[state=open]/button-primitive:rotate-270 
+                        transition-transform 
+                        duration-200 
+                        prefers-reduced-motion:transition-none
+                    `}
+                    />
+                </ButtonPrimitive>
             </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="start">
+
+            <DropdownMenuContent
+                loop
+                align="start"
+                className={`
+                min-w-[200px] 
+                max-w-[var(--project-panel-inner-width)] 
+            `}
+            >
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <LemonButton
-                    active
-                    sideAction={{
-                        icon: (
-                            <IconWrapper size="sm">
-                                <IconGear />
-                            </IconWrapper>
-                        ),
-                        tooltip: `Go to ${currentTeam.name} settings`,
-                        onClick: () => {
-                            push(urls.settings('project'))
-                        },
-                    }}
-                    title={`Switch to project ${currentTeam.name}`}
-                    fullWidth
-                >
-                    <ProjectName team={currentTeam} />
-                </LemonButton>
+                <DropdownMenuItem asChild>
+                    <ButtonGroupPrimitive fullWidth groupVariant="side-action-group">
+                        <ButtonPrimitive
+                            menuItem
+                            active
+                            disabled
+                            sideActionLeft
+                            tooltip={`Current project: ${currentTeam.name}`}
+                            tooltipPlacement="right"
+                        >
+                            <ProjectName team={currentTeam} />
+                        </ButtonPrimitive>
+                        <ButtonPrimitive
+                            active
+                            href={urls.project(currentTeam.id, urls.settings('project'))}
+                            iconOnly
+                            sideActionRight
+                            tooltip={`View settings for project: ${currentTeam.name}`}
+                            tooltipPlacement="right"
+                        >
+                            <IconGear className="text-tertiary" />
+                        </ButtonPrimitive>
+                    </ButtonGroupPrimitive>
+                </DropdownMenuItem>
+
                 {currentOrganization?.teams &&
                     currentOrganization.teams
                         .filter((team) => team.id !== currentTeam?.id)
                         .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
                         .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+
                 {preflight?.can_create_org && (
-                    <DropdownMenuItem asChild>
-                        <LemonButton
-                            icon={
-                                <IconWrapper>
-                                    <IconPlusSmall />
-                                </IconWrapper>
-                            }
-                            onClick={() =>
-                                guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
-                                    closeAccountPopover()
-                                    showCreateProjectModal()
-                                })
-                            }
-                            fullWidth
-                            size="small"
-                            data-attr="new-organization-button"
+                    <DropdownMenuItem
+                        asChild
+                        onClick={() =>
+                            guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
+                                closeAccountPopover()
+                                showCreateProjectModal()
+                            })
+                        }
+                    >
+                        <ButtonPrimitive
+                            menuItem
+                            data-attr="new-project-button"
+                            tooltip="Create a new project"
+                            tooltipPlacement="right"
                         >
+                            <IconPlusSmall className="text-tertiary" />
                             New project
-                        </LemonButton>
+                        </ButtonPrimitive>
                     </DropdownMenuItem>
                 )}
             </DropdownMenuContent>

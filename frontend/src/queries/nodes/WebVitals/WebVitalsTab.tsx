@@ -25,7 +25,7 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
             onClick={setTab}
             className={clsx(
                 'flex-1 gap-2 border p-2 bg-surface-primary rounded items-center sm:items-start flex flex-col justify-between cursor-pointer',
-                isActive && 'border-accent-primary border-2'
+                isActive && 'border-accent border-2'
             )}
         >
             <div className="text-sm hidden sm:flex w-full flex-row justify-between">

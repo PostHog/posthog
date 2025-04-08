@@ -182,6 +182,72 @@ describe('IngestionConsumer', () => {
                 expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(0)
                 expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(1)
             })
+
+            describe('force overflow', () => {
+                beforeEach(async () => {
+                    // Reset ingester with force overflow tokens
+                    await ingester.stop()
+                    hub.INGESTION_FORCE_OVERFLOW_TOKENS = team.api_token
+                    ingester = new IngestionConsumer(hub)
+                    await ingester.start()
+                })
+
+                it('should force events with matching token to overflow', async () => {
+                    const events = [
+                        createEvent({ token: team.api_token, distinct_id: 'team1-user' }),
+                        createEvent({ token: team2.api_token, distinct_id: 'team2-user' }),
+                    ]
+                    const messages = createKafkaMessages(events)
+
+                    await ingester.handleKafkaBatch(messages)
+
+                    // The team1 event should be routed to overflow
+                    expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(1)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(1)
+
+                    // Verify the right event went to overflow (team1) and the right event was processed normally (team2)
+                    const overflowMessages = getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
+                    const normalMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+
+                    expect(overflowMessages[0].value.distinct_id).toEqual('team1-user')
+                    expect(normalMessages[0].value.distinct_id).toEqual('team2-user')
+
+                    // Add snapshot for the overflow messages
+                    expect(forSnapshot(overflowMessages)).toMatchSnapshot('force overflow messages')
+                })
+
+                it('should handle multiple tokens in the force overflow setting', async () => {
+                    // Reset ingester with multiple force overflow tokens
+                    await ingester.stop()
+                    hub.INGESTION_FORCE_OVERFLOW_TOKENS = `${team.api_token},${team2.api_token}`
+                    ingester = new IngestionConsumer(hub)
+                    await ingester.start()
+
+                    // Create events for both teams
+                    const events = [
+                        createEvent({ token: team.api_token, distinct_id: 'distinct-id-team1' }),
+                        createEvent({ token: team2.api_token, distinct_id: 'distinct-id-team2' }),
+                    ]
+                    const messages = createKafkaMessages(events)
+
+                    await ingester.handleKafkaBatch(messages)
+
+                    // Both events should be routed to overflow
+                    expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+
+                    // Verify both team events went to overflow
+                    const overflowMessages = getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
+
+                    // Sort messages by distinct_id to make the test deterministic
+                    const sortedOverflowMessages = [...overflowMessages].sort((a, b) =>
+                        String(a.value.distinct_id).localeCompare(String(b.value.distinct_id))
+                    )
+
+                    expect(sortedOverflowMessages[0].value.distinct_id).toEqual('distinct-id-team1')
+                    expect(sortedOverflowMessages[1].value.distinct_id).toEqual('distinct-id-team2')
+                })
+            })
         })
     })
 

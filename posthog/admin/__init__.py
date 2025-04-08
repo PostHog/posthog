@@ -9,6 +9,7 @@ from posthog.admin.admins import (
     DataColorThemeAdmin,
     InsightAdmin,
     ExperimentAdmin,
+    ExperimentSavedMetricAdmin,
     FeatureFlagAdmin,
     AsyncDeletionAdmin,
     InstanceSettingAdmin,
@@ -32,6 +33,7 @@ from posthog.models import (
     DashboardTemplate,
     Insight,
     Experiment,
+    ExperimentSavedMetric,
     DataColorTheme,
     FeatureFlag,
     AsyncDeletion,
@@ -61,6 +63,7 @@ admin.site.register(GroupTypeMapping, GroupTypeMappingAdmin)
 admin.site.register(DataColorTheme, DataColorThemeAdmin)
 
 admin.site.register(Experiment, ExperimentAdmin)
+admin.site.register(ExperimentSavedMetric, ExperimentSavedMetricAdmin)
 admin.site.register(FeatureFlag, FeatureFlagAdmin)
 
 admin.site.register(AsyncDeletion, AsyncDeletionAdmin)

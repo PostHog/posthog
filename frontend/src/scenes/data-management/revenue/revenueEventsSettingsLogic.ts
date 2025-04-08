@@ -31,10 +31,10 @@ const createEmptyConfig = (region: Region | null | undefined): RevenueTrackingCo
 
 export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueEventsSettingsLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamId'], preflightLogic, ['preflight']],
         actions: [teamLogic, ['updateCurrentTeam']],
-    }),
+    })),
     actions({
         updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
 
@@ -53,7 +53,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         deleteDataWarehouseTable: (dataWarehouseTableName: string) => ({ dataWarehouseTableName }),
         updateDataWarehouseTableColumn: (
             dataWarehouseTableName: string,
-            key: keyof RevenueTrackingDataWarehouseTable & ('timestampColumn' | 'revenueColumn'),
+            key: keyof RevenueTrackingDataWarehouseTable & ('timestampColumn' | 'revenueColumn' | 'distinctIdColumn'),
             newValue: string
         ) => ({ dataWarehouseTableName, key, newValue }),
         updateDataWarehouseTableRevenueCurrencyColumn: (

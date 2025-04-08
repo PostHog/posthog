@@ -25,9 +25,16 @@ from ee.hogai.root.prompts import (
 )
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
+from posthog.schema import (
+    AssistantContextualTool,
+    AssistantMessage,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    HumanMessage,
+    FailureMessage,
+)
 
-RouteName = Literal["insights", "root", "end", "docs"]
+RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters"]
 
 
 # Lower casing matters here. Do not change it.
@@ -52,10 +59,30 @@ class search_documentation(BaseModel):
     """
 
 
-RootToolCall = create_and_query_insight | search_documentation
-root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight, search_documentation])
+class search_session_recordings(BaseModel):
+    """
+    Update session recordings filters on this page, in order to search for session recordings by any criteria.
+    """
 
-RootMessageUnion = HumanMessage | AssistantMessage | AssistantToolCallMessage
+    change: str = Field(description="The specific change to be made to recordings filters, briefly described.")
+
+
+CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL = {
+    AssistantContextualTool.SEARCH_SESSION_RECORDINGS: search_session_recordings,
+}
+CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT = {
+    AssistantContextualTool.SEARCH_SESSION_RECORDINGS: """
+Current recordings filters are:
+{{{search_session_recordings_current_filters}}}
+""".strip(),
+}
+CONTEXTUAL_TOOL_MODELS = tuple(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL.values())
+
+
+RootToolCall = create_and_query_insight | search_documentation | search_session_recordings
+root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight, search_documentation, *CONTEXTUAL_TOOL_MODELS])
+
+RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
@@ -71,18 +98,26 @@ class RootNode(AssistantNode):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        history, new_window_id = self._construct_and_update_messages_window(state)
+        history, new_window_id = self._construct_and_update_messages_window(state, config)
 
         prompt = (
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
+                    *[
+                        (
+                            "system",
+                            f"<{tool_name}>\n{CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT.get(cast(AssistantContextualTool, tool_name), 'No context provided for this tool')}\n</{tool_name}>",
+                        )
+                        for tool_name in self._get_contextual_tools(config).keys()
+                        if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT
+                    ],
                 ],
                 template_format="mustache",
             )
             + history
         )
-        chain = prompt | self._get_model(state)
+        chain = prompt | self._get_model(state, config)
 
         utc_now = datetime.datetime.now(datetime.UTC)
         project_now = utc_now.astimezone(self._team.timezone_info)
@@ -93,6 +128,11 @@ class RootNode(AssistantNode):
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
+                **{
+                    f"{tool_name}_{context_key}": context_value
+                    for tool_name, context in self._get_contextual_tools(config).items()
+                    for context_key, context_value in context.items()
+                },
             },
             config,
         )
@@ -112,7 +152,7 @@ class RootNode(AssistantNode):
             ],
         )
 
-    def _get_model(self, state: AssistantState):
+    def _get_model(self, state: AssistantState, config: RunnableConfig):
         # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
         base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
@@ -125,6 +165,10 @@ class RootNode(AssistantNode):
         available_tools: list[type[BaseModel]] = [create_and_query_insight]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
+        for tool_name in self._get_contextual_tools(config).keys():
+            if tool_name not in CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL:
+                continue  # Possibly a deployment mismatch
+            available_tools.append(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL[cast(AssistantContextualTool, tool_name)])
 
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
@@ -154,7 +198,7 @@ class RootNode(AssistantNode):
             elif isinstance(message, AssistantMessage):
                 # Filter out tool calls without a tool response, so the completion doesn't fail.
                 tool_calls = [
-                    tool for tool in message.model_dump()["tool_calls"] or [] if tool["id"] in tool_result_messages
+                    tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_messages
                 ]
 
                 history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls, id=message.id))
@@ -168,10 +212,16 @@ class RootNode(AssistantNode):
                             content=result_message.content, tool_call_id=tool_call_id, id=result_message.id
                         )
                     )
+            elif isinstance(message, FailureMessage):
+                history.append(
+                    LangchainAIMessage(content=message.content or "An unknown failure occurred.", id=message.id)
+                )
 
         return history
 
-    def _construct_and_update_messages_window(self, state: AssistantState) -> tuple[list[BaseMessage], str | None]:
+    def _construct_and_update_messages_window(
+        self, state: AssistantState, config: RunnableConfig
+    ) -> tuple[list[BaseMessage], str | None]:
         """
         Retrieves the current conversation window, finds a new window if necessary, and enforces the tool call limit.
         """
@@ -179,7 +229,7 @@ class RootNode(AssistantNode):
         history = self._construct_messages(state)
 
         # Find a new window id and trim the history to it.
-        new_window_id = self._find_new_window_id(state, history)
+        new_window_id = self._find_new_window_id(state, config, history)
         if new_window_id is not None:
             history = self._get_conversation_window(history, new_window_id)
 
@@ -192,13 +242,15 @@ class RootNode(AssistantNode):
     def _is_hard_limit_reached(self, state: AssistantState) -> bool:
         return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS
 
-    def _find_new_window_id(self, state: AssistantState, window: list[BaseMessage]) -> str | None:
+    def _find_new_window_id(
+        self, state: AssistantState, config: RunnableConfig, window: list[BaseMessage]
+    ) -> str | None:
         """
         If we simply trim the conversation on N tokens, the cache will be invalidated for every new message after that
         limit leading to increased latency. Instead, when we hit the limit, we trim the conversation to N/2 tokens, so
         the cache invalidates only for the next generation.
         """
-        model = self._get_model(state)
+        model = self._get_model(state, config)
 
         if model.get_num_tokens_from_messages(window) > self.CONVERSATION_WINDOW_SIZE:
             trimmed_window: list[BaseMessage] = trim_messages(
@@ -263,15 +315,13 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_type=tool_call.query_kind,
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif isinstance(tool_call, search_documentation):
+        else:
             return PartialAssistantState(
                 root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
-                root_tool_insight_plan=None,  # No insight plan for docs search
-                root_tool_insight_type=None,  # No insight type for docs search
+                root_tool_insight_plan=None,  # No insight plan here
+                root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
-        else:
-            raise ValueError(f"Unsupported tool call: {type(tool_call)}")
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
@@ -280,8 +330,8 @@ class RootNodeTools(AssistantNode):
         if state.root_tool_call_id:
             if state.root_tool_insight_type:
                 return "insights"
-            # If no insight type is set but we have a tool call ID, it must be a docs search
-            return "docs"
+            # For all other tools, we route based on tool name
+            return cast(RouteName, self._get_tool_call(state.messages, state.root_tool_call_id).name)
         return "end"
 
     def _construct_langchain_ai_message(self, message: AssistantMessage):

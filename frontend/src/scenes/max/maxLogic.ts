@@ -10,6 +10,7 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { projectLogic } from 'scenes/projectLogic'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { actionsModel } from '~/models/actionsModel'
 import {
     AssistantEventType,
@@ -22,11 +23,17 @@ import {
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { NodeKind, RefreshType, SuggestedQuestionsQuery } from '~/queries/schema/schema-general'
-import { Conversation } from '~/types'
+import { Conversation, SidePanelTab } from '~/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
-import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from './utils'
+import {
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isReasoningMessage,
+    isVisualizationMessage,
+} from './utils'
 
 export interface MaxLogicProps {
     conversationId?: string
@@ -48,19 +55,19 @@ export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
     key(({ conversationId }) => conversationId || 'new-conversation'),
-    connect({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProject'],
             maxGlobalLogic,
-            ['dataProcessingAccepted'],
+            ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
         ],
-    }),
+    })),
     actions({
         askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,
@@ -195,6 +202,7 @@ export const maxLogic = kea<maxLogicType>([
                 const response = await api.conversations.stream(
                     {
                         content: prompt,
+                        contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
                         conversation: values.conversation?.id,
                         trace_id: traceId,
                     },
@@ -220,6 +228,14 @@ export const maxLogic = kea<maxLogicType>([
 
                             if (isHumanMessage(parsedResponse)) {
                                 actions.replaceMessage(values.threadRaw.length - 1, {
+                                    ...parsedResponse,
+                                    status: 'completed',
+                                })
+                            } else if (isAssistantToolCallMessage(parsedResponse)) {
+                                for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                                    values.toolMap[toolName]?.callback(toolResult)
+                                }
+                                actions.addMessage({
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
@@ -352,7 +368,7 @@ export const maxLogic = kea<maxLogicType>([
                 for (let i = 0; i < thread.length; i++) {
                     const currentMessage: ThreadMessage = thread[i]
                     const previousMessage: ThreadMessage | undefined = thread[i - 1]
-                    if (currentMessage.type.split('/')[0] === previousMessage?.type.split('/')[0]) {
+                    if (isHumanMessage(currentMessage) === isHumanMessage(previousMessage)) {
                         const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
                         if (currentMessage.id && previousMessage.type === AssistantMessageType.Reasoning) {
                             // Only preserve the latest reasoning message, and remove once reasoning is done
@@ -426,6 +442,15 @@ export const maxLogic = kea<maxLogicType>([
         if (values.coreMemory) {
             // In this case we're fine with even really old cached values
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
+        }
+        // If there is a prefill question from side panel state (from opening Max within the app), use it
+        if (
+            !values.question &&
+            sidePanelStateLogic.isMounted() &&
+            sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
+            sidePanelStateLogic.values.selectedTabOptions
+        ) {
+            actions.setQuestion(sidePanelStateLogic.values.selectedTabOptions)
         }
     }),
     permanentlyMount(), // Prevent state from being reset when Max is unmounted, especially key in the side panel

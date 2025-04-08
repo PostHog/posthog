@@ -9,8 +9,10 @@ from posthog.models import Person, Team, Element
 from posthog.models.organization import Organization
 from posthog.schema import (
     CachedEventsQueryResponse,
+    EventMetadataPropertyFilter,
     EventsQuery,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     PropertyOperator,
 )
 from posthog.test.base import (
@@ -301,6 +303,63 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             datetime(2020, 1, 12, 23, 0, 0, tzinfo=self.team.timezone_info),
         ]
 
+    def test_event_metadata_filter(self):
+        self._create_events(
+            data=[
+                (
+                    "p17",
+                    "2020-01-11T22:00:00",
+                    {},
+                ),
+                (
+                    "p2",
+                    "2020-01-12T01:00:00",
+                    {},
+                ),
+                (
+                    "p3",
+                    "2020-01-12T12:00:00",
+                    {},
+                ),
+                (
+                    "p1",
+                    "2020-01-12T23:00:00",
+                    {},
+                ),
+                (
+                    "p3",
+                    "2020-01-13T02:00:00",
+                    {},
+                ),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-11T12:01:00"):
+            query = EventsQuery(
+                after="2020-01-11",
+                before="2020-01-15",
+                event="$pageview",
+                kind="EventsQuery",
+                orderBy=["timestamp ASC"],
+                select=["*"],
+                properties=[
+                    EventMetadataPropertyFilter(
+                        type="event_metadata", operator="exact", key="distinct_id", value=["p3"]
+                    )
+                ],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert [row[0]["timestamp"] for row in response.results] == [
+                datetime(2020, 1, 12, 12, 0, 0, tzinfo=self.team.timezone_info),
+                datetime(2020, 1, 13, 2, 0, 0, tzinfo=self.team.timezone_info),
+            ]
+
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
     def test_element_chain_property_filter(self):
@@ -385,3 +444,63 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0]["properties"]["attr"], "no div")
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    def test_presorted_events_table(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    "2020-01-20T12:00:04Z",
+                    {"some_prop": "a"},
+                ),
+                (
+                    "p2",
+                    "2020-01-20T12:00:14Z",
+                    {"some_prop": "b"},
+                ),
+            ]
+        )
+        self._create_events(
+            data=[
+                (
+                    "p3",
+                    "2020-01-20T12:00:04Z",
+                    {"some_prop": "a"},
+                ),
+            ],
+            event="$pageleave",
+        )
+        flush_persons_and_events()
+        query = EventsQuery(
+            after="-7d",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["timestamp ASC"],
+            select=["*"],
+            properties=[
+                EventPropertyFilter(
+                    key="some_prop",
+                    value="a",
+                    operator=PropertyOperator.EXACT,
+                    type="event",
+                )
+            ],
+        )
+
+        runner_regular = EventsQueryRunner(query=query, team=self.team)
+        response_regular = runner_regular.run()
+
+        runner_presorted = EventsQueryRunner(
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(usePresortedEventsTable=True)
+        )
+        response_presorted = runner_presorted.run()
+
+        assert isinstance(response_regular, CachedEventsQueryResponse)
+        assert isinstance(response_presorted, CachedEventsQueryResponse)
+
+        assert "cityHash" not in response_regular.hogql
+        assert "cityHash" in response_presorted.hogql
+
+        assert response_regular.results == response_presorted.results

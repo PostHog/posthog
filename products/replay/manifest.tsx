@@ -23,25 +23,30 @@ export const manifest: ProductManifest = {
         replayFilePlayback: (): string => '/replay/file-playback',
         replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     },
-    fileSystemTypes: {},
-    treeItems: [
+    fileSystemTypes: {
+        session_recording_playlist: {
+            icon: <IconRewindPlay />,
+            href: (ref: string) => urls.replayPlaylist(ref),
+        },
+    },
+    treeItemsExplore: [
         {
-            path: 'Explore/Recordings/Recordings',
+            path: 'Recordings/Recordings',
             href: () => urls.replay(ReplayTabs.Home),
             icon: <IconRewindPlay />,
         },
         {
-            path: 'Explore/Recordings/What to watch',
+            path: 'Recordings/What to watch',
             href: () => urls.replay(ReplayTabs.Templates),
             icon: <IconRewindPlay />,
         },
         {
-            path: 'Explore/Recordings/Playlists',
+            path: 'Recordings/Playlists',
             href: () => urls.replay(ReplayTabs.Playlists),
             icon: <IconRewindPlay />,
         },
         {
-            path: 'Explore/Recordings/Settings',
+            path: 'Recordings/Settings',
             href: () => urls.replay(ReplayTabs.Settings),
             icon: <IconRewindPlay />,
         },

@@ -1,12 +1,16 @@
 import json
 import uuid
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.db import models
+from django.db.models import QuerySet
 
 from posthog.models import Action
 from posthog.models.utils import UUIDModel
 from django.contrib.postgres.fields import ArrayField
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from dateutil.rrule import rrule, DAILY
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
@@ -16,8 +20,11 @@ from django.dispatch import receiver
 # NB this is enforced in the UI too
 MAX_ITERATION_COUNT = 500
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
-class Survey(UUIDModel):
+
+class Survey(FileSystemSyncMixin, UUIDModel):
     class SurveyType(models.TextChoices):
         POPOVER = "popover", "popover"
         WIDGET = "widget", "widget"
@@ -217,6 +224,25 @@ class Survey(UUIDModel):
     enable_partial_responses = models.BooleanField(default=False, null=True)
 
     actions = models.ManyToManyField(Action)
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Survey"]:
+        base_qs = cls.objects.filter(team=team)
+        return cls._filter_unfiled_queryset(base_qs, team, type="survey", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder="Unfiled/Surveys",
+            type="survey",  # sync with APIScopeObject in scopes.py
+            ref=str(self.pk),
+            name=self.name or "Untitled",
+            href=f"/surveys/{self.pk}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=False,
+        )
 
 
 def update_response_sampling_limits(sender, instance, **kwargs):

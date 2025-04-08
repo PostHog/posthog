@@ -1,1 +1,1 @@
-0692_grouptypemapping_detail_dashboard
+0706_alter_hogfunction_kind

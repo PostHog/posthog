@@ -47,6 +47,7 @@ from posthog.session_recordings.session_recording_helpers import (
 from posthog.storage import object_storage
 from posthog.utils import get_ip_address
 from posthog.utils_cors import cors_response
+from posthog.kafka_client.topics import KAFKA_EXCEPTIONS_INGESTION
 
 logger = structlog.get_logger(__name__)
 
@@ -216,6 +217,8 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
             if overflowing:
                 return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        case "$exception":
+            return KAFKA_EXCEPTIONS_INGESTION
         case _:
             # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
             # historical data topic.
@@ -352,12 +355,13 @@ def drop_performance_events(events: list[Any]) -> list[Any]:
 class EventsOverQuotaResult:
     events: list[Any]
     events_were_limited: bool
+    exceptions_were_limited: bool
     recordings_were_limited: bool
 
 
 def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResult:
     if not settings.EE_AVAILABLE:
-        return EventsOverQuotaResult(events, False, False)
+        return EventsOverQuotaResult(events, False, False, False)
 
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
@@ -365,11 +369,15 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
     limited_tokens_events = list_limited_team_attributes(
         QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
+    limited_tokens_exceptions = list_limited_team_attributes(
+        QuotaResource.EXCEPTIONS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    )
     limited_tokens_recordings = list_limited_team_attributes(
         QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
     recordings_were_limited = False
+    exceptions_were_limited = False
     events_were_limited = False
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
@@ -378,6 +386,14 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     recordings_were_limited = True
+                    continue
+
+        elif event.get("event") == "$exception":
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="exceptions").inc()
+            if token in limited_tokens_exceptions:
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="exceptions", token=token).inc()
+                if settings.QUOTA_LIMITING_ENABLED:
+                    exceptions_were_limited = True
                     continue
 
         else:
@@ -391,7 +407,10 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
         results.append(event)
 
     return EventsOverQuotaResult(
-        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
+        results,
+        events_were_limited=events_were_limited,
+        exceptions_were_limited=exceptions_were_limited,
+        recordings_were_limited=recordings_were_limited,
     )
 
 

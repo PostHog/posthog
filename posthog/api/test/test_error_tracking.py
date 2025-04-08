@@ -224,16 +224,20 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
 
         # it only fetches stack traces for the specified team
-        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/stack_frames")
+        response = self.client.post(f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get")
         self.assertEqual(len(response.json()["results"]), 2)
 
         # fetching can be filtered by raw_ids
-        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/stack_frames?raw_ids=raw_id")
+        data = {"raw_ids": ["raw_id"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
+        )
         self.assertEqual(len(response.json()["results"]), 1)
 
         # fetching can be filtered by symbol set
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/stack_frames?symbol_set={symbol_set.id}"
+        data = {"symbol_set": symbol_set.id}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
         )
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
