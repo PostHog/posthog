@@ -5,7 +5,7 @@ import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { TimeBoundary } from './TimeBoundary'
 
 export function IssueDateRange(): JSX.Element {
-    const { firstSeen, issueLoading, summaryLoading, lastSeen } = useValues(errorTrackingIssueSceneLogic)
+    const { firstSeen, issueLoading, lastSeenLoading, lastSeen } = useValues(errorTrackingIssueSceneLogic)
     return (
         <span className="flex items-center">
             <TimeBoundary
@@ -19,11 +19,11 @@ export function IssueDateRange(): JSX.Element {
                     }
                 }}
             />
-            <IconChevronRight />
+            <IconChevronRight color="gray" />
             <TimeBoundary
                 time={lastSeen}
                 label="Last Seen"
-                loading={summaryLoading}
+                loading={lastSeenLoading}
                 updateDateRange={(dateRange) => {
                     return {
                         ...dateRange,

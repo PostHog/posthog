@@ -3,6 +3,7 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
+import { match } from 'ts-pattern'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -63,10 +64,13 @@ export const mergeIssues = (
     }
 }
 
+export type Runtime = 'web' | 'python' | 'node' | 'unknown'
+
 export type ExceptionAttributes = {
     ingestionErrors?: string[]
     exceptionList: ErrorTrackingException[]
     fingerprintRecords?: FingerprintRecordPart[]
+    runtime: Runtime
 } & Record<
     'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level' | 'url' | 'unhandled',
     string | boolean | undefined
@@ -112,11 +116,17 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     }
 
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
+    const runtime: Runtime = match<string, Runtime>($lib)
+        .with('posthog-python', () => 'python')
+        .with('posthog-node', () => 'node')
+        .with('web', () => 'web')
+        .otherwise(() => 'unknown')
 
     return {
         type,
         value,
         synthetic,
+        runtime,
         library: `${$lib} ${$lib_version}`,
         browser: browser ? `${browser} ${browserVersion}` : undefined,
         os: os ? `${os} ${osVersion}` : undefined,
@@ -155,12 +165,10 @@ export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): bool
 }
 
 export function generateSparklineLabels(range: DateRange, resolution: number): string[] {
-    const resolvedDateRange = resolveDateRange(range)
-    const from = dayjs(resolvedDateRange.date_from)
-    const to = dayjs(resolvedDateRange.date_to)
+    const { date_from, date_to } = ResolvedDateRange.fromDateRange(range)
+    const bin_size = Math.floor(date_to.diff(date_from, 'seconds') / resolution)
     const labels = Array.from({ length: resolution }, (_, i) => {
-        const bin_size = Math.floor(to.diff(from, 'seconds') / resolution)
-        return from.add(i * bin_size, 'seconds').toISOString()
+        return date_from.add(i * bin_size, 'seconds').toISOString()
     })
     return labels
 }
