@@ -153,6 +153,11 @@ const surveyActionsMapping: Record<
                 description: [<>stopped</>],
             }
         }
+        if (change?.before !== null && change?.after === null) {
+            return {
+                description: [<>resumed</>],
+            }
+        }
         return null
     },
     appearance: function onAppearance(change) {

@@ -488,6 +488,324 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
+    def test_funnel_metric_with_conversion_window(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                # User completes both steps within default conversion window (experiment duration)
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T13:00:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-08T11:00:00",  # Within default conversion window (experiment duration)
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User completes first step but second step is outside conversion window
+                "user_control_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T13:00:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-16T14:00:00",  # Outside default conversion window (experiment duration)
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # Test variant: completes both steps within window
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T13:00:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-08T12:30:00",  # Within default conversion window (experiment duration)
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+                # Test variant: completes first step but second step outside window
+                "user_test_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T13:00:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-16T15:00:00",  # Outside default conversion window (experiment duration)
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        # Create funnel metric with default conversion window (experiment duration)
+        # (by not specifying time_window_hours)
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Only events within the conversion window should be counted as successes
+        self.assertEqual(control_variant.success_count, 1)
+        self.assertEqual(control_variant.failure_count, 1)
+        self.assertEqual(test_variant.success_count, 1)
+        self.assertEqual(test_variant.failure_count, 1)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_custom_conversion_window(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                # User completes both steps within custom conversion window (24 hours)
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T13:00:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T10:00:00",  # Within 24 hours of pageview
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User completes first step but second step is outside conversion window
+                "user_control_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T13:00:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T14:00:00",  # Outside 24 hours window (25 hours after pageview)
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # Test variant: completes both steps within window
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T13:00:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T10:30:00",  # Within 24 hours of pageview
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+                # Test variant: completes first step but second step outside window
+                "user_test_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T13:00:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T15:00:00",  # Outside 24 hours window
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        # Create funnel metric with custom 24 hours conversion window
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+            time_window_hours=24,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Only events within the custom conversion window should be counted as successes
+        self.assertEqual(control_variant.success_count, 1)
+        self.assertEqual(control_variant.failure_count, 1)
+        self.assertEqual(test_variant.success_count, 1)
+        self.assertEqual(test_variant.failure_count, 1)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
     def test_funnel_metric_with_action(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)

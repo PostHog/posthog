@@ -675,8 +675,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_revenue(self, feature_enabled_mock):
+    def test_revenue(self):
         s1 = str(uuid7("2023-12-02"))
 
         self.team.revenue_tracking_config = RevenueTrackingConfig(
@@ -718,49 +717,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         revenue = results[5]
         assert revenue.kind == "currency"
         assert revenue.value == 16.0763662979
-
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_revenue_without_feature_flag(self, feature_enabled_mock):
-        s1 = str(uuid7("2023-12-02"))
-
-        self.team.revenue_tracking_config = {
-            "events": [
-                {
-                    "eventName": "purchase",
-                    "revenueProperty": "revenue",
-                    "revenueCurrencyProperty": {"property": "currency"},
-                }
-            ],
-            "baseCurrency": CurrencyCode.GBP,
-        }
-        self.team.save()
-
-        self._create_events(
-            [
-                ("p1", [("2023-12-02", s1, 100, "BRL")]),
-            ],
-            event="purchase",
-        )
-        results = self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True).results
-
-        visitors = results[0]
-        assert visitors.value == 1
-
-        views = results[1]
-        assert views.value == 0
-
-        sessions = results[2]
-        assert sessions.value == 1
-
-        duration = results[3]
-        assert duration.value == 0
-
-        bounce = results[4]
-        assert bounce.value is None
-
-        revenue = results[5]
-        assert revenue.kind == "currency"
-        assert revenue.value == 100
 
     def test_revenue_multiple_events(self):
         s1 = str(uuid7("2023-12-02"))

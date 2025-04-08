@@ -110,4 +110,6 @@ pub struct KafkaConfig {
     pub kafka_producer_max_retries: u32,
     #[envconfig(default = "all")]
     pub kafka_producer_acks: String,
+    #[envconfig(default = "60000")]
+    pub kafka_topic_metadata_refresh_interval_ms: u32,
 }

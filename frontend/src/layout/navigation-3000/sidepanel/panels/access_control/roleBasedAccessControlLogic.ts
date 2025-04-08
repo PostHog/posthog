@@ -27,10 +27,10 @@ export type RoleWithResourceAccessControls = {
 
 export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleBasedAccessControlLogic']),
-    connect({
+    connect(() => ({
         values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
-    }),
+    })),
     actions({
         updateRoleBasedAccessControls: (
             accessControls: Pick<AccessControlUpdateType, 'resource' | 'access_level' | 'role'>[]

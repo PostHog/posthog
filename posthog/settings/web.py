@@ -59,6 +59,9 @@ DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CH
 # if `true` we disable feature flags if over quota
 DECIDE_FEATURE_FLAG_QUOTA_CHECK = get_from_env("DECIDE_FEATURE_FLAG_QUOTA_CHECK", False, type_cast=str_to_bool)
 
+# if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
+API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -87,6 +90,7 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
     "products.early_access_features",  # TODO: add this automatically
+    "products.editor",
 ]
 
 
