@@ -1,9 +1,6 @@
-import {
-    CAMPAIGN_PROPERTIES,
-    CORE_FILTER_DEFINITIONS_BY_GROUP,
-    SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
-} from 'lib/taxonomy'
+import { CAMPAIGN_PROPERTIES, SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS } from 'lib/taxonomy'
 
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { CoreFilterDefinition } from '~/types'
 
 describe('taxonomy', () => {
