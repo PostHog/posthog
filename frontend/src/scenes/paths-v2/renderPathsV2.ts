@@ -5,7 +5,7 @@ import { Dispatch, RefObject, SetStateAction } from 'react'
 
 import { PathsFilter } from '~/queries/schema/schema-general'
 
-import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
+import { PathNodeData, PathTargetLink } from './pathUtils'
 import { PathNodeType, Paths } from './types'
 
 /*
@@ -113,9 +113,6 @@ const appendNodes = (svg: any, nodes: PathNodeData[], pathsFilter: PathsFilter):
                 return 'var(--paths-node--dropoff)'
             }
 
-            if (isSelectedPathStartOrEnd(pathsFilter, {}, node)) {
-                return 'var(--paths-node--start-or-end)'
-            }
             return 'var(--paths-node)'
         })
         .attr('id', (node: PathNodeData) => `node-${node.index}`)
@@ -124,8 +121,7 @@ const appendNodes = (svg: any, nodes: PathNodeData[], pathsFilter: PathsFilter):
             svg.selectAll('path').attr('opacity', LINK_OPACITY_DEEMPHASIZED)
 
             // apply effect to hovered node
-            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, {}, node)
-            const nodeColor = isStartOrEndNode ? 'var(--paths-node--start-or-end-hover)' : 'var(--paths-node--hover)'
+            const nodeColor = 'var(--paths-node--hover)'
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
             // recursively apply effect to incoming links
@@ -150,8 +146,7 @@ const appendNodes = (svg: any, nodes: PathNodeData[], pathsFilter: PathsFilter):
         })
         .on('mouseleave', (_event: MouseEvent, node: PathNodeData) => {
             // reset hovered node
-            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, {}, node)
-            const nodeColor = isStartOrEndNode ? 'var(--paths-node--start-or-end)' : 'var(--paths-node)'
+            const nodeColor = 'var(--paths-node)'
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
             // reset all links
