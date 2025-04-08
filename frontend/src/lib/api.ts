@@ -876,7 +876,7 @@ class ApiRequest {
     }
 
     public integrationSlackChannels(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('linear_teams')
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
     }
 
     public integrationSlackChannelsById(

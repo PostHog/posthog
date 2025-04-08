@@ -12,7 +12,7 @@ export function ErrorTrackingIntegration(): JSX.Element {
 
     const onDeleteClick = (id: number): void => {
         LemonDialog.open({
-            title: `Do you want to disconnect from Linear?`,
+            title: 'Do you want to disconnect from Linear?',
             description:
                 'This cannot be undone. PostHog resources configured to use this Linear workspace will remain but will stop working.',
             primaryButton: {
