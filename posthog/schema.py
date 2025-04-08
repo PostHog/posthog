@@ -8230,6 +8230,7 @@ class RecordingsQuery(BaseModel):
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+    direction: Optional[Literal["ASC", "DESC"]] = "DESC"
     person_uuid: Optional[str] = None
     properties: Optional[
         list[
@@ -9828,7 +9829,9 @@ class DataTableNode(BaseModel):
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
+        RecordingsQuery,
         TracesQuery,
+        VectorSearchQuery,
     ] = Field(..., description="Source of the events")
 
 
