@@ -16,6 +16,7 @@ import { toolbarLogic } from '../bar/toolbarLogic'
 import { ScrollDepth } from './ScrollDepth'
 
 export function Elements(): JSX.Element {
+    const { visibleMenu: activeToolbarMode } = useValues(toolbarLogic)
     const {
         heatmapElements,
         elementsToDisplay,
@@ -59,7 +60,7 @@ export function Elements(): JSX.Element {
                 }}
             >
                 <ScrollDepth />
-                <HeatmapCanvas />
+                {activeToolbarMode === 'heatmap' && <HeatmapCanvas />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {

@@ -1,10 +1,11 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { objectsEqual } from 'lib/utils'
 import { posthog } from 'posthog-js'
-import { Scene } from 'scenes/sceneTypes'
+import { Params, Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -20,7 +21,7 @@ import { ActivityScope, Breadcrumb } from '~/types'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
-import { resolveDateRange } from './utils'
+import { defaultSearchParams, resolveDateRange } from './utils'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -34,10 +35,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     props({} as ErrorTrackingIssueSceneLogicProps),
     key((props) => props.id),
 
-    connect({
-        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
-        actions: [errorTrackingLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup']],
-    }),
+    connect(() => ({
+        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+        actions: [errorTrackingLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery']],
+    })),
 
     actions({
         loadIssue: true,
@@ -64,58 +65,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return state ? { ...state, status } : null
             },
         },
-        summary: {},
-    }),
-
-    selectors({
-        breadcrumbs: [
-            (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
-                const exceptionType: string = issue?.name || 'Issue'
-                return [
-                    {
-                        key: Scene.ErrorTracking,
-                        name: 'Error tracking',
-                        path: urls.errorTracking(),
-                    },
-                    {
-                        key: [Scene.ErrorTrackingIssue, exceptionType],
-                        name: exceptionType,
-                    },
-                ]
-            },
-        ],
-
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (_, p) => [p.id],
-            (issueId): SidePanelSceneContext => {
-                return {
-                    activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
-                    activity_item_id: issueId,
-                }
-            },
-        ],
-
-        eventsQuery: [
-            (s) => [(_, props) => props.id, s.filterTestAccounts, s.filterGroup, s.dateRange],
-            (issueId, filterTestAccounts, filterGroup, dateRange) =>
-                errorTrackingIssueEventsQuery({
-                    issueId,
-                    filterTestAccounts: filterTestAccounts,
-                    filterGroup: filterGroup,
-                    dateRange: resolveDateRange(dateRange).toDateRange(),
-                }),
-        ],
-
-        issueDateRange: [(s) => [s.issue], (issue) => (issue ? getIssueDateRange(issue) : {})],
-
-        firstSeen: [
-            (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
-        ],
-
-        lastSeen: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.lastSeen],
-        aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
     }),
 
     loaders(({ props }) => ({
@@ -155,10 +104,62 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return {
                     lastSeen: dayjs(summary.last_seen),
                     aggregations: summary.aggregations,
-                } as ErrorTrackingIssueSummary
+                }
             },
         },
     })),
+
+    selectors({
+        breadcrumbs: [
+            (s) => [s.issue],
+            (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
+                const exceptionType: string = issue?.name || 'Issue'
+                return [
+                    {
+                        key: Scene.ErrorTracking,
+                        name: 'Error tracking',
+                        path: urls.errorTracking(),
+                    },
+                    {
+                        key: [Scene.ErrorTrackingIssue, exceptionType],
+                        name: exceptionType,
+                    },
+                ]
+            },
+        ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (_, p) => [p.id],
+            (issueId): SidePanelSceneContext => {
+                return {
+                    activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+                    activity_item_id: issueId,
+                }
+            },
+        ],
+
+        eventsQuery: [
+            (s) => [(_, props) => props.id, s.filterTestAccounts, s.filterGroup, s.searchQuery, s.dateRange],
+            (issueId, filterTestAccounts, filterGroup, searchQuery, dateRange) =>
+                errorTrackingIssueEventsQuery({
+                    issueId,
+                    filterTestAccounts,
+                    filterGroup,
+                    searchQuery,
+                    dateRange: resolveDateRange(dateRange).toDateRange(),
+                }),
+        ],
+
+        issueDateRange: [(s) => [s.issue], (issue) => (issue ? getIssueDateRange(issue) : {})],
+
+        firstSeen: [
+            (s) => [s.issue],
+            (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
+        ],
+
+        lastSeen: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.lastSeen],
+        aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
+    }),
 
     listeners(({ props, actions }) => {
         return {
@@ -179,6 +180,42 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 posthog.capture('error_tracking_issue_assigned', { issue_id: props.id })
                 await api.errorTracking.assignIssue(props.id, assignee)
             },
+        }
+    }),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => {
+            const searchParams = defaultSearchParams({
+                dateRange: values.dateRange,
+                searchQuery: values.searchQuery,
+                filterGroup: values.filterGroup,
+                filterTestAccounts: values.filterTestAccounts,
+            })
+
+            if (!objectsEqual(searchParams, router.values.searchParams)) {
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            }
+
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                router.values.hashParams,
+                { replace: false },
+            ]
+        }
+
+        return {
+            setDateRange: () => buildURL(),
+            setFilterGroup: () => buildURL(),
+            setSearchQuery: () => buildURL(),
+            setFilterTestAccounts: () => buildURL(),
         }
     }),
 ])

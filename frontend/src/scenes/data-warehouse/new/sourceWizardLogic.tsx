@@ -40,6 +40,10 @@ const Caption = (): JSX.Element => (
             here
         </Link>
         .
+        <br />
+        Currently, read permissions are required for the following resources:
+        <br />
+        Account, Invoice, Customer, Subscription, Product, Price, BalanceTransaction, Charge.
     </>
 )
 
@@ -827,7 +831,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
-    connect({
+    connect(() => ({
         values: [
             dataWarehouseTableLogic,
             ['tableLoading'],
@@ -844,7 +848,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-    }),
+    })),
     reducers({
         manualLinkingProvider: [
             null as ManualLinkSourceType | null,
