@@ -19,14 +19,15 @@ export class GroupTypeManager {
             refreshAge: 30_000, // 30 seconds
             refreshNullAge: 30_000, // 30 seconds
             refreshJitterMs: 0,
-            loader: async (projectIds: string[]) => {
+            loader: async (teamIds: string[]) => {
                 const response: Record<string, GroupTypeToColumnIndex> = {}
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
                 try {
+                    // NOTE: We will eventually read from the team_id column again
                     const { rows } = await this.postgres.query(
                         PostgresUse.COMMON_READ,
                         `SELECT * FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
-                        [Array.from(projectIds)],
+                        [Array.from(teamIds)],
                         'fetchGroupTypes'
                     )
                     for (const row of rows) {
@@ -48,26 +49,21 @@ export class GroupTypeManager {
         return (await this.loader.get(projectId.toString())) ?? {}
     }
 
-    public async fetchGroupTypeIndex(
+    public async fetchGroupTypeIndex(team: Team, groupType: string): Promise<GroupTypeIndex | null> {
         const groupTypes = await this.fetchGroupTypes(team.root_team_id)
         if (groupType in groupTypes) {
             return groupTypes[groupType]
         }
 
-        const [groupTypeIndex, isInsert] = await this.insertGroupType(
-            teamId,
-            projectId,
-            groupType,
-            Object.keys(groupTypes).length
-        )
+        const [groupTypeIndex, isInsert] = await this.insertGroupType(team, groupType, Object.keys(groupTypes).length)
         if (groupTypeIndex !== null) {
-            this.loader.markForRefresh(projectId.toString())
+            this.loader.markForRefresh(team.root_team_id.toString())
         }
 
         if (isInsert && groupTypeIndex !== null) {
             // TODO: Is the `group type ingested` event being valuable? If not, we can remove
             // `captureGroupTypeInsert()`. If yes, we should move this capture to use the project instead of team
-            await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+            await this.captureGroupTypeInsert(team.root_team_id, groupType, groupTypeIndex)
         }
         return groupTypeIndex
     }
@@ -81,8 +77,7 @@ export class GroupTypeManager {
     }
 
     public async insertGroupType(
-        teamId: TeamId,
-        projectId: ProjectId,
+        team: Team,
         groupType: string,
         index: number
     ): Promise<[GroupTypeIndex | null, boolean]> {
@@ -90,6 +85,8 @@ export class GroupTypeManager {
             return [null, false]
         }
 
+        // NOTE: We used to use "project_id" here but we moved to remove it.
+        // In the interim we write both the root_team_id and the project_id.
         const insertGroupTypeResult = await this.postgres.query(
             PostgresUse.COMMON_WRITE,
             `
@@ -103,12 +100,12 @@ export class GroupTypeManager {
             UNION
             SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
             `,
-            [teamId, projectId, groupType, index],
+            [team.root_team_id, team.root_team_id, groupType, index],
             'insertGroupType'
         )
 
         if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, projectId, groupType, index + 1)
+            return await this.insertGroupType(team, groupType, index + 1)
         }
 
         const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
