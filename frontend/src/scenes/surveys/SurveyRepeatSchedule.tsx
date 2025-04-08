@@ -5,6 +5,7 @@ import { LemonBanner, LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { pluralize } from 'lib/utils'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
@@ -21,9 +22,61 @@ function doesSurveyHaveDisplayConditions(survey: Pick<Survey, 'conditions'>): bo
     )
 }
 
+function AlwaysScheduleBanner({
+    survey,
+}: {
+    survey: Pick<Survey, 'type' | 'schedule' | 'conditions'>
+}): JSX.Element | null {
+    const { setSelectedSection } = useActions(surveyLogic)
+    const doesSurveyHaveWaitPeriod = (survey?.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0
+
+    if (doesSurveyHaveWaitPeriod) {
+        return (
+            <LemonBanner type="info">
+                This survey will be shown every {pluralize(survey.conditions?.seenSurveyWaitPeriodInDays ?? 0, 'day')},
+                as long as other display conditions are met.
+            </LemonBanner>
+        )
+    }
+
+    if (doesSurveyHaveDisplayConditions(survey)) {
+        return (
+            <LemonBanner type="warning">
+                <p>
+                    This popover will reappear every time its display conditions are met. This might lead to users
+                    seeing the survey very frequently.
+                </p>
+                <p className="font-normal">
+                    If this isn't intended, consider{' '}
+                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
+                        adding a wait period
+                    </Link>
+                    .
+                </p>
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <p>
+                Setting a popover survey to show 'Always' without any display conditions will make it appear
+                persistently. Ensure this is the desired behavior.
+            </p>
+            <p className="font-normal">
+                If not, consider{' '}
+                <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
+                    adding a wait period
+                </Link>{' '}
+                or changing its frequency.
+            </p>
+        </LemonBanner>
+    )
+}
+
 function SurveyIterationOptions(): JSX.Element {
     const { showSurveyRepeatSchedule, survey } = useValues(surveyLogic)
-    const { setSurveyValue, setSelectedSection } = useActions(surveyLogic)
+    const { setSurveyValue } = useActions(surveyLogic)
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
 
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
@@ -67,38 +120,8 @@ function SurveyIterationOptions(): JSX.Element {
                         },
                     ]}
                 />
-                {survey.type === SurveyType.Popover && survey.schedule === SurveySchedule.Always && (
-                    <LemonBanner type="warning">
-                        {doesSurveyHaveDisplayConditions(survey) ? (
-                            <>
-                                <p>
-                                    This popover will reappear every time its display conditions are met. This might
-                                    lead to users seeing the survey very frequently.
-                                </p>
-                                <p className="font-normal">
-                                    If this isn't intended, consider changing the schedule or{' '}
-                                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
-                                        adjusting the display conditions
-                                    </Link>
-                                    .
-                                </p>
-                            </>
-                        ) : (
-                            <>
-                                <p>
-                                    Setting a popover survey to show 'Always' without any display conditions will make
-                                    it appear persistently on matching pages. Ensure this is the desired behavior.
-                                </p>
-                                <p className="font-normal">
-                                    If not,{' '}
-                                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
-                                        add display conditions
-                                    </Link>{' '}
-                                    or change its frequency.
-                                </p>
-                            </>
-                        )}
-                    </LemonBanner>
+                {survey.schedule === SurveySchedule.Always && survey.type === SurveyType.Popover && (
+                    <AlwaysScheduleBanner survey={survey} />
                 )}
             </LemonField.Pure>
             {showSurveyRepeatSchedule && (
