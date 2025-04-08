@@ -153,6 +153,7 @@ class Database(BaseModel):
     ]
 
     _warehouse_table_names: list[str] = []
+    _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
 
     _timezone: Optional[str]
@@ -181,13 +182,20 @@ class Database(BaseModel):
         raise QueryError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> list[str]:
-        return self._table_names + self._warehouse_table_names + self._view_table_names
+        warehouse_table_names = list(filter(lambda x: "." in x, self._warehouse_table_names))
+
+        return (
+            self._table_names
+            + warehouse_table_names
+            + self._warehouse_self_managed_table_names
+            + self._view_table_names
+        )
 
     def get_posthog_tables(self) -> list[str]:
         return self._table_names
 
     def get_warehouse_tables(self) -> list[str]:
-        return self._warehouse_table_names
+        return self._warehouse_table_names + self._warehouse_self_managed_table_names
 
     def get_views(self) -> list[str]:
         return self._view_table_names
@@ -196,6 +204,11 @@ class Database(BaseModel):
         for f_name, f_def in field_definitions.items():
             setattr(self, f_name, f_def)
             self._warehouse_table_names.append(f_name)
+
+    def add_warehouse_self_managed_tables(self, **field_definitions: Any):
+        for f_name, f_def in field_definitions.items():
+            setattr(self, f_name, f_def)
+            self._warehouse_self_managed_table_names.append(f_name)
 
     def add_views(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
@@ -351,6 +364,7 @@ def create_hogql_database(
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
     warehouse_tables: dict[str, Table] = {}
+    self_managed_warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
     with timings.measure("data_warehouse_saved_query"):
@@ -391,7 +405,23 @@ def create_hogql_database(
 
                     s3_table.fields["properties"] = WarehouseProperties(hidden=True)
 
-                warehouse_tables[table.name] = s3_table
+                if table.external_data_source:
+                    warehouse_tables[table.name] = s3_table
+                else:
+                    self_managed_warehouse_tables[table.name] = s3_table
+
+                # Add warehouse table using dot notation
+                if table.external_data_source:
+                    source_type = table.external_data_source.source_type
+                    prefix = table.external_data_source.prefix
+                    if prefix is not None and isinstance(prefix, str) and prefix != "":
+                        table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
+                        dot_name = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
+                    else:
+                        table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
+                        dot_name = f"{source_type}.{table_name_stripped}".lower()
+
+                    warehouse_tables[dot_name] = s3_table
 
     def define_mappings(warehouse: dict[str, Table], get_table: Callable):
         if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
@@ -470,6 +500,7 @@ def create_hogql_database(
                 )
 
     database.add_warehouse_tables(**warehouse_tables)
+    database.add_warehouse_self_managed_tables(**self_managed_warehouse_tables)
     database.add_views(**views)
 
     with timings.measure("data_warehouse_joins"):
@@ -634,16 +665,6 @@ def serialize_database(
 
     # Process warehouse tables
     for warehouse_table in warehouse_tables_with_data:
-        table_key = warehouse_table.name
-
-        field_input = {}
-        table = getattr(context.database, table_key, None)
-        if isinstance(table, Table):
-            field_input = table.fields
-
-        fields = serialize_fields(field_input, context, table_key, warehouse_table.columns, table_type="external")
-        fields_dict = {field.name: field for field in fields}
-
         # Get schema from prefetched data
         schema_data = list(warehouse_table.externaldataschema_set.all())
         if not schema_data:
@@ -676,6 +697,27 @@ def serialize_database(
                 prefix=db_source.prefix or "",
                 last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
             )
+
+        # Temp until we migrate all table names in the DB to use dot notation
+        if warehouse_table.external_data_source:
+            source_type = warehouse_table.external_data_source.source_type
+            prefix = warehouse_table.external_data_source.prefix
+            if prefix is not None and isinstance(prefix, str) and prefix != "":
+                table_name_stripped = warehouse_table.name.replace(f"{prefix}{source_type}_".lower(), "")
+                table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
+            else:
+                table_name_stripped = warehouse_table.name.replace(f"{source_type}_".lower(), "")
+                table_key = f"{source_type}.{table_name_stripped}".lower()
+        else:
+            table_key = warehouse_table.name
+
+        field_input = {}
+        table = getattr(context.database, table_key, None)
+        if isinstance(table, Table):
+            field_input = table.fields
+
+        fields = serialize_fields(field_input, context, table_key, warehouse_table.columns, table_type="external")
+        fields_dict = {field.name: field for field in fields}
 
         tables[table_key] = DatabaseSchemaDataWarehouseTable(
             fields=fields_dict,
