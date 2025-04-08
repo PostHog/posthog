@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react'
+import crypto from 'crypto'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
@@ -2049,19 +2050,8 @@ interface PreviewFlagsV2Config {
     excludedHashes?: Set<string>
 }
 
-function hashString(str: string): string {
-    let hash = 0
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i)
-        hash = (hash << 5) - hash + char
-        hash = hash & hash // Convert to 32-bit integer
-    }
-    // Convert to hex string
-    return (hash >>> 0).toString(16)
-}
-
 export function shouldEnablePreviewFlagsV2(apiKey: string, config: PreviewFlagsV2Config): boolean {
-    const hashHex = hashString(`preview_flags_v2.${apiKey}`)
+    const hashHex = crypto.createHash('sha1').update(`preview_flags_v2.${apiKey}`).digest('hex')
 
     // Check explicit includes/excludes first
     if (config.includedHashes && config.includedHashes.has(hashHex)) {
@@ -2072,6 +2062,7 @@ export function shouldEnablePreviewFlagsV2(apiKey: string, config: PreviewFlagsV
     }
 
     // For all other keys, use percentage rollout
-    const normalizedHash = parseInt(hashHex, 16) / 0xffffffff
+    // Use first 8 characters of hash for percentage calculation to avoid floating point precision issues
+    const normalizedHash = parseInt(hashHex.slice(0, 8), 16) / 0xffffffff
     return normalizedHash <= config.rolloutPercentage / 100
 }

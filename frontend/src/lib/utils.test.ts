@@ -878,19 +878,20 @@ describe('lib/utils', () => {
 
     describe('shouldEnablePreviewFlagsV2', () => {
         it('returns true for anything if the rollout percentage is 100', () => {
-            expect(
-                shouldEnablePreviewFlagsV2('test', { rolloutPercentage: 100, includedHashes: new Set(['1234567890']) })
-            ).toBe(true)
+            const result = shouldEnablePreviewFlagsV2('test', {
+                rolloutPercentage: 100,
+            })
+            expect(result).toBe(true)
         })
         it('returns true for our hashed API key', () => {
             expect(
                 shouldEnablePreviewFlagsV2('sTMFPsFhdP1Ssg', {
                     rolloutPercentage: 1,
-                    includedHashes: new Set(['3a4a1aa4']),
+                    includedHashes: new Set(['593cb24f9928bab39ec383c06c908481880d5099']),
                 })
             ).toBe(true)
         })
-        it('returns false for our hashed API key when not passed it', () => {
+        it('returns false for our hashed API key when not passed in and the percentage rollout is too small', () => {
             expect(
                 shouldEnablePreviewFlagsV2('sTMFPsFhdP1Ssg', {
                     rolloutPercentage: 1,
@@ -901,7 +902,7 @@ describe('lib/utils', () => {
             expect(
                 shouldEnablePreviewFlagsV2('sTMFPsFhdP1Ssg', {
                     rolloutPercentage: 100,
-                    excludedHashes: new Set(['3a4a1aa4']),
+                    excludedHashes: new Set(['593cb24f9928bab39ec383c06c908481880d5099']),
                 })
             ).toBe(false)
         })
