@@ -8,7 +8,6 @@ from django.views.decorators.csrf import csrf_exempt
 
 from ee.api import integration
 from ee.support_sidebar_max.views import MaxChatViewSet
-from ee.api.llm_proxy.views import LLMProxyViewSet
 
 from .api import (
     authentication,
@@ -40,7 +39,6 @@ def extend_api_router() -> None:
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
-    root_router.register(r"llm-proxy", LLMProxyViewSet, "llm_proxy")
     organization_roles_router = organizations_router.register(
         r"roles",
         role.RoleViewSet,
