@@ -209,6 +209,18 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
             })
 
+            it('sorts recordings in ascending order', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ order: 'console_error_count', direction: 'ASC' })
+                })
+                    .toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        filters: expect.objectContaining({ direction: 'ASC' }),
+                    })
+
+                expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([50, 100])
+            })
+
             it('adds an offset', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.loadSessionRecordings()
@@ -462,6 +474,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 filters: {
                     date_from: '2021-10-01',
                     date_to: '2021-10-10',
+                    direction: 'DESC',
                     duration: [{ key: 'duration', operator: 'lt', type: 'recording', value: 600 }],
                     filter_group: {
                         type: FilterLogicalOperator.And,
@@ -485,6 +498,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     filters: {
                         date_from: '2021-10-01',
                         date_to: '2021-10-10',
+                        direction: 'DESC',
                         duration: [{ key: 'duration', operator: 'lt', type: 'recording', value: 600 }],
                         filter_group: {
                             type: 'AND',
@@ -525,7 +539,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     filters: {
                         date_from: '-3d',
                         date_to: null,
-                        duration: [{ key: 'active_seconds', operator: 'gt', type: 'recording', value: 5 }],
+                        direction: 'DESC',
+                        duration: [
+                            {
+                                key: 'active_seconds',
+                                operator: 'gt',
+                                type: 'recording',
+                                value: 5,
+                            },
+                        ],
                         filter_group: {
                             type: FilterLogicalOperator.And,
                             values: [
