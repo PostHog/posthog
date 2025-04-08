@@ -216,7 +216,7 @@ export interface ErrorTrackingTile extends BaseTile {
 
 export interface SectionTile extends BaseTile {
     kind: 'section'
-    title: string
+    title?: string
     tiles: WebAnalyticsTile[]
 }
 

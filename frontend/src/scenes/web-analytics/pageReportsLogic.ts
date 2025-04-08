@@ -347,7 +347,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
-                        title: '', // Intentionally empty to avoid showing section title + tile title
                         tiles: [
                             {
                                 kind: 'query',
@@ -375,7 +374,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_PATHS_SECTION,
-                        title: 'Page Paths Analysis',
                         layout: {
                             className: 'grid-cols-1 md:grid-cols-3 gap-2',
                         },
@@ -403,7 +401,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_TRAFFIC_SECTION,
-                        title: 'Traffic Sources',
                         layout: {
                             className: 'grid-cols-1 md:grid-cols-2 gap-2',
                         },
@@ -425,7 +422,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION,
-                        title: 'Device Information',
                         layout: {
                             className: 'grid-cols-1 md:grid-cols-3 gap-2',
                         },
@@ -453,7 +449,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
-                        title: 'Geography',
                         layout: {
                             className: 'grid-cols-1 md:grid-cols-3 gap-2 gap-y-8',
                         },
