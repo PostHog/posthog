@@ -1,36 +1,3 @@
-export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
-    '$referring_domain',
-    'utm_source',
-    'utm_campaign',
-    'utm_medium',
-    'utm_content',
-    'utm_term',
-    'gclid',
-    'gad_source',
-    'gclsrc',
-    'dclid',
-    'gbraid',
-    'wbraid',
-    'fbclid',
-    'msclkid',
-    'twclid',
-    'li_fat_id',
-    'mc_cid',
-    'igshid',
-    'ttclid',
-    'rdt_cid',
-    'irclid',
-    '_kx',
-])
-
-export const SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = new Set([
-    '$current_url', // Gets renamed to just $url
-    '$host',
-    '$pathname',
-    '$referrer',
-    ...SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
-])
-
 /**
  * these are properties that PostHog add to events they track for their own purposes
  * not part of the general taxonomy
