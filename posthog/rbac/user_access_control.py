@@ -474,8 +474,6 @@ class UserAccessControl:
         #       - organization_member__user = self._user
         #       - role__in = self._user_role_ids
         #       - organization_member = None and role = None (global default)
-        from ee.models.rbac.access_control import AccessControl  # Make sure this import works in your setup
-
         highest_level_subquery = (
             AccessControl.objects.filter(
                 team_id=OuterRef("team_id"),
