@@ -1,8 +1,8 @@
-import { IconInfo } from '@posthog/icons'
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
+import { match } from 'ts-pattern'
 
 import { OccurrenceSparkline, useSparklineData } from '../OccurrenceSparkline'
 
@@ -38,18 +38,20 @@ export const Metadata = (): JSX.Element => {
 
 function renderMetric(name: string, value: number | undefined, loading: boolean, tooltip?: string): JSX.Element {
     return (
-        <div className="flex items-center gap-2">
-            {loading ? (
-                <LemonSkeleton />
-            ) : (
-                <Tooltip title={tooltip} delayMs={0} placement="bottom">
-                    <div className="text-xl font-semibold">{value ? humanFriendlyLargeNumber(value) : '-'}</div>
-                </Tooltip>
-            )}
-            <div className="flex items-center text-muted text-xs gap-1">
-                {name}
-                {!loading && tooltip && <IconInfo className="mt-0.5" />}
-            </div>
+        <div className="flex items-end gap-2">
+            {match([loading])
+                .with([true], () => <LemonSkeleton />)
+                .with([false], () => (
+                    <Tooltip title={tooltip} delayMs={0} placement="bottom">
+                        <div className="whitespace-nowrap">
+                            <div className="text-2xl font-bold leading-7 inline-block mr-2">
+                                {value ? humanFriendlyLargeNumber(value) : '-'}
+                            </div>
+                            <div className="text-muted text-xs leading-7 align-baseline inline-block">{name}</div>
+                        </div>
+                    </Tooltip>
+                ))
+                .exhaustive()}
         </div>
     )
 }

@@ -1,9 +1,9 @@
 import './ErrorTracking.scss'
 
-import { LemonCard, LemonTabs } from '@posthog/lemon-ui'
+import { LemonCard } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -38,7 +38,6 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
-    const [activeTab, setActiveTab] = useState('stacktrace')
 
     useEffect(() => {
         loadIssue()
@@ -46,68 +45,40 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
     return (
         <ErrorTrackingSetupPrompt>
-            <>
-                <PageHeader
-                    buttons={
-                        <div className="flex gap-x-2">
-                            {!issueLoading && issue?.status == 'active' && (
-                                <AssigneeSelect
-                                    assignee={issue?.assignee}
-                                    onChange={updateAssignee}
-                                    type="secondary"
-                                    showName
-                                />
-                            )}
-                            {!issueLoading && (
-                                <GenericSelect
-                                    size="small"
-                                    current={issue?.status}
-                                    values={['active', 'resolved', 'suppressed']}
-                                    placeholder="Mark as"
-                                    renderValue={(value) => (
-                                        <StatusIndicator
-                                            status={value as IssueStatus}
-                                            size="small"
-                                            withTooltip={true}
-                                        />
-                                    )}
-                                    onChange={updateStatus}
-                                />
-                            )}
-                        </div>
-                    }
-                />
-                <div className="ErrorTrackingIssue space-y-2">
-                    <IssueCard />
-                    <Metadata />
-                    <ErrorTrackingFilters />
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={(key) => setActiveTab(key)}
-                        tabs={[
-                            {
-                                key: 'insights',
-                                label: 'Insights',
-                                content: (
-                                    <div className="space-y-2">
-                                        {/* <DetailsWidget /> */}
-                                        {/* <StacktraceWidget /> */}
-                                    </div>
-                                ),
-                            },
-                            {
-                                key: 'events',
-                                label: 'Events',
-                                content: (
-                                    <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
-                                        <EventsTab />
-                                    </LemonCard>
-                                ),
-                            },
-                        ]}
-                    />
-                </div>
-            </>
+            <PageHeader
+                buttons={
+                    <div className="flex gap-x-2">
+                        {!issueLoading && issue?.status == 'active' && (
+                            <AssigneeSelect
+                                assignee={issue?.assignee}
+                                onChange={updateAssignee}
+                                type="secondary"
+                                showName
+                            />
+                        )}
+                        {!issueLoading && (
+                            <GenericSelect
+                                size="small"
+                                current={issue?.status}
+                                values={['active', 'resolved', 'suppressed']}
+                                placeholder="Mark as"
+                                renderValue={(value) => (
+                                    <StatusIndicator status={value as IssueStatus} size="small" withTooltip={true} />
+                                )}
+                                onChange={updateStatus}
+                            />
+                        )}
+                    </div>
+                }
+            />
+            <div className="ErrorTrackingIssue space-y-2">
+                <IssueCard />
+                <Metadata />
+                <ErrorTrackingFilters />
+                <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
+                    <EventsTab />
+                </LemonCard>
+            </div>
         </ErrorTrackingSetupPrompt>
     )
 }

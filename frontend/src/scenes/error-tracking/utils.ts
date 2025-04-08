@@ -67,7 +67,11 @@ export type ExceptionAttributes = {
     ingestionErrors?: string[]
     exceptionList: ErrorTrackingException[]
     fingerprintRecords?: FingerprintRecordPart[]
-} & Record<'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level' | 'unhandled', any>
+} & Record<
+    'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level' | 'url' | 'unhandled',
+    string | boolean | undefined
+>
+
 export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
     const {
         $lib,
@@ -85,6 +89,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     let type = properties.$exception_type
     let value = properties.$exception_message
     let synthetic: boolean | undefined = properties.$exception_synthetic
+    const url: string | undefined = properties.$current_url
     let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
     const fingerprintRecords: FingerprintRecordPart[] | undefined = properties.$exception_fingerprint_record
 
@@ -115,6 +120,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         library: `${$lib} ${$lib_version}`,
         browser: browser ? `${browser} ${browserVersion}` : undefined,
         os: os ? `${os} ${osVersion}` : undefined,
+        url: url,
         sentryUrl,
         exceptionList: exceptionList || [],
         fingerprintRecords: fingerprintRecords,

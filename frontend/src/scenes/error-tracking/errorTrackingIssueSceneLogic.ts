@@ -27,6 +27,7 @@ import { defaultSearchParams, resolveDateRange } from './utils'
 import {
     ExceptionAttributes,
     getExceptionAttributes,
+    getSessionId,
     hasNonInAppFrames,
     hasStacktrace,
     resolveDateRange,
@@ -47,13 +48,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     connect(() => ({
         values: [
             errorTrackingLogic,
-            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery', 'showStacktrace', 'showContext'],
             stackFrameLogic,
             ['frameOrderReversed', 'showAllFrames', 'showFingerprint'],
         ],
         actions: [
             errorTrackingLogic,
-            ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
+            [
+                'setDateRange',
+                'setFilterTestAccounts',
+                'setFilterGroup',
+                'setSearchQuery',
+                'setShowStacktrace',
+                'setShowContext',
+            ],
             stackFrameLogic,
             ['setFrameOrderReversed', 'setShowAllFrames', 'setShowFingerprint'],
         ],
@@ -66,8 +74,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
-        setStacktraceExpanded: (stacktraceExpanded: boolean) => ({ stacktraceExpanded }),
-        setShowContext: (showContext: boolean) => ({ showContext }),
     }),
 
     defaults({
@@ -88,21 +94,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         summary: {},
         properties: {},
-        stacktraceExpanded: [
-            false,
-            { persist: true },
-            {
-                setStacktraceExpanded: (_, { stacktraceExpanded }: { stacktraceExpanded: boolean }) =>
-                    stacktraceExpanded,
-            },
-        ],
-        showContext: [
-            true,
-            { persist: true },
-            {
-                setShowContext: (_, { showContext }: { showContext: boolean }) => showContext,
-            },
-        ],
     }),
 
     selectors({
@@ -176,6 +167,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             (excList: ErrorTrackingException[]) => hasNonInAppFrames(excList),
         ],
         hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
+        sessionId: [
+            (s) => [s.properties],
+            (properties: Record<string, string> | null) => (properties ? getSessionId(properties) : undefined),
+        ],
     }),
 
     loaders(({ props }) => ({

@@ -11,7 +11,7 @@ export function ContextDisplay(): JSX.Element {
     return (
         <div
             className={cn('pt-14 transition-[width] duration-200 w-0', {
-                'w-[300px] pl-4': showContext,
+                'w-[350px] pl-3': showContext,
             })}
         >
             {match([showContext, propertiesLoading, exceptionAttributes])
@@ -24,8 +24,8 @@ export function ContextDisplay(): JSX.Element {
                 .with([true, false, P.nullish], () => <div>No data available</div>)
                 .with([true, false, P.any], ([, , attrs]) => {
                     return (
-                        <table className="border-spacing-0 border-separate rounded w-full border">
-                            <tbody>
+                        <table className="border-spacing-0 border-separate rounded w-full border overflow-hidden">
+                            <tbody className="w-full">
                                 {[
                                     { label: 'Level', value: attrs?.level },
                                     { label: 'Synthetic', value: attrs?.synthetic },
@@ -33,13 +33,19 @@ export function ContextDisplay(): JSX.Element {
                                     { label: 'Unhandled', value: attrs?.unhandled },
                                     { label: 'Browser', value: attrs?.browser },
                                     { label: 'OS', value: attrs?.os },
+                                    { label: 'URL', value: attrs?.url },
                                 ]
                                     .filter((row) => row.value !== undefined)
                                     .map((row, index) => (
-                                        <tr key={index} className="even:bg-fill-tertiary">
-                                            <th className="border-r-1 font-semibold text-xs p-1 w-1/3">{row.label}</th>
-                                            <td className="w-full truncate p-1 text-xs" title={row.value}>
-                                                {row.value + ''}
+                                        <tr key={index} className="even:bg-fill-tertiary w-full">
+                                            <th className="border-r-1 font-semibold text-xs p-1 w-1/3 text-left">
+                                                {row.label}
+                                            </th>
+                                            <td
+                                                className="w-full truncate p-1 text-xs max-w-0"
+                                                title={String(row.value)}
+                                            >
+                                                {String(row.value)}
                                             </td>
                                         </tr>
                                     ))}
