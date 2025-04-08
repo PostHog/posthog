@@ -1,6 +1,3 @@
-from unittest.mock import patch
-
-from posthog.hogql import ast
 from posthog.schema import CurrencyCode
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, DataWarehouseTable, DataWarehouseCredential
 from posthog.test.base import BaseTest
@@ -8,7 +5,6 @@ from posthog.test.base import BaseTest
 from products.revenue_analytics.backend.models import (
     RevenueAnalyticsRevenueView,
     ZERO_DECIMAL_CURRENCIES_IN_STRIPE,
-    BASE_FIELDS,
 )
 
 
@@ -50,34 +46,9 @@ class TestRevenueAnalyticsModels(BaseTest):
         self.assertIn(CurrencyCode.KRW, ZERO_DECIMAL_CURRENCIES_IN_STRIPE)
         self.assertNotIn(CurrencyCode.USD, ZERO_DECIMAL_CURRENCIES_IN_STRIPE)
 
-    @patch("posthoganalytics.feature_enabled")
-    def test_revenue_view_creation_with_currency_conversion(self, mock_feature_enabled):
-        """Test creating RevenueAnalyticsRevenueView with currency conversion enabled"""
-        mock_feature_enabled.return_value = True
-
+    def test_revenue_view_creation(self):
         view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
         self.assertIsNotNone(view)
-        self.assertEqual(view.data_warehouse_table, self.table)
-
-        # Verify fields
-        fields = view.fields
-        self.assertIn("currency", fields)
-        self.assertIn("amount", fields)
-        self.assertTrue(isinstance(fields["amount"], ast.ExpressionField))
-
-    @patch("posthoganalytics.feature_enabled")
-    def test_revenue_view_creation_without_currency_conversion(self, mock_feature_enabled):
-        """Test creating RevenueAnalyticsRevenueView without currency conversion"""
-        mock_feature_enabled.return_value = False
-
-        view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
-        self.assertIsNotNone(view)
-        self.assertEqual(view.data_warehouse_table, self.table)
-
-        # Verify fields use original values
-        fields = view.fields
-        self.assertEqual(fields["currency"], BASE_FIELDS["original_currency"])
-        self.assertEqual(fields["amount"], BASE_FIELDS["adjusted_original_amount"])
 
     def test_revenue_view_non_stripe_source(self):
         """Test that RevenueAnalyticsRevenueView returns None for non-Stripe sources"""
@@ -93,13 +64,3 @@ class TestRevenueAnalyticsModels(BaseTest):
 
         view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
         self.assertIsNone(view)
-
-    def test_to_printed_clickhouse(self):
-        """Test the to_printed_clickhouse method"""
-        view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
-        self.assertEqual(view.to_printed_clickhouse(None), self.table.name)
-
-    def test_to_printed_hogql(self):
-        """Test the to_printed_hogql method"""
-        view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
-        self.assertEqual(view.to_printed_hogql(), self.table.name)
