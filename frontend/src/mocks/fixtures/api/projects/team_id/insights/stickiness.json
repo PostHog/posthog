@@ -156,7 +156,8 @@
                 {
                     "event": "$pageview",
                     "kind": "EventsNode",
-                    "name": "$pageview"
+                    "name": "$pageview",
+                    "math": "dau"
                 }
             ]
         },
