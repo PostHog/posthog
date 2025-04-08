@@ -149,15 +149,17 @@ const DateRange = (): JSX.Element => {
     const { setDateRange } = useActions(errorTrackingLogic)
 
     return (
-        <DateFilter
-            size="small"
-            dateFrom={dateRange.date_from}
-            dateTo={dateRange.date_to}
-            dateOptions={errorTrackingDateOptions}
-            onChange={(changedDateFrom, changedDateTo) =>
-                setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-            }
-        />
+        <span className="bg-surface-primary rounded">
+            <DateFilter
+                size="small"
+                dateFrom={dateRange.date_from}
+                dateTo={dateRange.date_to}
+                dateOptions={errorTrackingDateOptions}
+                onChange={(changedDateFrom, changedDateTo) =>
+                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+                }
+            />
+        </span>
     )
 }
 
