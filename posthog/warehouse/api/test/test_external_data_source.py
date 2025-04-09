@@ -44,7 +44,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_create_external_data_source(self):
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -72,7 +72,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_create_external_data_source_delete_on_missing_schemas(self):
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -87,7 +87,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_create_external_data_source_delete_on_bad_schema(self):
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -106,7 +106,7 @@ class TestExternalDataSource(APIBaseTest):
         # Create no prefix
 
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -128,7 +128,7 @@ class TestExternalDataSource(APIBaseTest):
         # Try to create same type without prefix again
 
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -151,7 +151,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Create with prefix
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -174,7 +174,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Try to create same type with same prefix again
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -198,7 +198,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_create_external_data_source_incremental(self):
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -261,7 +261,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_create_external_data_source_incremental_missing_field(self):
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -318,7 +318,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_create_external_data_source_incremental_missing_type(self):
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -379,7 +379,7 @@ class TestExternalDataSource(APIBaseTest):
             mocked_get_bigquery_schemas.return_value = {"my_schema": "something"}
 
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/external_data_sources/",
+                f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
                     "source_type": "BigQuery",
                     "payload": {
@@ -417,7 +417,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_create_external_data_source_missing_required_bigquery_job_input(self):
         """Test we fail source creation when missing inputs."""
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "BigQuery",
                 "payload": {
@@ -442,7 +442,7 @@ class TestExternalDataSource(APIBaseTest):
             mocked_get_bigquery_schemas.return_value = {"my_schema": "something"}
 
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/external_data_sources/",
+                f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
                     "source_type": "BigQuery",
                     "payload": {
@@ -477,7 +477,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
 
         response = self.client.patch(
-            f"/api/projects/{self.team.pk}/external_data_sources/{str(source_model.pk)}/",
+            f"/api/environments/{self.team.pk}/external_data_sources/{str(source_model.pk)}/",
             data={
                 "job_inputs": {
                     "dataset_id": "my_new_dataset",
@@ -500,8 +500,8 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(21):
-            response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
+        with self.assertNumQueries(23):
+            response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
@@ -510,7 +510,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
         results = payload["results"]
 
@@ -524,7 +524,7 @@ class TestExternalDataSource(APIBaseTest):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}")
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
@@ -568,7 +568,7 @@ class TestExternalDataSource(APIBaseTest):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
 
-        response = self.client.delete(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}")
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
 
         assert response.status_code == 204
 
@@ -580,7 +580,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()
 
-        response = self.client.post(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/reload/")
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/reload/")
 
         source.refresh_from_db()
 
@@ -610,7 +610,7 @@ class TestExternalDataSource(APIBaseTest):
             postgres_connection.commit()
 
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+            f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
             data={
                 "source_type": "Postgres",
                 "host": settings.PG_HOST,
@@ -645,7 +645,7 @@ class TestExternalDataSource(APIBaseTest):
             validate_credentials_mock.return_value = True
 
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
                     "client_secret": "blah",
@@ -662,7 +662,7 @@ class TestExternalDataSource(APIBaseTest):
             validate_credentials_mock.side_effect = Exception("Invalid API key")
 
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
                     "stripe_secret_key": "invalid_key",
@@ -676,13 +676,15 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
         ) as validate_credentials_mock:
-            from posthog.temporal.data_imports.pipelines.stripe import StripePermissionError
+            from posthog.temporal.data_imports.pipelines.stripe import (
+                StripePermissionError,
+            )
 
             missing_permissions = {"Account": "Error message for Account", "Invoice": "Error message for Invoice"}
             validate_credentials_mock.side_effect = StripePermissionError(missing_permissions)
 
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
                     "stripe_secret_key": "invalid_key",
@@ -699,7 +701,7 @@ class TestExternalDataSource(APIBaseTest):
             validate_credentials_mock.return_value = True
 
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Zendesk",
                     "subdomain": "blah",
@@ -717,7 +719,7 @@ class TestExternalDataSource(APIBaseTest):
             validate_credentials_mock.return_value = False
 
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Zendesk",
                     "subdomain": "blah",
@@ -734,7 +736,7 @@ class TestExternalDataSource(APIBaseTest):
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = True
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
                 },
@@ -764,7 +766,7 @@ class TestExternalDataSource(APIBaseTest):
         with override_settings(CLOUD_DEPLOYMENT="US"):
             team_2 = Team.objects.create(id=2, organization=self.team.organization)
             response = self.client.post(
-                f"/api/projects/{team_2.id}/external_data_sources/database_schema/",
+                f"/api/environments/{team_2.id}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
@@ -791,7 +793,7 @@ class TestExternalDataSource(APIBaseTest):
             new_team = Team.objects.create(id=984961485, name="new_team", organization=self.team.organization)
 
             response = self.client.post(
-                f"/api/projects/{new_team.pk}/external_data_sources/database_schema/",
+                f"/api/environments/{new_team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
@@ -808,7 +810,7 @@ class TestExternalDataSource(APIBaseTest):
         with override_settings(CLOUD_DEPLOYMENT="EU"):
             team_1 = Team.objects.create(id=1, organization=self.team.organization)
             response = self.client.post(
-                f"/api/projects/{team_1.id}/external_data_sources/database_schema/",
+                f"/api/environments/{team_1.id}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
@@ -837,7 +839,7 @@ class TestExternalDataSource(APIBaseTest):
             new_team = Team.objects.create(id=984961486, name="new_team", organization=self.team.organization)
 
             response = self.client.post(
-                f"/api/projects/{new_team.pk}/external_data_sources/database_schema/",
+                f"/api/environments/{new_team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
@@ -865,7 +867,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
         )
 
         data = response.json()
@@ -893,7 +895,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
         )
 
         data = response.json()
@@ -916,7 +918,7 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
             )
 
             data = response.json()
@@ -938,7 +940,7 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs?after=2024-07-01T12:00:00.000Z",
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs?after=2024-07-01T12:00:00.000Z",
             )
 
             data = response.json()
@@ -960,7 +962,7 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs?before=2024-07-01T12:00:00.000Z",
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs?before=2024-07-01T12:00:00.000Z",
             )
 
             data = response.json()
@@ -971,7 +973,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_trimming_payload(self):
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/",
+            f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
                 "payload": {
@@ -1002,7 +1004,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Update with SSH tunnel config
         response = self.client.patch(
-            f"/api/projects/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+            f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
             data={
                 "job_inputs": {
                     "ssh-tunnel": {
@@ -1035,7 +1037,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["ssh_tunnel_auth_type_private_key"] == "testkey"
 
         # Test the to_representation from flattened to nested structure
-        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}")
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
 
         assert response.status_code == 200
         data = response.json()
@@ -1061,7 +1063,7 @@ class TestExternalDataSource(APIBaseTest):
 
             # Create a Snowflake source with password auth
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/external_data_sources/",
+                f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
                     "prefix": "",
                     "payload": {
@@ -1112,7 +1114,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Update the source with a new auth type
         response = self.client.patch(
-            f"/api/projects/{self.team.pk}/external_data_sources/{source_model.pk}/",
+            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
             data={
                 "job_inputs": {
                     "role": "my_role",

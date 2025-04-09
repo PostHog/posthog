@@ -92,11 +92,14 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import (
     DataWarehouseTable,
     DataWarehouseTableColumns,
 )
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from products.revenue_analytics.backend.models import RevenueAnalyticsRevenueView
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -423,42 +426,58 @@ def create_hogql_database(
 
                     warehouse_tables[dot_name] = s3_table
 
-    def define_mappings(warehouse: dict[str, Table], get_table: Callable):
-        if warehouse_modifier.table_name not in warehouse:
-            return warehouse
+    # For every Stripe source, let's generate its own revenue view
+    # Prefetch related schemas and tables to avoid N+1
+    with timings.measure("revenue_analytics_views"):
+        with timings.measure("select"):
+            stripe_sources = list(
+                ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE)
+                .exclude(deleted=True)
+                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
+            )
 
-        if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
-            warehouse[warehouse_modifier.table_name].fields["id"] = ExpressionField(
+        for stripe_source in stripe_sources:
+            with timings.measure(f"for_schema_source_{stripe_source.prefix or stripe_source.id}"):
+                view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
+                if view is not None:
+                    views[f"stripe_{stripe_source.prefix or stripe_source.id}_revenue"] = view
+
+    def define_mappings(store: dict[str, Table], get_table: Callable):
+        if warehouse_modifier.table_name not in store:
+            return store
+
+        if "id" not in store[warehouse_modifier.table_name].fields.keys():
+            store[warehouse_modifier.table_name].fields["id"] = ExpressionField(
                 name="id",
                 expr=parse_expr(warehouse_modifier.id_field),
             )
 
-        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys() or not isinstance(
-            warehouse[warehouse_modifier.table_name].fields.get("timestamp"), DateTimeDatabaseField
+        if "timestamp" not in store[warehouse_modifier.table_name].fields.keys() or not isinstance(
+            store[warehouse_modifier.table_name].fields.get("timestamp"), DateTimeDatabaseField
         ):
             table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
             timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
 
             # If field type is none or datetime, we can use the field directly
             if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
-                warehouse[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                store[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
                     name="timestamp",
                     expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
                 )
             else:
-                warehouse[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                store[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
                     name="timestamp",
                     expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
                 )
 
         # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
-        if "distinct_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
-            warehouse[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
+        if "distinct_id" not in store[warehouse_modifier.table_name].fields.keys():
+            store[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
                 name="distinct_id",
                 expr=parse_expr(warehouse_modifier.distinct_id_field),
             )
 
-        if "person_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
+        if "person_id" not in store[warehouse_modifier.table_name].fields.keys():
             events_join = (
                 DataWarehouseJoin.objects.filter(
                     team_id=team.pk,
@@ -469,45 +488,46 @@ def create_hogql_database(
                 .first()
             )
             if events_join:
-                warehouse[warehouse_modifier.table_name].fields["person_id"] = FieldTraverser(
+                store[warehouse_modifier.table_name].fields["person_id"] = FieldTraverser(
                     chain=[events_join.field_name, "person_id"]
                 )
             else:
-                warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                store[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
                     name="person_id",
                     expr=parse_expr(warehouse_modifier.distinct_id_field),
                 )
 
-        return warehouse
+        return store
 
     if modifiers.dataWarehouseEventsModifiers:
-        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
-            # TODO: add all field mappings
+        with timings.measure("data_warehouse_event_modifiers"):
+            for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+                with timings.measure(f"data_warehouse_event_modifier_{warehouse_modifier.table_name}"):
+                    # TODO: add all field mappings
+                    is_view = warehouse_modifier.table_name in views.keys()
 
-            is_view = warehouse_modifier.table_name in views.keys()
-
-            if is_view:
-                views = define_mappings(
-                    views,
-                    lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                    .latest("created_at"),
-                )
-            else:
-                warehouse_tables = define_mappings(
-                    warehouse_tables,
-                    lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                    .select_related("credential", "external_data_source")
-                    .latest("created_at"),
-                )
-                self_managed_warehouse_tables = define_mappings(
-                    self_managed_warehouse_tables,
-                    lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                    .select_related("credential", "external_data_source")
-                    .latest("created_at"),
-                )
+                    if is_view:
+                        views = define_mappings(
+                            views,
+                            lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                            .latest("created_at"),
+                        )
+                    else:
+                        warehouse_tables = define_mappings(
+                            warehouse_tables,
+                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                            .select_related("credential", "external_data_source")
+                            .latest("created_at"),
+                        )
+                        self_managed_warehouse_tables = define_mappings(
+                            self_managed_warehouse_tables,
+                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                            .select_related("credential", "external_data_source")
+                            .latest("created_at"),
+                        )
 
     database.add_warehouse_tables(**warehouse_tables)
     database.add_warehouse_self_managed_tables(**self_managed_warehouse_tables)
@@ -746,17 +766,19 @@ def serialize_database(
         if view is None:
             continue
 
+        saved_query = views_dict.get(view_name)
+        if not saved_query:
+            continue
+
         fields = serialize_fields(view.fields, context, view_name, table_type="external")
         fields_dict = {field.name: field for field in fields}
 
-        saved_query = views_dict.get(view_name)
-        if saved_query:
-            tables[view_name] = DatabaseSchemaViewTable(
-                fields=fields_dict,
-                id=str(saved_query.pk),
-                name=view.name,
-                query=HogQLQuery(query=saved_query.query["query"]),
-            )
+        tables[view_name] = DatabaseSchemaViewTable(
+            fields=fields_dict,
+            id=str(saved_query.pk),
+            name=view.name,
+            query=HogQLQuery(query=saved_query.query["query"]),
+        )
 
     return tables
 

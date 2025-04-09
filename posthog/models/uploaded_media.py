@@ -7,7 +7,7 @@ from posthog.exceptions_capture import capture_exception
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamMixin
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
@@ -19,7 +19,7 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
-class UploadedMedia(UUIDModel):
+class UploadedMedia(UUIDModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
