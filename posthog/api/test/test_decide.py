@@ -436,22 +436,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {
                 "session_recording_trigger_match_type_config": "",
                 "session_recording_opt_in": True,
-            }
+            },
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
-
-        response = self._post_decide(origin="capacitor://localhost:8000/home")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_session_recording_trigger_match_type_cannot_be_unknown_string(self, *args):
         self._update_team(
             {
                 "session_recording_trigger_match_type_config": "unknown",
                 "session_recording_opt_in": True,
-            }
+            },
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
-
-        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response.status == status.HTTP_400_BAD_REQUEST
 
     def test_session_recording_network_payload_capture_config(self, *args):
         # :TRICKY: Test for regression around caching
