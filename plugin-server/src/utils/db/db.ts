@@ -59,7 +59,6 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
 import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
