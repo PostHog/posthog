@@ -113,9 +113,9 @@ class PathsV2QueryRunner(QueryRunner):
         - Extracts "path items" i.e. strings representing the current step in the sequence of events.
 
         Example:
-        ┌──────────────────timestamp─┬─actor_id─────────────────────────────┬─path_item────┐
-        │ 2023-03-11 11:30:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Landing Page │
-        │ 2023-03-11 11:32:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Search       │
+        ┌──────────────────timestamp─┬─actor_id─────────────────────────────┬─path_item────┐ series_entities_flags
+        │ 2023-03-11 11:30:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Landing Page │ (true, false, true)
+        │ 2023-03-11 11:32:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Search       │ (false, false, true)
         │ 2023-03-11 11:35:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Product View │
         │ 2023-03-11 11:38:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Add to Cart  │
         │ 2023-03-11 11:42:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Checkout     │
@@ -174,6 +174,8 @@ class PathsV2QueryRunner(QueryRunner):
 
         series_entities_flags = []
 
+        self.query.series
+
         #     property_to_expr(self.query.series[0].properties, self.team)
 
         # if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
@@ -195,30 +197,30 @@ class PathsV2QueryRunner(QueryRunner):
 
         # return ast.And(exprs=filters)
 
-        # if isinstance(series, EventsNode) and series.event is not None:
-        #     filters.append(
-        #         parse_expr(
-        #             "event = {event}",
-        #             placeholders={"event": ast.Constant(value=series.event)},
-        #         )
-        #     )
-        # elif isinstance(series, ActionsNode):
-        #     try:
-        #         action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
-        #         filters.append(action_to_expr(action))
-        #     except Action.DoesNotExist:
-        #         # If an action doesn't exist, we want to return no events
-        #         filters.append(parse_expr("1 = 2"))
-        #  try:
-        #                 action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
-        #             except Action.DoesNotExist:
-        #                 raise Exception("Action does not exist")
-        #             if not action.steps:
-        #                 raise Exception("Action does not have any match groups")
-        # for entity in query.series:
-        # series_entities_flags = ["if({filters}, 1, 0)"]
-        # query.select.append(ast.Constant(value="42"))
-        query.select.extend([])
+        # # if isinstance(series, EventsNode) and series.event is not None:
+        # #     filters.append(
+        # #         parse_expr(
+        # #             "event = {event}",
+        # #             placeholders={"event": ast.Constant(value=series.event)},
+        # #         )
+        # #     )
+        # # elif isinstance(series, ActionsNode):
+        # #     try:
+        # #         action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+        # #         filters.append(action_to_expr(action))
+        # #     except Action.DoesNotExist:
+        # #         # If an action doesn't exist, we want to return no events
+        # #         filters.append(parse_expr("1 = 2"))
+        # #  try:
+        # #                 action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
+        # #             except Action.DoesNotExist:
+        # #                 raise Exception("Action does not exist")
+        # #             if not action.steps:
+        # #                 raise Exception("Action does not have any match groups")
+        # # for entity in query.series:
+        # # series_entities_flags = ["if({filters}, 1, 0)"]
+        # # query.select.append(ast.Constant(value="42"))
+        # query.select.extend([])
 
         return query
 

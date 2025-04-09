@@ -287,28 +287,3 @@ class TestPathsV2(SharedSetup):
                 PathsV2Item(step_index=5.0, source_step="c", target_step=POSTHOG_DROPOFF, value=1.0),
             ],
         )
-
-
-# class TestPathsV2BaseEventsQuery(SharedSetup):
-#     maxDiff = None
-
-#     def test_event_base(self):
-#         with freeze_time("2020-01-11T12:00:00Z"):
-#             create_sequences(self.team)
-#         query_runner = self._get_query_runner()
-
-#         query = query_runner._event_base_query()
-
-#         response = execute_hogql_query(
-#             query=query,
-#             team=self.team,
-#         )
-
-#         self.assertEqual(
-#             response.results[0],
-#             (
-#                 datetime(2020, 1, 11, 12, 0, tzinfo=pytz.utc),
-#                 UUID("6fe525b8-2801-9e99-09f6-524b2b0ed086"),
-#                 "Add to Cart",
-#             ),
-#         )
