@@ -33,7 +33,7 @@ from parameterized import parameterized
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
+class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_funnel_metric(self):

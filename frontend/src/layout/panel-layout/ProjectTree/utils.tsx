@@ -106,7 +106,7 @@ export function convertFileSystemEntryToTreeDataItem({
                 node.record?.path === item.path && node.record?.type === 'folder'
             const existingFolder = currentLevel.find(folderMatch)
             if (existingFolder) {
-                if (existingFolder.id) {
+                if (existingFolder.record?.id) {
                     continue
                 } else {
                     // We have a folder without an id, but the incoming one has an id. Remove the current one

@@ -81,6 +81,8 @@ class ActorsQueryRunner(QueryRunner):
                 new_row[actor_column_index] = actor
             else:
                 actor_data: dict[str, Any] = {"id": actor_id}
+                if self.group_type_index is not None:
+                    actor_data["group_type_index"] = self.group_type_index
                 if events_distinct_id_lookup is not None:
                     actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id)
                 new_row[actor_column_index] = actor_data
