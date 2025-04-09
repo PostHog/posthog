@@ -3,7 +3,7 @@
 use std::thread::JoinHandle;
 
 use posthog_rs::Event;
-use tracing::warn;
+use tracing::{debug, warn};
 
 pub fn init_posthog() {
     // This is pulled at compile time, not runtime - we set it at build.
@@ -25,7 +25,7 @@ pub fn capture_command_invoked(
     command: impl AsRef<str>,
     env_id: Option<impl AsRef<str>>,
 ) -> JoinHandle<()> {
-    let event_name = format!("posthog_cli command invoked");
+    let event_name = format!("posthog cli command run");
     let mut event = Event::new_anon(event_name);
 
     event
@@ -43,7 +43,13 @@ pub fn capture_command_invoked(
 
 fn spawn_capture(event: Event) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        let _ = posthog_rs::capture(event); // Purposefully ignore errors here
+        debug!("Capturing event");
+        let res = posthog_rs::capture(event); // Purposefully ignore errors here
+        if let Err(err) = res {
+            debug!("Failed to capture event: {:?}", err);
+        } else {
+            debug!("Event captured successfully");
+        }
         ()
     })
 }
