@@ -199,7 +199,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     errorTrackingIssueQuery({
                         issueId: props.id,
                         dateRange,
-                        volumeResolution: 0,
                         filterTestAccounts: false,
                     }),
                     {},
