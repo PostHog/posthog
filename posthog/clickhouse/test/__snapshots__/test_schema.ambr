@@ -2487,6 +2487,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -2539,6 +2542,9 @@
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'mc_cid'), '^"|"$', ''), timestamp) as initial_mc_cid,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'igshid'), '^"|"$', ''), timestamp) as initial_igshid,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'ttclid'), '^"|"$', ''), timestamp) as initial_ttclid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'epik'), '^"|"$', ''), timestamp) as initial_epik,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'qclid'), '^"|"$', ''), timestamp) as initial_qclid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'sccid'), '^"|"$', ''), timestamp) as initial_sccid,
   
   sumMap(CAST(([event], [1]), 'Map(String, UInt64)')) as event_count_map,
   sumIf(1, event='$pageview') as pageview_count,
@@ -3086,6 +3092,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -3326,6 +3335,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -4357,6 +4369,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
