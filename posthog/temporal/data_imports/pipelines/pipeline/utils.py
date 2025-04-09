@@ -289,17 +289,18 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 
     for column_name in table.column_names:
         normalized_column_name = normalize_column_name(column_name)
+        temp_name = normalized_column_name
 
-        if normalized_column_name in used_names or normalized_column_name in table.column_names:
-            continue
+        if temp_name != column_name:
+            while temp_name in used_names or temp_name in table.column_names:
+                temp_name = "_" + temp_name
 
-        if normalized_column_name != column_name:
             table = table.set_column(
                 table.schema.get_field_index(column_name),
-                normalized_column_name,
+                temp_name,
                 table.column(column_name),  # type: ignore
             )
-            used_names.add(normalized_column_name)
+            used_names.add(temp_name)
 
     return table
 

@@ -79,6 +79,7 @@ LANGFUSE_HOST = get_from_env("LANGFUSE_HOST", "https://us.cloud.langfuse.com", t
 
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
+MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 
 SQS_QUEUES = {
     "usage_reports": {
