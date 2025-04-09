@@ -454,13 +454,12 @@ fn build_cohort_dependency_graph(
             // Add dependency node if we haven't seen this cohort ID before in our traversal.
             // This happens when we discover a new dependency that wasn't previously
             // encountered while processing other cohorts in the graph.
+            let is_new_dep = !node_map.contains_key(&dep_id);
             let dep_node = node_map
                 .entry(dep_id)
                 .or_insert_with(|| graph.add_node(dep_id));
-
             graph.add_edge(current_node, *dep_node, ());
-
-            if !node_map.contains_key(&dep_id) {
+            if is_new_dep {
                 queue.push_back(dep_id);
             }
         }

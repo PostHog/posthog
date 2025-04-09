@@ -311,13 +311,17 @@ pub async fn get_feature_flag_hash_key_overrides(
     // Sort and process overrides, with the distinct_id at the start of the array having priority
     // We want the highest priority to go last in sort order, so it's the latest update in the hashmap
     let mut sorted_overrides = overrides;
-    sorted_overrides.sort_by_key(|(_, _, person_id)| {
-        if person_id_to_distinct_id.get(person_id) == Some(&distinct_id_and_hash_key_override[0]) {
-            std::cmp::Ordering::Greater
-        } else {
-            std::cmp::Ordering::Less
-        }
-    });
+    if !distinct_id_and_hash_key_override.is_empty() {
+        sorted_overrides.sort_by_key(|(_, _, person_id)| {
+            if person_id_to_distinct_id.get(person_id)
+                == Some(&distinct_id_and_hash_key_override[0])
+            {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Less
+            }
+        });
+    }
 
     for (feature_flag_key, hash_key, _) in sorted_overrides {
         feature_flag_hash_key_overrides.insert(feature_flag_key, hash_key);
