@@ -34,7 +34,7 @@ export function StacktraceDisplay({
             return (
                 <div className="pb-1">
                     <div className="flex gap-2 items-center h-7">
-                        <RuntimeIcon runtime={exceptionAttributes?.runtime} />
+                        {exceptionAttributes && <RuntimeIcon runtime={exceptionAttributes.runtime} />}
                         <div className="font-bold text-lg">{type}</div>
                         {part && <FingerprintRecordPartDisplay part={part} />}
                     </div>
