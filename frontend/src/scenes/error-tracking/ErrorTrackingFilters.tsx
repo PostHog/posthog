@@ -9,6 +9,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dateMapping } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
@@ -152,9 +153,8 @@ export const DateRangeFilter = ({
     const { dateRange } = useValues(errorTrackingLogic)
     const { setDateRange } = useActions(errorTrackingLogic)
     return (
-        <span className="rounded bg-surface-primary">
+        <span className={cn('rounded bg-surface-primary', className)}>
             <DateFilter
-                className={className}
                 size={size}
                 dateFrom={dateRange.date_from}
                 dateTo={dateRange.date_to}
