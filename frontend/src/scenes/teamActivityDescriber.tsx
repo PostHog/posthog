@@ -492,6 +492,7 @@ const teamActionsMapping: Record<
     data_attributes: () => null,
     effective_membership_level: () => null,
     has_group_types: () => null,
+    group_types: () => null,
     ingested_event: () => null,
     is_demo: () => null,
     live_events_columns: () => null,

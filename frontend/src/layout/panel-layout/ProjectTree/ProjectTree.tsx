@@ -238,7 +238,7 @@ export function ProjectTree(): JSX.Element {
                     if (node?.record?.path) {
                         setLastViewedId(node?.id || '')
                     }
-                    if (node?.id.startsWith('folder-load-more/')) {
+                    if (node?.id.startsWith('project-load-more/')) {
                         const path = node.id.split('/').slice(1).join('/')
                         if (path) {
                             loadFolder(path)
