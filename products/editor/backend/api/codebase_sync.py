@@ -6,6 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import User
 from products.editor.backend.models.codebase import Codebase
 from products.editor.backend.services.codebase_sync import CodebaseSyncService
@@ -15,12 +16,12 @@ from products.editor.backend.tasks import embed_file
 class CodebaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Codebase
-        # fields = ["id", "team", "user"]
+        fields = "__all__"
         read_only_fields = ["id", "user", "team"]
 
     def create(self, validated_data):
-        validated_data["user_id"] = validated_data["user"].id
-        validated_data["team_id"] = validated_data["team_id"]
+        validated_data["user"] = self.context["request"].user
+        validated_data["team"] = self.context["get_team"]()
         return super().create(validated_data)
 
 
@@ -45,7 +46,11 @@ class CodebaseArtifactSerializer(serializers.Serializer):
 
 
 class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
-    def get_queryset(self):
+    scope_object = "editor_artifacts"
+
+    authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
+
+    def safely_get_queryset(self):
         return Codebase.objects.filter(user=self.request.user)
 
     def get_serializer_class(self):
