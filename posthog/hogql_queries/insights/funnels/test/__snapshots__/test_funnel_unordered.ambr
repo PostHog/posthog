@@ -146,8 +146,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -311,8 +310,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -462,8 +460,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -708,8 +705,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -954,8 +950,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -1221,8 +1216,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.1
@@ -1467,8 +1461,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(in(steps, [1, 2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
-                                            and isNull(arrayFlatten(array('finance')))))
+     WHERE and(ifNull(in(steps, [1, 2, 3]), isNull(steps)), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
+                                                                   and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1481,8 +1475,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -1727,8 +1720,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(in(steps, [2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
-                                         and isNull(arrayFlatten(array('finance')))))
+     WHERE and(ifNull(in(steps, [2, 3]), isNull(steps)), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
+                                                                and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1741,8 +1734,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.3
@@ -1987,8 +1979,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(in(steps, [1, 2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
-                                            and isNull(arrayFlatten(array('technology')))))
+     WHERE and(ifNull(in(steps, [1, 2, 3]), isNull(steps)), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
+                                                                   and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -2001,8 +1993,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -2247,8 +2238,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(in(steps, [2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
-                                         and isNull(arrayFlatten(array('technology')))))
+     WHERE and(ifNull(in(steps, [2, 3]), isNull(steps)), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
+                                                                and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -2261,7 +2252,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    allow_experimental_analyzer=1
   '''
 # ---
