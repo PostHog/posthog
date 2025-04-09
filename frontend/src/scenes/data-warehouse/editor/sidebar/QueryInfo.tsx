@@ -103,7 +103,9 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     <LemonButton
                                         loading={savedQuery?.status === 'Running'}
                                         disabledReason={
-                                            savedQuery?.status === 'Running' ? 'Query is already running' : false
+                                            savedQuery?.status === 'Running' || updatingDataWarehouseSavedQuery
+                                                ? 'Query is already running'
+                                                : false
                                         }
                                         onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
                                         type="secondary"
@@ -166,7 +168,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                 </div>
                 <div>
                     <h3>Columns</h3>
-                    <p>Columns that are available in the materialized view.</p>
+                    <p>Columns that are available in this view.</p>
                 </div>
                 <LemonTable
                     columns={[
