@@ -144,24 +144,19 @@ export function ProjectTree(): JSX.Element {
 
                 {checkedItemCountNumeric > 1 && checkedItems[item.id] ? (
                     <>
-                        <MenuItem asChild disabled={!item.record?.shortcut}>
+                        <MenuItem asChild>
                             <ButtonPrimitive menuItem disabled>
                                 Delete {checkedItemsCount} item{checkedItemCountNumeric === 1 ? '' : 's'}
                             </ButtonPrimitive>
                         </MenuItem>
                         <MenuItem
                             asChild
-                            disabled={!item.record?.shortcut}
                             onClick={(e: any) => {
                                 e.stopPropagation()
-                                if (checkedItemCountNumeric > 1 && checkedItems[item.id]) {
-                                    deleteCheckedItems()
-                                } else {
-                                    deleteItem(item.record as unknown as FileSystemEntry)
-                                }
+                                deleteCheckedItems()
                             }}
                         >
-                            <ButtonPrimitive menuItem disabled>
+                            <ButtonPrimitive menuItem>
                                 Move {checkedItemsCount} item{checkedItemCountNumeric === 1 ? '' : 's'} to 'Unfiled'
                             </ButtonPrimitive>
                         </MenuItem>
@@ -174,7 +169,7 @@ export function ProjectTree(): JSX.Element {
                             deleteItem(item.record as unknown as FileSystemEntry)
                         }}
                     >
-                        <ButtonPrimitive menuItem>Remove shortcut</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
                     </MenuItem>
                 ) : (
                     <>
