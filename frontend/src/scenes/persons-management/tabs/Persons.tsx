@@ -23,7 +23,7 @@ export function Persons(): JSX.Element {
                     ? 'There are no matching persons for this query'
                     : 'No persons exist because no events have been ingested',
                 emptyStateDetail: currentTeam?.ingested_event ? (
-                    'Try changing the date range, or changing the property filters.'
+                    'Try changing the date range or property filters.'
                 ) : (
                     <>
                         Go to the{' '}
