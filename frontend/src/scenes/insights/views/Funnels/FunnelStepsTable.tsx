@@ -90,13 +90,13 @@ export function FunnelStepsTable(): JSX.Element | null {
                         const labelA = formatBreakdownLabel(
                             valueA,
                             breakdownFilter,
-                            cohorts.results,
+                            allCohorts.results,
                             formatPropertyValueForDisplay
                         )
                         const labelB = formatBreakdownLabel(
                             valueB,
                             breakdownFilter,
-                            cohorts.results,
+                            allCohorts.results,
                             formatPropertyValueForDisplay
                         )
                         return compareFn()(labelA, labelB)
