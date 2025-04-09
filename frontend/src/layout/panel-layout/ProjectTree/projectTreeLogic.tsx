@@ -781,9 +781,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                 }
             }
-            if (toCheck.length > 0) {
+            const toDelete = new Set<string>()
+            for (const itemId of Object.keys(checkedItems)) {
+                if (!values.viableItemsById[itemId]) {
+                    toDelete.add(itemId)
+                }
+            }
+            if (toCheck.length > 0 || toDelete.size > 0) {
                 actions.setCheckedItems({
-                    ...checkedItems,
+                    ...(toDelete.length === 0
+                        ? checkedItems
+                        : Object.fromEntries(Object.entries(checkedItems).filter((kv) => !toDelete.has(kv[0])))),
                     ...Object.fromEntries(toCheck.map((item) => [item, true])),
                 })
             }
@@ -908,6 +916,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         deleteItem: async ({ item }) => {
+            if (!item.id) {
+                const response = await api.fileSystem.list({ type: 'folder', path: item.path })
+                const items = response.results ?? []
+                if (items.length > 0) {
+                    item = items[0]
+                } else {
+                    lemonToast.error(`Could not find filesystem entry for ${item.path}. Can't delete.`)
+                }
+            }
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
         addFolder: ({ folder }) => {
