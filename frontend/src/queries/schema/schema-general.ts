@@ -1838,6 +1838,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     last_seen: string
     earliest?: string
     aggregations: ErrorTrackingIssueAggregations
+    library: string | null
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
