@@ -200,7 +200,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
-                # ADDED: Filter out items the user shouldn't see or act on
                 qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
                 if self.user_access_control:
                     qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
