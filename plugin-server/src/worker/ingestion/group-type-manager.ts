@@ -26,12 +26,12 @@ export class GroupTypeManager {
                     // NOTE: We will eventually read from the team_id column again
                     const { rows } = await this.postgres.query(
                         PostgresUse.COMMON_READ,
-                        `SELECT * FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
+                        `SELECT * FROM posthog_grouptypemapping WHERE team_id = ANY($1)`,
                         [Array.from(teamIds)],
                         'fetchGroupTypes'
                     )
                     for (const row of rows) {
-                        const groupTypes = (response[row.project_id] = response[row.project_id] ?? {})
+                        const groupTypes = (response[row.team_id] = response[row.team_id] ?? {})
                         groupTypes[row.group_type] = row.group_type_index
                     }
                     for (const teamId of teamIds) {
@@ -81,6 +81,11 @@ export class GroupTypeManager {
         // In the interim we write both the root_team_id and the project_id.
         const insertGroupTypeResult = await this.postgres.query(
             PostgresUse.COMMON_WRITE,
+            // This looks complex but its all about returning multiple bits of info in one query
+            // * Insert the group type if it doesn't exist for this index
+            // * Return the group type index if we inserted it, otherwise try and find the existing index and return that
+            // * Return nothing if it doesn't exist
+            // Then in code we can know if no rows were returned we should try a higher index as a different process got there first.
             `
             WITH insert_result AS (
                 INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
@@ -90,7 +95,7 @@ export class GroupTypeManager {
             )
             SELECT group_type_index, 1 AS is_insert FROM insert_result
             UNION
-            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
+            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $3;
             `,
             [team.root_team_id, team.root_team_id, groupType, index],
             'insertGroupType'
