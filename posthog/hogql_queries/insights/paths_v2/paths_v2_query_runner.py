@@ -9,6 +9,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.paths_v2.utils import interval_unit_to_sql
+from posthog.hogql_queries.insights.utils.entities import entity_to_expr
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -172,55 +173,14 @@ class PathsV2QueryRunner(QueryRunner):
             placeholders={"filters": ast.And(exprs=event_filters)},
         )
 
+        # append start and end event flags
         series_entities_flags = []
 
-        self.query.series
+        if self.query.series is not None and len(self.query.series) > 0:
+            for entity in self.query.series:
+                series_entities_flags.append(entity_to_expr(entity, self.team))
 
-        #     property_to_expr(self.query.series[0].properties, self.team)
-
-        # if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-        #     action = Action.objects.get(pk=entity.id)
-        #     return action_to_expr(action)
-        # if entity.id is None:
-        #     return ast.Constant(value=True)
-
-        # filters: list[ast.Expr] = [
-        #     ast.CompareOperation(
-        #         op=ast.CompareOperationOp.Eq,
-        #         left=ast.Field(chain=["events", "event"]),
-        #         right=ast.Constant(value=entity.id),
-        #     )
-        # ]
-
-        # if entity.properties is not None and entity.properties != []:
-        #     filters.append(property_to_expr(entity.properties, team))
-
-        # return ast.And(exprs=filters)
-
-        # # if isinstance(series, EventsNode) and series.event is not None:
-        # #     filters.append(
-        # #         parse_expr(
-        # #             "event = {event}",
-        # #             placeholders={"event": ast.Constant(value=series.event)},
-        # #         )
-        # #     )
-        # # elif isinstance(series, ActionsNode):
-        # #     try:
-        # #         action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
-        # #         filters.append(action_to_expr(action))
-        # #     except Action.DoesNotExist:
-        # #         # If an action doesn't exist, we want to return no events
-        # #         filters.append(parse_expr("1 = 2"))
-        # #  try:
-        # #                 action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
-        # #             except Action.DoesNotExist:
-        # #                 raise Exception("Action does not exist")
-        # #             if not action.steps:
-        # #                 raise Exception("Action does not have any match groups")
-        # # for entity in query.series:
-        # # series_entities_flags = ["if({filters}, 1, 0)"]
-        # # query.select.append(ast.Constant(value="42"))
-        # query.select.extend([])
+            query.select.append(ast.Alias(alias="series_entities_flags", expr=ast.Tuple(exprs=series_entities_flags)))
 
         return query
 
@@ -229,14 +189,14 @@ class PathsV2QueryRunner(QueryRunner):
         - Aggregates the timestamps and path items for each actor into arrays.
 
         Example:
-        ┌─actor_id─────────────────────────────┬─timestamp_array─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬─path_item_array──────────────────────────────────────────────────────────────┐
-        │ 6c012bb7-f3f6-5f0f-f72a-473ee658fdec │ ['2023-03-13 09:00:00.000000']                                                                                                                                                  │ ['Landing Page']                                                             │
+        ┌─actor_id─────────────────────────────┬─timestamp_array─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬─path_item_array──────────────────────────────────────────────────────────────┐ series_entities_flags_array
+        │ 6c012bb7-f3f6-5f0f-f72a-473ee658fdec │ ['2023-03-13 09:00:00.000000']                                                                                                                                                  │ ['Landing Page']                                                             │ [(..., ..., ...)]
         │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │ ['2023-03-10 12:00:00.000000','2023-03-10 12:05:00.000000','2023-03-10 12:10:00.000000','2023-03-10 12:15:00.000000','2023-03-10 12:20:00.000000']                              │ ['Landing Page','Product View','Add to Cart','Checkout','Purchase']          │
         │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │ ['2023-03-12 10:00:00.000000','2023-03-12 10:02:00.000000','2023-03-12 10:05:00.000000']                                                                                        │ ['Landing Page','Product View','Add to Cart']                                │
         │ 631e1988-3971-79a2-02ae-b09da769be2e │ ['2023-03-11 11:30:00.000000','2023-03-11 11:32:00.000000','2023-03-11 11:35:00.000000','2023-03-11 11:38:00.000000','2023-03-11 11:42:00.000000','2023-03-11 11:45:00.000000'] │ ['Landing Page','Search','Product View','Add to Cart','Checkout','Purchase'] │
         └──────────────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────┘
         """
-        return parse_select(
+        query: ast.SelectQuery = parse_select(
             """
             SELECT
                 actor_id,
@@ -249,6 +209,16 @@ class PathsV2QueryRunner(QueryRunner):
                 "event_base_query": self._event_base_query(),
             },
         )
+
+        if self.query.series is not None and len(self.query.series) > 0:
+            query.select.append(
+                ast.Alias(
+                    alias="series_entities_flags_array",
+                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=["series_entities_flags"])]),
+                )
+            )
+
+        return query
 
     def _paths_per_actor_and_session_as_tuple_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """

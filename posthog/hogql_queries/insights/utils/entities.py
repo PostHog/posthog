@@ -115,9 +115,11 @@ def entity_to_expr(entity: EntityNode, team: Team) -> ast.Expr:
     elif isinstance(entity, ActionsNode):
         try:
             action = Action.objects.get(pk=entity.id, team__project_id=team.project_id)
-            filters.append(action_to_expr(action))
         except Action.DoesNotExist:
             raise ValueError(f"Action with ID `{entity.id}` does not exist.")
+        if not action.steps:
+            raise ValueError("Action does not have any match groups.")
+        filters.append(action_to_expr(action))
     else:
         raise ValueError(f"`{entity.kind}` nodes are not supported in this context.")
 
