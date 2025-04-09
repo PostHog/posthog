@@ -76,6 +76,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         expandProjectFolder: (path: string) => ({ path }),
         moveCheckedItems: (path: string) => ({ path }),
         linkCheckedItems: (path: string) => ({ path }),
+        deleteCheckedItems: true,
         checkSelectedFolders: true,
         syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
         updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
@@ -509,7 +510,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         sortedItems: [
             (s) => [s.viableItems],
-            (viableItems): FileSystemEntry[] => [...viableItems].sort((a, b) => a.path.localeCompare(b.path)),
+            (viableItems): FileSystemEntry[] =>
+                [...viableItems].sort((a, b) => (a.path > b.path ? 1 : a.path < b.path ? -1 : 0)),
         ],
         viableItemsById: [
             (s) => [s.viableItems],
@@ -911,6 +913,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     path: item.path,
                     newPath: newPath + item.path.slice(oldPath.length),
                 })
+            }
+        },
+        deleteCheckedItems: () => {
+            const { checkedItems } = values
+            let skipInFolder: string | null = null
+            for (const item of values.sortedItems) {
+                if (skipInFolder !== null) {
+                    if (item.path.startsWith(skipInFolder + '/')) {
+                        continue
+                    } else {
+                        skipInFolder = null
+                    }
+                }
+                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                if (checkedItems[itemId]) {
+                    actions.deleteItem(item)
+                    if (item.type === 'folder') {
+                        skipInFolder = item.path
+                    }
+                }
             }
         },
         deleteItem: async ({ item }) => {
