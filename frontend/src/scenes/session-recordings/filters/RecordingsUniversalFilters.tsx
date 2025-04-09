@@ -79,6 +79,8 @@ export const RecordingsUniversalFilters = ({
     allowReplayFlagsFilters?: boolean
     allowReplayHogQLFilters?: boolean
 }): JSX.Element => {
+    const [savedFilterName, setSavedFilterName] = useState('')
+
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
 
@@ -113,14 +115,33 @@ export const RecordingsUniversalFilters = ({
 
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
 
-    const newPlaylistHandler = async (name: string): Promise<void> => {
-        await createPlaylist({ name, filters }, false)
+    const newPlaylistHandler = async (): Promise<void> => {
+        await createPlaylist({ name: savedFilterName, filters }, false)
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
-        setName('')
+        setSavedFilterName('')
     }
 
-    const [name, setName] = useState('')
+    /** Modal footer with buttons for reset and close */
+    const ModalFooter = (): JSX.Element => {
+        return (
+            <div className="flex justify-between p-2 gap-2">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={resetFilters}
+                    icon={<IconRevert />}
+                    tooltip="Reset any changes you've made to the filters"
+                    disabledReason={!(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined}
+                >
+                    Reset filters
+                </LemonButton>
+                <LemonButton type="primary" size="small" onClick={() => setIsFiltersExpanded(false)}>
+                    Close
+                </LemonButton>
+            </div>
+        )
+    }
 
     return (
         <>
@@ -164,27 +185,7 @@ export const RecordingsUniversalFilters = ({
                             setIsFiltersExpanded(false)
                         }}
                         width={750}
-                        footer={
-                            <div className="flex justify-between p-2 gap-2">
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={resetFilters}
-                                    icon={<IconRevert />}
-                                    tooltip="Reset any changes you've made to the filters"
-                                    disabledReason={
-                                        !(resetFilters && (totalFiltersCount ?? 0) > 0)
-                                            ? 'No filters applied'
-                                            : undefined
-                                    }
-                                >
-                                    Reset filters
-                                </LemonButton>
-                                <LemonButton type="primary" size="small" onClick={() => setIsFiltersExpanded(false)}>
-                                    Close
-                                </LemonButton>
-                            </div>
-                        }
+                        footer={<ModalFooter />}
                     >
                         <>
                             <LemonTabs
@@ -295,17 +296,20 @@ export const RecordingsUniversalFilters = ({
                                                     ) && (
                                                         <div className="flex gap-2 p-2 justify-start">
                                                             <LemonInput
-                                                                value={name}
-                                                                placeholder="Name"
-                                                                onChange={setName}
+                                                                value={savedFilterName}
+                                                                placeholder="Saved filter name"
+                                                                onChange={setSavedFilterName}
                                                                 size="small"
+                                                                autoFocus
+                                                                fullWidth
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation() // Prevent dropdown from closing
+                                                                }}
                                                             />
                                                             <LemonButton
                                                                 type="primary"
                                                                 size="xsmall"
-                                                                onClick={() => {
-                                                                    void newPlaylistHandler(name)
-                                                                }}
+                                                                onClick={() => void newPlaylistHandler()}
                                                             >
                                                                 Save filters
                                                             </LemonButton>
@@ -331,11 +335,6 @@ export const RecordingsUniversalFilters = ({
                                         ),
                                         content: <SavedFilters setFilters={setFilters} />,
                                     },
-                                    /*{
-                                        key: 'person',
-                                        label: <div className="px-2">Person</div>,
-                                        content: <PeopleFilter setFilters={setFilters} />,
-                                    },*/
                                 ]}
                             />
                         </>
@@ -391,13 +390,17 @@ const RecordingsUniversalFilterGroup = ({
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <UniversalFilters.PureTaxonomicFilter />
-                        <div className="flex items-center gap-2">
-                            {(totalFiltersCount ?? 0) > 0 && <span className="font-semibold">Applied filters:</span>}
-                            <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
-                        </div>
-                    </UniversalFilters.Group>
+                    <div className="w-full">
+                        <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
+                            <UniversalFilters.PureTaxonomicFilter />
+                            <div className="flex items-center gap-2 border-t pt-2">
+                                {(totalFiltersCount ?? 0) > 0 && (
+                                    <span className="font-semibold">Applied filters:</span>
+                                )}
+                                <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
+                            </div>
+                        </UniversalFilters.Group>
+                    </div>
                 ) : (
                     <UniversalFilters.Value
                         key={index}
