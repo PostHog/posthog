@@ -255,11 +255,12 @@ export function ProjectTree(): JSX.Element {
                     if (oldItem === newItem) {
                         return false
                     }
-
                     const oldPath = oldItem?.path
                     const folder = newItem?.path
 
-                    if (folder === '') {
+                    if (checkedItems[oldId]) {
+                        moveCheckedItems(folder)
+                    } else if (folder === '') {
                         const oldSplit = splitPath(oldPath)
                         const oldFile = oldSplit.pop()
                         if (oldFile && oldSplit.length > 0) {
