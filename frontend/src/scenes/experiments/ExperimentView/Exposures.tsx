@@ -6,11 +6,22 @@ import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 
+import { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
+
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
+function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
+    const exposureConfig = exposureCriteria?.exposure_config
+    if (!exposureConfig) {
+        return 'Default ($feature_flag_called)'
+    }
+
+    return `Custom (${exposureConfig.event})`
+}
+
 export function Exposures(): JSX.Element {
-    const { experimentId, exposures, exposuresLoading, exposureCriteriaLabel } = useValues(experimentLogic)
+    const { experimentId, exposures, exposuresLoading, exposureCriteria } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(experimentLogic)
 
     const chartRef = useRef<Chart | null>(null)
@@ -137,7 +148,9 @@ export function Exposures(): JSX.Element {
                             <div>
                                 <h3 className="card-secondary">Exposure criteria</h3>
                                 <div className="flex items-center gap-2">
-                                    <div className="text-sm font-semibold">{exposureCriteriaLabel}</div>
+                                    <div className="text-sm font-semibold">
+                                        {getExposureCriteriaLabel(exposureCriteria)}
+                                    </div>
                                     <LemonButton
                                         icon={<IconPencil fontSize="12" />}
                                         size="xsmall"

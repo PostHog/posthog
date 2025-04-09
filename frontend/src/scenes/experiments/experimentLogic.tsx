@@ -2192,15 +2192,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 return true
             },
         ],
-        exposureCriteriaLabel: [
+        exposureCriteria: [
             (s) => [s.experiment],
-            (experiment: Experiment): string => {
-                const exposureCriteria = experiment.exposure_criteria?.exposure_config
-                if (!exposureCriteria) {
-                    return 'Default ($feature_flag_called)'
-                }
-
-                return `Custom (${exposureCriteria.event})`
+            (experiment: Experiment): ExperimentExposureCriteria | undefined => {
+                return experiment.exposure_criteria
             },
         ],
     }),
