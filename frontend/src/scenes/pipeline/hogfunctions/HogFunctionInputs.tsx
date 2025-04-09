@@ -227,14 +227,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
             )
         case 'json':
             return (
-                <div className="w-full">
-                    <JsonConfigField
-                        value={value}
-                        onChange={onChange}
-                        className="ph-no-capture"
-                        templating={templating}
-                    />
-                </div>
+                <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" templating={templating} />
             )
         case 'choice':
             return (
