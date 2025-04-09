@@ -197,6 +197,7 @@ runs:
           env:
               AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
           run: |
+              sleep 200
               pytest posthog/temporal -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
