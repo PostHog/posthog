@@ -269,6 +269,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def count_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Get count of all files in a folder."""
         path_param = self.request.query_params.get("path")
+        if not path_param:
+            return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
         count = FileSystem.objects.filter(team=self.team, path__startswith=f"{path_param}/").count()
         return Response({"count": count}, status=status.HTTP_200_OK)
 
