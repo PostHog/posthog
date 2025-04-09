@@ -120,6 +120,11 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
 }
 
+interface CheckedItemsData {
+    ids: string[]
+    items: Record<string, TreeDataItem>
+}
+
 export type LemonTreeNodeProps = LemonTreeBaseProps & {
     /** The ID of the item. */
     selectedId?: string
@@ -132,10 +137,7 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     /** Whether the item is dragging */
     isDragging?: boolean
     /** The data of the checked items. */
-    checkedItemsData?: {
-        ids: string[]
-        items: Record<string, TreeDataItem>
-    }
+    checkedItemsData?: CheckedItemsData
 }
 
 export interface LemonTreeRef {
@@ -1075,7 +1077,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             }
         }, [checkedItemIds, checkedItemIdsState])
 
-        const checkedItemsData = useMemo(() => {
+        // Build a map of checked items (tree paths) and their corresponding items
+        const checkedItemsData: CheckedItemsData | undefined = useMemo(() => {
             if (!enableMultiSelection || !checkedItemIds?.length) {
                 return undefined
             }
