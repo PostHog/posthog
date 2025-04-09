@@ -15,6 +15,7 @@ from posthog.schema import (
     EventsNode,
     ExperimentQuery,
     ExperimentVariantFunnelsBaseStats,
+    FunnelConversionWindowTimeUnit,
     PersonsOnEventsMode,
     ExperimentFunnelMetric,
 )
@@ -774,7 +775,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 EventsNode(event="$pageview"),
                 EventsNode(event="purchase"),
             ],
-            time_window_hours=24,
+            conversion_window=24,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.HOUR,
         )
 
         experiment_query = ExperimentQuery(

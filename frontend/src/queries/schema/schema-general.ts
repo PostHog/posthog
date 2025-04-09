@@ -17,6 +17,7 @@ import {
     ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
+    FunnelConversionWindowTimeUnit,
     FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
@@ -1973,7 +1974,8 @@ export const enum ExperimentMetricType {
 export type ExperimentMetricBaseProperties = {
     kind: NodeKind.ExperimentMetric
     name?: string
-    time_window_hours?: number
+    conversion_window?: integer
+    conversion_window_unit?: FunnelConversionWindowTimeUnit
 }
 
 export interface ExperimentDataWarehouseNode extends EntityNode {
