@@ -598,10 +598,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         treeItemsNew: [
             (s) => [s.featureFlags, s.folderStates],
-            (_featureFlags, folderStates): TreeDataItem[] =>
-                // .filter(f => !f.flag || featureFlags[f.flag])
+            (featureFlags, folderStates): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeNew(),
+                    imports: getDefaultTreeNew().filter((f) => !f.flag || featureFlags[f.flag]),
                     checkedItems: {},
                     folderStates,
                     root: 'new',
@@ -609,10 +608,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         treeItemsExplore: [
             (s) => [s.featureFlags, s.groupNodes, s.folderStates],
-            (_featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
-                // .filter(f => !f.flag || featureFlags[f.flag])
+            (featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeExplore(groupNodes),
+                    imports: getDefaultTreeExplore(groupNodes).filter((f) => !f.flag || featureFlags[f.flag]),
                     checkedItems: {},
                     folderStates,
                     root: 'explore',

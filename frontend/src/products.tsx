@@ -32,6 +32,7 @@ import {
 
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
 import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
@@ -275,7 +276,12 @@ export const fileSystemTypes = {
 
 /** This const is auto-generated, as is the whole file */
 export const treeItemsNew = [
-    { path: `Broadcast`, type: 'hog_function/broadcast', href: () => urls.messagingBroadcastNew() },
+    {
+        path: `Broadcast`,
+        type: 'hog_function/broadcast',
+        href: () => urls.messagingBroadcastNew(),
+        flag: FEATURE_FLAGS.MESSAGING,
+    },
     { path: `Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
     { path: `Experiment`, type: 'experiment', href: () => urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
