@@ -12,6 +12,7 @@ import {
     useCallback,
     useEffect,
     useImperativeHandle,
+    useMemo,
     useRef,
     useState,
 } from 'react'
@@ -130,6 +131,11 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     onContextMenuOpen?: (open: boolean) => void
     /** Whether the item is dragging */
     isDragging?: boolean
+    /** The data of the checked items. */
+    checkedItemsData?: {
+        ids: string[]
+        items: Record<string, TreeDataItem>
+    }
 }
 
 export interface LemonTreeRef {
@@ -161,6 +167,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             onItemChecked,
             checkedItemIds,
             isDragging,
+            checkedItemsData,
             ...props
         },
         ref
@@ -288,106 +295,12 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         isItemDraggable?.(item) &&
                                                         item.record?.path
                                                             ? (button) => {
-                                                                  // Check if multi-selection is enabled and this item is checked
-                                                                  const hasCheckedItems =
-                                                                      enableMultiSelection &&
-                                                                      checkedItemIds?.includes(item.id)
-
-                                                                  // Create a map of all checked items
-                                                                  const checkedItemsMap: Record<string, TreeDataItem> =
-                                                                      {}
-                                                                  const checkedIds: string[] = []
-
-                                                                  if (
-                                                                      hasCheckedItems &&
-                                                                      checkedItemIds &&
-                                                                      checkedItemIds.length > 0
-                                                                  ) {
-                                                                      // Collect all checked items and their IDs
-                                                                      const collectItems = (
-                                                                          items: TreeDataItem[]
-                                                                      ): void => {
-                                                                          for (const treeItem of items) {
-                                                                              if (
-                                                                                  checkedItemIds.includes(
-                                                                                      treeItem.id
-                                                                                  ) &&
-                                                                                  treeItem.record?.path
-                                                                              ) {
-                                                                                  checkedItemsMap[
-                                                                                      treeItem.record.path
-                                                                                  ] = treeItem
-                                                                                  checkedIds.push(treeItem.record.path)
-                                                                              }
-                                                                              if (treeItem.children) {
-                                                                                  collectItems(treeItem.children)
-                                                                              }
-                                                                          }
-                                                                      }
-
-                                                                      // Start collection from the root data
-                                                                      const findRootData = (
-                                                                          currentData: TreeDataItem[]
-                                                                      ): TreeDataItem[] => {
-                                                                          // Try to find the root data by climbing up the tree
-                                                                          let rootData = currentData
-                                                                          const findParentWithData = (
-                                                                              parentNode: HTMLElement | null
-                                                                          ): TreeDataItem[] | null => {
-                                                                              if (!parentNode) {
-                                                                                  return null
-                                                                              }
-
-                                                                              // Check if this node has a LemonTreeNode component
-                                                                              const lemonTreeNode =
-                                                                                  parentNode.closest('[role="group"]')
-                                                                              if (
-                                                                                  lemonTreeNode &&
-                                                                                  lemonTreeNode.parentElement &&
-                                                                                  lemonTreeNode.parentElement.closest(
-                                                                                      '[role="tree"]'
-                                                                                  )
-                                                                              ) {
-                                                                                  // We found the root LemonTree
-                                                                                  return data
-                                                                              }
-
-                                                                              // Continue searching upward
-                                                                              return findParentWithData(
-                                                                                  parentNode.parentElement
-                                                                              )
-                                                                          }
-
-                                                                          // Get the root data
-                                                                          const containerElement: HTMLElement | null =
-                                                                              document.querySelector('[role="tree"]')
-                                                                          if (containerElement) {
-                                                                              const foundRootData =
-                                                                                  findParentWithData(containerElement)
-                                                                              if (foundRootData) {
-                                                                                  rootData = foundRootData
-                                                                              }
-                                                                          }
-
-                                                                          return rootData
-                                                                      }
-
-                                                                      collectItems(findRootData(data))
-                                                                  }
-
                                                                   return (
                                                                       <TreeNodeDraggable
                                                                           id={item.record?.path}
                                                                           enableDragging
                                                                           className="h-[var(--button-height-base)]"
-                                                                          checkedItemsData={
-                                                                              hasCheckedItems && checkedIds.length > 0
-                                                                                  ? {
-                                                                                        ids: checkedIds,
-                                                                                        items: checkedItemsMap,
-                                                                                    }
-                                                                                  : undefined
-                                                                          }
+                                                                          checkedItemsData={checkedItemsData}
                                                                       >
                                                                           {button}
                                                                       </TreeNodeDraggable>
@@ -506,6 +419,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             onItemChecked={onItemChecked}
                                             checkedItemIds={checkedItemIds}
                                             isDragging={isDragging}
+                                            checkedItemsData={checkedItemsData}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -599,24 +513,44 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
         const [isNodeTreeContextMenuOpen, setIsNodeTreeContextMenuOpen] = useState(false)
 
-        function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
+        // Helper function to traverse the tree and return an array of results
+        function traverseTree<T>(
+            items: TreeDataItem[] | TreeDataItem,
+            callback: (item: TreeDataItem, path: string[]) => T | null,
+            path: string[] = []
+        ): T[] {
+            const results: T[] = []
+
             if (items instanceof Array) {
-                items.forEach((item) => {
-                    if (!item.disabledReason && item.children) {
-                        allIds.push(item.id)
+                for (const item of items) {
+                    // Track the current path
+                    const currentPath = [...path, item.id]
+
+                    // Call the callback for this item
+                    const result = callback(item, currentPath)
+                    if (result !== null) {
+                        results.push(result)
                     }
+
+                    // Continue traversal for children
                     if (item.children) {
-                        collectAllFolderIds(item.children, allIds)
+                        results.push(...traverseTree(item.children, callback, currentPath))
                     }
-                })
-            } else {
-                if (!items.disabledReason && items.children) {
-                    allIds.push(items.id)
                 }
+            } else {
+                // Single item case
+                const currentPath = [...path, items.id]
+                const result = callback(items, currentPath)
+                if (result !== null) {
+                    results.push(result)
+                }
+
                 if (items.children) {
-                    collectAllFolderIds(items.children, allIds)
+                    results.push(...traverseTree(items.children, callback, currentPath))
                 }
             }
+
+            return results
         }
 
         const [expandedItemIdsState, setExpandedItemIdsState] = useState<string[]>((): string[] => {
@@ -626,7 +560,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             if (expandAllFolders) {
                 // If expandAll is true, collect all item IDs
                 const allIds: string[] = []
-                collectAllFolderIds(data, allIds)
+                traverseTree(data, (item) => {
+                    if (!item.disabledReason && item.children) {
+                        allIds.push(item.id)
+                    }
+                    return null
+                })
                 ids.push(...allIds)
             }
 
@@ -686,19 +625,18 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         }, [contentRef])
 
         // Add helper function to find path to an item
-        const findPathToItem = useCallback((items: TreeDataItem[], targetId: string, path: string[] = []): string[] => {
-            for (const item of items) {
+        const findPathToItem = useCallback((items: TreeDataItem[], targetId: string): string[] => {
+            let foundPath: string[] = []
+
+            traverseTree(items, (item, path) => {
                 if (item.id === targetId) {
-                    return path
+                    foundPath = path.slice(0, -1) // Exclude the target itself
+                    return 'FOUND' // Any non-null value
                 }
-                if (item.children) {
-                    const newPath = findPathToItem(item.children, targetId, [...path, item.id])
-                    if (newPath.length > 0) {
-                        return newPath
-                    }
-                }
-            }
-            return []
+                return null
+            })
+
+            return foundPath
         }, [])
 
         // Add function to handle type-ahead search
@@ -1137,6 +1075,26 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             }
         }, [checkedItemIds, checkedItemIdsState])
 
+        const checkedItemsData = useMemo(() => {
+            if (!enableMultiSelection || !checkedItemIds?.length) {
+                return undefined
+            }
+
+            const checkedItemsMap: Record<string, TreeDataItem> = {}
+            const checkedPaths: string[] = []
+
+            traverseTree(data, (item) => {
+                if (item.checked && item.record?.path) {
+                    checkedItemsMap[item.record.path] = item
+                    checkedPaths.push(item.record.path)
+                    return item
+                }
+                return null
+            })
+
+            return checkedPaths.length > 0 ? { ids: checkedPaths, items: checkedItemsMap } : undefined
+        }, [enableMultiSelection, checkedItemIds, data])
+
         return (
             <DndContext
                 sensors={sensors}
@@ -1240,6 +1198,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             }}
                             checkedItemIds={checkedItemIdsState}
                             isDragging={isDragging}
+                            checkedItemsData={checkedItemsData}
                             {...props}
                         />
 

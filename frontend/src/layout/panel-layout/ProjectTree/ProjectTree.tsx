@@ -229,6 +229,7 @@ export function ProjectTree(): JSX.Element {
                     // Check if this is a multi-drag operation
                     const isMultiDrag = dragEvent.active.data?.current?.multiDrag === true
 
+                    // Prevent moving a folder into itself or into one of its child folders
                     if (oldPath === folder) {
                         return false
                     }
@@ -249,6 +250,7 @@ export function ProjectTree(): JSX.Element {
                             // Move to root
                             const oldSplit = splitPath(oldPath)
                             const fileName = oldSplit.pop()
+
                             if (fileName) {
                                 moveItem(oldPath, fileName)
                             }
@@ -260,6 +262,11 @@ export function ProjectTree(): JSX.Element {
                                 const fileName = oldSplit.pop()
                                 if (fileName) {
                                     const newPath = joinPath([...splitPath(String(folder)), fileName])
+
+                                    // Prevent moving a folder into itself
+                                    if (oldPath === newPath) {
+                                        return
+                                    }
                                     moveItem(oldPath, newPath)
                                 }
                             }
