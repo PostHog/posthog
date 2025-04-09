@@ -1053,6 +1053,7 @@ class FileSystemEntry(BaseModel):
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
@@ -1086,6 +1087,7 @@ class FileSystemImport(BaseModel):
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
