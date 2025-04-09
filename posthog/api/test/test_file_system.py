@@ -1,47 +1,7 @@
 from rest_framework import status
-from posthog.api.file_system import has_permissions_to_access_tree_view
 from posthog.test.base import APIBaseTest
 from posthog.models import FeatureFlag, Dashboard, Experiment, Insight, Notebook
 from posthog.models.file_system.file_system import FileSystem
-from unittest.mock import patch
-from rest_framework.exceptions import PermissionDenied
-
-
-class TestFileSystemAPIPermissions(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user.is_staff = False
-        self.user.save()
-
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_permissions_no_staff_no_feature(self, mock_feature_flag):
-        with self.assertRaises(PermissionDenied):
-            has_permissions_to_access_tree_view(self.user, self.team)
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_permissions_no_staff_yes_feature(self, mock_feature_flag):
-        try:
-            has_permissions_to_access_tree_view(self.user, self.team)
-        except Exception as e:
-            self.fail(f"Permission check raised an exception unexpectedly: {e}")
-
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_permissions_yes_staff_no_feature(self, mock_feature_flag):
-        self.user.is_staff = True
-        self.user.save()
-        try:
-            has_permissions_to_access_tree_view(self.user, self.team)
-        except Exception as e:
-            self.fail(f"Permission check raised an exception unexpectedly: {e}")
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_permissions_yes_staff_yes_feature(self, mock_feature_flag):
-        self.user.is_staff = True
-        self.user.save()
-        try:
-            has_permissions_to_access_tree_view(self.user, self.team)
-        except Exception as e:
-            self.fail(f"Permission check raised an exception unexpectedly: {e}")
 
 
 class TestFileSystemAPI(APIBaseTest):
