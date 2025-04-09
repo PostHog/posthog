@@ -1,8 +1,12 @@
 use crate::api::errors::FlagError;
 use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
 use crate::client::database::Client as DatabaseClient;
-use crate::cohort::cohort_cache_manager::CohortCacheManager;
-use crate::cohort::cohort_models::{Cohort, CohortId};
+use crate::cohorts::cohort_cache_manager::CohortCacheManager;
+use crate::cohorts::cohort_models::{Cohort, CohortId};
+use crate::cohorts::cohort_operations::{
+    apply_cohort_membership_logic, evaluate_dynamic_cohorts, evaluate_static_cohorts,
+};
+use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
 use crate::metrics::consts::{
@@ -15,31 +19,26 @@ use crate::metrics::consts::{
     PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
-use crate::properties::property_matching::match_property;
-use crate::properties::property_models::{OperatorType, PropertyFilter};
+use crate::properties::property_models::PropertyFilter;
 use anyhow::Result;
 use common_metrics::inc;
-use common_types::{ProjectId, TeamId};
-use petgraph::algo::{is_cyclic_directed, toposort};
-use petgraph::graph::DiGraph;
+use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
-use sha1::{Digest, Sha1};
-use sqlx::{postgres::PgQueryResult, Acquire, FromRow, Row};
 use std::collections::hash_map::Entry;
-use std::fmt::Write;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    time::Duration,
-};
-use tokio::time::{sleep, timeout};
-use tracing::{error, info};
+use tracing::error;
 
 #[cfg(test)]
-use crate::api::types::{FlagValue, LegacyFlagsResponse}; // Only used in the tests
+use crate::api::types::{FlagValue, LegacyFlagsResponse};
 
-pub type PersonId = i64;
-pub type GroupTypeIndex = i32;
+use super::flag_matching_utils::{
+    all_properties_match, calculate_hash, fetch_and_locally_cache_all_relevant_properties,
+    fetch_group_properties_from_db, fetch_person_properties_from_db,
+    get_feature_flag_hash_key_overrides, locally_computable_property_overrides,
+    set_feature_flag_hash_key_overrides, should_write_hash_key_override,
+}; // Only used in the tests
+
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 pub type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
 
@@ -59,151 +58,6 @@ pub struct FeatureFlagMatch {
     pub payload: Option<Value>,
 }
 
-#[derive(Debug, FromRow)]
-pub struct GroupTypeMapping {
-    pub group_type: String,
-    pub group_type_index: GroupTypeIndex,
-}
-
-/// This struct is a cache for group type mappings, which are stored in a DB.  We use these mappings
-/// to look up group names based on the group aggregation indices stored on flag filters, which lets us
-/// perform group property matching.  We cache them per request so that we can perform multiple flag evaluations
-/// without needing to fetch the mappings from the DB each time.
-/// Typically, the mappings look like this:
-///
-/// let group_types = vec![
-///     ("project", 0),
-///     ("organization", 1),
-///     ("instance", 2),
-///     ("customer", 3),
-///     ("team", 4),  ];
-///
-/// But for backwards compatibility, we also support whatever mappings may lie in the table.
-/// These mappings are ingested via the plugin server.
-#[derive(Clone)]
-pub struct GroupTypeMappingCache {
-    project_id: ProjectId,
-    failed_to_fetch_flags: bool,
-    group_types_to_indexes: HashMap<String, GroupTypeIndex>,
-    group_indexes_to_types: HashMap<GroupTypeIndex, String>,
-    reader: PostgresReader,
-}
-
-impl GroupTypeMappingCache {
-    pub fn new(project_id: ProjectId, reader: PostgresReader) -> Self {
-        GroupTypeMappingCache {
-            project_id,
-            failed_to_fetch_flags: false,
-            group_types_to_indexes: HashMap::new(),
-            group_indexes_to_types: HashMap::new(),
-            reader,
-        }
-    }
-
-    pub async fn group_type_to_group_type_index_map(
-        &mut self,
-    ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
-        if self.failed_to_fetch_flags {
-            return Err(FlagError::DatabaseUnavailable);
-        }
-
-        if !self.group_types_to_indexes.is_empty() {
-            return Ok(self.group_types_to_indexes.clone());
-        }
-
-        let mapping = match self
-            .fetch_group_type_mapping(self.reader.clone(), self.project_id)
-            .await
-        {
-            Ok(mapping) if !mapping.is_empty() => mapping,
-            Ok(_) => {
-                self.failed_to_fetch_flags = true;
-                let reason = "no_group_type_mappings";
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
-                    1,
-                );
-                return Err(FlagError::NoGroupTypeMappings);
-            }
-            Err(e) => {
-                self.failed_to_fetch_flags = true;
-                let reason = parse_exception_for_prometheus_label(&e);
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
-                    1,
-                );
-                return Err(e);
-            }
-        };
-        self.group_types_to_indexes.clone_from(&mapping);
-
-        Ok(mapping)
-    }
-
-    pub async fn group_type_index_to_group_type_map(
-        &mut self,
-    ) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
-        if !self.group_indexes_to_types.is_empty() {
-            return Ok(self.group_indexes_to_types.clone());
-        }
-
-        let types_to_indexes = self.group_type_to_group_type_index_map().await?;
-        let result: HashMap<GroupTypeIndex, String> =
-            types_to_indexes.into_iter().map(|(k, v)| (v, k)).collect();
-
-        if !result.is_empty() {
-            self.group_indexes_to_types.clone_from(&result);
-            Ok(result)
-        } else {
-            let reason = "no_group_type_mappings";
-            inc(
-                FLAG_EVALUATION_ERROR_COUNTER,
-                &[("reason".to_string(), reason.to_string())],
-                1,
-            );
-            Err(FlagError::NoGroupTypeMappings)
-        }
-    }
-
-    async fn fetch_group_type_mapping(
-        &mut self,
-        reader: PostgresReader,
-        project_id: ProjectId,
-    ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
-        let mut conn = reader.as_ref().get_connection().await?;
-
-        let query = r#"
-            SELECT group_type, group_type_index 
-            FROM posthog_grouptypemapping 
-            WHERE project_id = $1
-        "#;
-
-        let rows = sqlx::query_as::<_, GroupTypeMapping>(query)
-            .bind(project_id)
-            .fetch_all(&mut *conn)
-            .await?;
-
-        let mapping: HashMap<String, GroupTypeIndex> = rows
-            .into_iter()
-            .map(|row| (row.group_type, row.group_type_index))
-            .collect();
-
-        if mapping.is_empty() {
-            let reason = "no_group_type_mappings";
-            inc(
-                FLAG_EVALUATION_ERROR_COUNTER,
-                &[("reason".to_string(), reason.to_string())],
-                1,
-            );
-            Err(FlagError::NoGroupTypeMappings)
-        } else {
-            Ok(mapping)
-        }
-    }
-}
-
 /// This struct maintains evaluation state by caching database-sourced data during feature flag evaluation.
 /// It stores person IDs, properties, group properties, and cohort matches that are fetched from the database,
 /// allowing them to be reused across multiple flag evaluations within the same request without additional DB lookups.
@@ -219,6 +73,44 @@ pub struct FlagEvaluationState {
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
     /// Cache of static cohort membership results to avoid repeated DB lookups
     static_cohort_matches: Option<HashMap<CohortId, bool>>,
+}
+
+impl FlagEvaluationState {
+    pub fn get_person_id(&self) -> Option<PersonId> {
+        self.person_id
+    }
+
+    pub fn get_person_properties(&self) -> Option<&HashMap<String, Value>> {
+        self.person_properties.as_ref()
+    }
+
+    pub fn get_group_properties(&self) -> &HashMap<GroupTypeIndex, HashMap<String, Value>> {
+        &self.group_properties
+    }
+
+    pub fn get_static_cohort_matches(&self) -> Option<&HashMap<CohortId, bool>> {
+        self.static_cohort_matches.as_ref()
+    }
+
+    pub fn set_person_id(&mut self, id: PersonId) {
+        self.person_id = Some(id);
+    }
+
+    pub fn set_person_properties(&mut self, properties: HashMap<String, Value>) {
+        self.person_properties = Some(properties);
+    }
+
+    pub fn set_group_properties(
+        &mut self,
+        group_type_index: GroupTypeIndex,
+        properties: HashMap<String, Value>,
+    ) {
+        self.group_properties.insert(group_type_index, properties);
+    }
+
+    pub fn set_static_cohort_matches(&mut self, matches: HashMap<CohortId, bool>) {
+        self.static_cohort_matches = Some(matches);
+    }
 }
 
 /// Represents the group-related data needed for feature flag evaluation
@@ -261,8 +153,6 @@ pub struct FeatureFlagMatcher {
     /// Group key mappings for group-based flag evaluation
     groups: HashMap<String, Value>,
 }
-
-const LONG_SCALE: u64 = 0xfffffffffffffff;
 
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
@@ -481,12 +371,8 @@ impl FeatureFlagMatcher {
         cohorts: &[Cohort],
     ) -> Result<HashMap<CohortId, bool>, FlagError> {
         // Skip if we've already cached the results
-        if self.flag_evaluation_state.static_cohort_matches.is_some() {
-            return Ok(self
-                .flag_evaluation_state
-                .static_cohort_matches
-                .clone()
-                .unwrap());
+        if let Some(matches) = self.flag_evaluation_state.get_static_cohort_matches() {
+            return Ok(matches.clone());
         }
 
         let person_id = self.get_person_id().await?;
@@ -494,8 +380,10 @@ impl FeatureFlagMatcher {
 
         if static_cohorts.is_empty() {
             // Cache empty map to indicate we've checked
-            self.flag_evaluation_state.static_cohort_matches = Some(HashMap::new());
-            return Ok(HashMap::new());
+            let empty_map = HashMap::new();
+            self.flag_evaluation_state
+                .set_static_cohort_matches(empty_map.clone());
+            return Ok(empty_map);
         }
 
         let results = evaluate_static_cohorts(
@@ -507,8 +395,9 @@ impl FeatureFlagMatcher {
         .into_iter()
         .collect::<HashMap<_, _>>();
 
-        self.flag_evaluation_state.static_cohort_matches = Some(results.clone());
-        Ok(results.clone())
+        self.flag_evaluation_state
+            .set_static_cohort_matches(results.clone());
+        Ok(results)
     }
 
     /// Evaluates cohort filters using cached static cohort results where possible.
@@ -522,8 +411,7 @@ impl FeatureFlagMatcher {
         let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
 
         // Get cached static cohort results or evaluate them if not cached
-        let static_cohort_matches = match self.flag_evaluation_state.static_cohort_matches.as_ref()
-        {
+        let static_cohort_matches = match self.flag_evaluation_state.get_static_cohort_matches() {
             Some(matches) => matches.clone(),
             None => self.evaluate_and_cache_static_cohorts(&cohorts).await?,
         };
@@ -1042,7 +930,7 @@ impl FeatureFlagMatcher {
     /// If the cache does not contain a `PersonId`, it fetches it from the database
     /// and updates the cache accordingly.
     async fn get_person_id(&mut self) -> Result<PersonId, FlagError> {
-        match self.flag_evaluation_state.person_id {
+        match self.flag_evaluation_state.get_person_id() {
             Some(id) => {
                 inc(
                     PROPERTY_CACHE_HITS_COUNTER,
@@ -1054,7 +942,7 @@ impl FeatureFlagMatcher {
             None => {
                 let id = self.get_person_id_from_db().await?;
                 inc(DB_PERSON_PROPERTIES_READS_COUNTER, &[], 1);
-                self.flag_evaluation_state.person_id = Some(id);
+                self.flag_evaluation_state.set_person_id(id);
                 Ok(id)
             }
         }
@@ -1213,11 +1101,8 @@ impl FeatureFlagMatcher {
         group_type_index: GroupTypeIndex,
     ) -> Result<HashMap<String, Value>, FlagError> {
         // check if the properties are already cached, if so return them
-        if let Some(properties) = self
-            .flag_evaluation_state
-            .group_properties
-            .get(&group_type_index)
-        {
+        let group_properties = self.flag_evaluation_state.get_group_properties();
+        if let Some(properties) = group_properties.get(&group_type_index) {
             inc(
                 PROPERTY_CACHE_HITS_COUNTER,
                 &[("type".to_string(), "group_properties".to_string())],
@@ -1278,8 +1163,7 @@ impl FeatureFlagMatcher {
 
         // once the properties are fetched, cache them so we don't need to fetch again in a given request
         self.flag_evaluation_state
-            .group_properties
-            .insert(group_type_index, db_properties.clone());
+            .set_group_properties(group_type_index, db_properties.clone());
 
         Ok(db_properties)
     }
@@ -1293,7 +1177,7 @@ impl FeatureFlagMatcher {
         &mut self,
     ) -> Result<HashMap<String, Value>, FlagError> {
         // check if the properties are already cached, if so return them
-        if let Some(properties) = &self.flag_evaluation_state.person_properties {
+        if let Some(properties) = self.flag_evaluation_state.get_person_properties() {
             inc(
                 PROPERTY_CACHE_HITS_COUNTER,
                 &[("type".to_string(), "person_properties".to_string())],
@@ -1319,8 +1203,9 @@ impl FeatureFlagMatcher {
         inc(DB_PERSON_PROPERTIES_READS_COUNTER, &[], 1);
 
         // once the properties and person ID are fetched, cache them so we don't need to fetch again in a given request
-        self.flag_evaluation_state.person_properties = Some(db_properties.clone());
-        self.flag_evaluation_state.person_id = Some(person_id);
+        self.flag_evaluation_state
+            .set_person_properties(db_properties.clone());
+        self.flag_evaluation_state.set_person_id(person_id);
 
         Ok(db_properties)
     }
@@ -1500,7 +1385,7 @@ impl FeatureFlagMatcher {
             .filter_map(|(group_type, group_key_value)| {
                 let group_key = group_key_value.as_str()?.to_string();
                 self.group_type_mapping_cache
-                    .group_types_to_indexes
+                    .get_group_types_to_indexes()
                     .get(group_type)
                     .cloned()
                     .map(|group_type_index| (group_type_index, group_key))
@@ -1553,730 +1438,24 @@ impl FeatureFlagMatcher {
     }
 }
 
-pub async fn calculate_hash(
-    prefix: &str,
-    hashed_identifier: &str,
-    salt: &str,
-) -> Result<f64, FlagError> {
-    let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
-    let mut hasher = Sha1::new();
-    hasher.update(hash_key.as_bytes());
-    let result = hasher.finalize();
-    // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
-    let hex_str = result.iter().fold(String::new(), |mut acc, byte| {
-        let _ = write!(acc, "{:02x}", byte);
-        acc
-    })[..15]
-        .to_string();
-    let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
-    Ok(hash_val as f64 / LONG_SCALE as f64)
-}
-
-/// Evaluate static cohort filters by checking if the person is in each cohort.
-async fn evaluate_static_cohorts(
-    reader: PostgresReader,
-    person_id: PersonId,
-    cohort_ids: Vec<CohortId>,
-) -> Result<Vec<(CohortId, bool)>, FlagError> {
-    let mut conn = reader.get_connection().await?;
-
-    let query = r#"
-           WITH cohort_membership AS (
-               SELECT c.cohort_id, 
-                      CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
-               FROM unnest($1::integer[]) AS c(cohort_id)
-               LEFT JOIN posthog_cohortpeople AS pc
-                 ON pc.person_id = $2
-                 AND pc.cohort_id = c.cohort_id
-           )
-           SELECT cohort_id, is_member
-           FROM cohort_membership
-       "#;
-
-    let rows = sqlx::query(query)
-        .bind(&cohort_ids)
-        .bind(person_id)
-        .fetch_all(&mut *conn)
-        .await?;
-
-    let result = rows
-        .into_iter()
-        .map(|row| {
-            let cohort_id: CohortId = row.get("cohort_id");
-            let is_member: bool = row.get("is_member");
-            (cohort_id, is_member)
-        })
-        .collect();
-
-    Ok(result)
-}
-
-/// Evaluates a dynamic cohort and its dependencies.
-/// This uses a topological sort to evaluate dependencies first, which is necessary
-/// because a cohort can depend on another cohort, and we need to respect the dependency order.
-fn evaluate_dynamic_cohorts(
-    initial_cohort_id: CohortId,
-    target_properties: &HashMap<String, Value>,
-    cohorts: &[Cohort],
-) -> Result<bool, FlagError> {
-    // First check if this is a static cohort
-    let initial_cohort = cohorts
-        .iter()
-        .find(|c| c.id == initial_cohort_id)
-        .ok_or(FlagError::CohortNotFound(initial_cohort_id.to_string()))?;
-
-    // If it's static, we don't need to evaluate dependencies - the membership was already
-    // checked in evaluate_static_cohorts and stored in cohort_matches
-    if initial_cohort.is_static {
-        return Ok(false); // Static cohorts are handled by evaluate_static_cohorts
-    }
-
-    let cohort_dependency_graph = build_cohort_dependency_graph(initial_cohort_id, cohorts)?;
-
-    // We need to sort cohorts topologically to ensure we evaluate dependencies before the cohorts that depend on them.
-    // For example, if cohort A depends on cohort B, we need to evaluate B first to know if A matches.
-    // This also helps detect cycles - if cohort A depends on B which depends on A, toposort will fail.
-    let sorted_cohort_ids_as_graph_nodes =
-        toposort(&cohort_dependency_graph, None).map_err(|e| {
-            FlagError::CohortDependencyCycle(format!("Cyclic dependency detected: {:?}", e))
-        })?;
-
-    // Store evaluation results for each cohort in a map, so we can look up whether a cohort matched
-    // when evaluating cohorts that depend on it, and also return the final result for the initial cohort
-    let mut evaluation_results = HashMap::new();
-
-    // Iterate through the sorted nodes in reverse order (so that we can evaluate dependencies first)
-    for node in sorted_cohort_ids_as_graph_nodes.into_iter().rev() {
-        let cohort_id = cohort_dependency_graph[node];
-        let cohort = cohorts
-            .iter()
-            .find(|c| c.id == cohort_id)
-            .ok_or(FlagError::CohortNotFound(cohort_id.to_string()))?;
-        let property_filters = cohort.parse_filters()?;
-        let dependencies = cohort.extract_dependencies()?;
-
-        // Check if all dependencies have been met (i.e., previous cohorts matched)
-        let dependencies_met = dependencies
-            .iter()
-            .all(|dep_id| evaluation_results.get(dep_id).copied().unwrap_or(false));
-
-        // If dependencies are not met, mark the current cohort as not matched and continue
-        // NB: We don't want to _exit_ here, since the non-matching cohort could be wrapped in a `not_in` operator
-        // and we want to evaluate all cohorts to determine if the initial cohort matches.
-        if !dependencies_met {
-            evaluation_results.insert(cohort_id, false);
-            continue;
-        }
-
-        // Evaluate all property filters for the current cohort
-        let all_filters_match = property_filters
-            .iter()
-            .all(|filter| match_property(filter, target_properties, false).unwrap_or(false));
-
-        // Store the evaluation result for the current cohort
-        evaluation_results.insert(cohort_id, all_filters_match);
-    }
-
-    // Retrieve and return the evaluation result for the initial cohort
-    evaluation_results
-        .get(&initial_cohort_id)
-        .copied()
-        .ok_or_else(|| FlagError::CohortNotFound(initial_cohort_id.to_string()))
-}
-
-/// Apply cohort membership logic (i.e., IN|NOT_IN)
-fn apply_cohort_membership_logic(
-    cohort_filters: &[PropertyFilter],
-    cohort_matches: &HashMap<CohortId, bool>,
-) -> Result<bool, FlagError> {
-    for filter in cohort_filters {
-        let cohort_id = filter
-            .get_cohort_id()
-            .ok_or(FlagError::CohortFiltersParsingError)?;
-        let matches = cohort_matches.get(&cohort_id).copied().unwrap_or(false);
-        let operator = filter.operator.unwrap_or(OperatorType::In);
-
-        // Combine the operator logic directly within this method
-        let membership_match = match operator {
-            OperatorType::In => matches,
-            OperatorType::NotIn => !matches,
-            // Currently supported operators are IN and NOT IN
-            // Any other operator defaults to false
-            _ => false,
-        };
-
-        // If any filter does not match, return false early
-        if !membership_match {
-            return Ok(false);
-        }
-    }
-    // All filters matched
-    Ok(true)
-}
-
-/// Constructs a dependency graph for cohorts.
-///
-/// Example dependency graph:
-/// ```text
-///   A    B
-///   |   /|
-///   |  / |
-///   | /  |
-///   C    D
-///   \   /
-///    \ /
-///     E
-/// ```
-/// In this example:
-/// - Cohorts A and B are root nodes (no dependencies)
-/// - C depends on A and B
-/// - D depends on B
-/// - E depends on C and D
-///
-/// The graph is acyclic, which is required for valid cohort dependencies.
-fn build_cohort_dependency_graph(
-    initial_cohort_id: CohortId,
-    cohorts: &[Cohort],
-) -> Result<DiGraph<CohortId, ()>, FlagError> {
-    let mut graph = DiGraph::new();
-    let mut node_map = HashMap::new();
-    let mut queue = VecDeque::new();
-
-    let initial_cohort = cohorts
-        .iter()
-        .find(|c| c.id == initial_cohort_id)
-        .ok_or(FlagError::CohortNotFound(initial_cohort_id.to_string()))?;
-
-    if initial_cohort.is_static {
-        return Ok(graph);
-    }
-
-    // This implements a breadth-first search (BFS) traversal to build a directed graph of cohort dependencies.
-    // Starting from the initial cohort, we:
-    // 1. Add each cohort as a node in the graph
-    // 2. Track visited nodes in a map to avoid duplicates
-    // 3. For each cohort, get its dependencies and add directed edges from the cohort to its dependencies
-    // 4. Queue up any unvisited dependencies to process their dependencies later
-    // This builds up the full dependency graph level by level, which we can later check for cycles
-    queue.push_back(initial_cohort_id);
-    node_map.insert(initial_cohort_id, graph.add_node(initial_cohort_id));
-
-    while let Some(cohort_id) = queue.pop_front() {
-        let cohort = cohorts
-            .iter()
-            .find(|c| c.id == cohort_id)
-            .ok_or(FlagError::CohortNotFound(cohort_id.to_string()))?;
-        let dependencies = cohort.extract_dependencies()?;
-        for dep_id in dependencies {
-            // Retrieve the current node **before** mutable borrowing
-            // This is safe because we're not mutating the node map,
-            // and it keeps the borrow checker happy
-            let current_node = node_map[&cohort_id];
-            // Add dependency node if we haven't seen this cohort ID before in our traversal.
-            // This happens when we discover a new dependency that wasn't previously
-            // encountered while processing other cohorts in the graph.
-            let dep_node = node_map
-                .entry(dep_id)
-                .or_insert_with(|| graph.add_node(dep_id));
-
-            graph.add_edge(current_node, *dep_node, ());
-
-            if !node_map.contains_key(&dep_id) {
-                queue.push_back(dep_id);
-            }
-        }
-    }
-
-    if is_cyclic_directed(&graph) {
-        return Err(FlagError::CohortDependencyCycle(format!(
-            "Cyclic dependency detected starting at cohort {}",
-            initial_cohort_id
-        )));
-    }
-
-    Ok(graph)
-}
-
-/// Fetch and locally cache all properties for a given distinct ID and team ID.
-///
-/// This function fetches both person and group properties for a specified distinct ID and team ID.
-/// It updates the properties cache with the fetched properties and returns the result.
-async fn fetch_and_locally_cache_all_relevant_properties(
-    properties_cache: &mut FlagEvaluationState,
-    reader: PostgresReader,
-    distinct_id: String,
-    team_id: TeamId,
-    group_type_indexes: &HashSet<GroupTypeIndex>,
-    group_keys: &HashSet<String>,
-) -> Result<(), FlagError> {
-    let mut conn = reader.as_ref().get_connection().await?;
-
-    let query = r#"
-        SELECT
-            (
-                SELECT "posthog_person"."id"
-                FROM "posthog_person"
-                INNER JOIN "posthog_persondistinctid"
-                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
-                WHERE
-                    "posthog_persondistinctid"."distinct_id" = $1
-                    AND "posthog_persondistinctid"."team_id" = $2
-                    AND "posthog_person"."team_id" = $2
-                LIMIT 1
-            ) AS person_id,
-            (
-                SELECT "posthog_person"."properties"
-                FROM "posthog_person"
-                INNER JOIN "posthog_persondistinctid"
-                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
-                WHERE
-                    "posthog_persondistinctid"."distinct_id" = $1
-                    AND "posthog_persondistinctid"."team_id" = $2
-                    AND "posthog_person"."team_id" = $2
-                LIMIT 1
-            ) AS person_properties,
-            (
-                SELECT
-                    json_object_agg(
-                        "posthog_group"."group_type_index",
-                        "posthog_group"."group_properties"
-                    )
-                FROM "posthog_group"
-                WHERE
-                    "posthog_group"."team_id" = $2
-                    AND "posthog_group"."group_type_index" = ANY($3)
-                    AND "posthog_group"."group_key" = ANY($4)
-            ) AS group_properties
-    "#;
-
-    let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
-    let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
-
-    let row: (Option<PersonId>, Option<Value>, Option<Value>) = sqlx::query_as(query)
-        .bind(&distinct_id)
-        .bind(team_id)
-        .bind(&group_type_indexes_vec)
-        .bind(&group_keys_vec) // Bind group_keys_vec to $4
-        .fetch_optional(&mut *conn)
-        .await?
-        .unwrap_or((None, None, None));
-
-    let (person_id, person_props, group_props) = row;
-
-    if let Some(person_id) = person_id {
-        properties_cache.person_id = Some(person_id);
-    }
-
-    if let Some(person_props) = person_props {
-        properties_cache.person_properties = Some(
-            person_props
-                .as_object()
-                .unwrap_or(&serde_json::Map::new())
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        );
-    }
-
-    if let Some(group_props) = group_props {
-        let group_props_map: HashMap<GroupTypeIndex, HashMap<String, Value>> = group_props
-            .as_object()
-            .unwrap_or(&serde_json::Map::new())
-            .iter()
-            .map(|(k, v)| {
-                let group_type_index = k.parse().unwrap_or_default();
-                let properties: HashMap<String, Value> = v
-                    .as_object()
-                    .unwrap_or(&serde_json::Map::new())
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                (group_type_index, properties)
-            })
-            .collect();
-
-        properties_cache.group_properties.extend(group_props_map);
-    }
-
-    Ok(())
-}
-
-/// Fetch person properties and person ID from the database for a given distinct ID and team ID.
-///
-/// This function constructs and executes a SQL query to fetch the person properties for a specified distinct ID and team ID.
-/// It returns the fetched properties as a HashMap.
-async fn fetch_person_properties_from_db(
-    reader: PostgresReader,
-    distinct_id: String,
-    team_id: TeamId,
-) -> Result<(HashMap<String, Value>, PersonId), FlagError> {
-    let mut conn = reader.as_ref().get_connection().await?;
-
-    let query = r#"
-           SELECT "posthog_person"."id" as person_id, "posthog_person"."properties" as person_properties
-           FROM "posthog_person"
-           INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-           WHERE ("posthog_persondistinctid"."distinct_id" = $1
-                   AND "posthog_persondistinctid"."team_id" = $2
-                   AND "posthog_person"."team_id" = $2)
-           LIMIT 1
-       "#;
-
-    let row: Option<(PersonId, Value)> = sqlx::query_as(query)
-        .bind(&distinct_id)
-        .bind(team_id)
-        .fetch_optional(&mut *conn)
-        .await?;
-
-    match row {
-        Some((person_id, person_props)) => {
-            let properties_map = person_props
-                .as_object()
-                .unwrap_or(&serde_json::Map::new())
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            Ok((properties_map, person_id))
-        }
-        None => Err(FlagError::PersonNotFound),
-    }
-}
-
-/// Fetch group properties from the database for a given team ID and group type index.
-///
-/// This function constructs and executes a SQL query to fetch the group properties for a specified team ID and group type index.
-/// It returns the fetched properties as a HashMap.
-async fn fetch_group_properties_from_db(
-    reader: PostgresReader,
-    team_id: TeamId,
-    group_type_index: GroupTypeIndex,
-    group_key: String,
-) -> Result<HashMap<String, Value>, FlagError> {
-    let mut conn = reader.as_ref().get_connection().await?;
-
-    let query = r#"
-        SELECT "posthog_group"."group_properties"
-        FROM "posthog_group"
-        WHERE ("posthog_group"."team_id" = $1
-                AND "posthog_group"."group_type_index" = $2
-                AND "posthog_group"."group_key" = $3)
-        LIMIT 1
-    "#;
-
-    let row: Option<Value> = sqlx::query_scalar(query)
-        .bind(team_id)
-        .bind(group_type_index)
-        .bind(group_key)
-        .fetch_optional(&mut *conn)
-        .await?;
-
-    Ok(row
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(k, v)| (k, v.clone()))
-        .collect())
-}
-
-/// Check if all required properties are present in the overrides
-/// and none of them are of type "cohort" – if so, return the overrides,
-/// otherwise return None, because we can't locally compute cohort properties
-fn locally_computable_property_overrides(
-    property_overrides: &Option<HashMap<String, Value>>,
-    property_filters: &[PropertyFilter],
-) -> Option<HashMap<String, Value>> {
-    property_overrides.as_ref().and_then(|overrides| {
-        let should_prefer_overrides = property_filters
-            .iter()
-            .all(|prop| overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
-
-        if should_prefer_overrides {
-            Some(overrides.clone())
-        } else {
-            None
-        }
-    })
-}
-
-/// Check if all properties match the given filters
-fn all_properties_match(
-    flag_condition_properties: &[PropertyFilter],
-    matching_property_values: &HashMap<String, Value>,
-) -> bool {
-    flag_condition_properties
-        .iter()
-        .all(|property| match_property(property, matching_property_values, false).unwrap_or(false))
-}
-
-async fn get_feature_flag_hash_key_overrides(
-    reader: PostgresReader,
-    team_id: TeamId,
-    distinct_id_and_hash_key_override: Vec<String>,
-) -> Result<HashMap<String, String>, FlagError> {
-    let mut feature_flag_hash_key_overrides = HashMap::new();
-    let mut conn = reader.as_ref().get_connection().await?;
-
-    let person_and_distinct_id_query = r#"
-            SELECT person_id, distinct_id 
-            FROM posthog_persondistinctid 
-            WHERE team_id = $1 AND distinct_id = ANY($2)
-        "#;
-
-    let person_and_distinct_ids: Vec<(PersonId, String)> =
-        sqlx::query_as(person_and_distinct_id_query)
-            .bind(team_id)
-            .bind(&distinct_id_and_hash_key_override)
-            .fetch_all(&mut *conn)
-            .await?;
-
-    let person_id_to_distinct_id: HashMap<PersonId, String> =
-        person_and_distinct_ids.into_iter().collect();
-    let person_ids: Vec<PersonId> = person_id_to_distinct_id.keys().cloned().collect();
-
-    // Get hash key overrides
-    let hash_key_override_query = r#"
-            SELECT feature_flag_key, hash_key, person_id 
-            FROM posthog_featureflaghashkeyoverride 
-            WHERE team_id = $1 AND person_id = ANY($2)
-        "#;
-
-    let overrides: Vec<(String, String, PersonId)> = sqlx::query_as(hash_key_override_query)
-        .bind(team_id)
-        .bind(&person_ids)
-        .fetch_all(&mut *conn)
-        .await?;
-
-    // Sort and process overrides, with the distinct_id at the start of the array having priority
-    // We want the highest priority to go last in sort order, so it's the latest update in the hashmap
-    let mut sorted_overrides = overrides;
-    sorted_overrides.sort_by_key(|(_, _, person_id)| {
-        if person_id_to_distinct_id.get(person_id) == Some(&distinct_id_and_hash_key_override[0]) {
-            std::cmp::Ordering::Greater
-        } else {
-            std::cmp::Ordering::Less
-        }
-    });
-
-    for (feature_flag_key, hash_key, _) in sorted_overrides {
-        feature_flag_hash_key_overrides.insert(feature_flag_key, hash_key);
-    }
-
-    Ok(feature_flag_hash_key_overrides)
-}
-
-async fn set_feature_flag_hash_key_overrides(
-    writer: PostgresWriter,
-    team_id: TeamId,
-    distinct_ids: Vec<String>,
-    project_id: ProjectId,
-    hash_key_override: String,
-) -> Result<bool, FlagError> {
-    const MAX_RETRIES: u32 = 2;
-    const RETRY_DELAY: Duration = Duration::from_millis(100);
-
-    for retry in 0..MAX_RETRIES {
-        let mut conn = writer.get_connection().await?;
-        let mut transaction = conn.begin().await?;
-
-        let query = r#"
-            WITH target_person_ids AS (
-                SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = $1 AND
-                distinct_id = ANY($2)
-            ),
-            existing_overrides AS (
-                SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
-                WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
-            ),
-            flags_to_override AS (
-                SELECT flag.key FROM posthog_featureflag flag
-                JOIN posthog_team team ON flag.team_id = team.id
-                WHERE team.project_id = $3 
-                AND flag.ensure_experience_continuity = TRUE 
-                AND flag.active = TRUE 
-                AND flag.deleted = FALSE
-                AND flag.key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-            )
-            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                SELECT team_id, person_id, key, $4
-                FROM flags_to_override, target_person_ids
-                WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = $1)
-            ON CONFLICT DO NOTHING
-        "#;
-
-        let result: Result<PgQueryResult, sqlx::Error> = sqlx::query(query)
-            .bind(team_id)
-            .bind(&distinct_ids)
-            .bind(project_id)
-            .bind(&hash_key_override)
-            .execute(&mut *transaction)
-            .await;
-
-        match result {
-            Ok(query_result) => {
-                // Commit the transaction if successful
-                transaction
-                    .commit()
-                    .await
-                    .map_err(|e| FlagError::DatabaseError(e.to_string()))?;
-                return Ok(query_result.rows_affected() > 0);
-            }
-            Err(e) => {
-                // Rollback the transaction on error
-                transaction
-                    .rollback()
-                    .await
-                    .map_err(|e| FlagError::DatabaseError(e.to_string()))?;
-
-                if e.to_string().contains("violates foreign key constraint")
-                    && retry < MAX_RETRIES - 1
-                {
-                    // Retry logic for specific error
-                    tracing::info!(
-                        "Retrying set_feature_flag_hash_key_overrides due to person deletion: {:?}",
-                        e
-                    );
-                    sleep(RETRY_DELAY).await;
-                } else {
-                    return Err(FlagError::DatabaseError(e.to_string()));
-                }
-            }
-        }
-    }
-
-    // If we get here, something went wrong
-    Ok(false)
-}
-
-async fn should_write_hash_key_override(
-    reader: PostgresReader,
-    team_id: TeamId,
-    distinct_id: String,
-    project_id: ProjectId,
-    hash_key_override: String,
-) -> Result<bool, FlagError> {
-    const QUERY_TIMEOUT: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 2;
-    const RETRY_DELAY: Duration = Duration::from_millis(100);
-
-    let distinct_ids = vec![distinct_id, hash_key_override.clone()];
-
-    let query = r#"
-        WITH target_person_ids AS (
-            SELECT team_id, person_id 
-            FROM posthog_persondistinctid 
-            WHERE team_id = $1 AND distinct_id = ANY($2)
-        ),
-        existing_overrides AS (
-            SELECT team_id, person_id, feature_flag_key, hash_key 
-            FROM posthog_featureflaghashkeyoverride
-            WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
-        )
-        SELECT key FROM posthog_featureflag flag
-        JOIN posthog_team team ON flag.team_id = team.id
-        WHERE team.project_id = $3
-            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
-            AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-    "#;
-
-    for retry in 0..MAX_RETRIES {
-        let result = timeout(QUERY_TIMEOUT, async {
-            let mut conn = reader.get_connection().await.map_err(|e| {
-                FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
-            })?;
-
-            let rows = sqlx::query(query)
-                .bind(team_id)
-                .bind(&distinct_ids)
-                .bind(project_id)
-                .fetch_all(&mut *conn)
-                .await
-                .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {}", e)))?;
-
-            Ok::<bool, FlagError>(!rows.is_empty())
-        })
-        .await;
-
-        match result {
-            Ok(Ok(flags_present)) => return Ok(flags_present),
-            Ok(Err(e)) => {
-                if e.to_string().contains("violates foreign key constraint")
-                    && retry < MAX_RETRIES - 1
-                {
-                    info!(
-                        "Retrying set_feature_flag_hash_key_overrides due to person deletion: {:?}",
-                        e
-                    );
-                    tokio::time::sleep(RETRY_DELAY).await;
-                    continue;
-                } else {
-                    // For other errors or if max retries exceeded, return the error
-                    return Err(e);
-                }
-            }
-            Err(_) => {
-                // Handle timeout
-                return Err(FlagError::TimeoutError);
-            }
-        }
-    }
-
-    // If all retries failed without returning, return false
-    Ok(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rstest::rstest;
     use serde_json::json;
     use std::collections::HashMap;
 
     use crate::{
-        flags::flag_models::{
-            FeatureFlagRow, FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant,
+        flags::{
+            flag_group_type_mapping::GroupTypeMappingCache,
+            flag_models::{FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant},
         },
         properties::property_models::OperatorType,
         utils::test_utils::{
-            add_person_to_cohort, get_person_id_by_distinct_id, insert_cohort_for_team_in_pg,
-            insert_flag_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
+            add_person_to_cohort, create_test_flag, get_person_id_by_distinct_id,
+            insert_cohort_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
             setup_pg_reader_client, setup_pg_writer_client,
         },
     };
-
-    #[allow(clippy::too_many_arguments)]
-    fn create_test_flag(
-        id: Option<i32>,
-        team_id: Option<TeamId>,
-        name: Option<String>,
-        key: Option<String>,
-        filters: Option<FlagFilters>,
-        deleted: Option<bool>,
-        active: Option<bool>,
-        ensure_experience_continuity: Option<bool>,
-    ) -> FeatureFlag {
-        FeatureFlag {
-            id: id.unwrap_or(1),
-            team_id: team_id.unwrap_or(1),
-            name: name.or(Some("Test Flag".to_string())),
-            key: key.unwrap_or_else(|| "test_flag".to_string()),
-            filters: filters.unwrap_or_else(|| FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            deleted: deleted.unwrap_or(false),
-            active: active.unwrap_or(true),
-            ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
-            version: Some(1),
-        }
-    }
 
     #[tokio::test]
     async fn test_fetch_properties_from_pg_to_match() {
@@ -2475,9 +1654,8 @@ mod tests {
         let mut group_type_mapping_cache =
             GroupTypeMappingCache::new(team.project_id, reader.clone());
         let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
-        group_type_mapping_cache.group_types_to_indexes = group_types_to_indexes;
-        group_type_mapping_cache.group_indexes_to_types =
-            [(1, "organization".to_string())].into_iter().collect();
+        let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
+        group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
 
         let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
 
@@ -2524,10 +1702,8 @@ mod tests {
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(1, reader.clone());
 
         let group_types_to_indexes = [("group_type_1".to_string(), 1)].into_iter().collect();
-        let group_type_index_to_name = [(1, "group_type_1".to_string())].into_iter().collect();
-
-        group_type_mapping_cache.group_types_to_indexes = group_types_to_indexes;
-        group_type_mapping_cache.group_indexes_to_types = group_type_index_to_name;
+        let indexes_to_types = [(1, "group_type_1".to_string())].into_iter().collect();
+        group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
 
         let groups = HashMap::from([("group_type_1".to_string(), json!("group_key_1"))]);
 
@@ -2959,59 +2135,6 @@ mod tests {
             new_second_duration < new_first_duration,
             "Second access with new matcher should be faster due to caching"
         );
-    }
-
-    #[tokio::test]
-    async fn test_overrides_locally_computable() {
-        let overrides = Some(HashMap::from([
-            ("email".to_string(), json!("test@example.com")),
-            ("age".to_string(), json!(30)),
-        ]));
-
-        let property_filters = vec![
-            PropertyFilter {
-                key: "email".to_string(),
-                value: json!("test@example.com"),
-                operator: None,
-                prop_type: "person".to_string(),
-                group_type_index: None,
-                negation: None,
-            },
-            PropertyFilter {
-                key: "age".to_string(),
-                value: json!(25),
-                operator: Some(OperatorType::Gte),
-                prop_type: "person".to_string(),
-                group_type_index: None,
-                negation: None,
-            },
-        ];
-
-        let result = locally_computable_property_overrides(&overrides, &property_filters);
-        assert!(result.is_some());
-
-        let property_filters_with_cohort = vec![
-            PropertyFilter {
-                key: "email".to_string(),
-                value: json!("test@example.com"),
-                operator: None,
-                prop_type: "person".to_string(),
-                group_type_index: None,
-                negation: None,
-            },
-            PropertyFilter {
-                key: "cohort".to_string(),
-                value: json!(1),
-                operator: None,
-                prop_type: "cohort".to_string(),
-                group_type_index: None,
-                negation: None,
-            },
-        ];
-
-        let result =
-            locally_computable_property_overrides(&overrides, &property_filters_with_cohort);
-        assert!(result.is_none());
     }
 
     #[tokio::test]
@@ -3619,6 +2742,236 @@ mod tests {
         let result = matcher.get_match(&flag, None, None).await.unwrap();
 
         assert!(result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_complex_cohort_conditions() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        // Insert a cohort with complex conditions
+        let cohort_row = insert_cohort_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            None,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{
+                                "key": "email",
+                                "type": "person",
+                                "value": "@posthog\\.com$",
+                                "negation": false,
+                                "operator": "regex"
+                            }]
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{
+                                "key": "email",
+                                "type": "person",
+                                "value": ["fuziontech@gmail.com"],
+                                "operator": "exact"
+                            }]
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{
+                                "key": "distinct_id",
+                                "type": "person",
+                                "value": ["D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc"],
+                                "operator": "exact"
+                            }]
+                        },
+                        {
+                            "type": "OR",
+                            "values": [{
+                                "key": "email",
+                                "type": "person",
+                                "value": ["neil@posthog.com"],
+                                "negation": false,
+                                "operator": "exact"
+                            }]
+                        },
+                        {
+                            "type": "OR",
+                            "values": [{
+                                "key": "email",
+                                "type": "person",
+                                "value": ["corywatilo@gmail.com"],
+                                "negation": false,
+                                "operator": "exact"
+                            }]
+                        },
+                        {
+                            "type": "OR",
+                            "values": [{
+                                "key": "email",
+                                "type": "person",
+                                "value": "@leads\\.io$",
+                                "negation": false,
+                                "operator": "regex"
+                            }]
+                        },
+                        {
+                            "type": "OR",
+                            "values": [{
+                                "key": "email",
+                                "type": "person",
+                                "value": "@desertcart\\.io$",
+                                "negation": false,
+                                "operator": "regex"
+                            }]
+                        }
+                    ]
+                }
+            }),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // Test case 1: Should match - posthog.com email (AND condition)
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "test_user_1".to_string(),
+            Some(json!({
+                "email": "test@posthog.com",
+                "distinct_id": "test_user_1"
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 2: Should match - fuziontech@gmail.com (AND condition)
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "test_user_2".to_string(),
+            Some(json!({
+                "email": "fuziontech@gmail.com",
+                "distinct_id": "test_user_2"
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 3: Should match - specific distinct_id (AND condition)
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc".to_string(),
+            Some(json!({
+                "email": "other@example.com",
+                "distinct_id": "D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc"
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 4: Should match - neil@posthog.com (OR condition)
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "test_user_4".to_string(),
+            Some(json!({
+                "email": "neil@posthog.com",
+                "distinct_id": "test_user_4"
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 5: Should match - @leads.io email (OR condition with regex)
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "test_user_5".to_string(),
+            Some(json!({
+                "email": "test@leads.io",
+                "distinct_id": "test_user_5"
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 6: Should NOT match - random email
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "test_user_6".to_string(),
+            Some(json!({
+                "email": "random@example.com",
+                "distinct_id": "test_user_6"
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Create a feature flag using this cohort and verify matches
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort_row.id),
+                        operator: Some(OperatorType::In),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Test each case
+        for (user_id, should_match) in [
+            ("test_user_1", true),                                 // @posthog.com
+            ("test_user_2", true),                                 // fuziontech@gmail.com
+            ("D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc", true), // specific distinct_id
+            ("test_user_4", true),                                 // neil@posthog.com
+            ("test_user_5", true),                                 // @leads.io
+            ("test_user_6", false),                                // random@example.com
+        ] {
+            let mut matcher = FeatureFlagMatcher::new(
+                user_id.to_string(),
+                team.id,
+                team.project_id,
+                reader.clone(),
+                writer.clone(),
+                cohort_cache.clone(),
+                None,
+                None,
+            );
+            let result = matcher.get_match(&flag, None, None).await.unwrap();
+            assert_eq!(
+                result.matches,
+                should_match,
+                "User {} should{} match",
+                user_id,
+                if should_match { "" } else { " not" }
+            );
+        }
     }
 
     #[tokio::test]
@@ -4800,152 +4153,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_set_feature_flag_hash_key_overrides_success() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-        let distinct_id = "user2".to_string();
-
-        // Insert person
-        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
-            .await
-            .unwrap();
-
-        // Create a feature flag with ensure_experience_continuity = true
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            Some("Test Flag".to_string()),
-            Some("test_flag".to_string()),
-            Some(FlagFilters {
-                groups: vec![],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            Some(false), // not deleted
-            Some(true),  // active
-            Some(true),  // ensure_experience_continuity
-        );
-
-        // Convert flag to FeatureFlagRow
-        let flag_row = FeatureFlagRow {
-            id: flag.id,
-            team_id: flag.team_id,
-            name: flag.name,
-            key: flag.key,
-            filters: json!(flag.filters),
-            deleted: flag.deleted,
-            active: flag.active,
-            ensure_experience_continuity: flag.ensure_experience_continuity,
-            version: flag.version,
-        };
-
-        // Insert the feature flag into the database
-        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
-            .await
-            .unwrap();
-
-        // Set hash key override
-        set_feature_flag_hash_key_overrides(
-            writer.clone(),
-            team.id,
-            vec![distinct_id.clone()],
-            team.project_id,
-            "hash_key_2".to_string(),
-        )
-        .await
-        .unwrap();
-
-        // Retrieve hash key overrides
-        let overrides =
-            get_feature_flag_hash_key_overrides(reader.clone(), team.id, vec![distinct_id.clone()])
-                .await
-                .unwrap();
-
-        assert_eq!(
-            overrides.get("test_flag"),
-            Some(&"hash_key_2".to_string()),
-            "Hash key override should match the set value"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_get_feature_flag_hash_key_overrides_success() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-        let distinct_id = "user2".to_string();
-
-        // Insert person
-        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
-            .await
-            .unwrap();
-
-        // Create a feature flag with ensure_experience_continuity = true
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            Some("Test Flag".to_string()),
-            Some("test_flag".to_string()),
-            Some(FlagFilters {
-                groups: vec![],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            Some(false), // not deleted
-            Some(true),  // active
-            Some(true),  // ensure_experience_continuity
-        );
-
-        // Convert flag to FeatureFlagRow
-        let flag_row = FeatureFlagRow {
-            id: flag.id,
-            team_id: flag.team_id,
-            name: flag.name,
-            key: flag.key,
-            filters: json!(flag.filters),
-            deleted: flag.deleted,
-            active: flag.active,
-            ensure_experience_continuity: flag.ensure_experience_continuity,
-            version: flag.version,
-        };
-
-        // Insert the feature flag into the database
-        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
-            .await
-            .unwrap();
-
-        // Set hash key override
-        set_feature_flag_hash_key_overrides(
-            writer.clone(),
-            team.id,
-            vec![distinct_id.clone()],
-            team.project_id,
-            "hash_key_2".to_string(),
-        )
-        .await
-        .unwrap();
-
-        // Retrieve hash key overrides
-        let overrides =
-            get_feature_flag_hash_key_overrides(reader.clone(), team.id, vec![distinct_id.clone()])
-                .await
-                .unwrap();
-
-        assert_eq!(
-            overrides.get("test_flag"),
-            Some(&"hash_key_2".to_string()),
-            "Hash key override should match the set value"
-        );
-    }
-
-    #[tokio::test]
     async fn test_evaluate_feature_flags_with_experience_continuity() {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
@@ -5096,8 +4303,6 @@ mod tests {
         )
         .evaluate_all_feature_flags(flags, None, None, None)
         .await;
-
-        println!("result: {:?}", result);
 
         assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
 
@@ -5599,24 +4804,6 @@ mod tests {
         assert!(result.matches);
         assert_eq!(result.variant, Some("second-variant".to_string()));
         assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
-    }
-
-    #[rstest]
-    #[case("some_distinct_id", 0.7270002403585725)]
-    #[case("test-identifier", 0.4493881716040236)]
-    #[case("example_id", 0.9402003475831224)]
-    #[case("example_id2", 0.6292740389966519)]
-    #[tokio::test]
-    async fn test_calculate_hash(#[case] hashed_identifier: &str, #[case] expected_hash: f64) {
-        let hash = calculate_hash("holdout-", hashed_identifier, "")
-            .await
-            .unwrap();
-        assert!(
-            (hash - expected_hash).abs() < f64::EPSILON,
-            "Hash {} should equal expected value {} within floating point precision",
-            hash,
-            expected_hash
-        );
     }
 
     #[tokio::test]

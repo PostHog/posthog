@@ -15,6 +15,7 @@ from posthog.schema import (
     EventsNode,
     ExperimentQuery,
     ExperimentVariantFunnelsBaseStats,
+    FunnelConversionWindowTimeUnit,
     PersonsOnEventsMode,
     ExperimentFunnelMetric,
 )
@@ -32,7 +33,7 @@ from parameterized import parameterized
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
+class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_funnel_metric(self):
@@ -774,7 +775,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 EventsNode(event="$pageview"),
                 EventsNode(event="purchase"),
             ],
-            time_window_hours=24,
+            conversion_window=24,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.HOUR,
         )
 
         experiment_query = ExperimentQuery(
