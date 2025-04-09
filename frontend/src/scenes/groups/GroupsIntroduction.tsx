@@ -14,8 +14,8 @@ export function GroupsIntroduction(): JSX.Element {
             <div className="flex flex-col items-center mt-4 justify-center text-center border rounded-lg py-8 min-h-56">
                 <h2 className="mb-2 text-2xl font-semibold">Start tracking groups</h2>
                 <div className="max-w-140">
-                    Get a 360&deg; view of how companies or teams use your product. Use the SDK to identify each group,
-                    and then include the relevant group identifier in the event&nbsp;properties.
+                    Get a 360&deg; view of how companies or teams use your product. Use the SDK to create a group, and
+                    then include the group identifier in the event&nbsp;properties.
                 </div>
                 <div className="w-80 max-w-[90%] mt-4">
                     <LemonButton
