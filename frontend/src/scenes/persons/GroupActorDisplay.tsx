@@ -1,6 +1,8 @@
 import './PersonDisplay.scss'
 
+import { IconInfo } from '@posthog/icons'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { GroupActorType } from '~/types'
@@ -14,13 +16,21 @@ export function GroupActorDisplay({ actor }: GroupActorDisplayProps): JSX.Elemen
         return (
             <div>
                 Unidentified group{' '}
-                <Link
-                    to="https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups"
-                    target="_blank"
-                    className="font-normal text-xs"
+                <Tooltip
+                    title={
+                        <>
+                            Group wasn't identified at the time of the event.{' '}
+                            <Link
+                                to="https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups"
+                                target="_blank"
+                            >
+                                Learn&nbsp;more
+                            </Link>
+                        </>
+                    }
                 >
-                    Learn more
-                </Link>
+                    <IconInfo className="text-secondary" />
+                </Tooltip>
             </div>
         )
     }
