@@ -54,10 +54,9 @@ class HogQLGeneratorTool(MaxTool):
                     + HOGQL_EXAMPLE_MESSAGE
                     + "\n</example_query>\n\n"
                     + SCHEMA_MESSAGE.format(schema_description=schema_description)
-                    + "\n\n<instructions>\n"
-                    + instructions
-                    + "\n</instructions>\n\n",
+                    + "\n\n<current_query>\n{{{current_query}}}\n</current_query>",
                 ),
+                ("user", "Write a new HogQL query or tweak the current one to satisfy this request: " + instructions),
             ],
             template_format="mustache",
         )
@@ -66,7 +65,7 @@ class HogQLGeneratorTool(MaxTool):
         for _ in range(3):
             try:
                 chain = prompt | self._model
-                result = chain.invoke({**self.context})
+                result = chain.invoke(self.context)
                 parsed_result = self._parse_output(result, hogql_context)
                 break
             except PydanticOutputParserException as e:
