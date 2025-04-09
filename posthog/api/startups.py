@@ -1,7 +1,7 @@
 from typing import Any
 import requests
 from urllib.parse import urlparse
-
+import structlog
 from django.utils import timezone
 from rest_framework import response, serializers, status
 from rest_framework.decorators import action
@@ -14,6 +14,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.cloud_utils import get_cached_instance_license
 from ee.billing.billing_manager import BillingManager
 
+
+logger = structlog.get_logger(__name__)
+
+STARTUP_ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/8898847/20d1fd1/"
+YC_ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/8898847/20dlxpo/"
 
 # Match the same list used in frontend/src/scenes/startups/startupProgramLogic.ts
 PUBLIC_EMAIL_DOMAINS = [
@@ -33,7 +38,7 @@ PUBLIC_EMAIL_DOMAINS = [
 ]
 
 
-def extract_domain(url: str) -> str:
+def extract_domain_from_url(url: str) -> str:
     """Extract domain from URL, removing 'www.' prefix."""
     try:
         if not url.startswith(("http://", "https://")):
@@ -43,6 +48,15 @@ def extract_domain(url: str) -> str:
         return domain.replace("www.", "")
     except Exception:
         return url.replace("www.", "")
+
+
+def extract_domain_from_email(email: str) -> str | None:
+    if not email or "@" not in email:
+        return None
+    domain = email.split("@")[1].lower()
+    if domain in PUBLIC_EMAIL_DOMAINS:
+        return None
+    return domain
 
 
 def verify_yc_batch_membership(yc_batch: str, organization_name: str, user_email: str) -> bool:
@@ -71,11 +85,7 @@ def verify_yc_batch_membership(yc_batch: str, organization_name: str, user_email
 
         normalized_org_name = organization_name.lower().strip()
 
-        email_domain = None
-        if user_email and "@" in user_email:
-            email_domain = user_email.split("@")[1].lower()
-            if email_domain in PUBLIC_EMAIL_DOMAINS:
-                email_domain = None
+        email_domain = extract_domain_from_email(user_email)
 
         # Check if the company is in the batch
         for company in companies:
@@ -86,7 +96,7 @@ def verify_yc_batch_membership(yc_batch: str, organization_name: str, user_email
 
             company_domain = None
             if company.get("website"):
-                company_domain = extract_domain(company.get("website", ""))
+                company_domain = extract_domain_from_url(company.get("website", ""))
 
             name_match = company_name == normalized_org_name
             domain_match = email_domain and company_domain and email_domain == company_domain
@@ -135,7 +145,7 @@ def check_organization_eligibility(organization_id: str, user: Any) -> str:
 class StartupApplicationSerializer(serializers.Serializer):
     program = serializers.ChoiceField(
         required=True,
-        choices=["startups", "yc"],
+        choices=["startup", "YC"],
     )
     organization_id = serializers.CharField(required=True)
 
@@ -155,7 +165,7 @@ class StartupApplicationSerializer(serializers.Serializer):
         program = data["program"]
         errors: dict[str, str] = {}
 
-        if program == "startups":
+        if program == "startup":
             if not data.get("raised"):
                 errors["raised"] = "Funding amount is required for startup program applications"
             elif not isinstance(data["raised"], str):
@@ -180,7 +190,7 @@ class StartupApplicationSerializer(serializers.Serializer):
             data.pop("yc_proof_screenshot_url", None)
             data.pop("yc_merch_count", None)
 
-        elif program == "yc":
+        elif program == "YC":
             verified = False
 
             if not data.get("yc_batch"):
@@ -197,7 +207,8 @@ class StartupApplicationSerializer(serializers.Serializer):
                         "Screenshot proof is required for YC applications that cannot be automatically verified"
                     )
 
-            data["yc_verified_automatically"] = verified
+            data["yc_verified_automatically"] = str(verified)
+            # Add YC credit type ($50k/$25k for 12 months)
 
             # Remove startup fields for YC program
             data.pop("raised", None)
@@ -215,24 +226,47 @@ class StartupApplicationSerializer(serializers.Serializer):
         user = self.context["request"].user
         organization = Organization.objects.get(id=validated_data["organization_id"])
 
-        submission_data = {
-            "submitted_at": timezone.now(),
+        zapier_table_data = {
+            "submitted_via": "app.posthog.com",
+            "submitted_at": timezone.now().isoformat(),
             "email": user.email,
+            "domain": extract_domain_from_email(user.email),
             "first_name": user.first_name,
             "last_name": user.last_name,
             "organization_name": organization.name,
             "organization_id": organization.id,
             "customer_id": organization.customer_id,
+            "referrer": None,  # not used currently - eventually we'll have custom links for partners and populate it based on that
             **validated_data,
         }
 
-        # TODO: Send to external services
-        # 1. Format for Zapier
-        # 2. Send to Zapier webhook
-        # 3. Format for Salesforce
-        # 4. Send to Salesforce
+        if zapier_table_data.get("incorporation_date"):
+            zapier_table_data["incorporation_date"] = zapier_table_data["incorporation_date"].isoformat()
 
-        return submission_data
+        # Create a record in Zapier table via webhook
+        webhook_url = YC_ZAPIER_WEBHOOK_URL if validated_data.get("program") == "YC" else STARTUP_ZAPIER_WEBHOOK_URL
+        requests.post(webhook_url, json=zapier_table_data, timeout=10).raise_for_status()
+
+        # Add a Salesforce contact via webhook
+        # Type: 'contact'
+        # Source: program
+        # Company: organization_name
+        # First Name: first_name
+        # Last Name: last_name
+        # Email: email
+        # Startup Domain: domain
+
+        # Non-YC only
+        # Incorpation Date: incorporation_date (to be formatted as YYYY-MM-DD) - field name mispelled in Zapier
+        # Raised: raised
+        # Referrer: referrer
+
+        # YC only
+        # YC Batch: yc_batch
+
+        # Excluded for now but can be sent: organization_id, customer_id (Stripe), submitted_at,
+
+        return zapier_table_data
 
 
 class StartupsViewSet(ViewSet):
@@ -250,5 +284,6 @@ class StartupsViewSet(ViewSet):
         try:
             result = serializer.save()
             return response.Response(result, status=status.HTTP_201_CREATED)
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to submit startup application", exc_info=e)
             raise ValidationError("Failed to submit application")

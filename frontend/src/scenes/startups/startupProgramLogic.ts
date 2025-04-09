@@ -294,7 +294,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 // eslint-disable-next-line no-console
                 console.log('📝 Form values before submission:', formValues)
                 const valuesToSubmit: Record<string, any> = {
-                    program: props.isYC ? 'yc' : 'startups',
+                    program: props.isYC ? 'YC' : 'startup',
                     organization_id: formValues.organization_id,
                     yc_merch_count: formValues.yc_merch_count,
                 }
