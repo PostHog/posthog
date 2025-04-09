@@ -122,6 +122,7 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
         self.assertEqual(response_data["has_group_types"], False)
+        self.assertEqual(response_data["group_types"], [])
 
         group_type = GroupTypeMapping.objects.create(
             project=self.project, team=other_team, group_type="person", group_type_index=0
@@ -135,6 +136,19 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
         self.assertEqual(response_data["has_group_types"], True)  # Irreleveant that group type has different `team`
+        self.assertEqual(
+            response_data["group_types"],
+            [
+                {
+                    "group_type": "person",
+                    "group_type_index": 0,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "default_columns": None,
+                    "detail_dashboard": None,
+                }
+            ],
+        )
 
     def test_cant_retrieve_team_from_another_org(self):
         org = Organization.objects.create(name="New Org")

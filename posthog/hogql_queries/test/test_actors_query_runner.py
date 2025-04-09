@@ -6,6 +6,8 @@ from posthog.hogql import ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group.util import create_group
 from posthog.models.utils import UUIDT
 from posthog.schema import (
     ActorsQuery,
@@ -426,3 +428,80 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
 
         assert len(response.results) == 3
+
+    def test_default_group_actors_query(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org1",
+            properties={"name": "org1.inc"},
+            sync=True,
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={},
+        )
+
+        _create_event(
+            team=self.team,
+            event="pageview",
+            distinct_id="user1",
+            properties={"$group_0": "org1"},
+            timestamp="2023-01-01T12:00:00Z",
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user2"],
+            properties={},
+        )
+
+        _create_event(
+            team=self.team,
+            event="pageview",
+            distinct_id="user",
+            properties={"$group_0": "org2"},
+            timestamp="2023-01-01T12:30:00Z",
+        )
+
+        flush_persons_and_events()
+
+        runner = self._create_runner(
+            ActorsQuery(
+                select=["actor"],
+                source=InsightActorsQuery(
+                    source=TrendsQuery(
+                        dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-01"),
+                        interval=IntervalType.DAY,
+                        series=[EventsNode(event="pageview", math="unique_group", math_group_type_index=0)],
+                    ),
+                    series=0,
+                    day="2023-01-01T12:00:00Z",
+                ),
+            )
+        )
+        response = runner.calculate()
+
+        assert len(response.results) == 2
+        group = response.results[0][0]
+        assert group["id"] == "org1"
+        assert group["properties"]["name"] == "org1.inc"
+        assert set(group.keys()) == {
+            "id",
+            "group_key",
+            "group_type_index",
+            "created_at",
+            "properties",
+            "group_properties",
+            "type",
+        }
+
+        group = response.results[1][0]
+        assert group["id"] == "org2"
+        assert set(group.keys()) == {"id", "group_type_index"}

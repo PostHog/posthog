@@ -1,12 +1,10 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     client::database::Client,
-    cohort::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
-        flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
-        flag_models::FeatureFlagList,
-        flag_request::FlagRequest,
-        flag_service::FlagService,
+        flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher,
+        flag_models::FeatureFlagList, flag_request::FlagRequest, flag_service::FlagService,
     },
     router,
     team::team_models::Team,
@@ -745,7 +743,7 @@ mod tests {
             &FlagDetails {
                 key: "error-flag".to_string(),
                 enabled: false,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "unknown".to_string(),
                     condition_index: None,
@@ -1059,7 +1057,7 @@ mod tests {
             FlagDetails {
                 key: "flag_1".to_string(),
                 enabled: true,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -1078,7 +1076,7 @@ mod tests {
             FlagDetails {
                 key: "flag_2".to_string(),
                 enabled: false,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "out_of_rollout_bound".to_string(),
                     condition_index: Some(0),

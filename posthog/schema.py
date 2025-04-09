@@ -985,18 +985,17 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
-class ExperimentMetricBaseProperties(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    name: Optional[str] = None
-    time_window_hours: Optional[float] = None
-
-
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
+
+
+class ExperimentMetricOutlierHandling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower_bound_percentile: Optional[float] = None
+    upper_bound_percentile: Optional[float] = None
 
 
 class ExperimentMetricType(StrEnum):
@@ -1062,6 +1061,7 @@ class FileSystemEntry(BaseModel):
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
@@ -1095,6 +1095,7 @@ class FileSystemImport(BaseModel):
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
@@ -2698,6 +2699,16 @@ class ExperimentExposureQueryResponse(BaseModel):
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
+
+
+class ExperimentMetricBaseProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    name: Optional[str] = None
 
 
 class FeaturePropertyFilter(BaseModel):
@@ -8006,30 +8017,36 @@ class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
     series: list[Union[EventsNode, ActionsNode]]
-    time_window_hours: Optional[float] = None
 
 
 class ExperimentMeanMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
-    time_window_hours: Optional[float] = None
+    upper_bound_percentile: Optional[float] = None
 
 
 class ExperimentMeanMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    upper_bound_percentile: Optional[float] = None
 
 
 class ExperimentMetric(RootModel[Union[ExperimentMeanMetric, ExperimentFunnelMetric]]):

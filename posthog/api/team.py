@@ -31,8 +31,8 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
+from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
@@ -184,6 +184,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
+    group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
@@ -215,6 +216,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             # Computed fields
             "effective_membership_level",
             "has_group_types",
+            "group_types",
             "live_events_token",
             "product_intents",
             "access_control_version",
@@ -231,6 +233,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "group_types",
             "default_modifiers",
             "person_on_events_querying_enabled",
             "live_events_token",
@@ -279,6 +282,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team_id=team.id).exists()
+
+    def get_group_types(self, team: Team) -> list[dict[str, Any]]:
+        return list(
+            GroupTypeMapping.objects.filter(project_id=team.project_id).values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        )
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(

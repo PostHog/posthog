@@ -482,6 +482,7 @@ const teamActionsMapping: Record<
     data_attributes: () => null,
     effective_membership_level: () => null,
     has_group_types: () => null,
+    group_types: () => null,
     ingested_event: () => null,
     is_demo: () => null,
     live_events_columns: () => null,
@@ -493,7 +494,15 @@ const teamActionsMapping: Record<
     primary_dashboard: () => null,
     slack_incoming_webhook: () => null,
     timezone: () => null,
-    surveys_opt_in: () => null,
+    surveys_opt_in: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [<>{change?.after ? 'enabled' : 'disabled'} surveys</>],
+        }
+    },
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,
