@@ -10,7 +10,6 @@ jest.mock('../../../src/utils/db/error')
 describe('runOnEvent', () => {
     let mockHub: any, onEvent: jest.Mock
 
-    // @ts-expect-error TODO: Fix type error
     const createEvent = (data: Partial<PostIngestionEvent> = {}): PostIngestionEvent => ({
         eventUuid: 'uuid1',
         distinctId: 'my_id',
@@ -138,7 +137,6 @@ describe('runComposeWebhook', () => {
         mockActionManager: any,
         mockPostgres: any
 
-    // @ts-expect-error TODO: Fix type error
     const createEvent = (data: Partial<PostIngestionEvent> = {}): PostIngestionEvent => ({
         eventUuid: 'uuid1',
         distinctId: 'my_id',

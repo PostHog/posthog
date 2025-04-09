@@ -3,14 +3,7 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
-import {
-    ClickHouseEvent,
-    HookPayload,
-    PipelineEvent,
-    PostIngestionEvent,
-    RawClickHouseEvent,
-    RawClickHouseEvent,
-} from '../types'
+import { ClickHouseEvent, HookPayload, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import {
     hasDifferenceWithProposedNewNormalisationMode,

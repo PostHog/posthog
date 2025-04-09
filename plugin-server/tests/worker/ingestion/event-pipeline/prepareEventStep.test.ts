@@ -50,7 +50,7 @@ const teamTwo: Team = {
     slack_incoming_webhook: '',
     session_recording_opt_in: false,
     ingested_event: true,
-}
+} as Team
 
 describe('prepareEventStep()', () => {
     let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>

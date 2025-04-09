@@ -812,7 +812,9 @@ describe('DB', () => {
     describe('fetchTeam()', () => {
         it('fetches a team by id', async () => {
             const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token1')
+            const teamId = await createTeam(db.postgres, organizationId, {
+                api_token: 'token1',
+            })
 
             const fetchedTeam = await hub.db.fetchTeam(teamId)
             expect(fetchedTeam).toEqual({
@@ -844,7 +846,9 @@ describe('DB', () => {
     describe('fetchTeamByToken()', () => {
         it('fetches a team by token', async () => {
             const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token2')
+            const teamId = await createTeam(db.postgres, organizationId, {
+                api_token: 'token2',
+            })
 
             const fetchedTeam = await hub.db.fetchTeamByToken('token2')
             expect(fetchedTeam).toEqual({

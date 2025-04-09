@@ -27,7 +27,6 @@ jest.mock('../../../src/utils/logger')
 function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {
     const url: string = overrides.properties?.$current_url ?? 'http://example.com/foo/'
 
-    // @ts-expect-error TODO: Fix underlying types
     return {
         eventUuid: 'uuid1',
         distinctId: 'my_id',

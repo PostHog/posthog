@@ -80,7 +80,6 @@ describe('hooks', () => {
             const now = DateTime.utc(2024, 1, 1).toISO()
             const uuid = '018f39d3-d94c-0000-eeef-df4a793f8844'
             await hookCommander.postWebhook(
-                // @ts-expect-error TODO: Fix underlying type
                 {
                     eventUuid: uuid,
                     distinctId: 'WALL-E',

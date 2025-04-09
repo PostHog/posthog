@@ -1,6 +1,6 @@
-import { PostgresRouter } from '~/src/utils/db/postgres'
+import { createHub } from '~/src/utils/db/hub'
 
-import { buildStringMatcher } from '../../../src/config/config'
+import { buildStringMatcher, defaultConfig } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import {
     eachBatchParallelIngestion,
@@ -20,11 +20,6 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
-import { ActionManager } from '../../../src/worker/ingestion/action-manager'
-import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
-import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
-import { HookCommander } from '../../../src/worker/ingestion/hooks'
-import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { runOnEvent } from '../../../src/worker/plugins/run'
 import { pluginConfig39 } from '../../helpers/plugins'
 
@@ -168,37 +163,14 @@ describe('eachBatchX', () => {
 
     describe('eachBatchWebhooksHandlers', () => {
         it('calls runWebhooksHandlersEventPipeline', async () => {
-            const actionManager = new ActionManager(queue.pluginsServer.postgres, queue.pluginsServer)
-            const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
-            const hookCannon = new HookCommander(
-                queue.pluginsServer.postgres,
-                queue.pluginsServer.teamManager,
-                queue.pluginsServer.organizationManager,
-                queue.pluginsServer.rustyHook,
-                queue.pluginsServer.appMetrics,
-                queue.pluginsServer.EXTERNAL_REQUEST_TIMEOUT_MS
-            )
-            const groupTypeManager: GroupTypeManager = {
-                fetchGroupTypes: jest.fn(() => Promise.resolve({})),
-            } as unknown as GroupTypeManager
-            const organizatonManager: OrganizationManager = {
-                hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
-            } as unknown as OrganizationManager
+            const hub = await createHub(defaultConfig)
+            hub.groupTypeManager.fetchGroupTypes = jest.fn(() => Promise.resolve({}))
+            hub.organizationManager.hasAvailableFeature = jest.fn(() => Promise.resolve(true))
 
-            const matchSpy = jest.spyOn(actionMatcher, 'match')
+            const matchSpy = jest.spyOn(hub.actionMatcher, 'match')
             // mock hasWebhooks to return true
-            actionMatcher.hasWebhooks = jest.fn(() => true)
-            await eachBatchWebhooksHandlers(
-                createKafkaJSBatch(kafkaEvent),
-                actionMatcher,
-                hookCannon,
-                10,
-                groupTypeManager,
-                organizatonManager,
-
-                // @ts-expect-error this is not being used in the function, so just passing null here
-                null as PostgresRouter
-            )
+            hub.actionMatcher.hasWebhooks = jest.fn(() => true)
+            await eachBatchWebhooksHandlers(hub, createKafkaJSBatch(kafkaEvent))
 
             // NOTE: really it would be nice to verify that fire has been called
             // on hookCannon, but that would require a little more setup, and it
