@@ -26,10 +26,13 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 /// This function uses SHA1 to generate a hash, then converts the first 15 characters to a number
 /// between 0 and 1. The hash is deterministic for the same input values.
 ///
-/// # Arguments
+/// ## Arguments
 /// * `prefix` - A prefix to add to the hash key (e.g., "holdout-")
 /// * `hashed_identifier` - The main identifier to hash (e.g., user ID)
 /// * `salt` - Additional string to make the hash unique (can be empty)
+///
+/// ## Returns
+/// * `f64` - A number between 0 and 1
 pub async fn calculate_hash(
     prefix: &str,
     hashed_identifier: &str,
@@ -52,15 +55,7 @@ pub async fn calculate_hash(
 /// Fetch and locally cache all properties for a given distinct ID and team ID.
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
-/// It updates the properties cache with the fetched properties and returns the result.
-///
-/// # Arguments
-/// * `flag_evaluation_state` - The flag evaluation state to update
-/// * `reader` - Database reader connection
-/// * `distinct_id` - The distinct ID to fetch properties for
-/// * `team_id` - The team ID to fetch properties for
-/// * `group_type_indexes` - The group type indexes to fetch properties for
-/// * `group_keys` - The group keys to fetch properties for
+/// It updates the properties cache with the fetched properties and returns void if it succeeds.
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,
@@ -167,11 +162,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 ///
 /// This function constructs and executes a SQL query to fetch the person properties for a specified distinct ID and team ID.
 /// It returns the fetched properties as a HashMap.
-///
-/// # Arguments
-/// * `reader` - Database reader connection
-/// * `distinct_id` - The distinct ID to fetch properties for
-/// * `team_id` - The team ID to fetch properties for
 pub async fn fetch_person_properties_from_db(
     reader: PostgresReader,
     distinct_id: String,
@@ -213,12 +203,6 @@ pub async fn fetch_person_properties_from_db(
 ///
 /// This function constructs and executes a SQL query to fetch the group properties for a specified team ID and group type index.
 /// It returns the fetched properties as a HashMap.
-///
-/// # Arguments
-/// * `reader` - Database reader connection
-/// * `team_id` - The team ID to fetch properties for
-/// * `group_type_index` - The group type index to fetch properties for
-/// * `group_key` - The group key to fetch properties for
 pub async fn fetch_group_properties_from_db(
     reader: PostgresReader,
     team_id: TeamId,
@@ -286,11 +270,6 @@ pub fn all_properties_match(
 /// This function fetches any hash key overrides that have been set for feature flags
 /// for the given distinct IDs. It handles priority by giving precedence to the first
 /// distinct ID in the list.
-///
-/// # Arguments
-/// * `reader` - Database reader connection
-/// * `team_id` - The team ID to fetch overrides for
-/// * `distinct_id_and_hash_key_override` - List of distinct IDs to check for overrides
 pub async fn get_feature_flag_hash_key_overrides(
     reader: PostgresReader,
     team_id: TeamId,
@@ -352,13 +331,6 @@ pub async fn get_feature_flag_hash_key_overrides(
 /// This function creates hash key overrides for all active feature flags that have
 /// experience continuity enabled. It includes retry logic for handling race conditions
 /// with person deletions.
-///
-/// # Arguments
-/// * `writer` - Database writer connection
-/// * `team_id` - The team ID to set overrides for
-/// * `distinct_ids` - List of distinct IDs to set overrides for
-/// * `project_id` - The project ID associated with the team
-/// * `hash_key_override` - The hash key value to set for the overrides
 pub async fn set_feature_flag_hash_key_overrides(
     writer: PostgresWriter,
     team_id: TeamId,
@@ -447,13 +419,6 @@ pub async fn set_feature_flag_hash_key_overrides(
 /// This function determines if there are any active feature flags with experience
 /// continuity enabled that don't already have hash key overrides for the given
 /// distinct ID.
-///
-/// # Arguments
-/// * `reader` - Database reader connection
-/// * `team_id` - The team ID to check
-/// * `distinct_id` - The distinct ID to check
-/// * `project_id` - The project ID associated with the team
-/// * `hash_key_override` - The hash key value that would be set
 pub async fn should_write_hash_key_override(
     reader: PostgresReader,
     team_id: TeamId,

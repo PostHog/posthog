@@ -89,6 +89,10 @@ impl Cohort {
     }
 
     /// Extracts dependent CohortIds from the cohort's filters
+    ///
+    /// # Returns
+    /// * `HashSet<CohortId>` - A set of dependent cohort IDs
+    /// * `FlagError` - If there is an error parsing the filters
     pub fn extract_dependencies(&self) -> Result<HashSet<CohortId>, FlagError> {
         let filters = match &self.filters {
             Some(filters) => filters,
@@ -191,6 +195,10 @@ impl InnerCohortProperty {
             .collect()
     }
 
+    /// Evaluates a cohort property based on its type (AND/OR) and values.
+    ///
+    /// This function recursively evaluates the cohort property tree structure, handling both
+    /// property matches and nested cohort membership checks.
     pub fn evaluate(
         &self,
         target_properties: &HashMap<String, Value>,
@@ -217,6 +225,10 @@ impl InnerCohortProperty {
     }
 }
 
+/// Evaluates a set of cohort values against target properties.
+///
+/// This function handles both regular property matching and cohort membership checks
+/// based on the property type (OR/AND/property).
 fn evaluate_cohort_values(
     values: &CohortValues,
     target_properties: &HashMap<String, Value>,
@@ -259,9 +271,13 @@ fn evaluate_cohort_values(
     }
 }
 
-/// Evaluates a dynamic cohort and its dependencies.
-/// This uses a topological sort to evaluate dependencies first, which is necessary
-/// because a cohort can depend on another cohort, and we need to respect the dependency order.
+/// Evaluates a dynamic cohort and its dependencies using topological sorting.
+///
+/// This function:
+/// 1. Checks if the cohort is static (returns early if it is)
+/// 2. Builds a dependency graph of all related cohorts
+/// 3. Sorts dependencies topologically to ensure proper evaluation order
+/// 4. Evaluates each cohort in the correct order, respecting dependencies
 pub fn evaluate_dynamic_cohorts(
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
@@ -303,8 +319,6 @@ pub fn evaluate_dynamic_cohorts(
             .iter()
             .all(|dep_id| evaluation_results.get(dep_id).copied().unwrap_or(false));
 
-        println!("Dependencies met: {}", dependencies_met);
-
         // If dependencies are not met, mark as not matched and continue
         if !dependencies_met {
             evaluation_results.insert(cohort_id, false);
@@ -324,7 +338,6 @@ pub fn evaluate_dynamic_cohorts(
         let cohort_property: CohortProperty = match serde_json::from_value(filters.clone()) {
             Ok(prop) => prop,
             Err(e) => {
-                println!("Failed to parse cohort property: {}", e);
                 evaluation_results.insert(cohort_id, false);
                 continue;
             }
@@ -335,7 +348,6 @@ pub fn evaluate_dynamic_cohorts(
             .properties
             .evaluate(target_properties, &evaluation_results)?;
 
-        println!("Cohort {} evaluation result: {}", cohort_id, matches);
         evaluation_results.insert(cohort_id, matches);
     }
 
@@ -346,7 +358,12 @@ pub fn evaluate_dynamic_cohorts(
         .ok_or_else(|| FlagError::CohortNotFound(initial_cohort_id.to_string()))
 }
 
-/// Apply cohort membership logic (i.e., IN|NOT_IN)
+/// Applies cohort membership logic for a set of cohort filters.
+///
+/// This function evaluates whether a person matches a set of cohort filters by:
+/// 1. Checking each filter's cohort ID
+/// 2. Looking up the match result in the cohort_matches map
+/// 3. Applying the appropriate operator (IN/NOT_IN)
 pub fn apply_cohort_membership_logic(
     cohort_filters: &[PropertyFilter],
     cohort_matches: &HashMap<CohortId, bool>,
@@ -459,7 +476,11 @@ fn build_cohort_dependency_graph(
     Ok(graph)
 }
 
-/// Evaluate static cohort filters by checking if the person is in each cohort.
+/// Evaluates static cohort membership by checking the database.
+///
+/// This function performs a single database query to check if a person
+/// is a member of multiple static cohorts at once, optimizing performance
+/// by batching the lookups.
 pub async fn evaluate_static_cohorts(
     reader: PostgresReader,
     person_id: PersonId,
