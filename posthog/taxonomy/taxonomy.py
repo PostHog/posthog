@@ -14,28 +14,32 @@ class CoreFilterDefinition(TypedDict):
     ignored_in_assistant: NotRequired[bool]
 
 
+"""
+Same as https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
+Ideally this would be imported from one place.
+"""
 CAMPAIGN_PROPERTIES: list[str] = [
     "utm_source",
     "utm_medium",
     "utm_campaign",
     "utm_content",
     "utm_term",
-    "gclid",
-    "gad_source",
-    "gclsrc",
-    "dclid",
-    "gbraid",
-    "wbraid",
-    "fbclid",
-    "msclkid",
-    "twclid",
-    "li_fat_id",
-    "mc_cid",
-    "igshid",
-    "ttclid",
-    "rdt_cid",
-    "irclid",
-    "_kx",
+    "gclid",  # google ads
+    "gad_source",  # google ads
+    "gclsrc",  # google ads 360
+    "dclid",  # google display ads
+    "gbraid",  # google ads, web to app
+    "wbraid",  # google ads, app to web
+    "fbclid",  # facebook
+    "msclkid",  # microsoft
+    "twclid",  # twitter
+    "li_fat_id",  # linkedin
+    "mc_cid",  # mailchimp campaign id
+    "igshid",  # instagram
+    "ttclid",  # tiktok
+    "rdt_cid",  # reddit
+    "irclid",  # impact
+    "_kx",  # klaviyo
 ]
 
 PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
