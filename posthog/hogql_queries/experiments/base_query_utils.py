@@ -72,20 +72,16 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
 
 
 def conversion_window_to_seconds(conversion_window: int, conversion_window_unit: FunnelConversionWindowTimeUnit) -> int:
-    match conversion_window_unit:
-        case FunnelConversionWindowTimeUnit.SECOND:
-            multiplier = 1
-        case FunnelConversionWindowTimeUnit.MINUTE:
-            multiplier = 60
-        case FunnelConversionWindowTimeUnit.HOUR:
-            multiplier = 60 * 60
-        case FunnelConversionWindowTimeUnit.DAY:
-            multiplier = 24 * 60 * 60
-        case FunnelConversionWindowTimeUnit.WEEK:
-            multiplier = 7 * 24 * 60 * 60
-        case FunnelConversionWindowTimeUnit.MONTH:
-            multiplier = 30 * 24 * 60 * 60
-        case _:
-            raise ValueError(f"Unsupported conversion window unit: {conversion_window_unit}")
+    multipliers = {
+        FunnelConversionWindowTimeUnit.SECOND: 1,
+        FunnelConversionWindowTimeUnit.MINUTE: 60,
+        FunnelConversionWindowTimeUnit.HOUR: 60 * 60,
+        FunnelConversionWindowTimeUnit.DAY: 24 * 60 * 60,
+        FunnelConversionWindowTimeUnit.WEEK: 7 * 24 * 60 * 60,
+        FunnelConversionWindowTimeUnit.MONTH: 30 * 24 * 60 * 60,
+    }
 
-    return conversion_window * multiplier
+    if conversion_window_unit not in multipliers:
+        raise ValueError(f"Unsupported conversion window unit: {conversion_window_unit}")
+
+    return conversion_window * multipliers[conversion_window_unit]
