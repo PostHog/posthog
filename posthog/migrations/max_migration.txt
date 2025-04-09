@@ -1,1 +1,1 @@
-0706_alter_hogfunction_kind
+0707_message_template
