@@ -453,11 +453,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             ),
         )
 
-        # In case of a large number of tiles on a dashboard,
-        # ensure all tiles are computed one at a time to avoid overwhelming the database
-        large_dashboard = len(sorted_tiles) > 4
-
-        with task_chain_context() if chained_tile_refresh_enabled and large_dashboard else nullcontext():
+        with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             for order, tile in enumerate(sorted_tiles):
                 self.context.update(
                     {
