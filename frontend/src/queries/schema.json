@@ -15126,7 +15126,7 @@
                     "type": "string"
                 }
             },
-            "required": ["count", "label"],
+            "required": ["count"],
             "type": "object"
         },
         "RevenueCurrencyPropertyConfig": {

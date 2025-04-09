@@ -3009,7 +3009,7 @@ class RetentionValue(BaseModel):
         extra="forbid",
     )
     count: int
-    label: str
+    label: Optional[str] = None
 
 
 class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
