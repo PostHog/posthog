@@ -743,7 +743,7 @@ mod tests {
             &FlagDetails {
                 key: "error-flag".to_string(),
                 enabled: false,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "unknown".to_string(),
                     condition_index: None,
@@ -1057,7 +1057,7 @@ mod tests {
             FlagDetails {
                 key: "flag_1".to_string(),
                 enabled: true,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -1076,7 +1076,7 @@ mod tests {
             FlagDetails {
                 key: "flag_2".to_string(),
                 enabled: false,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "out_of_rollout_bound".to_string(),
                     condition_index: Some(0),
