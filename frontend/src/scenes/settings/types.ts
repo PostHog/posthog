@@ -125,6 +125,7 @@ export type SettingId =
     | 'user-groups'
     | 'web-revenue-events'
     | 'core-memory'
+    | 'customization-irl'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

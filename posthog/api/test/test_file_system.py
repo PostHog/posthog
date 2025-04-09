@@ -75,6 +75,30 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertIn("id", response_data)
         self.assertEqual(response_data["path"], "MyFolder/Document.txt")
         self.assertEqual(response_data["type"], "doc-file")
+        self.assertEqual(response_data["shortcut"], False)
+        self.assertDictEqual(response_data["meta"], {"description": "A test file"})
+        self.assertEqual(response_data["created_by"]["id"], self.user.pk)
+
+    def test_create_shortcut(self):
+        """
+        Ensure that we can create a FileSystem object for our team.
+        """
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {
+                "path": "MyFolder/Document.txt",
+                "type": "doc-file",
+                "meta": {"description": "A test file"},
+                "shortcut": True,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+        response_data = response.json()
+        self.assertIn("id", response_data)
+        self.assertEqual(response_data["path"], "MyFolder/Document.txt")
+        self.assertEqual(response_data["type"], "doc-file")
+        self.assertEqual(response_data["shortcut"], True)
         self.assertDictEqual(response_data["meta"], {"description": "A test file"})
         self.assertEqual(response_data["created_by"]["id"], self.user.pk)
 
@@ -571,10 +595,12 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         result = response.json()
         self.assertEqual(result["path"], new_path)
+        self.assertEqual(result["shortcut"], True)
         # "NewFolder/NewFile.txt" should have a depth of 2.
         self.assertEqual(result["depth"], 2)
         # Ensure that the parent folder "NewFolder" was auto-created as a folder.
         self.assertTrue(FileSystem.objects.filter(team=self.team, path="NewFolder", type="folder").exists())
+        self.assertTrue(FileSystem.objects.filter(team=self.team, path="NewFolder/NewFile.txt", shortcut=True).exists())
 
     def test_link_folder_endpoint(self):
         """

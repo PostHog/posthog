@@ -44,6 +44,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "ref",
             "href",
             "meta",
+            "shortcut",
             "created_at",
             "created_by",
         ]
@@ -77,7 +78,11 @@ class FileSystemSerializer(serializers.ModelSerializer):
                     depth=depth_index,
                     type="folder",
                     created_by=request.user,
+                    shortcut=False,
                 )
+
+        if validated_data.get("shortcut") is None:
+            validated_data["shortcut"] = False
 
         depth = len(segments)
         file_system = FileSystem.objects.create(
@@ -126,6 +131,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except ValueError:
                 pass
 
+        if self.action == "list":
+            queryset = queryset.order_by("path")
+
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
         if type_param:
@@ -134,9 +142,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(type__startswith=type__startswith_param)
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
-
-        if self.action == "list":
-            queryset = queryset.order_by("path")
+            queryset = queryset.order_by("shortcut")  # override order
 
         return queryset
 
@@ -221,6 +227,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     file.pk = None  # This removes the id
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
+                    file.shortcut = True
                     file.save()  # A new instance is created with a new id
 
                 targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
@@ -231,12 +238,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     instance.pk = None  # This removes the id
                     instance.path = new_path
                     instance.depth = len(split_path(instance.path))
+                    instance.shortcut = True
                     instance.save()  # A new instance is created with a new id
 
         else:
             instance.pk = None  # This removes the id
             instance.path = new_path + instance.path[len(instance.path) :]
             instance.depth = len(split_path(instance.path))
+            instance.shortcut = True
             instance.save()  # A new instance is created with a new id
 
         return Response(
