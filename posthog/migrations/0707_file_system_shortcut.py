@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="filesystem",
-            name="primary",
+            name="shortcut",
             field=models.BooleanField(null=True, blank=True),
         ),
     ]

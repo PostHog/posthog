@@ -1868,8 +1868,8 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
-    /** Whether this is the item's primary entry or a shortcut */
-    primary?: boolean
+    /** Whether this is a shortcut or the actual item */
+    shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
 }

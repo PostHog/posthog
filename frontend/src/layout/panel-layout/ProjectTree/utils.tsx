@@ -18,7 +18,7 @@ export interface ConvertProps {
 }
 
 export function wrapWithShortutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
-    if (!item.primary) {
+    if (item.shortcut) {
         return (
             <div className="relative">
                 {icon}

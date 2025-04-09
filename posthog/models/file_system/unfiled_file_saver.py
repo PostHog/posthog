@@ -66,7 +66,7 @@ class UnfiledFileSaver:
                     href=rep.href,
                     meta=rep.meta,
                     created_by=self.user,
-                    primary=True,
+                    shortcut=False,
                 )
             )
         FileSystem.objects.bulk_create(new_files)
