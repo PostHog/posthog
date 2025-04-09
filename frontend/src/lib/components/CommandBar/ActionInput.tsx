@@ -17,9 +17,9 @@ type PrefixIconProps = {
 const PrefixIcon = ({ activeFlow }: PrefixIconProps): React.ReactElement | null => {
     if (activeFlow) {
         return <activeFlow.icon className="palette__icon" /> ?? <IconPencil className="palette__icon" />
-    } else {
+    } 
         return <IconChevronRight className="palette__icon" />
-    }
+    
 }
 
 export const ActionInput = (): JSX.Element => {

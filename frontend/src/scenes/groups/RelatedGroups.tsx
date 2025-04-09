@@ -25,13 +25,13 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             render: function RenderActor(_, actor: ActorType) {
                 if (actor.type === 'group') {
                     return <>{capitalizeFirstLetter(aggregationLabel(actor.group_type_index).singular)}</>
-                } else {
+                } 
                     return (
                         <>
                             <IconPerson /> Person
                         </>
                     )
-                }
+                
             },
         },
         {
@@ -40,9 +40,9 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             render: function RenderActor(_, actor: ActorType) {
                 if (actor.type == 'group') {
                     return <GroupActorDisplay actor={actor} />
-                } else {
+                } 
                     return <PersonDisplay person={actor} withIcon={false} />
-                }
+                
             },
         },
     ]

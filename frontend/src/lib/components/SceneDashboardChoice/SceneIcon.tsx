@@ -11,7 +11,7 @@ export function SceneIcon(props: { scene: DashboardCompatibleScenes; size: 'smal
         return <IconPerson className={className} />
     } else if (props.scene === Scene.Person) {
         return <IconPerson className={className} />
-    } else {
+    } 
         return null
-    }
+    
 }

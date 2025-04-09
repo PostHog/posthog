@@ -21,9 +21,9 @@ export function getNextSorting(
         return { columnKey: selectedColumnKey, order: 1 }
     } else if (currentSorting.order === 1) {
         return { columnKey: selectedColumnKey, order: -1 }
-    } else {
+    } 
         return null
-    }
+    
 }
 
 export const SortingIndicator: React.FunctionComponent<
