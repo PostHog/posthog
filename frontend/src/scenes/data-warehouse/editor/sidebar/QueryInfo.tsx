@@ -6,7 +6,6 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
-import { useEffect } from 'react'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { DataModelingJob, DataWarehouseSyncInterval, OrNever } from '~/types'
@@ -69,18 +68,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
         dataModelingJobs,
         hasMoreJobsToLoad,
     } = useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery, loadDataModelingJobs, loadOlderDataModelingJobs, resetDataModelingJobs } =
-        useActions(dataWarehouseViewsLogic)
+    const { updateDataWarehouseSavedQuery, loadOlderDataModelingJobs } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
-
-    useEffect(() => {
-        if (editingView) {
-            resetDataModelingJobs()
-            loadDataModelingJobs(editingView.id)
-        }
-    }, [editingView?.id, loadDataModelingJobs, resetDataModelingJobs])
 
     if (initialDataWarehouseSavedQueryLoading) {
         return (
@@ -229,6 +220,11 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         // Convert date strings to timestamps before subtraction
                                         const start = new Date(job.created_at).getTime()
                                         const end = new Date(job.last_run_at).getTime()
+
+                                        if (start > end) {
+                                            return 'N/A'
+                                        }
+
                                         return humanFriendlyDuration((end - start) / 1000)
                                     },
                                 },
