@@ -1,7 +1,9 @@
 import { IconCheck, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import MaxTool from 'scenes/max/MaxTool'
@@ -24,6 +26,8 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { setSuggestedQueryInput, onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } =
         useActions(multitabEditorLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -64,21 +68,23 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         )}
                     </AutoSizer>
                 </div>
-                <div className="absolute bottom-6 right-4">
-                    <MaxTool
-                        name="generate_hogql_query"
-                        displayName="Write and tweak SQL"
-                        context={{
-                            current_query: props.queryInput,
-                        }}
-                        callback={(toolOutput: string) => {
-                            setSuggestedQueryInput(toolOutput)
-                        }}
-                        suggestions={[]}
-                    >
-                        <div className="relative" />
-                    </MaxTool>
-                </div>
+                {featureFlags[FEATURE_FLAGS.AI_HOGQL] && (
+                    <div className="absolute bottom-6 right-4">
+                        <MaxTool
+                            name="generate_hogql_query"
+                            displayName="Write and tweak SQL"
+                            context={{
+                                current_query: props.queryInput,
+                            }}
+                            callback={(toolOutput: string) => {
+                                setSuggestedQueryInput(toolOutput)
+                            }}
+                            suggestions={[]}
+                        >
+                            <div className="relative" />
+                        </MaxTool>
+                    </div>
+                )}
                 {props.originalValue && (
                     <div
                         className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
