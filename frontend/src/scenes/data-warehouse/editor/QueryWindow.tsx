@@ -25,7 +25,7 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, isValidView } =
+    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, suggestedQueryInput } =
         useValues(multitabEditorLogic)
     const {
         renameTab,
@@ -38,8 +38,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadata,
         setMetadataLoading,
         saveAsView,
-        setIsValidView,
         setSuggestedQueryInput,
+        onAcceptSuggestedQueryInput,
+        onRejectSuggestedQueryInput,
     } = useActions(multitabEditorLogic)
 
     const { response } = useValues(dataNodeLogic)
@@ -123,9 +124,17 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 }}
             >
                 <QueryPane
-                    queryInput={queryInput}
+                    originalValue={
+                        suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined
+                    }
+                    queryInput={
+                        suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput
+                    }
                     sourceQuery={sourceQuery.source}
                     promptError={null}
+                    onAccept={onAcceptSuggestedQueryInput}
+                    onRun={runQuery}
+                    onReject={onRejectSuggestedQueryInput}
                     codeEditorProps={{
                         queryKey: codeEditorKey,
                         onChange: (v) => {
@@ -143,7 +152,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         },
                         onError: (error) => {
                             setError(error)
-                            setIsValidView(isValidView)
                         },
                         onMetadata: (metadata) => {
                             setMetadata(metadata)
