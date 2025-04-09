@@ -20,7 +20,7 @@ class FileSystem(models.Model):
     type = models.CharField(max_length=100, blank=True)
     ref = models.CharField(max_length=100, null=True, blank=True)
     href = models.TextField(null=True, blank=True)
-    primary = models.BooleanField(default=False)
+    primary = models.BooleanField(null=True, blank=True)
     meta = models.JSONField(default=dict, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)

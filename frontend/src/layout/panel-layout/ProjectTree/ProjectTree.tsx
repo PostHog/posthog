@@ -85,7 +85,7 @@ export function ProjectTree(): JSX.Element {
                             assureVisibility({ type: item.record?.type, ref: item.record?.ref })
                         }}
                     >
-                        <ButtonPrimitive menuItem>Open original</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
                 {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
@@ -140,7 +140,11 @@ export function ProjectTree(): JSX.Element {
                             deleteItem(item.record as unknown as FileSystemEntry)
                         }}
                     >
-                        <ButtonPrimitive menuItem>Remove</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>
+                            {item.record?.primary || item.record?.type === 'folder'
+                                ? "Delete and move to 'Unfiled'"
+                                : 'Remove'}
+                        </ButtonPrimitive>
                     </MenuItem>
                 ) : null}
                 {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
