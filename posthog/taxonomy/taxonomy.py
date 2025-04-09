@@ -132,8 +132,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Setting person properties. Sent as `$set`",
-            "ignored_in_assistant": True,  # Irrelevant product-wise
+            "description": "Setting person properties. Sent as `$set`.",
+            "ignored_in_assistant": True,
         },
         "$opt_in": {
             "label": "Opt in",
@@ -165,44 +165,44 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$capture_metrics": {
             "label": "Capture metrics",
-            "description": "Metrics captured with values pertaining to your systems at a specific point in time",
+            "description": "Metrics captured with values pertaining to your systems at a specific point in time.",
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$identify": {
             "label": "Identify",
-            "description": "A user has been identified with properties",
+            "description": "A user has been identified with properties.",
             "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
         },
         "$create_alias": {
             "label": "Alias",
-            "description": "An alias ID has been added to a user",
+            "description": "An alias ID has been added to a user.",
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$merge_dangerously": {
             "label": "Merge",
-            "description": "An alias ID has been added to a user",
+            "description": "An alias ID has been added to a user.",
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$groupidentify": {
             "label": "Group identify",
-            "description": "A group has been identified with properties",
+            "description": "A group has been identified with properties.",
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$rageclick": {
             "label": "Rageclick",
-            "description": "A user has rapidly and repeatedly clicked in a single place",
+            "description": "A user has rapidly and repeatedly clicked in a single place.",
         },
         "$dead_click": {
             "label": "Dead click",
-            "description": "A user has clicked on something that is probably not clickable",
+            "description": "A user has clicked on something that is probably not clickable.",
         },
         "$exception": {
             "label": "Exception",
-            "description": "An unexpected error or unhandled exception in your application",
+            "description": "An unexpected error or unhandled exception in your application.",
         },
         "$web_vitals": {
             "label": "Web vitals",
-            "description": "Automatically captured web vitals data",
+            "description": "Automatically captured web vitals data.",
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
@@ -356,12 +356,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Person properties to be set. Sent as `$set`",
+            "description": "Person properties to be set. Sent as `$set`.",
             "ignored_in_assistant": True,
         },
         "$set_once": {
             "label": "Set person properties once",
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
             "ignored_in_assistant": True,
         },
         "$pageview_id": {
@@ -1484,146 +1484,146 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         # AI
         "$ai_base_url": {
             "label": "AI base URL (LLM)",
-            "description": "The base URL of the request made to the LLM API",
+            "description": "The base URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/"],
         },
         "$ai_http_status": {
             "label": "AI HTTP status (LLM)",
-            "description": "The HTTP status code of the request made to the LLM API",
+            "description": "The HTTP status code of the request made to the LLM API.",
             "examples": [200, 429],
         },
         "$ai_input": {
             "label": "AI input (LLM)",
-            "description": "The input JSON that was sent to the LLM API",
+            "description": "The input JSON that was sent to the LLM API.",
             "examples": ['{"content": "Explain quantum computing in simple terms.", "role": "user"}'],
         },
         "$ai_input_tokens": {
             "label": "AI input tokens (LLM)",
-            "description": "The number of tokens in the input prompt that was sent to the LLM API",
+            "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
         "$ai_output": {
             "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API",
+            "description": "The output JSON that was received from the LLM API.",
             "examples": [
                 '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
             ],
         },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
-            "description": "The output message choices JSON that was received from the LLM API",
+            "description": "The output message choices JSON that was received from the LLM API.",
             "examples": [
                 '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
             ],
         },
         "$ai_output_tokens": {
             "label": "AI output tokens (LLM)",
-            "description": "The number of tokens in the output from the LLM API",
+            "description": "The number of tokens in the output from the LLM API.",
             "examples": [23],
         },
         "$ai_cache_read_input_tokens": {
             "label": "AI cache read input tokens (LLM)",
-            "description": "The number of tokens read from the cache for the input prompt",
+            "description": "The number of tokens read from the cache for the input prompt.",
             "examples": [23],
         },
         "$ai_cache_creation_input_tokens": {
             "label": "AI cache creation input tokens (LLM)",
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only)",
+            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23],
         },
         "$ai_reasoning_tokens": {
             "label": "AI reasoning tokens (LLM)",
-            "description": "The number of tokens in the reasoning output from the LLM API",
+            "description": "The number of tokens in the reasoning output from the LLM API.",
             "examples": [23],
         },
         "$ai_input_cost_usd": {
             "label": "AI input cost USD (LLM)",
-            "description": "The cost in USD of the input tokens sent to the LLM API",
+            "description": "The cost in USD of the input tokens sent to the LLM API.",
             "examples": [0.0017],
         },
         "$ai_output_cost_usd": {
             "label": "AI output cost USD (LLM)",
-            "description": "The cost in USD of the output tokens received from the LLM API",
+            "description": "The cost in USD of the output tokens received from the LLM API.",
             "examples": [0.0024],
         },
         "$ai_total_cost_usd": {
             "label": "AI total cost USD (LLM)",
-            "description": "The total cost in USD of the request made to the LLM API (input + output costs)",
+            "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
             "examples": [0.0041],
         },
         "$ai_latency": {
             "label": "AI latency (LLM)",
-            "description": "The latency of the request made to the LLM API, in seconds",
+            "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361],
         },
         "$ai_model": {
             "label": "AI model (LLM)",
-            "description": "The model used to generate the output from the LLM API",
+            "description": "The model used to generate the output from the LLM API.",
             "examples": ["gpt-4o-mini"],
         },
         "$ai_model_parameters": {
             "label": "AI model parameters (LLM)",
-            "description": "The parameters used to configure the model in the LLM API, in JSON",
+            "description": "The parameters used to configure the model in the LLM API, in JSON.",
             "examples": ['{"temperature": 0.5, "max_tokens": 50}'],
         },
         "$ai_tools": {
             "label": "AI tools (LLM)",
-            "description": "The tools available to the LLM",
+            "description": "The tools available to the LLM.",
             "examples": [
                 '[{"type": "function", "function": {"name": "tool1", "arguments": {"arg1": "value1", "arg2": "value2"}}}]',
             ],
         },
         "$ai_stream": {
             "label": "AI stream (LLM)",
-            "description": "Whether the response from the LLM API was streamed",
+            "description": "Whether the response from the LLM API was streamed.",
             "examples": ["true", "false"],
         },
         "$ai_temperature": {
             "label": "AI temperature (LLM)",
-            "description": "The temperature parameter used in the request to the LLM API",
+            "description": "The temperature parameter used in the request to the LLM API.",
             "examples": [0.7, 1.0],
         },
         "$ai_input_state": {
             "label": "AI Input State (LLM)",
-            "description": "Input state of the LLM agent",
+            "description": "Input state of the LLM agent.",
         },
         "$ai_output_state": {
             "label": "AI Output State (LLM)",
-            "description": "Output state of the LLM agent",
+            "description": "Output state of the LLM agent.",
         },
         "$ai_provider": {
             "label": "AI Provider (LLM)",
-            "description": "The provider of the AI model used to generate the output from the LLM API",
+            "description": "The provider of the AI model used to generate the output from the LLM API.",
             "examples": ["openai"],
         },
         "$ai_trace_id": {
             "label": "AI Trace ID (LLM)",
-            "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace",
+            "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
         },
         "$ai_request_url": {
             "label": "AI Request URL (LLM)",
-            "description": "The full URL of the request made to the LLM API",
+            "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
-            "description": "The name assigned to the metric used to evaluate the LLM trace",
+            "description": "The name assigned to the metric used to evaluate the LLM trace.",
             "examples": ["rating", "accuracy"],
         },
         "$ai_metric_value": {
             "label": "AI Metric Value (LLM)",
-            "description": "The value assigned to the metric used to evaluate the LLM trace",
+            "description": "The value assigned to the metric used to evaluate the LLM trace.",
             "examples": ["negative", "95"],
         },
         "$ai_feedback_text": {
             "label": "AI Feedback Text (LLM)",
-            "description": "The text provided by the user for feedback on the LLM trace",
+            "description": "The text provided by the user for feedback on the LLM trace.",
             "examples": ['"The response was helpful, but it did not use the provided context."'],
         },
         "$ai_parent_id": {
             "label": "AI Parent ID (LLM)",
-            "description": "The parent span ID of a span or generation, used to group a trace into a tree view",
+            "description": "The parent span ID of a span or generation, used to group a trace into a tree view.",
             "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
         },
         "$ai_span_id": {
@@ -1654,7 +1654,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$end_timestamp": {
             "label": "End timestamp",
-            "description": "The timestamp of the last event from this session",
+            "description": "The timestamp of the last event from this session.",
             "examples": ["2023-05-20T16:30:00Z"],
             "type": "DateTime",
         },
@@ -1684,13 +1684,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$exit_current_url": {
             "label": "Exit URL",
-            "description": "The last URL visited in this session. (deprecated, use $end_current_url)",
+            "description": "The last URL visited in this session. (deprecated, use $end_current_url).",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$exit_pathname": {
             "label": "Exit pathname",
-            "description": "The last pathname visited in this session. (deprecated, use $end_pathname)",
+            "description": "The last pathname visited in this session. (deprecated, use $end_pathname).",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
