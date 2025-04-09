@@ -1292,3 +1292,45 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         }
     }),
 ])
+
+// Add this function to check if changes require confirmation
+export function changesRequireConfirmation(
+    originalFlag: FeatureFlagType,
+    updatedFlag: FeatureFlagType,
+    flagsRequireConfirmation: boolean
+): { requiresConfirmation: boolean; changes: string[] } {
+    if (!flagsRequireConfirmation) {
+        return { requiresConfirmation: false, changes: [] }
+    }
+
+    const changes: string[] = []
+
+    // Check for enabled/disabled change
+    if (originalFlag.active !== updatedFlag.active) {
+        changes.push(updatedFlag.active ? 'Enabling the feature flag' : 'Disabling the feature flag')
+    }
+
+    // Check for release condition changes
+    if (JSON.stringify(originalFlag.filters.groups) !== JSON.stringify(updatedFlag.filters.groups)) {
+        changes.push('Changing release conditions')
+    }
+
+    // Check for variant changes in multivariate flags
+    if (originalFlag.filters.multivariate && updatedFlag.filters.multivariate) {
+        if (JSON.stringify(originalFlag.filters.multivariate) !== JSON.stringify(updatedFlag.filters.multivariate)) {
+            changes.push('Changing variant configuration')
+        }
+    }
+
+    // Check for variant rollout percentage changes
+    if (originalFlag.filters.payloads && updatedFlag.filters.payloads) {
+        if (JSON.stringify(originalFlag.filters.payloads) !== JSON.stringify(updatedFlag.filters.payloads)) {
+            changes.push('Changing variant payloads')
+        }
+    }
+
+    return {
+        requiresConfirmation: changes.length > 0,
+        changes,
+    }
+}

@@ -71,7 +71,7 @@ import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConfirmationModal } from './FeatureFlagConfirmationModal'
-import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { changesRequireConfirmation, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -131,8 +131,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     // State for feature flag confirmation modal
-    const [confirmToggleModalVisible, setConfirmToggleModalVisible] = useState(false)
-    const [flagValueToConfirm, setFlagValueToConfirm] = useState<boolean | null>(null)
+    const [flagChanges, setFlagChanges] = useState<string[]>([])
+    const [showSaveConfirmModal, setShowSaveConfirmModal] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
@@ -256,6 +256,30 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
+    // Handler for Save button clicks
+    const handleSaveClick = (e: React.MouseEvent): void => {
+        // Only prevent default if we need to show confirmation
+        if (!isNewFeatureFlag && flagsRequireConfirmation) {
+            const originalFeatureFlag = featureFlagLogic.findMounted({ id: props.id })?.values.originalFeatureFlag
+
+            if (originalFeatureFlag) {
+                const { requiresConfirmation, changes } = changesRequireConfirmation(
+                    originalFeatureFlag,
+                    featureFlag,
+                    flagsRequireConfirmation
+                )
+
+                if (requiresConfirmation) {
+                    e.preventDefault() // Prevent form submission
+                    setFlagChanges(changes)
+                    setShowSaveConfirmModal(true)
+                }
+                // If no confirmation needed, let the normal form submission happen
+            }
+        }
+        // For new flags or when confirmation not required, let normal form submission occur
+    }
+
     const renderFlag = (): JSX.Element => (
         <>
             <div className="feature-flag">
@@ -289,9 +313,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         type="primary"
                                         data-attr="save-feature-flag"
                                         htmlType="submit"
-                                        form="feature-flag"
+                                        onClick={handleSaveClick}
                                     >
-                                        Save
+                                        <span>Save</span>
                                     </LemonButton>
                                 </div>
                             }
@@ -385,12 +409,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 id="flag-enabled-checkbox"
                                                 label="Enable feature flag"
                                                 onChange={() => {
-                                                    if (flagsRequireConfirmation && !isNewFeatureFlag) {
-                                                        setFlagValueToConfirm(!value)
-                                                        setConfirmToggleModalVisible(true)
-                                                    } else {
-                                                        onChange(!value)
-                                                    }
+                                                    // Simply update the value, don't show confirmation immediately
+                                                    // Confirmation will happen when saving the form
+                                                    onChange(!value)
                                                 }}
                                                 checked={value}
                                                 dataAttr="feature-flag-enabled-checkbox"
@@ -496,9 +517,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 type="primary"
                                 data-attr="save-feature-flag"
                                 htmlType="submit"
-                                form="feature-flag"
+                                onClick={handleSaveClick}
                             >
-                                Save
+                                <span>Save</span>
                             </LemonButton>
                         </div>
                     </Form>
@@ -673,18 +694,21 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     return (
         <>
             {renderFlag()}
-            {flagValueToConfirm !== null && (
+            {/* Show only the save confirmation modal for significant changes */}
+            {showSaveConfirmModal && (
                 <FeatureFlagConfirmationModal
-                    isOpen={confirmToggleModalVisible}
+                    isOpen={showSaveConfirmModal}
                     featureFlag={featureFlag}
-                    activeNewValue={flagValueToConfirm}
+                    changes={flagChanges}
                     onConfirm={() => {
-                        saveFeatureFlag({ active: flagValueToConfirm })
-                        setConfirmToggleModalVisible(false)
+                        setShowSaveConfirmModal(false)
+                        // Get the form directly and submit it
+                        document
+                            .getElementById('feature-flag')
+                            ?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
                     }}
                     onCancel={() => {
-                        setConfirmToggleModalVisible(false)
-                        setFlagValueToConfirm(null)
+                        setShowSaveConfirmModal(false)
                     }}
                 />
             )}

@@ -143,15 +143,8 @@ export function FeatureFlagReleaseConditions({
 
     // Wrapper for any function that modifies rollout conditions
     const withConfirmation = (callback: () => void): (() => void) => {
-        if (readOnly || !id || id === 'new' || !flagsRequireConfirmation) {
-            // No confirmation needed for new flags or when confirmation is disabled
-            return callback
-        }
-
-        return () => {
-            setPendingRolloutUpdate({ callback })
-            setConfirmRolloutModalVisible(true)
-        }
+        // Don't require confirmation for rollout changes - these are relatively minor adjustments
+        return callback
     }
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
