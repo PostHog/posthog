@@ -17,7 +17,6 @@ from posthog.rate_limit import EditorProxyBurstRateThrottle, EditorProxySustaine
 from .providers.anthropic import AnthropicProvider, AnthropicConfig
 from .providers.codestral import CodestralProvider
 from .providers.inkeep import InkeepProvider
-from django.db import connection
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from collections.abc import Generator, Callable
@@ -90,7 +89,6 @@ class LLMProxyViewSet(viewsets.ViewSet):
         """Creates a generator that handles client disconnects and encodes responses"""
         try:
             for chunk in provider_stream:
-                connection.close_if_unusable_or_obsolete()
                 if not request.META.get("SERVER_NAME"):  # Client disconnected
                     return
                 yield chunk.encode()

@@ -3,7 +3,6 @@ ViewSet for IDE Proxy
 """
 
 import logging
-import os
 import json
 from collections.abc import Generator
 from django.conf import settings
@@ -33,7 +32,7 @@ class CodestralProvider:
 
     @classmethod
     def get_api_key(cls) -> str:
-        api_key = os.environ.get("MISTRAL_API_KEY") or settings.MISTRAL_API_KEY
+        api_key = settings.MISTRAL_API_KEY
         if not api_key:
             raise ValueError("MISTRAL_API_KEY is not set in environment or settings")
         return api_key

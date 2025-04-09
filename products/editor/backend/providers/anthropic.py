@@ -1,4 +1,3 @@
-import os
 import json
 from collections.abc import Generator
 from django.conf import settings
@@ -54,7 +53,7 @@ class AnthropicProvider:
 
     @classmethod
     def get_api_key(cls) -> str:
-        api_key = os.environ.get("ANTHROPIC_API_KEY") or settings.ANTHROPIC_API_KEY
+        api_key = settings.ANTHROPIC_API_KEY
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY is not set in environment or settings")
         return api_key
