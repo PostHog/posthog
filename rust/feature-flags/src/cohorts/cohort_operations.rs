@@ -337,7 +337,7 @@ pub fn evaluate_dynamic_cohorts(
         // Parse and evaluate using the hierarchical structure
         let cohort_property: CohortProperty = match serde_json::from_value(filters.clone()) {
             Ok(prop) => prop,
-            Err(e) => {
+            Err(_) => {
                 evaluation_results.insert(cohort_id, false);
                 continue;
             }
