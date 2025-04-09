@@ -1,6 +1,9 @@
 use std::{collections::HashMap, str::FromStr};
 
-use crate::{error::VmError, vm::HeapReference};
+use crate::{
+    error::VmError,
+    memory::{HeapReference, VmHeap},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Num {
@@ -13,54 +16,162 @@ pub enum CallableType {
     Local,
 }
 
-// TODO - this could probably be an enum based on the CallableType
 #[derive(Debug, Clone, PartialEq)]
 pub enum Callable {
-    Local {
-        name: String,
-        stack_arg_count: usize,
-        heap_arg_count: usize,
-        ip: usize,
-    },
+    Local(LocalCallable),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Closure {
+    pub captures: Vec<HeapReference>,
+    pub callable: Callable,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalCallable {
+    pub name: String,
+    pub stack_arg_count: usize,
+    pub capture_count: usize,
+    pub ip: usize,
+}
+
+impl From<LocalCallable> for Callable {
+    fn from(local_callable: LocalCallable) -> Self {
+        Callable::Local(local_callable)
+    }
 }
 
 // hog has "primitives", which are copied by e.g, "get_local", and "objects", which are passed around by reference. This is distinct from the
 // "Heap" allocated stuff, which is used for things which must outlive all references to themselves on the stack, e.g. upvalues.
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum HogValue {
+pub enum HogLiteral {
     Number(Num),
     Boolean(bool),
     String(String),
     Array(Vec<HogValue>),
     Object(HashMap<String, HogValue>),
     Callable(Callable),
-    Reference(HeapReference), // A reference to a heap allocated value
+    Closure(Closure),
     Null,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum HogValue {
+    Lit(HogLiteral),
+    Ref(HeapReference),
 }
 
 // Basically, for anything we want to be able to cheaply convert try and convert a hog value into, e.g.
 // a bool or an int, but also for ref types, like a &str or a &[HogValue]
 pub trait FromHogRef {
-    fn from_ref(value: &HogValue) -> Result<&Self, VmError>;
+    fn from_ref(value: &HogLiteral) -> Result<&Self, VmError>;
 }
 
 // For anything where we want to deconstruct the hog value, like a String or an Array
-pub trait FromHogValue: Sized {
-    fn from_val(value: HogValue) -> Result<Self, VmError>;
+pub trait FromHogLiteral: Sized {
+    fn from_val(value: HogLiteral) -> Result<Self, VmError>;
 }
 
 impl HogValue {
     pub fn type_name(&self) -> &str {
+        let Self::Lit(literal) = self else {
+            return "Reference";
+        };
+        literal.type_name()
+    }
+
+    pub fn deref<'a, 'b: 'a>(&'a self, heap: &'b VmHeap) -> Result<&HogLiteral, VmError> {
         match self {
-            Self::String(_) => "String",
-            Self::Number(_) => "Number",
-            Self::Boolean(_) => "Boolean",
-            Self::Array(_) => "Array",
-            Self::Object(_) => "Object",
-            Self::Null => "Null",
-            Self::Callable(_) => "Callable",
-            Self::Reference(_) => "Reference",
+            HogValue::Lit(lit) => Ok(lit),
+            HogValue::Ref(ptr) => heap.deref(*ptr),
+        }
+    }
+
+    pub fn get_nested<'a, 'b: 'a>(
+        &'a self,
+        chain: &[HogValue],
+        heap: &'b VmHeap,
+    ) -> Result<Option<&'a HogValue>, VmError> {
+        if chain.len() == 0 {
+            return Ok(Some(self));
+        }
+
+        let lit = match self {
+            HogValue::Lit(lit) => lit,
+            HogValue::Ref(ptr) => heap.deref(*ptr)?,
+        };
+
+        match lit {
+            HogLiteral::Object(map) => {
+                let key: &str = chain[0].deref(heap)?.try_as()?;
+                let Some(found) = map.get(key) else {
+                    return Ok(None);
+                };
+                found.get_nested(&chain[1..], heap)
+            }
+            HogLiteral::Array(vals) => {
+                let index: &Num = chain[0].deref(heap)?.try_as()?;
+                if index.is_float() || index.to_integer() < 1 {
+                    return Err(VmError::InvalidIndex);
+                }
+                let index = (index.to_integer() as usize) - 1; // Hog indices are 1 based
+                let Some(found) = vals.get(index) else {
+                    return Ok(None);
+                };
+                found.get_nested(&chain[1..], heap)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub fn equals(&self, rhs: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
+        let (lhs, rhs) = (self.deref(heap)?, rhs.deref(heap)?);
+        lhs.equals(rhs)
+    }
+
+    pub fn not_equals(&self, rhs: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
+        self.equals(rhs, heap)?.not()
+    }
+
+    pub fn contains(&self, other: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
+        let (haystack, needle) = (self.deref(heap)?, other.deref(heap)?);
+        match haystack {
+            HogLiteral::String(s) => {
+                let needle: &str = needle.try_as()?;
+                Ok(s.contains(needle).into())
+            }
+            HogLiteral::Array(vals) => {
+                for val in vals.iter() {
+                    if *val.equals(other, heap)?.try_as::<bool>()? {
+                        return Ok(true.into());
+                    }
+                }
+                Ok(false.into())
+            }
+            HogLiteral::Object(map) => {
+                let key: &str = needle.try_as()?;
+                Ok(map.contains_key(key).into())
+            }
+            _ => Err(VmError::CannotCoerce(
+                self.type_name().to_string(),
+                other.type_name().to_string(),
+            )),
+        }
+    }
+}
+
+impl HogLiteral {
+    pub fn type_name(&self) -> &str {
+        match self {
+            HogLiteral::String(_) => "String",
+            HogLiteral::Number(_) => "Number",
+            HogLiteral::Boolean(_) => "Boolean",
+            HogLiteral::Array(_) => "Array",
+            HogLiteral::Object(_) => "Object",
+            HogLiteral::Null => "Null",
+            HogLiteral::Callable(_) => "Callable",
+            HogLiteral::Closure(_) => "Closure",
         }
     }
 
@@ -71,83 +182,28 @@ impl HogValue {
         T::from_ref(self)
     }
 
-    pub fn try_into<T>(self) -> Result<T, VmError>
+    pub fn try_into<T: ?Sized>(self) -> Result<T, VmError>
     where
-        T: FromHogValue,
+        T: FromHogLiteral,
     {
         T::from_val(self)
     }
 
-    pub fn get_nested(&self, chain: &[HogValue]) -> Result<Option<&HogValue>, VmError> {
-        if chain.len() == 0 {
-            return Ok(Some(self));
-        }
-
-        match self {
-            Self::Object(map) => {
-                let key: &str = chain.first().unwrap().try_as()?;
-                let Some(found) = map.get(key) else {
-                    return Ok(None);
-                };
-                found.get_nested(&chain[1..])
-            }
-            Self::Array(vals) => {
-                let index: &Num = chain.first().unwrap().try_as()?;
-                if index.is_float() || index.to_integer() < 1 {
-                    return Err(VmError::InvalidIndex);
-                }
-                let index = (index.to_integer() as usize) - 1; // Hog indices are 1 based
-                let Some(found) = vals.get(index) else {
-                    return Ok(None);
-                };
-                found.get_nested(&chain[1..])
-            }
-            _ => Ok(None),
-        }
-    }
-
-    pub fn get_nested_mut(&mut self, chain: &[HogValue]) -> Result<Option<&mut HogValue>, VmError> {
-        if chain.len() == 0 {
-            return Ok(Some(self));
-        }
-
-        match self {
-            Self::Object(map) => {
-                let key: &str = chain.first().unwrap().try_as()?;
-                let Some(found) = map.get_mut(key) else {
-                    return Ok(None);
-                };
-                found.get_nested_mut(&chain[1..])
-            }
-            Self::Array(vals) => {
-                let index: &Num = chain.first().unwrap().try_as()?;
-                if index.is_float() || index.to_integer() < 1 {
-                    return Err(VmError::InvalidIndex);
-                }
-                let index = (index.to_integer() as usize) - 1; // Hog indices are 1 based
-                let Some(found) = vals.get_mut(index) else {
-                    return Ok(None);
-                };
-                found.get_nested_mut(&chain[1..])
-            }
-            _ => Ok(None),
-        }
-    }
-
-    pub fn and(&self, rhs: &HogValue) -> Result<HogValue, VmError> {
+    pub fn and(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
         Ok(Self::Boolean(*self.try_as()? && *rhs.try_as()?))
     }
 
-    pub fn or(&self, rhs: &HogValue) -> Result<HogValue, VmError> {
+    pub fn or(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
         Ok(Self::Boolean(*self.try_as()? || *rhs.try_as()?))
     }
 
-    pub fn not(&self) -> Result<HogValue, VmError> {
+    pub fn not(&self) -> Result<HogLiteral, VmError> {
         Ok(Self::Boolean(!*self.try_as::<bool>()?))
     }
 
-    fn coerce_types(&self, rhs: &HogValue) -> Result<(HogValue, HogValue), VmError> {
-        // TODO - it's a bit sad that coercing allocates
+    fn coerce_types(&self, rhs: &HogLiteral) -> Result<(HogLiteral, HogLiteral), VmError> {
+        // TODO - it's a bit sad that coercing allocates. It's /correct/ (coercing is only used for equality checks, the cloned values are immediately dropped,
+        // but it's still a bit sad)
         let fail = || {
             Err(VmError::CannotCoerce(
                 self.type_name().to_string(),
@@ -162,7 +218,7 @@ impl HogValue {
             return Ok((self.clone(), rhs.clone()));
         }
 
-        use HogValue::*;
+        use HogLiteral::*;
 
         match (self.clone(), rhs.clone()) {
             (Number(a), Boolean(b)) => Ok((a.into(), (if b { 1 } else { 0 }).into())),
@@ -184,37 +240,44 @@ impl HogValue {
         }
     }
 
-    pub fn equals(&self, rhs: &HogValue) -> Result<HogValue, VmError> {
+    fn equals(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
         let (lhs, rhs) = self.coerce_types(rhs)?;
         Ok((lhs == rhs).into())
     }
 
-    pub fn not_equals(&self, other: &HogValue) -> Result<HogValue, VmError> {
-        self.equals(other)?.not()
-    }
-
-    pub fn contains(&self, other: &HogValue) -> Result<HogValue, VmError> {
+    pub fn set_property(&mut self, key: HogLiteral, val: HogValue) -> Result<(), VmError> {
         match self {
-            HogValue::String(s) => {
-                let needle: &str = other.try_as()?;
-                Ok(s.contains(needle).into())
+            HogLiteral::Array(vals) => {
+                let index: Num = key.try_into()?;
+                if index.is_float() || index.to_integer() < 1 {
+                    return Err(VmError::InvalidIndex);
+                }
+                let index = index.to_integer() as usize - 1;
+                if index >= vals.len() {
+                    return Err(VmError::IndexOutOfBounds(index, vals.len()));
+                }
+                vals[index] = val;
             }
-            HogValue::Array(vals) => Ok(vals.contains(other).into()),
-            HogValue::Object(map) => {
-                let key: &str = other.try_as()?;
-                Ok(map.contains_key(key).into())
+            HogLiteral::Object(map) => {
+                let key: String = key.try_into()?;
+                map.insert(key, val);
             }
-            _ => Err(VmError::CannotCoerce(
-                self.type_name().to_string(),
-                other.type_name().to_string(),
-            )),
-        }
+            _ => return Err(VmError::ExpectedObject),
+        };
+
+        Ok(())
     }
 }
 
-impl FromHogValue for String {
-    fn from_val(value: HogValue) -> Result<Self, VmError> {
-        let HogValue::String(s) = value else {
+impl FromHogLiteral for HogLiteral {
+    fn from_val(value: HogLiteral) -> Result<Self, VmError> {
+        Ok(value)
+    }
+}
+
+impl FromHogLiteral for String {
+    fn from_val(value: HogLiteral) -> Result<Self, VmError> {
+        let HogLiteral::String(s) = value else {
             return Err(VmError::InvalidValue(
                 value.type_name().to_string(),
                 "String".to_string(),
@@ -227,10 +290,10 @@ impl FromHogValue for String {
 // TODO - hog values are actually "truthy", as in, will coerce to boolean
 // true for all non-null values
 impl FromHogRef for bool {
-    fn from_ref(value: &HogValue) -> Result<&Self, VmError> {
+    fn from_ref(value: &HogLiteral) -> Result<&Self, VmError> {
         match value {
-            HogValue::Boolean(b) => Ok(b),
-            HogValue::Null => Ok(&false), // Coerce nulls to false
+            HogLiteral::Boolean(b) => Ok(b),
+            HogLiteral::Null => Ok(&false), // Coerce nulls to false
             _ => Err(VmError::InvalidValue(
                 value.type_name().to_string(),
                 "Boolean".to_string(),
@@ -240,9 +303,9 @@ impl FromHogRef for bool {
 }
 
 impl FromHogRef for Num {
-    fn from_ref(value: &HogValue) -> Result<&Self, VmError> {
+    fn from_ref(value: &HogLiteral) -> Result<&Self, VmError> {
         match value {
-            HogValue::Number(n) => Ok(n),
+            HogLiteral::Number(n) => Ok(n),
             _ => Err(VmError::InvalidValue(
                 value.type_name().to_string(),
                 "Number".to_string(),
@@ -252,9 +315,9 @@ impl FromHogRef for Num {
 }
 
 impl FromHogRef for str {
-    fn from_ref(value: &HogValue) -> Result<&Self, VmError> {
+    fn from_ref(value: &HogLiteral) -> Result<&Self, VmError> {
         match value {
-            HogValue::String(s) => Ok(s),
+            HogLiteral::String(s) => Ok(s),
             _ => Err(VmError::InvalidValue(
                 value.type_name().to_string(),
                 "String".to_string(),
@@ -264,9 +327,9 @@ impl FromHogRef for str {
 }
 
 impl FromHogRef for Callable {
-    fn from_ref(value: &HogValue) -> Result<&Self, VmError> {
+    fn from_ref(value: &HogLiteral) -> Result<&Self, VmError> {
         match value {
-            HogValue::Callable(c) => Ok(c),
+            HogLiteral::Callable(c) => Ok(c),
             _ => Err(VmError::InvalidValue(
                 value.type_name().to_string(),
                 "Callable".to_string(),
@@ -275,54 +338,69 @@ impl FromHogRef for Callable {
     }
 }
 
-impl<T> FromHogValue for T
+impl<T> From<T> for HogValue
+where
+    T: Into<HogLiteral>,
+{
+    fn from(value: T) -> Self {
+        HogValue::Lit(value.into())
+    }
+}
+
+impl<T> FromHogLiteral for T
 where
     T: FromHogRef + Clone,
 {
-    fn from_val(value: HogValue) -> Result<Self, VmError> {
+    fn from_val(value: HogLiteral) -> Result<Self, VmError> {
         value.try_as::<T>().cloned()
     }
 }
 
-impl From<bool> for HogValue {
+impl From<bool> for HogLiteral {
     fn from(value: bool) -> Self {
         Self::Boolean(value)
     }
 }
 
-impl From<String> for HogValue {
+impl From<String> for HogLiteral {
     fn from(value: String) -> Self {
         Self::String(value)
     }
 }
 
-impl From<i64> for HogValue {
+impl From<i64> for HogLiteral {
     fn from(value: i64) -> Self {
         Self::Number(Num::Integer(value))
     }
 }
 
-impl From<f64> for HogValue {
+impl From<f64> for HogLiteral {
     fn from(value: f64) -> Self {
         Self::Number(Num::Float(value))
     }
 }
 
-impl From<Vec<HogValue>> for HogValue {
+impl From<Vec<HogValue>> for HogLiteral {
     fn from(value: Vec<HogValue>) -> Self {
         Self::Array(value)
     }
 }
 
-impl From<HashMap<String, HogValue>> for HogValue {
+impl From<HashMap<String, HogValue>> for HogLiteral {
     fn from(value: HashMap<String, HogValue>) -> Self {
         Self::Object(value)
     }
 }
 
-impl From<Num> for HogValue {
+impl From<Num> for HogLiteral {
     fn from(num: Num) -> Self {
-        HogValue::Number(num)
+        HogLiteral::Number(num)
+    }
+}
+
+impl From<HeapReference> for HogValue {
+    fn from(value: HeapReference) -> Self {
+        HogValue::Ref(value)
     }
 }
 
@@ -388,7 +466,7 @@ impl Num {
         }
     }
 
-    pub fn binary_op(op: NumOp, a: &Num, b: &Num) -> Result<HogValue, VmError> {
+    pub fn binary_op(op: NumOp, a: &Num, b: &Num) -> Result<HogLiteral, VmError> {
         let needs_coerce = a.is_float() || b.is_float();
         if needs_coerce {
             let a = a.to_float();

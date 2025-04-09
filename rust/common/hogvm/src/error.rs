@@ -1,17 +1,7 @@
-use std::collections::HashMap;
-
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::values::HogValue;
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error(transparent)]
-    VM(#[from] VmError),
-}
-
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum VmError {
     #[error("Expected operation, got {0:?}")]
     NotAnOperation(Value),
@@ -50,7 +40,21 @@ pub enum VmError {
     #[error("Cannot throw value, it is not of type Object, or is missing a 'type' or 'message' property")]
     InvalidException,
     #[error("Uncaught exception: {0}: {1}")]
-    UncaughtException(String, String, Option<HashMap<String, HogValue>>),
+    UncaughtException(String, String),
     #[error("Invalid index, expected positive, non-zero integer")]
     InvalidIndex,
+    #[error("Cycle detected")]
+    CycleDetected,
+    #[error("Array index {0} out of bounds, array length {1}")]
+    IndexOutOfBounds(usize, usize),
+    #[error("Out of resource: {0}")]
+    OutOfResource(String),
+    #[error("Invalid bytecode: {0}")]
+    InvalidBytecode(String),
+    #[error("Invalid call: {0}")]
+    InvalidCall(String),
+    #[error("No frame")]
+    NoFrame,
+    #[error("Capture index out of bounds: {0}")]
+    CaptureOutOfBounds(usize),
 }

@@ -1,3 +1,10 @@
+use std::collections::HashSet;
+
+use crate::{
+    error::VmError,
+    values::{HogLiteral, HogValue},
+};
+
 #[derive(Debug, Clone)]
 pub struct HeapValue {
     epoch: usize,
@@ -14,6 +21,10 @@ pub struct HeapReference {
 pub struct VmHeap {
     inner: Vec<HeapValue>,
     freed: Vec<HeapReference>, // Indices of freed heap values, for reuse
+}
+
+pub struct VmStack {
+    inner: Vec<HogValue>,
 }
 
 impl VmHeap {
@@ -54,7 +65,7 @@ impl VmHeap {
 
         // All existing references to this value are now invalid, and any use of them will result in a UseAfterFree error.
         to_free.epoch += 1;
-        to_free.value = HogValue::Null;
+        to_free.value = HogValue::Lit(HogLiteral::Null);
 
         // This slot's now available for reuse.
         self.freed.push(ptr);
@@ -93,7 +104,7 @@ impl VmHeap {
         self.get(ptr).cloned()
     }
 
-    pub fn store(&mut self, ptr: HeapReference, value: HogValue) -> Result<(), VmError> {
+    pub fn replace(&mut self, ptr: HeapReference, value: HogValue) -> Result<(), VmError> {
         if self.inner.len() < ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
@@ -106,5 +117,54 @@ impl VmHeap {
 
         to_store.value = value;
         Ok(())
+    }
+
+    // Pointer chasing until it's got a literal.
+    pub fn deref(&self, ptr: HeapReference) -> Result<&HogLiteral, VmError> {
+        let mut seen = HashSet::new();
+        self.deref_inner(ptr, &mut seen)
+    }
+
+    fn deref_inner(
+        &self,
+        ptr: HeapReference,
+        seen: &mut HashSet<HeapReference>,
+    ) -> Result<&HogLiteral, VmError> {
+        if seen.contains(&ptr) {
+            return Err(VmError::CycleDetected);
+        }
+        seen.insert(ptr);
+
+        match self.get(ptr)? {
+            HogValue::Ref(ptr) => self.deref_inner(*ptr, seen),
+            HogValue::Lit(lit) => Ok(lit),
+        }
+    }
+
+    pub fn deref_mut(&mut self, ptr: HeapReference) -> Result<&mut HogLiteral, VmError> {
+        let mut seen = HashSet::new();
+        self.deref_mut_inner(ptr, &mut seen)
+    }
+
+    fn deref_mut_inner<'a, 'b>(
+        &'a mut self,
+        ptr: HeapReference,
+        seen: &'b mut HashSet<HeapReference>,
+    ) -> Result<&'a mut HogLiteral, VmError> {
+        if seen.contains(&ptr) {
+            return Err(VmError::CycleDetected);
+        }
+        seen.insert(ptr);
+
+        let res = self.get(ptr)?;
+
+        // TODO - remove when polonius lands, and do the obvious thing instead
+        match res {
+            HogValue::Ref(ptr) => self.deref_mut_inner(*ptr, seen),
+            HogValue::Lit(_) => match self.get_mut(ptr).expect("just worked") {
+                HogValue::Lit(lit) => Ok(lit),
+                _ => unreachable!(),
+            },
+        }
     }
 }

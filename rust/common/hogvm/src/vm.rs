@@ -1,14 +1,14 @@
 use std::{any::Any, collections::HashMap};
 
 use serde::de::DeserializeOwned;
-use serde_json::Value as JsonValue;
+use serde_json::{Number, Value as JsonValue};
 
 use crate::{
-    error::{Error, VmError},
-    memory::VmHeap,
+    error::VmError,
+    memory::{HeapReference, VmHeap},
     ops::Operation,
     util::{like, regex_match},
-    values::{Callable, FromHogValue, HogValue, Num, NumOp},
+    values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
 };
 
 pub struct ExecutionContext<'a> {
@@ -18,12 +18,13 @@ pub struct ExecutionContext<'a> {
 }
 
 pub struct ExecOutcome {
-    pub returned: Option<HogValue>, // If Some, we're finished executing the program
+    pub returned: Option<HogLiteral>, // If Some, we're finished executing the program
 }
 
 pub struct CallFrame {
-    ret_ptr: usize,     // Where to jump back to when we're done
-    stack_start: usize, // Point in the stack the frame values start
+    ret_ptr: usize,               // Where to jump back to when we're done
+    stack_start: usize,           // Point in the stack the frame values start
+    captures: Vec<HeapReference>, // Values captured from the parent scope/frame
 }
 
 pub struct ThrowFrame {
@@ -41,6 +42,7 @@ pub struct VmState<'a> {
     ip: usize,
 
     context: &'a ExecutionContext<'a>,
+    version: usize,
 }
 
 fn next_type_name(next: &JsonValue) -> String {
@@ -55,23 +57,73 @@ fn next_type_name(next: &JsonValue) -> String {
 }
 
 impl<'a> VmState<'a> {
-    pub fn new(context: &'a ExecutionContext<'a>) -> Self {
-        Self {
+    pub fn new(context: &'a ExecutionContext<'a>) -> Result<Self, VmError> {
+        if context.bytecode.len() < 1 {
+            return Err(VmError::InvalidBytecode(
+                "Missing bytecode marker at position 0".to_string(),
+            ));
+        }
+
+        let mut ip = 1; // Skip the bytecode marker
+        let bytecode_marker = context.bytecode[0].clone();
+
+        let version = match bytecode_marker {
+            JsonValue::String(s) if s == "_H" => {
+                let version = context.bytecode.get(1).cloned();
+                if version.is_some() {
+                    ip += 1; // Skip the version marker
+                }
+                let version = version.unwrap_or(JsonValue::Number(Number::from(0)));
+                match version {
+                    JsonValue::Number(n) => n.as_u64().ok_or(VmError::InvalidBytecode(
+                        "Invalid version number".to_string(),
+                    ))?,
+                    _ => {
+                        return Err(VmError::InvalidBytecode(
+                            "Invalid version number".to_string(),
+                        ))
+                    }
+                }
+            }
+            _ => {
+                return Err(VmError::InvalidBytecode(format!(
+                    "Invalid bytecode marker: {:?}",
+                    bytecode_marker
+                )))
+            }
+        };
+
+        Ok(Self {
             stack: Vec::new(),
             stack_frames: Vec::new(),
             throw_frames: Vec::new(),
-            ip: 0,
+            ip,
             context,
             heap: Default::default(),
-        }
+            version: version as usize,
+        })
     }
 
+    // Returns the first stack item in this call frames scope
     fn current_frame_base(&self) -> usize {
         if self.stack_frames.is_empty() {
             0
         } else {
             self.stack_frames[self.stack_frames.len() - 1].stack_start
         }
+    }
+
+    // Returns a ptr to the captured value in this frames scope, if there is one,
+    // or an error if the index is out of bounds
+    fn get_capture(&self, index: usize) -> Result<HeapReference, VmError> {
+        let Some(frame) = self.stack_frames.last() else {
+            return Err(VmError::NoFrame);
+        };
+        frame
+            .captures
+            .get(index)
+            .cloned()
+            .ok_or(VmError::CaptureOutOfBounds(index))
     }
 
     fn next<'s, T>(&'s mut self) -> Result<T, VmError>
@@ -91,15 +143,6 @@ impl<'a> VmState<'a> {
             .map_err(|_| VmError::InvalidValue(next_type_name, expected.to_string()))
     }
 
-    fn peek<'s, T>(&'s mut self) -> Result<T, VmError>
-    where
-        T: DeserializeOwned + Any,
-    {
-        let res = self.next();
-        self.ip -= 1;
-        res
-    }
-
     fn pop_stack(&mut self) -> Result<HogValue, VmError> {
         if self.stack.len() <= self.current_frame_base() {
             return Err(VmError::StackUnderflow);
@@ -107,28 +150,30 @@ impl<'a> VmState<'a> {
         self.stack.pop().ok_or(VmError::StackUnderflow)
     }
 
-    // As above, but with a handy cast/unwrap
+    // As above, but with a handy pointer chase and a cast/unwrap. Necessarily clones
+    // if the stack item was a reference.
     fn pop_stack_as<T>(&mut self) -> Result<T, VmError>
     where
-        T: FromHogValue,
+        T: FromHogLiteral,
     {
-        self.pop_stack().and_then(T::from_val)
+        match self.pop_stack()? {
+            HogValue::Lit(lit) => lit.try_into(),
+            other => other.deref(&self.heap)?.clone().try_into(),
+        }
     }
 
-    // "get a local" from the somewhere bach in the stack, which means, if it's a primitive (not an array, tuple or object),
-    // cloning it, and if it isn't a primitive, hoisting it onto the heap and replacing the stack item with a reference to it
-    fn get_maybe_hoisting(&mut self, idx: usize) -> Result<HogValue, VmError> {
+    // Move a value from the stack onto the heap, replacing it with a reference to the heap value,
+    // and returning a reference to it. If it was already a reference, return it.
+    fn hoist(&mut self, idx: usize) -> Result<HeapReference, VmError> {
         let item = self.clone_stack_item(idx)?;
-        let res = match item {
-            // If it's an "object", we hoist it onto the heap and push a reference to it onto the stack
-            HogValue::Array(_) | HogValue::Object(_) => {
-                todo!()
+        match item {
+            HogValue::Lit(lit) => {
+                let ptr = self.heap.emplace(HogValue::Lit(lit))?;
+                self.set_stack_val(idx, ptr)?;
+                Ok(ptr)
             }
-            // It's a "primitive", and we just copy it
-            other => other,
-        };
-
-        Ok(res)
+            HogValue::Ref(ptr) => Ok(ptr),
+        }
     }
 
     fn set_stack_val(&mut self, idx: usize, value: impl Into<HogValue>) -> Result<(), VmError> {
@@ -157,7 +202,7 @@ impl<'a> VmState<'a> {
 
     // TODO - this is how function calls are constructed - you construct a function
     // reference, push it onto the stack, and then call it
-    fn get_fn_reference(&self, _chain: &[String]) -> Result<HogValue, VmError> {
+    fn get_fn_reference(&self, _chain: &[String]) -> Result<HogLiteral, VmError> {
         return Err(VmError::NotImplemented("imports".to_string()));
     }
 
@@ -178,11 +223,22 @@ impl<'a> VmState<'a> {
                     chain.push(self.pop_stack_as()?);
                 }
                 if let Some(chain_start) = self.context.globals.get(&chain[0]) {
-                    // TODO - this is a lot more strict that other implementations
+                    // TODO - this is a lot more strict that other
+
+                    let rest_of_chain: Vec<HogValue> = chain
+                        .into_iter()
+                        .skip(1)
+                        .map(HogLiteral::from)
+                        .map(HogValue::from)
+                        .collect();
+
                     self.push_stack(
                         chain_start
-                            .get_nested(&chain[1..])
-                            .ok_or(VmError::UnknownGlobal(chain.join(".")))?
+                            .get_nested(&rest_of_chain, &self.heap)?
+                            .ok_or(VmError::UnknownGlobal(format!(
+                                "{:?}.{:?}",
+                                chain_start, rest_of_chain
+                            )))?
                             .clone(),
                     )?;
                 } else if let Ok(closure) = self.get_fn_reference(&chain) {
@@ -194,19 +250,21 @@ impl<'a> VmState<'a> {
             Operation::CallGlobal => return Err(VmError::NotImplemented("CallGlobal".to_string())),
             Operation::And => {
                 let count: usize = self.next()?;
-                let mut acc: HogValue = true.into();
+                let mut acc: HogLiteral = true.into();
                 for _ in 0..count {
                     let value = self.pop_stack()?;
-                    acc = acc.and(&value)?;
+                    let value = value.deref(&self.heap)?;
+                    acc = acc.and(value)?;
                 }
                 self.push_stack(acc)?;
             }
             Operation::Or => {
                 let count: usize = self.next()?;
-                let mut acc: HogValue = false.into();
+                let mut acc: HogLiteral = false.into();
                 for _ in 0..count {
                     let value = self.pop_stack()?;
-                    acc = acc.or(&value)?;
+                    let value = value.deref(&self.heap)?;
+                    acc = acc.or(value)?;
                 }
                 self.push_stack(acc)?;
             }
@@ -214,7 +272,7 @@ impl<'a> VmState<'a> {
                 let val = self.pop_stack_as::<bool>()?;
                 // TODO - technically, we could assert here that this push will always succeed,
                 // and it'd let us skip a bounds check I /think/, but lets not go microoptimizing yet
-                self.push_stack((!val).into())?;
+                self.push_stack(HogLiteral::from(!val))?;
             }
             Operation::Plus => {
                 let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
@@ -237,12 +295,12 @@ impl<'a> VmState<'a> {
                 self.push_stack(Num::binary_op(NumOp::Mod, &a, &b)?)?;
             }
             Operation::Eq => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(a.equals(&b)?)?;
+                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
+                self.push_stack(a.equals(&b, &self.heap)?)?;
             }
             Operation::NotEq => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(a.not_equals(&b)?)?;
+                let (a, b) = (self.pop_stack()?, self.pop_stack()?);
+                self.push_stack(a.not_equals(&b, &self.heap)?)?;
             }
             Operation::Gt => {
                 let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
@@ -262,65 +320,65 @@ impl<'a> VmState<'a> {
             }
             Operation::Like => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(like(val, pat, true)?.into())?;
+                self.push_stack(like(val, pat, true)?)?;
             }
             Operation::Ilike => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(like(val, pat, false)?.into())?;
+                self.push_stack(like(val, pat, false)?)?;
             }
             Operation::NotLike => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack((!like(val, pat, true)?).into())?;
+                self.push_stack(!like(val, pat, true)?)?;
             }
             Operation::NotIlike => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack((!like(val, pat, false)?).into())?;
+                self.push_stack(!like(val, pat, false)?)?;
             }
             Operation::In => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(haystack.contains(&needle)?)?;
+                self.push_stack(haystack.contains(&needle, &self.heap)?)?;
             }
             Operation::NotIn => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(haystack.contains(&needle)?.not()?)?;
+                self.push_stack(haystack.contains(&needle, &self.heap)?.not()?)?;
             }
             Operation::Regex => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(regex_match(val, pat, true)?.into())?;
+                self.push_stack(regex_match(val, pat, true)?)?;
             }
             Operation::NotRegex => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack((!regex_match(val, pat, true)?).into())?;
+                self.push_stack(!regex_match(val, pat, true)?)?;
             }
             Operation::Iregex => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(regex_match(val, pat, false)?.into())?;
+                self.push_stack(regex_match(val, pat, false)?)?;
             }
             Operation::NotIregex => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack((!regex_match(val, pat, false)?).into())?;
+                self.push_stack(!regex_match(val, pat, false)?)?;
             }
             Operation::InCohort => return Err(VmError::NotImplemented("InCohort".to_string())),
             Operation::NotInCohort => {
                 return Err(VmError::NotImplemented("NotInCohort".to_string()))
             }
             Operation::True => {
-                self.push_stack(true.into())?;
+                self.push_stack(true)?;
             }
             Operation::False => {
-                self.push_stack(false.into())?;
+                self.push_stack(false)?;
             }
             Operation::Null => {
-                self.push_stack(HogValue::Null)?;
+                self.push_stack(HogLiteral::Null)?;
             }
             Operation::String => {
-                self.push_stack(String::new().into())?;
+                self.push_stack(String::new())?;
             }
             Operation::Integer => {
-                self.push_stack(0.into())?;
+                self.push_stack(0)?;
             }
             Operation::Float => {
-                self.push_stack(0.0.into())?;
+                self.push_stack(0.0)?;
             }
             Operation::Pop => {
                 self.pop_stack()?;
@@ -328,8 +386,8 @@ impl<'a> VmState<'a> {
             Operation::GetLocal => {
                 let base = self.current_frame_base();
                 let offset: usize = self.next()?;
-                let item = self.get_maybe_hoisting(base + offset)?;
-                self.push_stack(item)?;
+                let ptr = self.hoist(base + offset)?;
+                self.push_stack(ptr)?;
             }
             Operation::SetLocal => {
                 // Replace some item "lower" in the stack with the top one.
@@ -343,13 +401,13 @@ impl<'a> VmState<'a> {
                 let last_frame = self.stack_frames.pop();
                 let Some(frame) = last_frame else {
                     return Ok(ExecOutcome {
-                        returned: Some(result),
+                        returned: Some(result.deref(&self.heap)?.clone()),
                     });
                 };
 
                 if self.stack_frames.is_empty() {
                     return Ok(ExecOutcome {
-                        returned: Some(result),
+                        returned: Some(result.deref(&self.heap)?.clone()),
                     });
                 };
 
@@ -372,7 +430,8 @@ impl<'a> VmState<'a> {
                 // Weirdly, this operation doesn't pop the value from the stack. This is mostly a random choice.
                 if !self.stack.is_empty() {
                     let item = self.clone_stack_item(self.stack.len() - 1)?;
-                    if matches!(item, HogValue::Null) {
+                    let item = item.deref(&self.heap)?;
+                    if matches!(item, HogLiteral::Null) {
                         self.ip += offset;
                     }
                 }
@@ -394,17 +453,17 @@ impl<'a> VmState<'a> {
                 }
                 let map: HashMap<String, HogValue> =
                     HashMap::from_iter(keys.into_iter().zip(values.into_iter()));
-                self.push_stack(HogValue::Object(map))?;
+                self.push_stack(HogLiteral::Object(map))?;
             }
             Operation::Array => {
                 let element_count: usize = self.next()?;
                 let mut elements = Vec::with_capacity(element_count);
                 for _ in 0..element_count {
-                    elements.push(self.pop_stack_val()?);
+                    elements.push(self.pop_stack()?);
                 }
                 // We've walked back down the stack, but the compiler expects the array to be in pushed order
                 elements.reverse();
-                self.push_stack(HogValue::Array(elements))?;
+                self.push_stack(HogLiteral::Array(elements))?;
             }
             Operation::Tuple => {
                 // The compiler has special case handling for tuples, but the typescript VM doesn't, so neither do we,
@@ -416,37 +475,54 @@ impl<'a> VmState<'a> {
                 }
                 // We've walked back down the stack, but the compiler expects the "tuple" to be in pushed order
                 elements.reverse();
-                self.push_stack(HogValue::Array(elements))?;
+                self.push_stack(HogLiteral::Array(elements))?;
             }
             Operation::GetProperty => {
-                let needle = self.try_pop_as::<String>()?;
+                let needle = self.pop_stack()?;
                 let haystack = self.pop_stack()?;
-                let chain = [needle.as_str()];
-                let Some(res) = haystack.get_nested(&chain) else {
-                    return Err(VmError::UnknownProperty(needle));
+                let chain = [needle];
+                let Some(res) = haystack.get_nested(&chain, &self.heap)? else {
+                    return Err(VmError::UnknownProperty(format!("{:?}", chain[0])));
                 };
                 self.push_stack(res.clone())?;
             }
             Operation::GetPropertyNullish => {
-                let needle = self.try_pop_as::<String>()?;
+                let needle = self.pop_stack()?;
                 let haystack = self.pop_stack()?;
-                let chain = [needle.as_str()];
+                let chain = [needle];
                 let res = haystack
-                    .get_nested(&chain)
+                    .get_nested(&chain, &self.heap)?
                     .cloned()
-                    .unwrap_or(HogValue::Null);
+                    .unwrap_or(HogLiteral::Null.into());
                 self.push_stack(res)?;
             }
             Operation::SetProperty => {
-                // TODO - pretty sure this is, effectively, a no-op, since the dict's immediately dropped,
-                // but nontheless, this is what the typescript VM does
+                // Set property is a little tricky, because it assumes the object whose property is being set is
+                // a reference. We assert this here - basically, we don't allow SET_PROPERTY to be a no-op, unlike the
+                // original implementation, which would allow SET_PROPERTY to be done even if the target was dropped immediately
+                // after the operation
+                // Value to set - this could be a literal or a reference
                 let val = self.pop_stack()?;
-                let key = self.try_pop_as::<String>()?;
-                let HogValue::Object(mut obj) = self.pop_stack()? else {
-                    return Err(VmError::ExpectedObject);
+
+                // Location to set it at in the target - this could be a literal or a reference, but
+                // it doesn't matter which it is, we deref anyway as only literals can be object keys
+                let key: HogLiteral = self.pop_stack_as()?;
+
+                // This can be either a literal or a reference. If it's a reference, we have to deref_mut it
+                // from the head, so we can modify it
+                let mut target = self.pop_stack()?;
+                let target = match &mut target {
+                    HogValue::Ref(ptr) => self.heap.deref_mut(*ptr)?,
+                    HogValue::Lit(_) => {
+                        // TODO - this is a divergence from the original implementation - basically, if the target you've specified isn't on the heap,
+                        // we'll drop it immediately after setting the property, which is a no-op. This should never happen - we should be using GET_LOCAL
+                        // to hoist properties onto the heap before calling SET_PROPERTY, I /think/, but I'm not certain. I might end up making all
+                        // objects be auto-allocated on the heap, just to be certain we're never hit this case for anything set_property() would succeed for
+                        return Err(VmError::ExpectedObject);
+                    }
                 };
-                obj.insert(key, val);
-                // TODO this is the point at which I'd think we should push_stack, but existing impls don't, :shrug:
+
+                target.set_property(key, val)?;
             }
             Operation::Try => {
                 let catch_offset: usize = self.next()?;
@@ -465,14 +541,10 @@ impl<'a> VmState<'a> {
             }
             Operation::Throw => {
                 let exception = self.pop_stack()?;
-                let _type: Option<String> = exception
-                    .get_nested(&["type"])
-                    .cloned()
-                    .and_then(|v| v.try_into().ok());
-                let message: Option<String> = exception
-                    .get_nested(&["message"])
-                    .cloned()
-                    .and_then(|v| v.try_into().ok());
+                let type_key: HogValue = HogLiteral::from("type".to_string()).into();
+                let _type = exception.get_nested(&[type_key], &self.heap)?;
+                let message_key = HogLiteral::from("message".to_string()).into();
+                let message = exception.get_nested(&[message_key], &self.heap)?;
                 // The other impls here have some special case handling that treats "Error" as a distinct type, but
                 // as far as I can tell, a "hog error" is just a HogValue::Object with some specific properties, so
                 // I'll just check those exist. hog is mostly duck-typed, based on the existing impls
@@ -481,17 +553,15 @@ impl<'a> VmState<'a> {
                 };
 
                 let Some(frame) = self.throw_frames.pop() else {
-                    let payload = exception
-                        .get_nested(&["payload"])
-                        .and_then(|val| match val {
-                            HogValue::Object(obj) => Some(obj),
-                            _ => None,
-                        })
-                        .cloned();
+                    // TODO - we need some helper that'll deeply clone a HogValue::Object and product a HashMap<String, HogLiteral>, since
+                    // this is escaping the VM, so heap references can't leak.
+                    // let payload_key = HogLiteral::from("payload".to_string()).into();
+                    // let payload = exception.get_nested(&[payload_key], &self.heap)?;
+                    let _type: &str = _type.unwrap().deref(&self.heap)?.try_as()?;
+                    let _message: &str = message.unwrap().deref(&self.heap)?.try_as()?;
                     return Err(VmError::UncaughtException(
-                        _type.unwrap(),
-                        message.unwrap(),
-                        payload,
+                        _type.to_string(),
+                        _message.to_string(),
                     ));
                 };
 
@@ -504,39 +574,101 @@ impl<'a> VmState<'a> {
                 // Construct a locally callable object - this is how e.g. fn decl's work
                 let name: String = self.next()?;
                 let stack_arg_count: usize = self.next()?;
-                let heap_arg_count: usize = self.next()?;
+                let captured_arg_count: usize = self.next()?;
                 let body_length: usize = self.next()?;
-                let callable = Callable::Local {
-                    name: (name),
-                    stack_arg_count: (stack_arg_count),
-                    heap_arg_count: (heap_arg_count),
-                    ip: (self.ip),
-                };
-                self.push_stack(HogValue::Callable(callable))?;
+                let callable: Callable = LocalCallable {
+                    name,
+                    stack_arg_count,
+                    capture_count: captured_arg_count,
+                    ip: self.ip,
+                }
+                .into();
+                self.push_stack(HogLiteral::Callable(callable.into()))?;
                 self.ip += body_length;
             }
+            // A closure is a callable, plus some captured arguments from the scope
+            // it was constructed in.
             Operation::Closure => {
-                // A closure is just the actually invoke-able wrapper around a callable, that collects any stack and heap arguments
+                let callable: Callable = self.pop_stack_as()?;
+                let capture_count: usize = self.next()?;
+                // Irrefutable match for now
+                let Callable::Local(unwrapped) = &callable;
+                // Because captures are an implicit part of compilation, it's never valid
+                // for them to be different from the number of captures in the callable.
+                if capture_count != unwrapped.capture_count {
+                    return Err(VmError::InvalidCall(
+                        "invalid number of heap arguments".to_string(),
+                    ));
+                }
+                let mut captures = Vec::with_capacity(capture_count);
+                for _ in 0..capture_count {
+                    // Indicates whether this captured argument is to a stack variable in this
+                    // frames stack, or a captured argument in this frames captured arguments list
+                    let is_local: bool = self.next()?;
+                    let offset: usize = self.next()?;
+                    if is_local {
+                        let index = self.current_frame_base() + offset;
+                        captures.push(self.hoist(index)?);
+                    } else {
+                        captures.push(self.get_capture(offset)?);
+                    }
+                }
+
+                let closure = Closure { callable, captures };
+                self.push_stack(HogLiteral::Closure(closure))?;
             }
-            Operation::CallLocal => todo!(),
-            Operation::GetUpvalue => todo!(),
-            Operation::SetUpvalue => todo!(),
-            Operation::CloseUpvalue => todo!(),
+            Operation::CallLocal => {
+                todo!()
+            }
+            Operation::GetUpvalue => {
+                let index: usize = self.next()?;
+                let ptr = self.get_capture(index)?;
+                self.push_stack(ptr)?;
+            }
+            Operation::SetUpvalue => {
+                let index: usize = self.next()?;
+                let ptr = self.get_capture(index)?;
+                *self.heap.get_mut(ptr)? = self.pop_stack()?;
+            }
+            Operation::CloseUpvalue => {
+                // The TS impl just pops here - I don't really understand why
+                self.pop_stack()?;
+            }
         }
 
         Ok(ExecOutcome { returned: None }) // Continue executing
     }
 }
 
-pub fn sync_execute(bytecode: &[JsonValue]) -> Result<(), Error> {
+#[derive(Debug, Clone)]
+pub struct VmFailure {
+    pub error: VmError,
+    pub ip: usize,
+}
+
+pub fn sync_execute(bytecode: &[JsonValue], max_steps: usize) -> Result<HogLiteral, VmFailure> {
     let context = ExecutionContext {
         bytecode,
         globals: HashMap::new(),
         max_stack_depth: 1024,
     };
 
-    let mut vm = VmState::new(&context);
-    loop {
-        vm.step()?;
+    let mut vm = VmState::new(&context).map_err(|e| VmFailure { error: e, ip: 0 })?;
+    for _ in 0..max_steps {
+        let res = vm.step().map_err(|e| VmFailure {
+            error: e,
+            ip: vm.ip,
+        })?;
+
+        if let Some(returned) = res.returned {
+            return Ok(returned);
+        }
     }
+
+    let err = VmError::OutOfResource("steps".to_string());
+
+    return Err(VmFailure {
+        error: err,
+        ip: vm.ip,
+    });
 }
