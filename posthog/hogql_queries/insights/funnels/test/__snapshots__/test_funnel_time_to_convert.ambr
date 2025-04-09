@@ -1570,8 +1570,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelTimeToConvertUDF.test_basic_strict
@@ -1631,8 +1630,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelTimeToConvertUDF.test_basic_unordered
@@ -2379,7 +2377,6 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1
+                     allow_experimental_analyzer=1
   '''
 # ---
