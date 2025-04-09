@@ -118,9 +118,6 @@ function Trace({
         ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }) => {
             const record = stackFrameRecords[raw_id]
             const part = checkers.getFramePart(raw_id)
-            // const isUsedInFingerprint = checkers.includesFrame(raw_id)
-            // const isHighlighted = checkers.isFrameHighlighted(raw_id)
-
             return {
                 key: raw_id,
                 header: (
