@@ -1,3 +1,4 @@
+from typing import Optional
 from ee.hogai.tool import MaxTool
 from pydantic import BaseModel, Field
 from products.data_warehouse.backend.prompts import SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
@@ -22,7 +23,9 @@ class HogQLGeneratorArgs(BaseModel):
 
 class HogQLGeneratorTool(MaxTool):
     name: str = "generate_hogql_query"
-    description: str = "Generate an SQL query to answer the user's question"
+    description: str = (
+        "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor"
+    )
     thinking_message: str = "Coming up with an SQL query"
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
@@ -61,12 +64,17 @@ class HogQLGeneratorTool(MaxTool):
 
         chain = prompt | self._model
 
+        final_error: Optional[Exception] = None
         for _ in range(3):
             try:
                 result = chain.invoke({**self.context})
                 parsed_result = self._parse_output(result, hogql_context)
+                break
             except PydanticOutputParserException as e:
                 prompt += f"Avoid this error: {str(e)}"
+                final_error = e
+        else:
+            raise final_error
 
         return "```sql\n" + parsed_result + "\n```", parsed_result
 
