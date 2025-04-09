@@ -873,7 +873,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
                 item,
                 path: item.path,
-                newPath: newPath + item.path.slice(item.path.length),
+                newPath: newPath,
             })
         },
         linkCheckedItems: ({ path }) => {
