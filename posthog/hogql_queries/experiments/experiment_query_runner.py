@@ -29,6 +29,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.hogql_queries.experiments.base_query_utils import (
+    conversion_window_to_seconds,
     event_or_action_to_filter,
     get_data_warehouse_metric_source,
     get_metric_value,
@@ -119,7 +120,7 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
     def _get_metric_time_window(self, left: ast.Expr) -> list[ast.CompareOperation]:
-        if self.metric.time_window_hours:
+        if self.metric.conversion_window is not None and self.metric.conversion_window_unit is not None:
             # Define conversion window as hours after exposure
             time_window_clause = ast.CompareOperation(
                 left=left,
@@ -127,7 +128,16 @@ class ExperimentQueryRunner(QueryRunner):
                     name="plus",
                     args=[
                         ast.Field(chain=["exposure_data", "first_exposure_time"]),
-                        ast.Call(name="toIntervalHour", args=[ast.Constant(value=self.metric.time_window_hours)]),
+                        ast.Call(
+                            name="toIntervalSecond",
+                            args=[
+                                ast.Constant(
+                                    value=conversion_window_to_seconds(
+                                        self.metric.conversion_window, self.metric.conversion_window_unit
+                                    )
+                                ),
+                            ],
+                        ),
                     ],
                 ),
                 op=ast.CompareOperationOp.Lt,

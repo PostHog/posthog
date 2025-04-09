@@ -7974,6 +7974,12 @@
         "ExperimentFunnelMetric": {
             "additionalProperties": false,
             "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -7990,9 +7996,6 @@
                         "$ref": "#/definitions/ExperimentFunnelMetricStep"
                     },
                     "type": "array"
-                },
-                "time_window_hours": {
-                    "type": "number"
                 }
             },
             "required": ["kind", "metric_type", "series"],
@@ -8122,6 +8125,12 @@
         "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -8135,9 +8144,6 @@
                 },
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
-                },
-                "time_window_hours": {
-                    "type": "number"
                 }
             },
             "required": ["kind", "metric_type", "source"],
@@ -8170,15 +8176,18 @@
         "ExperimentMetricBaseProperties": {
             "additionalProperties": false,
             "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
                 },
                 "name": {
                     "type": "string"
-                },
-                "time_window_hours": {
-                    "type": "number"
                 }
             },
             "required": ["kind"],

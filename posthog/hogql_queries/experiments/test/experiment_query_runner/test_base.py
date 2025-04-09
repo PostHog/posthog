@@ -23,6 +23,7 @@ from posthog.schema import (
     ExperimentSignificanceCode,
     ExperimentVariantTrendsBaseStats,
     ExperimentMeanMetric,
+    FunnelConversionWindowTimeUnit,
     PropertyOperator,
 )
 from posthog.test.base import (
@@ -1543,7 +1544,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase"),
-            time_window_hours=time_window_hours,
+            conversion_window=time_window_hours,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.HOUR,
         )
 
         experiment_query = ExperimentQuery(
