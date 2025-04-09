@@ -372,13 +372,16 @@ impl<'a> VmState<'a> {
                 self.push_stack(HogLiteral::Null)?;
             }
             Operation::String => {
-                self.push_stack(String::new())?;
+                let val: String = self.next()?;
+                self.push_stack(val)?;
             }
             Operation::Integer => {
-                self.push_stack(0)?;
+                let val: i64 = self.next()?;
+                self.push_stack(val)?;
             }
             Operation::Float => {
-                self.push_stack(0.0)?;
+                let val: f64 = self.next()?;
+                self.push_stack(val)?;
             }
             Operation::Pop => {
                 self.pop_stack()?;
@@ -618,7 +621,29 @@ impl<'a> VmState<'a> {
                 self.push_stack(HogLiteral::Closure(closure))?;
             }
             Operation::CallLocal => {
-                todo!()
+                let closure: Closure = self.pop_stack_as()?;
+                let arg_count: usize = self.next()?;
+                let Callable::Local(callable) = &closure.callable;
+                if arg_count > callable.stack_arg_count {
+                    return Err(VmError::InvalidCall(format!(
+                        "Too many args - expected {}, got {}",
+                        callable.stack_arg_count, arg_count
+                    )));
+                }
+                let null_args = callable.stack_arg_count - arg_count;
+                // For pure-hog function calls (calls to "local" callables), we just push a null onto the stack for each missing argument,
+                // then construct the stack frame, and jump to the callable's frame ip. For other kinds of calls (which we don't support yet),
+                // we'll have to do something more complicated
+                for _ in 0..null_args {
+                    self.push_stack(HogLiteral::Null)?;
+                }
+                let frame = CallFrame {
+                    ret_ptr: self.ip,
+                    stack_start: self.stack.len() - callable.stack_arg_count,
+                    captures: closure.captures,
+                };
+                self.stack_frames.push(frame);
+                self.ip = callable.ip; // Do the jump
             }
             Operation::GetUpvalue => {
                 let index: usize = self.next()?;
@@ -644,6 +669,8 @@ impl<'a> VmState<'a> {
 pub struct VmFailure {
     pub error: VmError,
     pub ip: usize,
+    pub stack: Vec<HogValue>,
+    pub step: usize,
 }
 
 pub fn sync_execute(bytecode: &[JsonValue], max_steps: usize) -> Result<HogLiteral, VmFailure> {
@@ -653,16 +680,26 @@ pub fn sync_execute(bytecode: &[JsonValue], max_steps: usize) -> Result<HogLiter
         max_stack_depth: 1024,
     };
 
-    let mut vm = VmState::new(&context).map_err(|e| VmFailure { error: e, ip: 0 })?;
-    for _ in 0..max_steps {
+    let mut vm = VmState::new(&context).map_err(|e| VmFailure {
+        error: e,
+        ip: 0,
+        stack: Vec::new(),
+        step: 0,
+    })?;
+
+    let mut i = 0;
+    while i < max_steps {
         let res = vm.step().map_err(|e| VmFailure {
             error: e,
             ip: vm.ip,
+            stack: vm.stack.clone(),
+            step: i,
         })?;
 
         if let Some(returned) = res.returned {
             return Ok(returned);
         }
+        i += 1;
     }
 
     let err = VmError::OutOfResource("steps".to_string());
@@ -670,5 +707,7 @@ pub fn sync_execute(bytecode: &[JsonValue], max_steps: usize) -> Result<HogLiter
     return Err(VmFailure {
         error: err,
         ip: vm.ip,
+        stack: vm.stack,
+        step: i,
     });
 }

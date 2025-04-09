@@ -338,6 +338,18 @@ impl FromHogRef for Callable {
     }
 }
 
+impl FromHogRef for Closure {
+    fn from_ref(value: &HogLiteral) -> Result<&Self, VmError> {
+        match value {
+            HogLiteral::Closure(c) => Ok(c),
+            _ => Err(VmError::InvalidValue(
+                value.type_name().to_string(),
+                "Closure".to_string(),
+            )),
+        }
+    }
+}
+
 impl<T> From<T> for HogValue
 where
     T: Into<HogLiteral>,
