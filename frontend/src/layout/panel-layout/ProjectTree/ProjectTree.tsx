@@ -77,15 +77,17 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {item.record?.path && !item.record?.primary && item.record?.type !== 'folder' ? (
+                {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
                         onClick={(e: any) => {
                             e.stopPropagation()
-                            assureVisibility({ type: item.record?.type, ref: item.record?.ref })
+                            linkCheckedItems(item.record.path)
                         }}
                     >
-                        <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>
+                            Create {checkedItemsCount} shortcut{checkedItemsCount === '1' ? '' : 's'} here
+                        </ButtonPrimitive>
                     </MenuItem>
                 ) : null}
                 {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
@@ -96,18 +98,34 @@ export function ProjectTree(): JSX.Element {
                             moveCheckedItems(item.record.path)
                         }}
                     >
-                        <ButtonPrimitive menuItem>Move {checkedItemsCount} selected items here</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>
+                            Move {checkedItemsCount} selected item{checkedItemsCount === '1' ? '' : 's'} here
+                        </ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
+
+                <MenuSeparator />
+
+                {item.record?.path ? (
                     <MenuItem
                         asChild
                         onClick={(e: any) => {
                             e.stopPropagation()
-                            linkCheckedItems(item.record.path)
+                            handleCopyPath(item.record?.path)
                         }}
                     >
-                        <ButtonPrimitive menuItem>Link {checkedItemsCount} selected items here</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+                {item.record?.path && item.record?.shortcut ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e: any) => {
+                            e.stopPropagation()
+                            assureVisibility({ type: item.record?.type, ref: item.record?.ref })
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
                 {item.record?.path && item.record?.type === 'folder' ? (
@@ -121,17 +139,6 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {item.record?.path ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e: any) => {
-                            e.stopPropagation()
-                            handleCopyPath(item.record?.path)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
-                    </MenuItem>
-                ) : null}
                 {item.record?.created_at ? (
                     <MenuItem
                         asChild
@@ -141,9 +148,7 @@ export function ProjectTree(): JSX.Element {
                         }}
                     >
                         <ButtonPrimitive menuItem>
-                            {item.record?.primary || item.record?.type === 'folder'
-                                ? "Delete and move to 'Unfiled'"
-                                : 'Remove'}
+                            {item.record?.shortcut ? 'Remove shortcut' : "Delete and move back to 'Unfiled'"}
                         </ButtonPrimitive>
                     </MenuItem>
                 ) : null}
