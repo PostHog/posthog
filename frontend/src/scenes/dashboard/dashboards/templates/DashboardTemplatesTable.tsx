@@ -40,9 +40,8 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             render: (_, { scope }) => {
                 if (scope === 'global') {
                     return <LemonSnack>Official</LemonSnack>
-                } 
-                    return <LemonSnack>Team</LemonSnack>
-                
+                }
+                return <LemonSnack>Team</LemonSnack>
             },
         },
         {

@@ -18,7 +18,6 @@ export const SocialLoginIcon = ({
         return <IconGitlab {...props} />
     } else if (provider === 'saml') {
         return <IconKey {...props} />
-    } 
-        return null
-    
+    }
+    return null
 }
