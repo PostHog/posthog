@@ -177,7 +177,7 @@ export class TeamManager {
 }
 
 export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
-    const selectResult = await client.query<Team>(
+    const selectResult = await client.query<Team & { parent_team_id?: Team['id'] | null }>(
         PostgresUse.COMMON_READ,
         `
             SELECT
@@ -209,13 +209,13 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
 
     // NOTE: The root team_id is a helper to make it easier to work with the team data
     // It is either the parent_team_id or the team's id if not set.
-    selectResult.rows[0].root_team_id = (selectResult.rows[0] as any).parent_team_id ?? selectResult.rows[0].id
-
+    selectResult.rows[0].root_team_id = selectResult.rows[0].parent_team_id ?? selectResult.rows[0].id
+    delete selectResult.rows[0].parent_team_id
     return selectResult.rows[0]
 }
 
 export async function fetchTeamByToken(client: PostgresRouter, token: string): Promise<Team | null> {
-    const selectResult = await client.query<Team>(
+    const selectResult = await client.query<Team & { parent_team_id?: Team['id'] | null }>(
         PostgresUse.COMMON_READ,
         `
             SELECT
@@ -248,7 +248,8 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
 
     // NOTE: The root team_id is a helper to make it easier to work with the team data
     // It is either the parent_team_id or the team's id if not set.
-    selectResult.rows[0].root_team_id = (selectResult.rows[0] as any).parent_team_id ?? selectResult.rows[0].id
+    selectResult.rows[0].root_team_id = selectResult.rows[0].parent_team_id ?? selectResult.rows[0].id
+    delete selectResult.rows[0].parent_team_id
     return selectResult.rows[0]
 }
 
