@@ -110,6 +110,8 @@ export function PersonsModal({
         return title
     }, [title, actorLabel.plural])
 
+    const hasGroups = actors.some((actor) => isGroupType(actor))
+
     return (
         <>
             <LemonModal
@@ -126,7 +128,7 @@ export function PersonsModal({
                     <h3>{getTitle()}</h3>
                 </LemonModal.Header>
                 <div className="px-4 py-2">
-                    {actorsResponse && !!missingActorsCount && (
+                    {actorsResponse && !!missingActorsCount && !hasGroups && (
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
                     <LemonInput
