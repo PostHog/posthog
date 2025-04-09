@@ -109,21 +109,17 @@ describe('runAppsOnEventPipeline()', () => {
         )
 
         await expect(
-            processOnEventStep(
-                hub,
-                // @ts-expect-error - TODO: Add missing `projectId` field to event
-                {
-                    distinctId: 'asdf',
-                    teamId: teamId,
-                    event: 'some event',
-                    properties: {},
-                    eventUuid: new UUIDT().toString(),
-                    person_created_at: null,
-                    person_properties: {},
-                    timestamp: new Date().toISOString() as ISOTimestamp,
-                    elementsList: [],
-                }
-            )
+            processOnEventStep(hub, {
+                distinctId: 'asdf',
+                teamId: teamId,
+                event: 'some event',
+                properties: {},
+                eventUuid: new UUIDT().toString(),
+                person_created_at: null,
+                person_properties: {},
+                timestamp: new Date().toISOString() as ISOTimestamp,
+                elementsList: [],
+            })
         ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
     })
 
@@ -160,7 +156,6 @@ describe('runAppsOnEventPipeline()', () => {
             elementsList: [],
         }
 
-        // @ts-expect-error - TODO: Add missing `projectId` field to event
         await expect(processOnEventStep(hub, event)).resolves.toEqual(null)
     })
 })

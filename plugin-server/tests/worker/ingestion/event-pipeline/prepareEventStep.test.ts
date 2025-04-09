@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person, ProjectId, Team } from '../../../../src/types'
+import { Hub, Person, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
@@ -94,7 +94,6 @@ describe('prepareEventStep()', () => {
                 $ip: '127.0.0.1',
             },
             teamId: 2,
-            projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
 
@@ -117,7 +116,6 @@ describe('prepareEventStep()', () => {
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
             properties: {},
             teamId: 2,
-            projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
 

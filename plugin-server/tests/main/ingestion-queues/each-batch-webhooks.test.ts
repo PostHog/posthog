@@ -3,8 +3,8 @@ import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     Hub,
-    ProjectId,
     RawClickHouseEvent,
+    Team,
 } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
@@ -14,7 +14,7 @@ import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
 import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
-import { resetTestDatabase } from '../../helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
 
@@ -40,11 +40,13 @@ const kafkaEvent: RawClickHouseEvent = {
 
 describe('eachMessageWebhooksHandlers', () => {
     let hub: Hub
+    let team: Team
 
     beforeEach(async () => {
         hub = await createHub()
         console.warn = jest.fn() as any
         await resetTestDatabase()
+        team = await getFirstTeam(hub)
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -94,7 +96,7 @@ describe('eachMessageWebhooksHandlers', () => {
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
         const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
-        await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'organization', 0)
+        await groupTypeManager.insertGroupType(team, 'organization', 0)
 
         const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
         organizationManager['availableProductFeaturesCache'].set(2, [
@@ -171,7 +173,6 @@ describe('eachMessageWebhooksHandlers', () => {
               "person_created_at": "2020-02-20T02:15:00.000Z",
               "person_id": "F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC",
               "person_properties": {},
-              "projectId": 2,
               "properties": {
                 "$groups": {
                   "organization": "org_posthog",

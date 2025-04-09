@@ -1,4 +1,4 @@
-import { ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../../src/types'
+import { ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
 import { WebhookFormatter, WebhookFormatterOptions } from '../../../src/worker/ingestion/webhook-formatter'
 
 type TestWebhookFormatterOptions = Partial<WebhookFormatterOptions> & {
@@ -11,7 +11,6 @@ describe('WebhookFormatter', () => {
         event: '$pageview',
         eventUuid: '123',
         teamId: 123,
-        projectId: 1 as ProjectId,
         distinctId: 'WALL-E',
         person_properties: { email: 'test@posthog.com' },
         person_created_at: '2021-10-31T00%3A44%3A00.000Z' as ISOTimestamp,

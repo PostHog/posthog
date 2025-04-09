@@ -161,6 +161,7 @@ async function addGroupPropertiesToPostIngestionEvent(
     let groupTypes: GroupTypeToColumnIndex | null = null
     if (await organizationManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
         // If the organization has group analytics enabled then we enrich the event with group data
+        // TODO: Fix this to use the team.root_team_id
         groupTypes = await groupTypeManager.fetchGroupTypes(event.projectId)
     }
 

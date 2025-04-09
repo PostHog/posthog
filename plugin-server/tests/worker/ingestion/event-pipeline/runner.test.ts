@@ -8,7 +8,6 @@ import {
     Person,
     PipelineEvent,
     PreIngestionEvent,
-    ProjectId,
     RawClickHouseEvent,
     Team,
 } from '../../../../src/types'

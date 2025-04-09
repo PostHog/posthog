@@ -30,7 +30,6 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
-    ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawClickHouseEvent,

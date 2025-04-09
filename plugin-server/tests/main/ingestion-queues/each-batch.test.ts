@@ -18,7 +18,6 @@ import {
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
     PostIngestionEvent,
-    ProjectId,
     RawClickHouseEvent,
 } from '../../../src/types'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'

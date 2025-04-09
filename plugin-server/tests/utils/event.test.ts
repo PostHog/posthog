@@ -1,7 +1,7 @@
 import { KafkaMessage } from 'kafkajs'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../src/types'
+import { ClickHouseTimestamp, RawClickHouseEvent } from '../../src/types'
 import { formPipelineEvent, normalizeEvent, parseRawClickHouseEvent } from '../../src/utils/event'
 
 describe('normalizeEvent()', () => {
