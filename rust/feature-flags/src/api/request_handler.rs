@@ -1,12 +1,10 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     client::database::Client,
-    cohort::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
-        flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
-        flag_models::FeatureFlagList,
-        flag_request::FlagRequest,
-        flag_service::FlagService,
+        flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher,
+        flag_models::FeatureFlagList, flag_request::FlagRequest, flag_service::FlagService,
     },
     router,
     team::team_models::Team,

@@ -4,9 +4,11 @@ use serde_json::Value;
 use sqlx::Postgres;
 use uuid::Uuid;
 
+pub type PersonId = i64;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Person {
-    pub id: i64,
+    pub id: PersonId,
     pub created_at: DateTime<Utc>,
     pub team_id: i32,
     pub uuid: Uuid,

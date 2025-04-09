@@ -985,15 +985,6 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
-class ExperimentMetricBaseProperties(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    name: Optional[str] = None
-    time_window_hours: Optional[float] = None
-
-
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
@@ -2700,6 +2691,16 @@ class ExperimentExposureQueryResponse(BaseModel):
     total_exposures: dict[str, float]
 
 
+class ExperimentMetricBaseProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    name: Optional[str] = None
+
+
 class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3006,6 +3007,7 @@ class RetentionValue(BaseModel):
         extra="forbid",
     )
     count: int
+    label: str
 
 
 class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
@@ -8006,22 +8008,24 @@ class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
     series: list[Union[EventsNode, ActionsNode]]
-    time_window_hours: Optional[float] = None
 
 
 class ExperimentMeanMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
-    time_window_hours: Optional[float] = None
 
 
 class ExperimentMeanMetricTypeProps(BaseModel):
