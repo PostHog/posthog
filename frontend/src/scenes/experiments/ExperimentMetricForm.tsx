@@ -8,6 +8,7 @@ import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/sche
 import { FilterType } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
+import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     filterToMetricConfig,
@@ -152,6 +153,9 @@ export function ExperimentMetricForm({
                 />
             )}
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+            {metric.metric_type === ExperimentMetricType.MEAN && (
+                <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+            )}
         </div>
     )
 }
