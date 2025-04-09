@@ -118,13 +118,13 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         response = self._run_revenue_example_external_tables_query()
         results = response.results
 
-        assert len(results) == len(self.csv_df)  # Same amount os rows inside the CSV
+        # Not all rows in the CSV have a status of "succeeded", let's filter them out here
+        assert len(results) == len(self.csv_df[self.csv_df["status"] == "succeeded"])
 
         # Proper conversions for some of the rows
         assert results[0][2:] == (Decimal("220"), "EUR", Decimal("182.247167654"), "GBP")
-        assert results[1][2:] == (Decimal("90"), "USD", Decimal("71.73"), "GBP")
-        assert results[2][2:] == (Decimal("180"), "GBP", Decimal("180"), "GBP")
+        assert results[1][2:] == (Decimal("180"), "GBP", Decimal("180"), "GBP")
 
         # Test JPY where there are no decimals, and an input of 500 implies 500 Yen
         # rather than the above where we had 22000 for 220 EUR (and etc.)
-        assert results[4][2:] == (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP")
+        assert results[3][2:] == (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP")
