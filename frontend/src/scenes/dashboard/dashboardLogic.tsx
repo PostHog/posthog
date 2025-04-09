@@ -111,6 +111,15 @@ export interface RefreshStatus {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
+/**
+ * Run a set of tasks **in order** with a limit on the number of concurrent tasks.
+ * Important to be in order so that we poll dashboard insights in the
+ * same order as they are calculated on the backend.
+ *
+ * @param tasks - An array of functions that return promises.
+ * @param limit - The maximum number of concurrent tasks.
+ * @returns A promise that resolves to an array of results from the tasks.
+ */
 async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
     const results: T[] = []
     const activePromises: Set<Promise<void>> = new Set()
