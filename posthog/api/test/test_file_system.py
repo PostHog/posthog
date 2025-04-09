@@ -422,7 +422,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["results"][0]["path"], "Deep/Nested/Path")
 
-    def test_list_by_parent(self):
+    def test_list_by_parent_and_path(self):
         """
         Verify that passing ?parent=SomeFolder returns only items whose path starts with "SomeFolder/".
         """
@@ -442,6 +442,12 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertIn("SomeFolder/SubFolder/File2", paths)
         self.assertNotIn("RootItem", paths)
         self.assertNotIn("AnotherFolder/File3", paths)
+
+        # Filter by ?parent=SomeFolder
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?path=SomeFolder/File1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1, data["results"])
 
     def test_list_by_parent_and_depth(self):
         """
@@ -528,8 +534,13 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
         FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
 
-        # Move the folder
+        # Count the folder by id
         response = self.client.post(f"/api/projects/{self.team.id}/file_system/{folder.pk}/count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["count"], 2)
+
+        # Count the folder by path
+        response = self.client.post(f"/api/projects/{self.team.id}/file_system/count_by_path?path=OldFolder")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["count"], 2)
 

@@ -139,7 +139,7 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {item.record?.created_at ? (
+                {item.record?.created_at || item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
                         onClick={(e: any) => {
