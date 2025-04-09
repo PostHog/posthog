@@ -56,6 +56,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                         title: groupTypeName,
                     },
                 },
+                groupTypeLabel: groupTypeNamePlural,
             }}
             dataAttr="groups-table"
         />
