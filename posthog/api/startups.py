@@ -7,6 +7,8 @@ from rest_framework import response, serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.viewsets import ViewSet
+from datetime import timedelta
+from posthog.cache_utils import cache_for
 
 from posthog.models import Organization
 
@@ -287,3 +289,65 @@ class StartupsViewSet(ViewSet):
         except Exception as e:
             logger.exception("Failed to submit startup application", exc_info=e)
             raise ValidationError("Failed to submit application")
+
+
+def batch_sort_key(batch_name: str) -> tuple[int, int]:
+    """Return a tuple of (year, season_order) for sorting YC batches.
+    Season order (descending): F (fall) > S (summer) > X (spring) > W (winter)
+    """
+    try:
+        season = batch_name[0].upper()
+        year = int(batch_name[1:])
+
+        # Season order (higher value = earlier in sort)
+        season_order = {
+            "F": 4,  # Fall
+            "S": 3,  # Summer
+            "X": 2,  # Sprint
+            "W": 1,  # Winter
+        }
+
+        if season not in season_order:
+            return (-1, -1)
+
+        # Use year as primary sort key, season as secondary
+        return (year, season_order[season])
+    except (IndexError, ValueError):
+        return (-1, -1)
+
+
+@cache_for(timedelta(hours=24))
+def get_sorted_yc_batches() -> list[str]:
+    """
+    Fetches and sorts YC batches from newest to oldest.
+    Returns a list of batch names (e.g. ['X25', 'W25', 'F24', 'S24', 'W24', ...])
+    """
+    try:
+        response = requests.get("https://yc-oss.github.io/api/meta.json", timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        batches = [batch["name"].upper() for batch in data.get("batches", {}).values() if batch.get("name")]
+
+        return sorted(batches, key=batch_sort_key, reverse=True)
+    except Exception:
+        return []
+
+
+def get_yc_deal_type(batch: str) -> str:
+    """Return the deal type for a YC batch.
+    - current: Two most recent batches (current and upcoming) - $50K for 12 months,
+    - old: Next 4 batches
+    - older: Everything else
+    """
+    sorted_batches = get_sorted_yc_batches()
+
+    if not sorted_batches or batch.upper() not in sorted_batches:
+        return "older"
+
+    batch_index = sorted_batches.index(batch.upper())
+
+    if batch_index < 2:  # First two batches
+        return "current"
+    elif batch_index < 6:  # Next four batches
+        return "old"
+    return "older"

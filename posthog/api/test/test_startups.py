@@ -6,17 +6,23 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.test.base import APIBaseTest
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.api.startups import check_organization_eligibility, verify_yc_batch_membership, extract_domain
+from posthog.api.startups import (
+    check_organization_eligibility,
+    verify_yc_batch_membership,
+    extract_domain_from_url,
+    get_sorted_yc_batches,
+    get_yc_deal_type,
+)
 
 
 class TestYCBatchVerification(APIBaseTest):
     def test_extract_domain(self):
         """Test the domain extraction function."""
-        self.assertEqual(extract_domain("https://www.example.com"), "example.com")
-        self.assertEqual(extract_domain("http://example.com"), "example.com")
-        self.assertEqual(extract_domain("example.com"), "example.com")
-        self.assertEqual(extract_domain("www.example.com"), "example.com")
-        self.assertEqual(extract_domain("https://example.com/path?query=value"), "example.com")
+        self.assertEqual(extract_domain_from_url("https://www.example.com"), "example.com")
+        self.assertEqual(extract_domain_from_url("http://example.com"), "example.com")
+        self.assertEqual(extract_domain_from_url("example.com"), "example.com")
+        self.assertEqual(extract_domain_from_url("www.example.com"), "example.com")
+        self.assertEqual(extract_domain_from_url("https://example.com/path?query=value"), "example.com")
 
     @patch("requests.get")
     def test_verify_yc_batch_membership_success(self, mock_get):
@@ -205,7 +211,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "startups",
+                "program": "startup",
                 "organization_id": str(self.organization.id),
                 "raised": "1000000",
                 "incorporation_date": "2023-01-01",
@@ -218,7 +224,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "startups",
+                "program": "startup",
                 "raised": "1000000",
                 "incorporation_date": "2023-01-01",
             },
@@ -242,7 +248,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "startups",
+                "program": "startup",
                 "organization_id": str(org2.id),
                 "raised": "1000000",
                 "incorporation_date": "2023-01-01",
@@ -263,7 +269,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "startups",
+                "program": "startup",
                 "organization_id": str(self.organization.id),
             },
         )
@@ -276,7 +282,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "startups",
+                "program": "startup",
                 "organization_id": str(self.organization.id),
                 "raised": "1000000",
             },
@@ -294,7 +300,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "yc",
+                "program": "YC",
                 "organization_id": str(self.organization.id),
             },
         )
@@ -313,7 +319,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "startups",
+                "program": "startup",
                 "organization_id": str(self.organization.id),
                 "raised": "1000000",
                 "incorporation_date": old_date,
@@ -335,7 +341,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "startups",
+                "program": "startup",
                 "organization_id": str(self.organization.id),
                 "raised": "5000000",  # $5M
                 "incorporation_date": "2023-01-01",
@@ -360,7 +366,7 @@ class TestStartupsAPI(APIBaseTest):
         mock_create.return_value = {
             "organization_id": str(self.organization.id),
             "organization_name": "Test Organization",
-            "program": "startups",
+            "program": "startup",
             "raised": "1000000",
             "incorporation_date": one_year_ago,
             "email": self.user.email,
@@ -371,7 +377,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "startups",
+                "program": "startup",
                 "organization_id": str(self.organization.id),
                 "raised": "1000000",  # $1M
                 "incorporation_date": one_year_ago,
@@ -381,7 +387,7 @@ class TestStartupsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
         self.assertEqual(response_data["organization_id"], str(self.organization.id))
-        self.assertEqual(response_data["program"], "startups")
+        self.assertEqual(response_data["program"], "startup")
         self.assertEqual(response_data["raised"], "1000000")
         self.assertEqual(response_data["incorporation_date"], one_year_ago)
 
@@ -396,7 +402,7 @@ class TestStartupsAPI(APIBaseTest):
         mock_create.return_value = {
             "organization_id": str(self.organization.id),
             "organization_name": "Test Organization",
-            "program": "yc",
+            "program": "YC",
             "yc_batch": "W24",
             "yc_verified": False,
             "yc_proof_screenshot_url": "https://example.com/screenshot.jpg",
@@ -409,7 +415,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "yc",
+                "program": "YC",
                 "organization_id": str(self.organization.id),
                 "yc_batch": "W24",
                 "yc_proof_screenshot_url": "https://example.com/screenshot.jpg",
@@ -420,7 +426,7 @@ class TestStartupsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
         self.assertEqual(response_data["organization_id"], str(self.organization.id))
-        self.assertEqual(response_data["program"], "yc")
+        self.assertEqual(response_data["program"], "YC")
         self.assertEqual(response_data["yc_batch"], "W24")
         self.assertEqual(response_data["yc_proof_screenshot_url"], "https://example.com/screenshot.jpg")
         self.assertEqual(response_data["yc_merch_count"], 3)
@@ -436,7 +442,7 @@ class TestStartupsAPI(APIBaseTest):
         mock_create.return_value = {
             "organization_id": str(self.organization.id),
             "organization_name": "Test Organization",
-            "program": "yc",
+            "program": "YC",
             "yc_batch": "W24",
             "yc_verified": True,
             "email": self.user.email,
@@ -447,7 +453,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "yc",
+                "program": "YC",
                 "organization_id": str(self.organization.id),
                 "yc_batch": "W24",
                 # Note: No screenshot URL is provided since verification succeeds
@@ -457,7 +463,7 @@ class TestStartupsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
         self.assertEqual(response_data["organization_id"], str(self.organization.id))
-        self.assertEqual(response_data["program"], "yc")
+        self.assertEqual(response_data["program"], "YC")
         self.assertEqual(response_data["yc_batch"], "W24")
         self.assertTrue(response_data["yc_verified"])
 
@@ -471,7 +477,7 @@ class TestStartupsAPI(APIBaseTest):
         response = self.client.post(
             "/api/startups/apply/",
             {
-                "program": "yc",
+                "program": "YC",
                 "organization_id": str(self.organization.id),
                 "yc_batch": "W24",
                 # No screenshot URL is provided, which should cause validation to fail
@@ -485,3 +491,83 @@ class TestStartupsAPI(APIBaseTest):
             response_data["detail"],
             "Screenshot proof is required for YC applications that cannot be automatically verified",
         )
+
+
+class TestYCBatchSorting(APIBaseTest):
+    @patch("requests.get")
+    def test_batch_sorting(self, mock_get):
+        """Test that batches are sorted correctly by year and season."""
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.json.return_value = {
+            "batches": {
+                "x25": {"name": "X25"},
+                "w25": {"name": "W25"},
+                "f24": {"name": "F24"},
+                "s24": {"name": "S24"},
+                "w24": {"name": "W24"},
+                "s06": {"name": "S06"},
+                "w06": {"name": "W06"},
+                "s05": {"name": "S05"},
+                "ik12": {"name": "IK12"},
+                "unspecified": {"name": "Unspecified"},
+            }
+        }
+        mock_get.return_value = mock_response
+
+        sorted_batches = get_sorted_yc_batches()
+        expected_order = [
+            "X25",  # Most recent first
+            "W25",
+            "F24",  # Fall before Summer
+            "S24",  # Summer before Winter
+            "W24",
+            "S06",
+            "W06",  # Old batches at the end
+            "S05",
+            "IK12",
+            "UNSPECIFIED",
+        ]
+
+        self.assertEqual(sorted_batches, expected_order)
+
+    @patch("requests.get")
+    def test_deal_type_categorization(self, mock_get):
+        """Test that batches are correctly categorized into deal types."""
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.json.return_value = {
+            "batches": {
+                "x25": {"name": "X25"},
+                "w25": {"name": "W25"},
+                "f24": {"name": "F24"},
+                "s24": {"name": "S24"},
+                "w24": {"name": "W24"},
+                "f23": {"name": "F23"},
+                "s23": {"name": "S23"},
+                "w23": {"name": "W23"},
+                "w06": {"name": "W06"},
+            }
+        }
+        mock_get.return_value = mock_response
+
+        # Test current batches (first two)
+        self.assertEqual(get_yc_deal_type("X25"), "current")
+        self.assertEqual(get_yc_deal_type("W25"), "current")
+        self.assertEqual(get_yc_deal_type("x25"), "current")  # Case insensitive
+
+        # Test old batches (next four)
+        self.assertEqual(get_yc_deal_type("F24"), "old")
+        self.assertEqual(get_yc_deal_type("S24"), "old")
+        self.assertEqual(get_yc_deal_type("W24"), "old")
+        self.assertEqual(get_yc_deal_type("F23"), "old")
+
+        # Test older batches
+        self.assertEqual(get_yc_deal_type("S23"), "older")
+        self.assertEqual(get_yc_deal_type("W23"), "older")
+        self.assertEqual(get_yc_deal_type("W06"), "older")
+
+        # Test invalid/unknown batches
+        self.assertEqual(get_yc_deal_type("INVALID"), "older")
+        self.assertEqual(get_yc_deal_type("IK12"), "older")
+        self.assertEqual(get_yc_deal_type(""), "older")
