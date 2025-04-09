@@ -133,7 +133,9 @@ export function PersonsModal({
                     )}
                     <LemonInput
                         type="search"
-                        placeholder="Search for persons by email, name, or ID"
+                        placeholder={
+                            hasGroups ? 'Search for groups by name or ID' : 'Search for persons by email, name, or ID'
+                        }
                         fullWidth
                         value={searchTerm}
                         onChange={setSearchTerm}
