@@ -49,7 +49,8 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         enabled: false,
                                     },
                                     wordWrap: 'on',
-                                    scrollBeyondLastLine: false,
+                                    // Overscroll needed when Accept/Reject buttons are shown, so that they don't obscure the query
+                                    scrollBeyondLastLine: !!props.originalValue,
                                     automaticLayout: true,
                                     fixedOverflowWidgets: true,
                                     suggest: {
