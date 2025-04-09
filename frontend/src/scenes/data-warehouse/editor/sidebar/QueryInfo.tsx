@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { useEffect } from 'react'
@@ -192,12 +192,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     title: 'Status',
                                     dataIndex: 'status',
                                     render: (_, { status, error }: DataModelingJob) => {
-                                        const type =
-                                            status === 'Completed'
-                                                ? 'success'
-                                                : status === 'Failed'
-                                                ? 'danger'
-                                                : 'warning'
+                                        const statusToType: Record<string, LemonTagType> = {
+                                            Completed: 'success',
+                                            Failed: 'danger',
+                                            Running: 'warning',
+                                        }
+                                        const type = statusToType[status] || 'warning'
 
                                         return error ? (
                                             <Tooltip title={error}>
