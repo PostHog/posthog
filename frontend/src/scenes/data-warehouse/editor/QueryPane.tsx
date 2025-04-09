@@ -73,7 +73,11 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             icon={<IconCheck color="var(--success)" />}
                             onClick={() => {
                                 props.onAccept?.()
-                                props.onRun?.()
+                                setTimeout(() => {
+                                    // Hacky to use setTimeout, but for some reason onRun seemed not to run
+                                    // when immediately after onAccept
+                                    props.onRun?.()
+                                }, 10)
                             }}
                             tooltipPlacement="top"
                             size="small"
