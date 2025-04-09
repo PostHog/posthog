@@ -120,6 +120,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
+        path_param = self.request.query_params.get("path")
         type_param = self.request.query_params.get("type")
         type__startswith_param = self.request.query_params.get("type__startswith")
         ref_param = self.request.query_params.get("ref")
@@ -134,6 +135,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.order_by("path")
 
+        if path_param:
+            queryset = queryset.filter(path=path_param)
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
         if type_param:
@@ -260,6 +263,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.type != "folder":
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
         count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
+        return Response({"count": count}, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False)
+    def count_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get count of all files in a folder."""
+        path_param = self.request.query_params.get("path")
+        if not path_param:
+            return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+        count = FileSystem.objects.filter(team=self.team, path__startswith=f"{path_param}/").count()
         return Response({"count": count}, status=status.HTTP_200_OK)
 
 
