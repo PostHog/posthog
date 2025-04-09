@@ -8,15 +8,16 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
+    data_modeling_job,
     external_data_schema,
     external_data_source,
     modeling,
+    query_tab_state,
     saved_query,
     table,
     view_link,
-    query_tab_state,
-    data_modeling_job,
 )
+from products.editor.backend.api.codebase_sync import CodebaseSyncViewset
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -644,3 +645,5 @@ register_grandfathered_environment_nested_viewset(
     "environment_data_modeling_jobs",
     ["team_id"],
 )
+
+projects_router.register(r"codebases", CodebaseSyncViewset, "codebases", ["project_id"])
