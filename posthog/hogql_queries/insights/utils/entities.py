@@ -1,3 +1,7 @@
+from posthog.hogql import ast
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.models.action.action import Action
+from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
@@ -95,3 +99,37 @@ def _semantic_property_repr(property: AnyPropertyFilter) -> str:
         return f"{property.type}: {property.key} {property.value}"
     else:
         return f"{property.type}: {property.key} {property.operator} {property.value}"
+
+
+def entity_to_expr(entity: EntityNode, team: Team) -> ast.Expr:
+    filters: list[ast.Expr] = []
+
+    if isinstance(entity, EventsNode) and entity.event is not None:
+        filters.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=entity.event),
+            )
+        )
+    elif isinstance(entity, ActionsNode):
+        try:
+            action = Action.objects.get(pk=entity.id, team__project_id=team.project_id)
+            filters.append(action_to_expr(action))
+        except Action.DoesNotExist:
+            raise ValueError(f"Action with ID `{entity.id}` does not exist.")
+    else:
+        raise ValueError(f"`{entity.kind}` nodes are not supported in this context.")
+
+    if entity.properties is not None and entity.properties != []:
+        filters.append(property_to_expr(entity.properties, team))
+
+    if entity.fixedProperties is not None and entity.fixedProperties != []:
+        filters.append(property_to_expr(entity.fixedProperties, team))
+
+    if len(filters) == 0:
+        return ast.Constant(value=True)
+    if len(filters) == 1:
+        return filters[0]
+    else:
+        return ast.And(exprs=filters)
