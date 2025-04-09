@@ -8,6 +8,7 @@ import { useCallback } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { cancelEvent } from '../utils'
 import { RuntimeIcon } from './RuntimeIcon'
 
 export function StacktraceDisplay({
@@ -81,6 +82,7 @@ export function StacktraceDisplay({
                         exceptionList={exceptionList}
                         renderExceptionHeader={renderExceptionHeader}
                         fingerprintRecords={fingerprintRecords}
+                        onFrameContextClick={(_, e) => cancelEvent(e)}
                     />
                 ))
                 .with([false, false, false], () => (

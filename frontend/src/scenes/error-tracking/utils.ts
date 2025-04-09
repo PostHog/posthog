@@ -2,6 +2,7 @@ import { FingerprintRecordPart } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
+import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
 import { match, P } from 'ts-pattern'
 
@@ -264,7 +265,7 @@ export function defaultSearchParams({ searchQuery, filterGroup, filterTestAccoun
     return searchParams
 }
 
-export function cancelEvent(event: React.MouseEvent<HTMLDivElement> | Event): void {
+export function cancelEvent(event: MouseEvent): void {
     event.preventDefault()
     event.stopPropagation()
 }

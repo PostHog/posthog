@@ -4,7 +4,7 @@ import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { useEffect, useMemo } from 'react'
+import { MouseEvent, useEffect, useMemo } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
@@ -38,10 +38,13 @@ function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Eleme
     )
 }
 
+type FrameContextClickHandler = (ctx: ErrorTrackingStackFrameContext, e: MouseEvent) => void
+
 export function ChainedStackTraces({
     exceptionList,
     showAllFrames,
     renderExceptionHeader,
+    onFrameContextClick,
     embedded = false,
     fingerprintRecords = [],
 }: {
@@ -50,6 +53,7 @@ export function ChainedStackTraces({
     fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded?: boolean
+    onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element {
     const { loadFromRawIds } = useActions(stackFrameLogic)
 
@@ -89,6 +93,7 @@ export function ChainedStackTraces({
                                         showAllFrames={showAllFrames}
                                         embedded={embedded}
                                         fingerprintRecords={fingerprintRecords}
+                                        onFrameContextClick={onFrameContextClick}
                                     />
                                 ))}
                         </div>
@@ -104,11 +109,13 @@ function Trace({
     fingerprintRecords,
     showAllFrames,
     embedded,
+    onFrameContextClick,
 }: {
     frames: ErrorTrackingStackFrame[]
     fingerprintRecords: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded: boolean
+    onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element | null {
     const { stackFrameRecords } = useValues(stackFrameLogic)
     const checkers = useFingerprintRecords(fingerprintRecords)
@@ -153,12 +160,7 @@ function Trace({
                 ),
                 content:
                     record && record.context ? (
-                        <div
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                e.preventDefault()
-                            }}
-                        >
+                        <div onClick={(e) => onFrameContextClick?.(record.context!, e)}>
                             <FrameContext context={record.context} language={getLanguage(lang)} />
                         </div>
                     ) : null,
@@ -170,12 +172,12 @@ function Trace({
     return <LemonCollapse embedded={embedded} multiple panels={panels} size="xsmall" />
 }
 
-export type FingerprintCheckers = {
+export type FingerprintGetters = {
     getExceptionPart(excId: string): FingerprintRecordPart | undefined
     getFramePart(frameId: string): FingerprintRecordPart | undefined
 }
 
-function useFingerprintRecords(fingerprintRecords: FingerprintRecordPart[]): FingerprintCheckers {
+function useFingerprintRecords(fingerprintRecords: FingerprintRecordPart[]): FingerprintGetters {
     return useMemo(() => {
         return {
             getExceptionPart(excId: string) {
