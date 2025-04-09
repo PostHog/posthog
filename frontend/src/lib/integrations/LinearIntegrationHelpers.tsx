@@ -22,7 +22,7 @@ export function LinearTeamPicker({ onChange, value, integration, disabled }: Lin
         () =>
             linearTeams
                 ? linearTeams.map((x) => ({
-                      key: `${x.name}|${x.id}`,
+                      key: x.id,
                       label: x.name,
                   }))
                 : [],

@@ -1,12 +1,13 @@
 import { IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-export function ErrorTrackingIntegration(): JSX.Element {
+export function ErrorTrackingIntegrations(): JSX.Element {
     const { linearIntegrations } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
 
@@ -32,7 +33,7 @@ export function ErrorTrackingIntegration(): JSX.Element {
 
     return (
         <div>
-            <div className="gap-y-2">
+            <div className="flex flex-col gap-y-2">
                 {linearIntegrations?.map((integration) => (
                     <IntegrationView
                         key={integration.id}
@@ -53,7 +54,10 @@ export function ErrorTrackingIntegration(): JSX.Element {
                 <div className="flex">
                     <LemonButton
                         type="secondary"
-                        to={api.integrations.authorizeUrl({ kind: 'linear' })}
+                        to={api.integrations.authorizeUrl({
+                            kind: 'linear',
+                            next: router.values.currentLocation.pathname,
+                        })}
                         disableClientSideRouting
                     >
                         Connect <>{linearIntegrations?.length > 0 ? 'another' : 'a'}</> Linear workspace

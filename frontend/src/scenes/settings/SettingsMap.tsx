@@ -26,7 +26,7 @@ import {
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
-import { ErrorTrackingIntegration } from './environment/ErrorTrackingIntegrations'
+import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
@@ -361,7 +361,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'integration-error-tracking',
                 title: 'Integrations',
-                component: <ErrorTrackingIntegration />,
+                component: <ErrorTrackingIntegrations />,
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -409,7 +409,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'integration-error-tracking',
                 title: 'Error tracking integrations',
-                component: <OtherIntegrations />,
+                component: <ErrorTrackingIntegrations />,
             },
             {
                 id: 'integration-other',
