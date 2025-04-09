@@ -19,11 +19,7 @@ export function ErrorTrackingIntegrations(): JSX.Element {
             primaryButton: {
                 children: 'Yes, disconnect',
                 status: 'danger',
-                onClick: () => {
-                    if (id) {
-                        deleteIntegration(id)
-                    }
-                },
+                onClick: () => deleteIntegration(id),
             },
             secondaryButton: {
                 children: 'No thanks',
@@ -32,37 +28,35 @@ export function ErrorTrackingIntegrations(): JSX.Element {
     }
 
     return (
-        <div>
-            <div className="flex flex-col gap-y-2">
-                {linearIntegrations?.map((integration) => (
-                    <IntegrationView
-                        key={integration.id}
-                        integration={integration}
-                        suffix={
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                onClick={() => onDeleteClick(integration.id)}
-                                icon={<IconTrash />}
-                            >
-                                Disconnect
-                            </LemonButton>
-                        }
-                    />
-                ))}
+        <div className="flex flex-col gap-y-2">
+            {linearIntegrations?.map((integration) => (
+                <IntegrationView
+                    key={integration.id}
+                    integration={integration}
+                    suffix={
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            onClick={() => onDeleteClick(integration.id)}
+                            icon={<IconTrash />}
+                        >
+                            Disconnect
+                        </LemonButton>
+                    }
+                />
+            ))}
 
-                <div className="flex">
-                    <LemonButton
-                        type="secondary"
-                        to={api.integrations.authorizeUrl({
-                            kind: 'linear',
-                            next: router.values.currentLocation.pathname,
-                        })}
-                        disableClientSideRouting
-                    >
-                        Connect <>{linearIntegrations?.length > 0 ? 'another' : 'a'}</> Linear workspace
-                    </LemonButton>
-                </div>
+            <div className="flex">
+                <LemonButton
+                    type="secondary"
+                    to={api.integrations.authorizeUrl({
+                        kind: 'linear',
+                        next: router.values.currentLocation.pathname,
+                    })}
+                    disableClientSideRouting
+                >
+                    Connect <>{linearIntegrations?.length > 0 ? 'another' : 'a'}</> Linear workspace
+                </LemonButton>
             </div>
         </div>
     )

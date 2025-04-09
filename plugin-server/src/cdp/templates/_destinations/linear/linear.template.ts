@@ -1,7 +1,7 @@
 import { HogFunctionTemplate, SUB_TEMPLATE_COMMON } from '../../types'
 
 export const template: HogFunctionTemplate = {
-    status: 'stable',
+    status: 'alpha',
     free: false,
     type: 'destination',
     id: 'template-linear',
@@ -10,7 +10,12 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/linear.png',
     category: ['Error tracking'],
     hog: `
-let mutation := f'mutation IssueCreate \{ issueCreate(input: \{ title: "{inputs.title}" description: "{inputs.description}" teamId: "{inputs.team}" }) \{ success issue \{ id } } }';
+let description :=f'{event.properties.description}
+
+[View Person in PostHog]({person.url})
+[Message source]({source.url})'
+
+let mutation := f'mutation IssueCreate \{ issueCreate(input: \{ title: "{inputs.title}" description: "{description}" teamId: "{inputs.team}" }) \{ success issue \{ id } } }';
 
 let res := fetch('https://api.linear.app/graphql', {
   'body': {
