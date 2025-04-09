@@ -78,7 +78,11 @@ class FileSystemSerializer(serializers.ModelSerializer):
                     depth=depth_index,
                     type="folder",
                     created_by=request.user,
+                    shortcut=False,
                 )
+
+        if validated_data.get("shortcut") is None:
+            validated_data["shortcut"] = False
 
         depth = len(segments)
         file_system = FileSystem.objects.create(
