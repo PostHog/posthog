@@ -17,7 +17,7 @@ export interface ConvertProps {
     searchTerm?: string
 }
 
-export function wrapWithShortutIcon(item: TreeDataItem, icon: JSX.Element): JSX.Element {
+export function wrapWithShortutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
     if (!item.primary) {
         return (
             <div className="relative">
