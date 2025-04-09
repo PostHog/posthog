@@ -1,5 +1,4 @@
-import { IconCheck } from '@posthog/icons'
-import { IconX } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -18,6 +17,7 @@ interface QueryPaneProps {
     originalValue?: string
     onAccept?: () => void
     onReject?: () => void
+    onRun?: () => void
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -64,40 +64,28 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 </div>
                 {props.originalValue && (
                     <div
-                        className="absolute"
+                        className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            bottom: '16px',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            zIndex: 10,
-                            backgroundColor: 'white',
-                            padding: '4px 6px',
-                            borderRadius: '6px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                            border: '1px solid var(--border)',
-                        }}
+                        style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
                     >
-                        <div className="flex gap-1">
-                            <LemonButton
-                                type="primary"
-                                icon={<IconCheck color="var(--success)" />}
-                                onClick={props.onAccept}
-                                tooltipPlacement="top"
-                                size="small"
-                            >
-                                Accept
-                            </LemonButton>
-                            <LemonButton
-                                status="danger"
-                                icon={<IconX />}
-                                onClick={props.onReject}
-                                tooltipPlacement="top"
-                                size="small"
-                            >
-                                Reject
-                            </LemonButton>
-                        </div>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconCheck color="var(--success)" />}
+                            onClick={props.onAccept}
+                            tooltipPlacement="top"
+                            size="small"
+                        >
+                            Accept
+                        </LemonButton>
+                        <LemonButton
+                            status="danger"
+                            icon={<IconX />}
+                            onClick={props.onReject}
+                            tooltipPlacement="top"
+                            size="small"
+                        >
+                            Reject
+                        </LemonButton>
                     </div>
                 )}
                 <Resizer {...queryPaneResizerProps} />
