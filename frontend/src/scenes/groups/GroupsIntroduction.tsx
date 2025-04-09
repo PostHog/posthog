@@ -12,8 +12,11 @@ export function GroupsIntroduction(): JSX.Element {
             docsLink="https://posthog.com/docs/user-guides/group-analytics"
         >
             <div className="flex flex-col items-center mt-4 justify-center text-center border rounded-lg py-8 min-h-56">
-                <h2 className="mb-2 text-2xl font-semibold">You're almost done!</h2>
-                <div className="max-w-140">Learn how to track groups in your code</div>
+                <h2 className="mb-2 text-2xl font-semibold">Start tracking groups</h2>
+                <div className="max-w-140">
+                    Analyze how companies or teams use your product at the group level. Use the SDK to identify each
+                    group, and then include the relevant group identifier in the event&nbsp;properties.
+                </div>
                 <div className="w-80 max-w-[90%] mt-4">
                     <LemonButton
                         type="primary"
