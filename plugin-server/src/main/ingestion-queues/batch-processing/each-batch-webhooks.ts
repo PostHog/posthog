@@ -3,12 +3,10 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
 import { ActionMatcher } from 'worker/ingestion/action-matcher'
-import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
-import { OrganizationManager } from 'worker/ingestion/organization-manager'
 
-import { GroupTypeToColumnIndex, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
+import { GroupTypeToColumnIndex, Hub, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
+import { PostgresUse } from '../../../utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../utils/event'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
@@ -62,27 +60,13 @@ export function groupIntoBatchesByUsage(
     return result
 }
 
-export async function eachBatchWebhooksHandlers(
-    payload: EachBatchPayload,
-    actionMatcher: ActionMatcher,
-    hookCannon: HookCommander,
-    concurrency: number,
-    groupTypeManager: GroupTypeManager,
-    organizationManager: OrganizationManager,
-    postgres: PostgresRouter
-): Promise<void> {
+export async function eachBatchWebhooksHandlers(hub: Hub, payload: EachBatchPayload): Promise<void> {
+    const concurrency = hub.TASKS_PER_WORKER || 20
+
     await eachBatchHandlerHelper(
         payload,
-        (teamId) => actionMatcher.hasWebhooks(teamId),
-        (event) =>
-            eachMessageWebhooksHandlers(
-                event,
-                actionMatcher,
-                hookCannon,
-                groupTypeManager,
-                organizationManager,
-                postgres
-            ),
+        (teamId) => hub.actionMatcher.hasWebhooks(teamId),
+        (event) => eachMessageWebhooksHandlers(hub, event),
         concurrency,
         'webhooks'
     )
@@ -153,16 +137,17 @@ export async function eachBatchHandlerHelper(
 }
 
 async function addGroupPropertiesToPostIngestionEvent(
-    event: PostIngestionEvent,
-    groupTypeManager: GroupTypeManager,
-    organizationManager: OrganizationManager,
-    postgres: PostgresRouter
+    hub: Hub,
+    event: PostIngestionEvent
 ): Promise<PostIngestionEvent> {
     let groupTypes: GroupTypeToColumnIndex | null = null
-    if (await organizationManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
+    if (await hub.organizationManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
         // If the organization has group analytics enabled then we enrich the event with group data
         // TODO: Fix this to use the team.root_team_id
-        groupTypes = await groupTypeManager.fetchGroupTypes(event.projectId)
+        const team = await hub.teamManager.fetchTeam(event.teamId)
+        if (team) {
+            groupTypes = await hub.groupTypeManager.fetchGroupTypes(team)
+        }
     }
 
     let groups: PostIngestionEvent['groups'] = undefined
@@ -177,7 +162,7 @@ async function addGroupPropertiesToPostIngestionEvent(
 
             const queryString = `SELECT group_properties FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
 
-            const selectResult: QueryResult = await postgres.query(
+            const selectResult: QueryResult = await hub.postgres.query(
                 PostgresUse.COMMON_READ,
                 queryString,
                 [event.teamId, columnIndex, groupKey],
@@ -203,15 +188,8 @@ async function addGroupPropertiesToPostIngestionEvent(
     }
 }
 
-export async function eachMessageWebhooksHandlers(
-    kafkaEvent: RawClickHouseEvent,
-    actionMatcher: ActionMatcher,
-    hookCannon: HookCommander,
-    groupTypeManager: GroupTypeManager,
-    organizationManager: OrganizationManager,
-    postgres: PostgresRouter
-): Promise<void> {
-    if (!actionMatcher.hasWebhooks(kafkaEvent.team_id)) {
+export async function eachMessageWebhooksHandlers(hub: Hub, kafkaEvent: RawClickHouseEvent): Promise<void> {
+    if (!hub.actionMatcher.hasWebhooks(kafkaEvent.team_id)) {
         // exit early if no webhooks nor resthooks
         return
     }
@@ -221,15 +199,10 @@ export async function eachMessageWebhooksHandlers(
     // from PG if a webhook is defined for this team.
     // Instead we should be lazily loading group properties only when needed, but this is the fastest way to fix this consumer
     // that will be deprecated in the near future by CDP/Hog
-    const event = await addGroupPropertiesToPostIngestionEvent(
-        eventWithoutGroups,
-        groupTypeManager,
-        organizationManager,
-        postgres
-    )
+    const event = await addGroupPropertiesToPostIngestionEvent(hub, eventWithoutGroups)
 
     await runInstrumentedFunction({
-        func: () => runWebhooks(actionMatcher, hookCannon, event),
+        func: () => runWebhooks(hub.actionMatcher, hub.hookCommander, event),
         statsKey: `kafka_queue.process_async_handlers_webhooks`,
         timeoutMessage: 'After 30 seconds still running runWebhooksHandlersEventPipeline',
         timeoutContext: () => ({

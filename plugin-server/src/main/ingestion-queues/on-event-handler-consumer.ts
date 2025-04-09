@@ -40,19 +40,7 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
     */
     logger.info('🔁', `Starting webhooks handler consumer`)
 
-    const {
-        kafka,
-        postgres,
-        teamManager,
-        organizationManager,
-        actionMatcher,
-        actionManager,
-        rustyHook,
-        appMetrics,
-        groupTypeManager,
-    } = hub
-
-    const consumer = kafka.consumer({
+    const consumer = hub.kafka.consumer({
         // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
         groupId: `${KAFKA_PREFIX}clickhouse-plugin-server-async-webhooks`,
         sessionTimeout: hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
@@ -61,33 +49,14 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
     })
     setupEventHandlers(consumer)
 
-    const hookCannon = new HookCommander(
-        postgres,
-        teamManager,
-        organizationManager,
-        rustyHook,
-        appMetrics,
-        hub.EXTERNAL_REQUEST_TIMEOUT_MS
-    )
-    const concurrency = hub.TASKS_PER_WORKER || 20
-
-    await actionManager.start()
+    await hub.actionManager.start()
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
-        eachBatch: (payload) =>
-            eachBatchWebhooksHandlers(
-                payload,
-                actionMatcher,
-                hookCannon,
-                concurrency,
-                groupTypeManager,
-                organizationManager,
-                postgres
-            ),
+        eachBatch: (payload) => eachBatchWebhooksHandlers(hub, payload),
     })
 
     const onShutdown = async () => {
-        await actionManager.stop()
+        await hub.actionManager.stop()
         try {
             await consumer.stop()
         } catch (e) {

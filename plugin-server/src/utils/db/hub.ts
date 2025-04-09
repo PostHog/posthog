@@ -7,6 +7,8 @@ import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
+import { HookCommander } from '~/src/worker/ingestion/hooks'
+
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
 import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
@@ -138,6 +140,20 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
+    const appMetrics = new AppMetrics(
+        kafkaProducer,
+        serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+        serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+    )
+    const hookCommander = new HookCommander(
+        postgres,
+        teamManager,
+        organizationManager,
+        rustyHook,
+        appMetrics,
+        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    )
+
     const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
         instanceId,
@@ -171,11 +187,8 @@ export async function createHub(
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
             process.env.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
         ),
-        appMetrics: new AppMetrics(
-            kafkaProducer,
-            serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-            serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-        ),
+        appMetrics,
+        hookCommander,
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
         cookielessManager,

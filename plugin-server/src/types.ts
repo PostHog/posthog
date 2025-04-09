@@ -33,6 +33,7 @@ import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
+import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { RustyHook } from './worker/rusty-hook'
@@ -388,6 +389,7 @@ export interface Hub extends PluginsServerConfig {
 
     legacyOneventCompareService: LegacyOneventCompareService
     cookielessManager: CookielessManager
+    hookCommander: HookCommander
 }
 
 export interface PluginServerCapabilities {

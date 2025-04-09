@@ -52,7 +52,6 @@ const event: PostIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     teamId: 2,
-    projectId: 1 as ProjectId,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
