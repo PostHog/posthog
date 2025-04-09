@@ -1499,7 +1499,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_input_tokens": {
             "label": "AI input tokens (LLM)",
-            "description": "The number of tokens in the input prmopt that was sent to the LLM API",
+            "description": "The number of tokens in the input prompt that was sent to the LLM API",
             "examples": [23],
         },
         "$ai_output": {
