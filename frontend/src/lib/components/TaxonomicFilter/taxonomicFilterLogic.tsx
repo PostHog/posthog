@@ -116,7 +116,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     actions(() => ({
         moveUp: true,
         moveDown: true,
-        selectSelected: (onComplete?: () => void) => ({ onComplete }),
+        selectSelected: true,
         enableMouseInteractions: true,
         tabLeft: true,
         tabRight: true,
@@ -133,9 +133,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             results,
         }),
     })),
-    reducers(({ selectors }) => ({
+    reducers(({ props, selectors }) => ({
         searchQuery: [
-            '',
+            props.initialSearchQuery || '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
             },
@@ -683,7 +683,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item, originalQuery }) => {
-            if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
+            if (item) {
                 try {
                     const hasOriginalQuery = originalQuery && originalQuery.trim().length > 0
                     const hasName = item && item.name && item.name.trim().length > 0
@@ -700,6 +700,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 } catch (e) {
                     posthog.captureException(e, { posthog_feature: 'taxonomic_filter_swapped_in_query' })
                 }
+                props.onChange?.(group, value, item, originalQuery)
+            } else if (props.onEnter) {
+                // If the user pressed enter on a group with no item selected, we want to pass the original query
+                props.onEnter(values.searchQuery)
+                return
+            } else if (group.type === TaxonomicFilterGroupType.HogQLExpression) {
                 props.onChange?.(group, value, item, originalQuery)
             }
             actions.setSearchQuery('')
