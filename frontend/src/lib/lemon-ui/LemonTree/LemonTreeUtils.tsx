@@ -1,5 +1,4 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
 import { IconChevronRight, IconDocument, IconFolder, IconFolderOpen } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 
@@ -104,7 +103,6 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         attributes,
         listeners: originalListeners,
         setNodeRef,
-        transform,
     } = useDraggable({
         id: props.id,
     })
@@ -124,21 +122,11 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
           )
         : {}
 
-    const style = transform
-        ? {
-              transform: CSS.Translate.toString(transform),
-              zIndex: props.enableDragging ? 10 : undefined,
-              opacity: props.enableDragging ? 0.5 : 1,
-          }
-        : undefined
-
     return (
         // Apply transform to the entire container and make it the drag reference
         <div
             className={cn('relative w-full', props.className)}
             ref={setNodeRef}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={style}
             {...(props.enableDragging ? listeners : {})}
         >
             <div

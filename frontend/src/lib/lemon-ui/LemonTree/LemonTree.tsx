@@ -1118,17 +1118,17 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 <DragOverlay dropAnimation={null}>
                     {activeDragItem && (
                         <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)]">
-                            {/*<div className="shrink-0">*/}
-                            {/*    <TreeNodeDisplayIcon*/}
-                            {/*        item={activeDragItem}*/}
-                            {/*        expandedItemIds={expandedItemIdsState}*/}
-                            {/*        defaultNodeIcon={defaultNodeIcon}*/}
-                            {/*    />*/}
-                            {/*</div>*/}
+                            <div className="shrink-0">
+                                {renderTreeNodeDisplayIcon({
+                                    item: activeDragItem,
+                                    expandedItemIds: expandedItemIdsState,
+                                    defaultNodeIcon,
+                                })}
+                            </div>
                             <span className="truncate font-medium">
                                 {activeDragItem.displayName || activeDragItem.name}
                             </span>
-                            {activeDragItem.checked && checkedItemCount > 1 && (
+                            {activeDragItem.checked && checkedItemCount && checkedItemCount > 1 && (
                                 <span className="ml-1 text-xs rounded-full bg-primary-highlight px-2 py-0.5 whitespace-nowrap">
                                     +<span>{checkedItemCount - 1}</span>{' '}
                                     <span>other{checkedItemCount - 1 === 1 ? '' : 's'}</span>
