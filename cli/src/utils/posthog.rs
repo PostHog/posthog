@@ -50,6 +50,5 @@ fn spawn_capture(event: Event) -> JoinHandle<()> {
         } else {
             debug!("Event captured successfully");
         }
-        ()
     })
 }
