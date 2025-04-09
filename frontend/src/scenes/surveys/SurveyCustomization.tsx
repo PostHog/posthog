@@ -6,7 +6,14 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { AvailableFeature, SurveyAppearance, SurveyAppearance as SurveyAppearanceType } from '~/types'
+import {
+    AvailableFeature,
+    SurveyAppearance,
+    SurveyAppearance as SurveyAppearanceType,
+    SurveyPosition,
+    SurveyType,
+    SurveyWidgetType,
+} from '~/types'
 
 import { defaultSurveyAppearance, WEB_SAFE_FONTS } from './constants'
 import { surveysLogic } from './surveysLogic'
@@ -22,6 +29,7 @@ interface CustomizationProps {
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
     isCustomFontsEnabled?: boolean
     validationErrors?: DeepPartialMap<SurveyAppearance, ValidationErrorType> | null
+    type?: SurveyType
 }
 
 interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
@@ -35,6 +43,7 @@ export function Customization({
     deleteBranchingLogic,
     isCustomFontsEnabled = false,
     validationErrors,
+    type,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const surveyShufflingQuestionsAvailable = true
@@ -76,23 +85,39 @@ export function Customization({
                 <>
                     <LemonField.Pure className="mt-2" label="Position">
                         <div className="flex gap-1">
-                            {['left', 'center', 'right'].map((position) => {
-                                return (
-                                    <LemonButton
-                                        key={position}
-                                        type="tertiary"
-                                        onClick={() => onAppearanceChange({ ...appearance, position })}
-                                        active={appearance.position === position}
-                                        disabledReason={
-                                            surveysStylingAvailable
-                                                ? null
-                                                : 'Upgrade your plan to customize survey position.'
-                                        }
-                                    >
-                                        {position}
-                                    </LemonButton>
-                                )
-                            })}
+                            {Object.values(SurveyPosition)
+                                .filter((position) => {
+                                    if (
+                                        position === SurveyPosition.NextToTrigger &&
+                                        type === SurveyType.Widget &&
+                                        appearance.widgetType !== SurveyWidgetType.Selector
+                                    ) {
+                                        return false
+                                    }
+                                    return true
+                                })
+                                .map((position) => {
+                                    return (
+                                        <LemonButton
+                                            key={position}
+                                            tooltip={
+                                                position === SurveyPosition.NextToTrigger
+                                                    ? 'This option is only available for widget surveys. The survey will be displayed next to the trigger button.'
+                                                    : undefined
+                                            }
+                                            type="tertiary"
+                                            onClick={() => onAppearanceChange({ ...appearance, position })}
+                                            active={appearance.position === position}
+                                            disabledReason={
+                                                surveysStylingAvailable
+                                                    ? null
+                                                    : 'Upgrade your plan to customize survey position.'
+                                            }
+                                        >
+                                            {position}
+                                        </LemonButton>
+                                    )
+                                })}
                         </div>
                     </LemonField.Pure>
                 </>
@@ -321,12 +346,12 @@ export function WidgetCustomization({
                     value={appearance.widgetType}
                     onChange={(widgetType) => onAppearanceChange({ ...appearance, widgetType })}
                     options={[
-                        { label: 'Embedded tab', value: 'tab' },
-                        { label: 'Custom', value: 'selector' },
+                        { label: 'Embedded tab', value: SurveyWidgetType.Tab },
+                        { label: 'Custom', value: SurveyWidgetType.Selector },
                     ]}
                 />
             </LemonField.Pure>
-            {appearance.widgetType === 'selector' ? (
+            {appearance.widgetType === SurveyWidgetType.Selector ? (
                 <LemonField.Pure
                     className="mt-2"
                     label="CSS selector"

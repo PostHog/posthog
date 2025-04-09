@@ -2973,6 +2973,19 @@ export enum SurveyType {
     API = 'api',
 }
 
+export enum SurveyPosition {
+    Left = 'left',
+    Center = 'center',
+    Right = 'right',
+    NextToTrigger = 'next to trigger',
+}
+
+export enum SurveyWidgetType {
+    Button = 'button',
+    Tab = 'tab',
+    Selector = 'selector',
+}
+
 export type SurveyQuestionDescriptionContentType = 'html' | 'text'
 
 export interface SurveyAppearance {
@@ -2992,12 +3005,12 @@ export interface SurveyAppearance {
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
-    position?: string
+    position?: SurveyPosition
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     // widget only
-    widgetType?: 'button' | 'tab' | 'selector'
+    widgetType?: SurveyWidgetType
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
