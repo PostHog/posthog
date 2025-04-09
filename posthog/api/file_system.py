@@ -11,7 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.file_system.file_system import FileSystem, split_path
+from posthog.models.file_system.file_system import FileSystem, split_path, join_path
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.user import User
 from posthog.models.team import Team
@@ -44,6 +44,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "ref",
             "href",
             "meta",
+            "shortcut",
             "created_at",
             "created_by",
         ]
@@ -77,7 +78,11 @@ class FileSystemSerializer(serializers.ModelSerializer):
                     depth=depth_index,
                     type="folder",
                     created_by=request.user,
+                    shortcut=False,
                 )
+
+        if validated_data.get("shortcut") is None:
+            validated_data["shortcut"] = False
 
         depth = len(segments)
         file_system = FileSystem.objects.create(
@@ -126,6 +131,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except ValueError:
                 pass
 
+        if self.action == "list":
+            queryset = queryset.order_by("path")
+
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
         if type_param:
@@ -134,11 +142,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(type__startswith=type__startswith_param)
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
-
-        if self.action == "list":
-            queryset = queryset.order_by("path")
+            queryset = queryset.order_by("shortcut")  # override order
 
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.type == "folder":
+            FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").delete()
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["GET"], detail=False)
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -164,12 +177,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
-        if targets and any(target.type != "folder" for target in targets):
-            return Response({"detail": "Cannot move into a file"}, status=status.HTTP_400_BAD_REQUEST)
+        assure_parent_folders(new_path, self.team, cast(User, request.user))
 
         if instance.type == "folder":
-            if new_path.startswith(instance.path):
+            if new_path == instance.path:
                 return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
@@ -178,6 +189,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     file.depth = len(split_path(file.path))
                     file.save()
 
+                targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+                # We're a folder, and we're moving into a folder with the same name. Delete one.
                 if any(target.type == "folder" for target in targets):
                     # TODO: merge access controls once those are in place
                     instance.delete()
@@ -192,7 +205,51 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.save()
 
         return Response(
-            "OK",
+            FileSystemSerializer(instance).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["POST"], detail=True)
+    def link(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        new_path = request.data.get("new_path")
+        if not new_path:
+            return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        assure_parent_folders(new_path, self.team, cast(User, request.user))
+
+        if instance.type == "folder":
+            if new_path == instance.path:
+                return Response({"detail": "Cannot link folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+
+            with transaction.atomic():
+                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                    file.pk = None  # This removes the id
+                    file.path = new_path + file.path[len(instance.path) :]
+                    file.depth = len(split_path(file.path))
+                    file.shortcut = True
+                    file.save()  # A new instance is created with a new id
+
+                targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+                if any(target.type == "folder" for target in targets):
+                    # We're a folder, and we're link into a folder with the same name. Noop.
+                    pass
+                else:
+                    instance.pk = None  # This removes the id
+                    instance.path = new_path
+                    instance.depth = len(split_path(instance.path))
+                    instance.shortcut = True
+                    instance.save()  # A new instance is created with a new id
+
+        else:
+            instance.pk = None  # This removes the id
+            instance.path = new_path + instance.path[len(instance.path) :]
+            instance.depth = len(split_path(instance.path))
+            instance.shortcut = True
+            instance.save()  # A new instance is created with a new id
+
+        return Response(
+            FileSystemSerializer(instance).data,
             status=status.HTTP_200_OK,
         )
 
@@ -204,6 +261,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
         count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
         return Response({"count": count}, status=status.HTTP_200_OK)
+
+
+def assure_parent_folders(path: str, team: Team, created_by: User) -> None:
+    """
+    Ensure that all parent folders for the given path exist for the provided team.
+    For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"
+    all exist as folder type FileSystem entries.
+    """
+    segments = split_path(path)
+    for depth_index in range(1, len(segments)):
+        parent_path = join_path(segments[:depth_index])
+        if not FileSystem.objects.filter(team=team, path=parent_path).exists():
+            FileSystem.objects.create(
+                team=team,
+                path=parent_path,
+                depth=depth_index,
+                type="folder",
+                created_by=created_by,
+            )
 
 
 def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
@@ -233,7 +309,7 @@ def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
         # e.g. for path "a/b/c/d/e", the parent folders are:
         #  "a" (depth=1), "a/b" (depth=2), "a/b/c" (depth=3), "a/b/c/d" (depth=4)
         for depth_index in range(1, len(segments)):
-            parent_path = "/".join(segments[:depth_index])
+            parent_path = join_path(segments[:depth_index])
             if parent_path not in existing_paths:
                 # Mark that we have it now (so we don't create duplicates)
                 existing_paths.add(parent_path)

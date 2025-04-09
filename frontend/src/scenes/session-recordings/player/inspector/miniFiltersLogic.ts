@@ -126,9 +126,9 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         setSearchQuery: (search: string) => ({ search }),
         resetMiniFilters: true,
     }),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     reducers(() => ({
         showOnlyMatching: [
             false,

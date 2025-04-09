@@ -108,7 +108,7 @@ impl ServerHandle {
                 }
             };
             let cohort_cache = Arc::new(
-                feature_flags::cohort::cohort_cache_manager::CohortCacheManager::new(
+                feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
                     reader.clone(),
                     Some(config.cache_max_cohort_entries),
                     Some(config.cache_ttl_seconds),

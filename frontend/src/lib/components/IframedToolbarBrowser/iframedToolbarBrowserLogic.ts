@@ -47,7 +47,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         automaticallyAuthorizeBrowserUrl: false,
     } as IframedToolbarBrowserLogicProps),
 
-    connect({
+    connect(() => ({
         values: [
             authorizedUrlListLogic({ ...defaultAuthorizedUrlProperties, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
@@ -60,7 +60,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             teamLogic,
             ['updateCurrentTeamSuccess'],
         ],
-    }),
+    })),
 
     actions({
         setBrowserUrl: (url: string | null) => ({ url }),

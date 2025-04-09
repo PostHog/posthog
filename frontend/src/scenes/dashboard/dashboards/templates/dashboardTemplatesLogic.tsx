@@ -19,9 +19,9 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
     props({} as DashboardTemplateProps),
     key(({ scope }) => scope ?? 'unknown'),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setTemplates: (allTemplates: DashboardTemplateType[]) => ({ allTemplates }),
         setTemplateFilter: (search: string) => ({ search }),

@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
@@ -49,7 +50,7 @@ export const groupLogic = kea<groupLogicType>([
     props({} as GroupLogicProps),
     key((props) => `${props.groupTypeIndex}-${props.groupKey}`),
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
-    connect({
+    connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],
         values: [
             teamLogic,
@@ -59,7 +60,7 @@ export const groupLogic = kea<groupLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     actions(() => ({
         setGroupData: (group: Group) => ({ group }),
         setGroupTab: (groupTab: string | null) => ({ groupTab }),
@@ -181,24 +182,29 @@ export const groupLogic = kea<groupLogicType>([
             (groupTypes, index): number | null => groupTypes.get(index as GroupTypeIndex)?.detail_dashboard ?? null,
         ],
         breadcrumbs: [
-            (s, p) => [s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],
-            (groupTypeName, groupTypeIndex, groupKey, groupData): Breadcrumb[] => [
-                {
-                    key: Scene.DataManagement,
-                    name: 'People',
-                    path: urls.persons(),
-                },
-                {
+            (s, p) => [s.featureFlags, s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],
+            (featureFlags, groupTypeName, groupTypeIndex, groupKey, groupData): Breadcrumb[] => {
+                const breadcrumbs: Breadcrumb[] = []
+                if (!featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]) {
+                    breadcrumbs.push({
+                        key: Scene.DataManagement,
+                        name: 'People',
+                        path: urls.persons(),
+                    })
+                }
+                breadcrumbs.push({
                     key: groupTypeIndex,
                     name: capitalizeFirstLetter(groupTypeName),
                     path: urls.groups(String(groupTypeIndex)),
-                },
-                {
+                })
+                breadcrumbs.push({
                     key: [Scene.Group, `${groupTypeIndex}-${groupKey}`],
                     name: groupDisplayId(groupKey, groupData?.group_properties || {}),
                     path: urls.group(String(groupTypeIndex), groupKey),
-                },
-            ],
+                })
+
+                return breadcrumbs
+            },
         ],
     }),
     urlToAction(({ actions }) => ({

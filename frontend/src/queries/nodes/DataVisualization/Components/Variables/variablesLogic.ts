@@ -1,7 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
@@ -41,17 +39,10 @@ export const variablesLogic = kea<variablesLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variablesLogic']),
     props({ key: '' } as VariablesLogicProps),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
-        values: [
-            dataVisualizationLogic,
-            ['query'],
-            variableDataLogic,
-            ['variables', 'variablesLoading'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
-    }),
+        values: [dataVisualizationLogic, ['query'], variableDataLogic, ['variables', 'variablesLoading']],
+    })),
     actions(({ values }) => ({
         addVariable: (variable: HogQLVariable) => ({ variable }),
         _addVariable: (variable: HogQLVariable) => ({ variable }),
@@ -74,10 +65,6 @@ export const variablesLogic = kea<variablesLogicType>([
         }
 
         if (props.sourceQuery) {
-            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-                return
-            }
-
             const variables = Object.values(props.sourceQuery?.source.variables ?? {})
 
             if (variables.length) {
@@ -203,10 +190,6 @@ export const variablesLogic = kea<variablesLogicType>([
             actions.updateSourceQuery()
         },
         updateSourceQuery: () => {
-            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-                return
-            }
-
             if (!props.sourceQuery?.source) {
                 return
             }
@@ -271,11 +254,7 @@ export const variablesLogic = kea<variablesLogicType>([
             })
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-            return
-        }
-
+    afterMount(({ actions }) => {
         actions.getVariables()
     }),
 ])
