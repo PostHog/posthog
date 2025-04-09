@@ -23,7 +23,6 @@ export class GroupTypeManager {
                 const response: Record<string, GroupTypeToColumnIndex> = {}
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
                 try {
-                    // NOTE: We will eventually read from the team_id column again
                     const { rows } = await this.postgres.query(
                         PostgresUse.COMMON_READ,
                         `SELECT * FROM posthog_grouptypemapping WHERE team_id = ANY($1)`,
