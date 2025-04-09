@@ -226,7 +226,9 @@ function buildEventAnchor(
         .attr('cx', (d) => xScale(d.date))
         .attr('cy', contentHeight)
         .attr('r', 6)
-        .attr('fill', (d) => d.color || 'black')
+        .attr('fill', 'white')
+        .attr('stroke', (d) => d.color || 'black')
+        .attr('stroke-width', 2)
 }
 
 function buildEvent(

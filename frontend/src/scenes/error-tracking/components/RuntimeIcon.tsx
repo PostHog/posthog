@@ -8,6 +8,7 @@ const RuntimeIconMap = {
     node: IconNodeJS,
     unknown: React.Fragment,
 }
+
 export function RuntimeIcon({ runtime, ...props }: { runtime: ErrorTrackingRuntime } & LemonIconProps): JSX.Element {
     const Icon = RuntimeIconMap[runtime]
     return <Icon {...props} />
