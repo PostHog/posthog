@@ -287,12 +287,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     disabled={isEmptyFolder}
                                                     tabIndex={isEmptyFolder ? -1 : 0}
                                                     buttonWrapper={
-                                                        enableDragAndDrop &&
-                                                        isItemDraggable?.(item) &&
-                                                        item.record?.path
+                                                        enableDragAndDrop && isItemDraggable?.(item) && item.id
                                                             ? (button) => (
                                                                   <TreeNodeDraggable
-                                                                      id={item.record?.path}
+                                                                      id={item.id}
                                                                       enableDragging
                                                                       className="h-[var(--button-height-base)]"
                                                                   >
@@ -421,11 +419,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     // Wrap content in Draggable/Droppable if needed
                     let wrappedContent = content
-                    const path = item.record?.path || ''
 
                     if (isItemDroppable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={path} isDroppable={!!item.record?.path}>
+                            <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )

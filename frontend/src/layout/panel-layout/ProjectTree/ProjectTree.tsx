@@ -133,7 +133,7 @@ export function ProjectTree(): JSX.Element {
                         asChild
                         onClick={(e: any) => {
                             e.stopPropagation()
-                            rename(item.record.path)
+                            rename(item.record as unknown as FileSystemEntry)
                         }}
                     >
                         <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
@@ -243,29 +243,35 @@ export function ProjectTree(): JSX.Element {
                 onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
                 enableDragAndDrop={true}
                 onDragEnd={(dragEvent) => {
-                    const oldPath = dragEvent.active.id as string
-                    const folder = dragEvent.over?.id
-
-                    if (oldPath === folder) {
+                    const itemToId = (item: FileSystemEntry): string =>
+                        item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id
+                    const oldId = dragEvent.active.id as string
+                    const newId = dragEvent.over?.id
+                    if (oldId === newId) {
                         return false
                     }
+                    const oldItem = viableItems.find((i) => itemToId(i) === oldId)
+                    const newItem = viableItems.find((i) => itemToId(i) === newId)
+                    if (oldItem === newItem) {
+                        return false
+                    }
+
+                    const oldPath = oldItem?.path
+                    const folder = newItem?.path
 
                     if (folder === '') {
                         const oldSplit = splitPath(oldPath)
                         const oldFile = oldSplit.pop()
                         if (oldFile && oldSplit.length > 0) {
-                            moveItem(oldPath, joinPath([oldFile]))
+                            moveItem(oldItem, joinPath([oldFile]))
                         }
                     } else if (folder) {
-                        const item = viableItems.find((i) => i.path === folder)
-                        if (!item || item.type === 'folder') {
-                            const oldSplit = splitPath(oldPath)
-                            const oldFile = oldSplit.pop()
-                            if (oldFile) {
-                                const newFile = joinPath([...splitPath(String(folder)), oldFile])
-                                if (newFile !== oldPath) {
-                                    moveItem(oldPath, newFile)
-                                }
+                        const oldSplit = splitPath(oldPath)
+                        const oldFile = oldSplit.pop()
+                        if (oldFile) {
+                            const newFile = joinPath([...splitPath(String(folder)), oldFile])
+                            if (newFile !== oldPath) {
+                                moveItem(oldItem, newFile)
                             }
                         }
                     }
