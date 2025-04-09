@@ -37,7 +37,7 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             title: 'id',
             key: 'id',
             render: function RenderActor(_, actor: ActorType) {
-                if (actor.type == 'group') {
+                if (actor.type === 'group') {
                     return <GroupActorDisplay actor={actor} />
                 }
                 return <PersonDisplay person={actor} withIcon={false} />
