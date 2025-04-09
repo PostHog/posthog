@@ -35,7 +35,7 @@ import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
-import { SlackTargetSelector } from './SlackTargetSelector'
+import { AlertDestinationSelector } from './AlertDestinationSelector'
 
 export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {
     if (!alert.checks || alert.checks.length === 0) {
@@ -357,7 +357,7 @@ export function EditAlertModal({
                                 </div>
                                 <div className="deprecated-space-y-5">
                                     <div className="flex flex-col">
-                                        <SlackTargetSelector onChange={() => {}} value={null} />
+                                        <AlertDestinationSelector />
                                     </div>
                                 </div>
                             </div>

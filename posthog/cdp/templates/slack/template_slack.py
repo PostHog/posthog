@@ -296,7 +296,10 @@ if (res.status != 200 or res.body.ok == false) {
                     "default": [
                         {
                             "type": "header",
-                            "text": {"type": "plain_text", "text": "📊 {event.properties.insight_name}"},
+                            "text": {
+                                "type": "plain_text",
+                                "text": "{event.properties.insight_name} alert threshold breached",
+                            },
                         },
                         {"type": "section", "text": {"type": "plain_text", "text": "Alert triggered"}},
                         {

@@ -11,6 +11,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
+    [Scene.InsightAlertDestination]: () => import('./insights/InsightAlertDestinationScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),

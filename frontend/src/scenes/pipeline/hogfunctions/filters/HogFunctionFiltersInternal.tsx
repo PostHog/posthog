@@ -1,6 +1,7 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { INSIGHT_ALERT_DESTINATION_LOGIC_KEY } from 'scenes/insights/InsightAlertDestinationScene'
 
 import { HogFunctionFiltersType } from '~/types'
 
@@ -21,6 +22,14 @@ const getFilterOptions = (logicKey?: HogFunctionConfigurationLogicProps['logicKe
             {
                 label: 'Error tracking issue reopened',
                 value: '$error_tracking_issue_reopened',
+            },
+        ]
+    }
+    if (logicKey && logicKey === INSIGHT_ALERT_DESTINATION_LOGIC_KEY) {
+        return [
+            {
+                label: 'Insight alert firing',
+                value: '$insight_alert_firing',
             },
         ]
     }
