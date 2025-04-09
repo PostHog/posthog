@@ -48,7 +48,7 @@ const Caption = (): JSX.Element => (
 )
 
 export const getHubspotRedirectUri = (): string =>
-    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source)}?kind=hubspot`
+    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { kind: 'hubspot' })}`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
@@ -795,7 +795,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
+        handleRedirect: (kind: string, searchParams?: any) => ({ kind, searchParams }),
         onClear: true,
         onBack: true,
         onNext: true,
@@ -1207,7 +1207,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.updateSource({
                         source_type: 'Hubspot',
                         payload: {
-                            code: searchParams.code,
+                            code: searchParams?.code,
                             redirect_uri: getHubspotRedirectUri(),
                         },
                     })
@@ -1216,6 +1216,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 case 'salesforce': {
                     actions.updateSource({
                         source_type: 'Salesforce',
+                    })
+                    break
+                }
+                case 'stripe': {
+                    actions.updateSource({
+                        source_type: 'Stripe',
                     })
                     break
                 }
@@ -1271,7 +1277,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
             if (searchParams.kind == 'salesforce') {
                 actions.selectConnector(SOURCE_DETAILS['Salesforce'])
-                actions.handleRedirect(searchParams.kind, {})
+                actions.handleRedirect(searchParams.kind)
+                actions.setStep(2)
+            }
+            if (searchParams.kind == 'stripe') {
+                actions.selectConnector(SOURCE_DETAILS['Stripe'])
+                actions.handleRedirect(searchParams.kind)
                 actions.setStep(2)
             }
         },
