@@ -8148,9 +8148,6 @@
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
-                "time_window_hours": {
-                    "type": "number"
-                },
                 "upper_bound_percentile": {
                     "type": "number"
                 }

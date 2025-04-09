@@ -8034,7 +8034,6 @@ class ExperimentMeanMetric(BaseModel):
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
-    time_window_hours: Optional[float] = None
     upper_bound_percentile: Optional[float] = None
 
 
