@@ -719,7 +719,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                 let files = response.results
                 let hasMore = false
-                if (offset + files.length > PAGINATION_LIMIT) {
+                if (files.length > PAGINATION_LIMIT) {
                     files = files.slice(0, PAGINATION_LIMIT)
                     hasMore = true
                 }
