@@ -25,7 +25,7 @@ pub fn capture_command_invoked(
     command: impl AsRef<str>,
     env_id: Option<impl AsRef<str>>,
 ) -> JoinHandle<()> {
-    let event_name = format!("posthog cli command run");
+    let event_name = "posthog cli command run".to_string();
     let mut event = Event::new_anon(event_name);
 
     event
