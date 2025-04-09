@@ -70,10 +70,17 @@ export type ExceptionAttributes = {
     exceptionList: ErrorTrackingException[]
     fingerprintRecords?: FingerprintRecordPart[]
     runtime: ErrorTrackingRuntime
-} & Record<
-    'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level' | 'url' | 'unhandled',
-    string | boolean | undefined
->
+    type?: string
+    value?: string
+    synthetic?: boolean
+    library?: string
+    browser?: string
+    os?: string
+    sentryUrl?: string
+    level?: string
+    url?: string
+    unhandled: boolean
+}
 
 export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
     const {
@@ -122,7 +129,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         value,
         synthetic,
         runtime,
-        library: `${$lib} ${$lib_version}`,
+        library: $lib && $lib_version ? `${$lib} ${$lib_version}` : undefined,
         browser: browser ? `${browser} ${browserVersion}` : undefined,
         os: os ? `${os} ${osVersion}` : undefined,
         url: url,

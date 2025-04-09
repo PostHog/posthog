@@ -32,7 +32,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                         sentryUrl ? (
                             <Link
                                 className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
-                                to={String(sentryUrl)}
+                                to={sentryUrl}
                                 target="_blank"
                             >
                                 Sentry
@@ -43,9 +43,9 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     }
                 />
                 <TitledSnack title="unhandled" value={String(unhandled)} />
-                <TitledSnack title="library" value={String(library)} />
-                <TitledSnack title="browser" value={String(browser ?? 'unknown')} />
-                <TitledSnack title="os" value={String(os ?? 'unknown')} />
+                <TitledSnack title="library" value={library ?? 'unknown'} />
+                <TitledSnack title="browser" value={browser ?? 'unknown'} />
+                <TitledSnack title="os" value={os ?? 'unknown'} />
             </div>
 
             {ingestionErrors || exceptionWithStack ? <LemonDivider dashed={true} /> : null}
