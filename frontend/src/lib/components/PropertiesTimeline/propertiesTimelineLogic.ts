@@ -39,9 +39,9 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
     path(['lib', 'components', 'PropertiesTimeline', 'propertiesTimelineLogic']),
     props({} as PropertiesTimelineProps),
     key((props) => `${props.actor.id}-${JSON.stringify(props.filter)}`),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId', 'timezone']],
-    }),
+    })),
     actions({
         setSelectedPointIndex: (index: number | null) => ({ index }),
     }),

@@ -1,12 +1,23 @@
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { dayjs } from 'lib/dayjs'
-import { range } from 'lib/utils'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
+import { Params } from 'scenes/sceneTypes'
 
-import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
+import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
+import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP } from './errorTrackingLogic'
+
+export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
-const volumePeriods: ('customVolume' | 'volumeDay' | 'volumeMonth')[] = ['customVolume', 'volumeDay', 'volumeMonth']
+export const SEARCHABLE_EXCEPTION_PROPERTIES = [
+    '$exception_types',
+    '$exception_values',
+    '$exception_sources',
+    '$exception_functions',
+]
+
+const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
 const sumVolumes = (...arrays: number[][]): number[] =>
     arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
 
@@ -33,9 +44,7 @@ export const mergeIssues = (
         volumePeriods.forEach((period) => {
             const volume = aggregations[period]
             if (volume) {
-                const mergingVolumes = mergingIssues
-                    .map((issue) => issue.aggregations?.[period])
-                    .filter((v) => !!v) as number[][]
+                const mergingVolumes = mergingIssues.map((issue) => issue.aggregations?.[period]).filter((v) => !!v)
                 aggregations[period] = sumVolumes(...mergingVolumes, volume)
             }
         })
@@ -128,11 +137,104 @@ export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): bool
     return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
 }
 
-export const sparklineLabelsDay = sparklineLabels({ value: 24, interval: 'hour' })
-export const sparklineLabelsMonth = sparklineLabels({ value: 31, interval: 'day' })
+export function generateSparklineLabels(range: DateRange, resolution: number): string[] {
+    const resolvedDateRange = resolveDateRange(range)
+    const from = dayjs(resolvedDateRange.date_from)
+    const to = dayjs(resolvedDateRange.date_to)
+    const labels = Array.from({ length: resolution }, (_, i) => {
+        const bin_size = Math.floor(to.diff(from, 'seconds') / resolution)
+        return from.add(i * bin_size, 'seconds').toISOString()
+    })
+    return labels
+}
 
-export function sparklineLabels({ value, interval }: ErrorTrackingSparklineConfig): string[] {
-    const now = dayjs().startOf(interval)
-    const dates = range(value).map((idx) => now.subtract(value - (idx + 1), interval))
-    return dates.map((d) => d.format())
+export class ResolvedDateRange {
+    date_from: Dayjs
+    date_to: Dayjs
+
+    constructor(date_from: Dayjs, date_to: Dayjs) {
+        this.date_from = date_from
+        this.date_to = date_to
+    }
+
+    toDateRange(): DateRange {
+        return {
+            date_from: this.date_from.toISOString(),
+            date_to: this.date_to.toISOString(),
+        }
+    }
+
+    static fromDateRange(dateRange: DateRange): ResolvedDateRange {
+        return new ResolvedDateRange(resolveDate(dateRange.date_from), resolveDate(dateRange.date_to))
+    }
+}
+
+// Converts relative date range to absolute date range
+export function resolveDateRange(dateRange: DateRange): ResolvedDateRange {
+    return ResolvedDateRange.fromDateRange(dateRange)
+}
+
+// Converts relative date to absolute date.
+export function resolveDate(date?: string | null): Dayjs {
+    if (!date) {
+        return dayjs()
+    }
+    if (date == 'all') {
+        return dayjs().subtract(1, 'year')
+    }
+    const parsedDate = datetimeStringToDayJs(date)
+    if (parsedDate) {
+        return parsedDate
+    }
+    throw new Error(`Invalid date: ${date}`)
+}
+
+const customOptions: Record<string, string> = {
+    dStart: 'Today', // today
+    mStart: 'Month',
+    yStart: 'Year',
+    all: 'All',
+}
+
+export function generateDateRangeLabel(dateRange: DateRange): string | undefined {
+    const dateFrom = dateRange.date_from
+    if (!dateFrom) {
+        return undefined
+    }
+    const isDateRelative = isStringDateRegex.test(dateFrom)
+    if (dateFrom in customOptions) {
+        return customOptions[dateFrom]
+    } else if (isDateRelative) {
+        return dateFrom?.replace('-', '')
+    }
+    return 'Custom'
+}
+
+export function datetimeStringToDayJs(date: string | null): Dayjs | null {
+    if (!isStringDateRegex.test(date || '')) {
+        return dayjs(date)
+    }
+    const dateComponents = dateStringToComponents(date)
+    if (!dateComponents) {
+        return dayjs()
+    }
+    return componentsToDayJs(dateComponents)
+}
+
+export function defaultSearchParams({ searchQuery, filterGroup, filterTestAccounts, dateRange }: any): Params {
+    const searchParams: Params = {
+        filterTestAccounts,
+    }
+
+    if (searchQuery) {
+        searchParams.searchQuery = searchQuery
+    }
+    if (!objectsEqual(filterGroup, DEFAULT_ERROR_TRACKING_FILTER_GROUP)) {
+        searchParams.filterGroup = filterGroup
+    }
+    if (!objectsEqual(dateRange, DEFAULT_ERROR_TRACKING_DATE_RANGE)) {
+        searchParams.dateRange = dateRange
+    }
+
+    return searchParams
 }

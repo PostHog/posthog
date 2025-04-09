@@ -137,7 +137,9 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r"'00000000-0000-0000-0000-000000000000'",
             query,
         )
-        query = re.sub(r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+)'", """."ref" = '0001'""", query)
+        query = re.sub(
+            r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+|[A-Za-z0-9\_\-]+)'", """."ref" = '0001'""", query
+        )
 
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
@@ -708,11 +710,14 @@ def also_test_with_materialized_columns(
                 return
 
             for prop in event_properties:
-                materialize("events", prop, is_nullable=is_nullable and prop in is_nullable)
+                materialize("events", prop, is_nullable=is_nullable is not None and prop in is_nullable)
             for prop in person_properties:
-                materialize("person", prop, is_nullable=is_nullable and prop in is_nullable)
+                materialize("person", prop, is_nullable=is_nullable is not None and prop in is_nullable)
                 materialize(
-                    "events", prop, table_column="person_properties", is_nullable=is_nullable and prop in is_nullable
+                    "events",
+                    prop,
+                    table_column="person_properties",
+                    is_nullable=is_nullable is not None and prop in is_nullable,
                 )
 
             try:

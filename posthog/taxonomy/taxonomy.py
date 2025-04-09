@@ -5,7 +5,9 @@ class CoreFilterDefinition(TypedDict):
     """Like the CoreFilterDefinition type in the frontend, except no JSX.Element allowed."""
 
     label: str
+    label_llm: NotRequired[str]
     description: NotRequired[str]
+    description_llm: NotRequired[str]
     examples: NotRequired[list[str | int | float]]
     system: NotRequired[bool]
     type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
@@ -158,7 +160,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_enrollment_update": {
             "label": "Feature Enrollment",
-            "description": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
+            "description": "When a user enrolls with a feature.",
+            "description_llm": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
         },
         "$capture_metrics": {
             "label": "Capture Metrics",
@@ -167,7 +170,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$identify": {
             "label": "Identify",
-            "description": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
+            "description": "A user has been identified with properties",
+            "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
         },
         "$create_alias": {
             "label": "Alias",
@@ -188,6 +192,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Rageclick",
             "description": "A user has rapidly and repeatedly clicked in a single place",
         },
+        "$dead_click": {
+            "label": "Dead click",
+            "description": "A user has clicked on something that is probably not clickable",
+        },
         "$exception": {
             "label": "Exception",
             "description": "An unexpected error or unhandled exception in your application",
@@ -197,24 +205,28 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Automatically captured web vitals data",
         },
         "$ai_generation": {
-            "label": "AI Generation (LLM)",
+            "label": "AI generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
         },
         "$ai_metric": {
-            "label": "AI Metric (LLM)",
+            "label": "AI metric (LLM)",
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
         },
         "$ai_feedback": {
-            "label": "AI Feedback (LLM)",
+            "label": "AI feedback (LLM)",
             "description": "User-provided feedback for a trace of a generative AI model (LLM).",
         },
         "$ai_trace": {
-            "label": "AI Trace (LLM)",
-            "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls",
+            "label": "AI trace (LLM)",
+            "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls.",
         },
         "$ai_span": {
-            "label": "AI Span (LLM)",
-            "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)",
+            "label": "AI span (LLM)",
+            "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs).",
+        },
+        "$ai_embedding": {
+            "label": "AI embedding (LLM)",
+            "description": "A call to an embedding model.",
         },
         "Application Opened": {
             "label": "Application Opened",
@@ -258,14 +270,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "href": {
             "label": "Target (href)",
-            "description": "Filter on the href attribute of the element.",
+            "description": "Filter on the `href` attribute of the element.",
             "examples": ["https://posthog.com/about"],
         },
     },
     "metadata": {
         "distinct_id": {
             "label": "Distinct ID",
-            "description": "The current distinct ID of the user",
+            "description": "The current distinct ID of the user.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
         "timestamp": {
@@ -281,6 +293,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["$pageview"],
             "system": True,
             "ignored_in_assistant": True,
+        },
+        "person_id": {
+            "label": "Person ID",
+            "description": "The ID of the person, depending on the person properties mode.",
+            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
     },
     "event_properties": {
@@ -403,7 +420,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$sentry_exception": {
             "label": "Sentry exception",
-            "description": "Raw Sentry exception data",
+            "description": "Raw Sentry exception data.",
             "system": True,
         },
         "$sentry_exception_message": {
@@ -411,79 +428,79 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$sentry_exception_type": {
             "label": "Sentry exception type",
-            "description": "Class name of the exception object",
+            "description": "Class name of the exception object.",
         },
         "$sentry_tags": {
             "label": "Sentry tags",
-            "description": "Tags sent to Sentry along with the exception",
+            "description": "Tags sent to Sentry along with the exception.",
         },
         "$exception_list": {
             "label": "Exception list",
-            "description": "List of one or more associated exceptions",
+            "description": "List of one or more associated exceptions.",
             "system": True,
         },
         "$exception_level": {
             "label": "Exception level",
-            "description": "Exception categorized by severity",
+            "description": "Exception categorized by severity.",
             "examples": ["error"],
         },
         "$exception_type": {
             "label": "Exception type",
-            "description": "Exception categorized into types",
+            "description": "Exception categorized into types.",
             "examples": ["Error"],
         },
         "$exception_message": {
             "label": "Exception message",
-            "description": "The message detected on the error",
+            "description": "The message detected on the error.",
         },
         "$exception_fingerprint": {
             "label": "Exception fingerprint",
-            "description": "A fingerprint used to group issues, can be set clientside",
+            "description": "A fingerprint used to group issues, can be set clientside.",
         },
         "$exception_proposed_fingerprint": {
             "label": "Exception proposed fingerprint",
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside",
+            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
         },
         "$exception_issue_id": {
             "label": "Exception issue ID",
-            "description": "The id of the issue the fingerprint was associated with at ingest time",
+            "description": "The id of the issue the fingerprint was associated with at ingest time.",
         },
         "$exception_source": {
             "label": "Exception source",
-            "description": "The source of the exception",
+            "description": "The source of the exception.",
             "examples": ["JS file"],
         },
         "$exception_lineno": {
             "label": "Exception source line number",
-            "description": "Which line in the exception source that caused the exception",
+            "description": "Which line in the exception source that caused the exception.",
         },
         "$exception_colno": {
             "label": "Exception source column number",
-            "description": "Which column of the line in the exception source that caused the exception",
+            "description": "Which column of the line in the exception source that caused the exception.",
         },
         "$exception_DOMException_code": {
             "label": "DOMException code",
-            "description": "If a DOMException was thrown, it also has a DOMException code",
+            "description": "If a DOMException was thrown, it also has a DOMException code.",
         },
         "$exception_is_synthetic": {
             "label": "Exception is synthetic",
-            "description": "Whether this was detected as a synthetic exception",
+            "description": "Whether this was detected as a synthetic exception.",
         },
         "$exception_stack_trace_raw": {
             "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string",
+            "description": "The exceptions stack trace, as a string.",
         },
         "$exception_handled": {
             "label": "Exception was handled",
-            "description": "Whether this was a handled or unhandled exception",
+            "description": "Whether this was a handled or unhandled exception.",
         },
         "$exception_personURL": {
             "label": "Exception person URL",
-            "description": "The PostHog person that experienced the exception",
+            "description": "The PostHog person that experienced the exception.",
         },
         "$cymbal_errors": {
             "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions",
+            "description": "Errors encountered while trying to process exceptions.",
             "system": True,
         },
         "$exception_capture_endpoint": {
@@ -492,7 +509,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["/e/"],
         },
         "$exception_capture_endpoint_suffix": {
-            "label": "Exception capture endpoint",
+            "label": "Exception capture endpoint suffix",
             "description": "Endpoint used by posthog-js exception autocapture.",
             "examples": ["/e/"],
         },
@@ -523,7 +540,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$time": {
             "label": "$time (deprecated)",
-            "description": "Use the HogQL field `timestamp` instead. This field was previously set on some client side events.",
+            "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
             "system": True,
             "examples": ["1681211521.345"],
         },
@@ -577,7 +594,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$replay_script_config": {
             "label": "Replay script config",
             "description": "Sets an alternative recorder script for the web sdk.",
-            "examples": ['{"script": "recorder-next""}'],
+            "examples": ['{"script": "recorder-next"}'],
             "system": True,
         },
         "$session_recording_url_trigger_activated_session": {
@@ -597,7 +614,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$cymbal_errors": {
             "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions",
+            "description": "Errors encountered while trying to process exceptions.",
             "system": True,
         },
         "$geoip_city_name": {
@@ -675,6 +692,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "If provided by the licensed geoip database",
             "examples": ["null", "0.1"],
             "ignored_in_assistant": True,
+            "system": True,
         },
         "$geoip_subdivision_3_name": {
             "label": "Subdivision 3 Name",
@@ -687,6 +705,26 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$geoip_disable": {
             "label": "GeoIP Disabled",
             "description": "Whether to skip GeoIP processing for the event.",
+        },
+        "$geoip_city_confidence": {
+            "label": "GeoIP detection city confidence",
+            "description": "Confidence level of the city matched to this event's IP address.",
+            "examples": ["0.5"],
+        },
+        "$geoip_country_confidence": {
+            "label": "GeoIP detection country confidence",
+            "description": "Confidence level of the country matched to this event's IP address.",
+            "examples": ["0.5"],
+        },
+        "$geoip_accuracy_radius": {
+            "label": "GeoIP detection accuracy radius",
+            "description": "Accuracy radius of the location matched to this event's IP address (in kilometers).",
+            "examples": ["50"],
+        },
+        "$geoip_subdivision_1_confidence": {
+            "label": "GeoIP detection subdivision 1 confidence",
+            "description": "Confidence level of the first subdivision matched to this event's IP address.",
+            "examples": ["0.5"],
         },
         "$el_text": {
             "label": "Element Text",
@@ -720,6 +758,21 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Name of the device",
             "examples": ["iPhone 12 Pro", "Samsung Galaxy 10"],
         },
+        "$is_emulator": {
+            "label": "Is Emulator",
+            "description": "Indicates whether the app is running on an emulator or a physical device",
+            "examples": ["true", "false"],
+        },
+        "$is_mac_catalyst_app": {
+            "label": "Is Mac Catalyst App",
+            "description": "Indicates whether the app is a Mac Catalyst app running on macOS",
+            "examples": ["true", "false"],
+        },
+        "$is_ios_running_on_mac": {
+            "label": "Is iOS App Running on Mac",
+            "description": "Indicates whether the app is an iOS app running on macOS (Apple Silicon)",
+            "examples": ["true", "false"],
+        },
         "$locale": {
             "label": "Locale",
             "description": "The locale of the device",
@@ -749,7 +802,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$plugins_succeeded": {
             "label": "Plugins Succeeded",
-            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method processEvent).",
+            "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method `processEvent`).",
         },
         "$groups": {
             "label": "Groups",
@@ -799,11 +852,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$plugins_failed": {
             "label": "Plugins Failed",
-            "description": "Plugins that failed to process the event (plugin method processEvent).",
+            "description": "Plugins that failed to process the event (plugin method `processEvent`).",
         },
         "$plugins_deferred": {
             "label": "Plugins Deferred",
-            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method onEvent).",
+            "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method `onEvent`).",
         },
         "$$plugin_metrics": {
             "label": "Plugin Metric",
@@ -871,7 +924,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$timestamp": {
             "label": "Timestamp (deprecated)",
-            "description": "Use the HogQL field `timestamp` instead. This field was previously set on some client side events.",
+            "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
             "examples": ["2023-05-20T15:30:00Z"],
             "system": True,
         },
@@ -989,7 +1042,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$user_id": {
             "label": "User ID",
-            "description": "This variable will be set to the distinct ID if you've called posthog.identify('distinct id'). If the user is anonymous, it'll be empty.",
+            "description": "This variable will be set to the distinct ID if you've called `posthog.identify('distinct id')`. If the user is anonymous, it'll be empty.",
         },
         "$ip": {
             "label": "IP Address",
@@ -1043,7 +1096,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag_request_id": {
             "label": "Feature Flag Request ID",
-            "description": "The unique identifier for the request that retrieved this feature flag result. Primarily used by PostHog support for debugging issues with feature flags.",
+            "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
         },
         "$feature_flag_version": {
@@ -1265,6 +1318,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "posthog-js initial person information. used in the $set_once flow",
             "system": True,
         },
+        "revenue": {
+            "label": "Revenue",
+            "description": "The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.",
+            "examples": [10.0],
+        },
+        "currency": {
+            "label": "Currency",
+            "description": "The currency code associated with the event.",
+            "examples": ["USD", "EUR", "GBP", "CAD"],
+        },
         "$web_vitals_enabled_server_side": {
             "label": "Web vitals enabled server side",
             "description": "Whether web vitals was enabled in remote config",
@@ -1446,15 +1509,52 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
             ],
         },
+        "$ai_output_choices": {
+            "label": "AI Output (LLM)",
+            "description": "The output message choices JSON that was received from the LLM API",
+            "examples": [
+                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
+            ],
+        },
         "$ai_output_tokens": {
             "label": "AI Output Tokens (LLM)",
             "description": "The number of tokens in the output from the LLM API",
             "examples": [23],
         },
+        "$ai_cache_read_input_tokens": {
+            "label": "AI Cache Read Input Tokens (LLM)",
+            "description": "The number of tokens read from the cache for the input prompt",
+            "examples": [23],
+        },
+        "$ai_cache_creation_input_tokens": {
+            "label": "AI Cache Creation Input Tokens (LLM)",
+            "description": "The number of tokens created in the cache for the input prompt (anthropic only)",
+            "examples": [23],
+        },
+        "$ai_reasoning_tokens": {
+            "label": "AI Reasoning Tokens (LLM)",
+            "description": "The number of tokens in the reasoning output from the LLM API",
+            "examples": [23],
+        },
+        "$ai_input_cost_usd": {
+            "label": "AI Input Cost USD (LLM)",
+            "description": "The cost in USD of the input tokens sent to the LLM API",
+            "examples": [0.0017],
+        },
+        "$ai_output_cost_usd": {
+            "label": "AI Output Cost USD (LLM)",
+            "description": "The cost in USD of the output tokens received from the LLM API",
+            "examples": [0.0024],
+        },
+        "$ai_total_cost_usd": {
+            "label": "AI Total Cost USD (LLM)",
+            "description": "The total cost in USD of the request made to the LLM API (input + output costs)",
+            "examples": [0.0041],
+        },
         "$ai_latency": {
             "label": "AI Latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds",
-            "examples": [1000],
+            "examples": [0.361],
         },
         "$ai_model": {
             "label": "AI Model (LLM)",
@@ -1466,6 +1566,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The parameters used to configure the model in the LLM API, in JSON",
             "examples": ['{"temperature": 0.5, "max_tokens": 50}'],
         },
+        "$ai_tools": {
+            "label": "AI Tools (LLM)",
+            "description": "The tools available to the LLM",
+            "examples": [
+                '[{"type": "function", "function": {"name": "tool1", "arguments": {"arg1": "value1", "arg2": "value2"}}}]',
+            ],
+        },
+        "$ai_stream": {
+            "label": "AI Stream (LLM)",
+            "description": "Whether the response from the LLM API was streamed",
+            "examples": ["true", "false"],
+        },
+        "$ai_temperature": {
+            "label": "AI Temperature (LLM)",
+            "description": "The temperature parameter used in the request to the LLM API",
+            "examples": [0.7, 1.0],
+        },
+        "$ai_input_state": {
+            "label": "AI Input State (LLM)",
+            "description": "Input state of the LLM agent",
+        },
+        "$ai_output_state": {
+            "label": "AI Output State (LLM)",
+            "description": "Output state of the LLM agent",
+        },
         "$ai_provider": {
             "label": "AI Provider (LLM)",
             "description": "The provider of the AI model used to generate the output from the LLM API",
@@ -1475,6 +1600,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Trace ID (LLM)",
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_request_url": {
+            "label": "AI Request URL (LLM)",
+            "description": "The full URL of the request made to the LLM API",
+            "examples": ["https://api.openai.com/v1/chat/completions"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
@@ -1501,13 +1631,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The unique identifier for a LLM trace, generation, or span.",
             "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
         },
+        "$ai_span_name": {
+            "label": "AI Span Name (LLM)",
+            "description": "The name given to this LLM trace, generation, or span.",
+            "examples": ["summarize_text"],
+        },
     },
     "numerical_event_properties": {},
     "person_properties": {},
     "session_properties": {
         "$session_duration": {
             "label": "Session duration",
-            "description": "The duration of the session being tracked in seconds.",
+            "description": "The duration of the session being tracked. Learn more about how PostHog tracks sessions in [our documentation](https://posthog.com/docs/user-guides/sessions).\n\nNote: If the duration is formatted as a single number (not `HH:MM:SS`), it's in seconds.",
             "examples": ["30", "146", "2"],
             "type": "Numeric",
         },
@@ -1525,55 +1660,55 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$entry_current_url": {
             "label": "Entry URL",
-            "description": "The first URL visited in this session",
+            "description": "The first URL visited in this session.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$entry_pathname": {
             "label": "Entry pathname",
-            "description": "The first pathname visited in this session",
+            "description": "The first pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
         "$end_current_url": {
-            "label": "Entry URL",
-            "description": "The first URL visited in this session",
+            "label": "End URL",
+            "description": "The last URL visited in this session.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$end_pathname": {
-            "label": "Entry pathname",
-            "description": "The first pathname visited in this session",
+            "label": "End pathname",
+            "description": "The last pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
         "$exit_current_url": {
             "label": "Exit URL",
-            "description": "The last URL visited in this session",
+            "description": "The last URL visited in this session. (deprecated, use $end_current_url)",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String",
         },
         "$exit_pathname": {
             "label": "Exit pathname",
-            "description": "The last pathname visited in this session",
+            "description": "The last pathname visited in this session. (deprecated, use $end_pathname)",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String",
         },
         "$pageview_count": {
             "label": "Pageview count",
-            "description": "The number of page view events in this session",
+            "description": "The number of page view events in this session.",
             "examples": ["123"],
             "type": "Numeric",
         },
         "$autocapture_count": {
             "label": "Autocapture count",
-            "description": "The number of autocapture events in this session",
+            "description": "The number of autocapture events in this session.",
             "examples": ["123"],
             "type": "Numeric",
         },
         "$screen_count": {
             "label": "Screen count",
-            "description": "The number of screen events in this session",
+            "description": "The number of screen events in this session.",
             "examples": ["123"],
             "type": "Numeric",
         },
@@ -1650,6 +1785,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
 }
+
+# copy distinct_id to event properties (needs to be done before copying to person properties, so it exists in person properties as well)
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["distinct_id"] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][
+    "distinct_id"
+]
+
+# copy meta properties to event_metadata
+CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"] = {}
+for key in ["distinct_id", "timestamp", "event", "person_id"]:
+    CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
+
 
 for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
     if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):

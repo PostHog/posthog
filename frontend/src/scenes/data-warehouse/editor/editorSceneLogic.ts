@@ -47,7 +47,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             schema,
         }),
     }),
-    connect({
+    connect(() => ({
         values: [
             dataWarehouseJoinsLogic,
             ['joins', 'joinsLoading'],
@@ -64,7 +64,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             dataWarehouseJoinsLogic,
             ['loadJoins'],
         ],
-    }),
+    })),
     reducers({
         sidebarOverlayOpen: [
             false,

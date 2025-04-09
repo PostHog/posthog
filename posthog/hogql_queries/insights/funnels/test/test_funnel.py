@@ -3948,6 +3948,59 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[0][1]["breakdown_value"], ["test'123"])
             self.assertEqual(results[0][1]["count"], 1)
 
+        def test_funnel_query_with_event_metadata_breakdown(self):
+            _create_person(
+                distinct_ids=[f"user_1"],
+                team=self.team,
+            )
+            _create_person(
+                distinct_ids=[f"user_2"],
+                team=self.team,
+            )
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 46),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 47),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                ],
+                "user_2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 48),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 49),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+                dateRange=DateRange(
+                    date_from="2024-03-22",
+                    date_to="2024-03-22",
+                ),
+                breakdownFilter=BreakdownFilter(breakdown="distinct_id", breakdown_type=BreakdownType.EVENT_METADATA),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0][1]["breakdown_value"], ["user_1"])
+            self.assertEqual(results[0][1]["count"], 1)
+            self.assertEqual(results[1][1]["breakdown_value"], ["user_2"])
+            self.assertEqual(results[1][1]["count"], 1)
+
         def test_funnel_parses_event_names_correctly(self):
             _create_person(
                 distinct_ids=[f"user_1"],
@@ -4800,6 +4853,33 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             result = results[0]
             assert [x["count"] for x in result] == [1, 1, 1]
             assert [x["breakdown"] == ["Chrome"] for x in result]
+
+        def test_funnel_with_long_interval_no_first_step(self):
+            # Create a person who only completes the second step of the funnel
+            person_factory(distinct_ids=["only_second_step"], team_id=self.team.pk)
+            self._add_to_cart_event(distinct_id="only_second_step", timestamp=datetime(2021, 5, 2, 0, 0, 0))
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-08 23:59:59",
+                "events": [{"id": "user signed up", "order": 0}, {"id": "added to cart", "order": 1}],
+                "funnel_window_interval": 3122064000,
+                "funnel_window_interval_unit": "second",
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            if len(results) == 0:
+                # This is a success - no entries.
+                return
+
+            # First step should be 0, second step should be 0 as well since the user didn't complete the first step
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], 0)
+            self.assertEqual(results[1]["name"], "added to cart")
+            self.assertEqual(results[1]["count"], 0)
 
     return TestGetFunnel
 

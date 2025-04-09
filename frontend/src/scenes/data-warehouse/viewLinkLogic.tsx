@@ -25,10 +25,10 @@ export interface KeySelectOption {
 
 export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
-    connect({
+    connect(() => ({
         values: [databaseTableListLogic, ['allTables']],
         actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseJoinsLogic, ['loadJoins']],
-    }),
+    })),
     actions(({ values }) => ({
         selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
         selectSourceTable: (selectedTableName: string) => ({ selectedTableName }),

@@ -7,8 +7,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -26,7 +26,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_column_names.1
@@ -37,8 +38,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
          argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
@@ -57,7 +58,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_correctly_counts_session_ids
@@ -68,8 +70,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
          argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
@@ -88,7 +90,39 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
+  '''
+# ---
+# name: TestErrorTrackingQueryRunner.test_empty_search_query
+  '''
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
+         count(DISTINCT events.distinct_id) AS users,
+         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
+         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+            error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+     FROM error_tracking_issue_fingerprint_overrides
+     WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+     GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+     HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), 1, and(or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_types'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_values'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0)), or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_types'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_values'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0)), or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_types'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_values'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0))))
+  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_hogql_filters
@@ -99,8 +133,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -120,12 +154,12 @@
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
-     WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                          (SELECT person.id AS id, max(person.version) AS version
-                                                           FROM person
-                                                           WHERE equals(person.team_id, 99999)
-                                                           GROUP BY person.id
-                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), ifNull(equals(events__person.properties___email, 'email@posthog.com'), 0))
   GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))
   LIMIT 101
@@ -135,7 +169,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_issue_grouping
@@ -146,8 +181,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
          argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
@@ -166,7 +201,39 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
+  '''
+# ---
+# name: TestErrorTrackingQueryRunner.test_only_returns_exception_events
+  '''
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
+         count(DISTINCT events.distinct_id) AS users,
+         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
+         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2020-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2020-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2020-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2020-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2020-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+            error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+     FROM error_tracking_issue_fingerprint_overrides
+     WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+     GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+     HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), 1)
+  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_ordering
@@ -177,8 +244,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -197,7 +264,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_ordering.1
@@ -208,8 +276,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -228,7 +296,40 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
+  '''
+# ---
+# name: TestErrorTrackingQueryRunner.test_overrides_aggregation
+  '''
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
+         count(DISTINCT events.distinct_id) AS users,
+         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
+         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+            error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+     FROM error_tracking_issue_fingerprint_overrides
+     WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+     GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+     HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), 1)
+  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))
+  ORDER BY occurrences DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query
@@ -239,8 +340,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime('2022-01-10', 'UTC'), toDateTime('2022-01-11', 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime('2022-01-10', 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime('2022-01-10', 'UTC'), toDateTime('2022-01-11', 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -260,13 +361,13 @@
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
-     WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                          (SELECT person.id AS id, max(person.version) AS version
-                                                           FROM person
-                                                           WHERE equals(person.team_id, 99999)
-                                                           GROUP BY person.id
-                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)), or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_types'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_values'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0)))
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime('2022-01-10', 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime('2022-01-11', 'UTC')), or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_types'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_values'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0)))
   GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -275,7 +376,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query_with_multiple_search_items
@@ -286,8 +388,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -307,12 +409,12 @@
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
-     WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                          (SELECT person.id AS id, max(person.version) AS version
-                                                           FROM person
-                                                           WHERE equals(person.team_id, 99999)
-                                                           GROUP BY person.id
-                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), and(or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_types'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_values'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0)), or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_types'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_values'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0))))
   GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))
   LIMIT 101
@@ -322,7 +424,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_status
@@ -333,8 +436,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -352,7 +455,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_status.1
@@ -363,8 +467,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -382,7 +486,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_status.2
@@ -393,8 +498,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -412,7 +517,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_status.3
@@ -423,8 +529,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -442,7 +548,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_user_assignee
@@ -453,8 +560,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -472,7 +579,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_user_group_assignee
@@ -483,8 +591,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2022-01-09T12:11:00', 6, 'UTC'), parseDateTime64BestEffort('2022-01-10T12:11:00', 6, 'UTC')), 1)))), range(0, 1)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 1)))), range(0, 1)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -502,6 +610,70 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
+  '''
+# ---
+# name: TestErrorTrackingQueryRunner.test_volume_aggregation_advanced
+  '''
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
+         count(DISTINCT events.distinct_id) AS users,
+         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
+         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-05-04T00:00:00', 6, 'UTC'), parseDateTime64BestEffort('2025-05-05T00:00:00', 6, 'UTC')), 4))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-05-04T00:00:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-05-04T00:00:00', 6, 'UTC'), parseDateTime64BestEffort('2025-05-05T00:00:00', 6, 'UTC')), 4)))), range(0, 4)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime('2025-05-04', 'UTC'), toDateTime('2025-05-06', 'UTC')), 4))), 1, 0), arrayMap(i -> dateAdd(toDateTime('2025-05-04', 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime('2025-05-04', 'UTC'), toDateTime('2025-05-06', 'UTC')), 4)))), range(0, 4)))) AS volumeRange,
+         argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+            error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+     FROM error_tracking_issue_fingerprint_overrides
+     WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+     GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+     HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), 1, greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime('2025-05-04', 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime('2025-05-06', 'UTC')), ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')), 'e9ac529f-ac1c-4a96-bd3a-102334368d64'), 0))
+  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
+  '''
+# ---
+# name: TestErrorTrackingQueryRunner.test_volume_aggregation_simple
+  '''
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS id,
+         count(DISTINCT events.uuid) AS occurrences,
+         count(DISTINCT nullIf(events.`$session_id`, '')) AS sessions,
+         count(DISTINCT events.distinct_id) AS users,
+         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
+         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2020-01-11T00:00:00', 6, 'UTC'), parseDateTime64BestEffort('2020-01-12T00:00:00', 6, 'UTC')), 3))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2020-01-11T00:00:00', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2020-01-11T00:00:00', 6, 'UTC'), parseDateTime64BestEffort('2020-01-12T00:00:00', 6, 'UTC')), 3)))), range(0, 3)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime('2020-01-10', 'UTC'), toDateTime('2020-01-11', 'UTC')), 3))), 1, 0), arrayMap(i -> dateAdd(toDateTime('2020-01-10', 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime('2020-01-10', 'UTC'), toDateTime('2020-01-11', 'UTC')), 3)))), range(0, 3)))) AS volumeRange
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
+            error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+     FROM error_tracking_issue_fingerprint_overrides
+     WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+     GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+     HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), 1, greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime('2020-01-10', 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime('2020-01-11', 'UTC')))
+  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1
   '''
 # ---

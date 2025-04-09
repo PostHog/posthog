@@ -33,6 +33,8 @@ oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
 )
 
+PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
+
 
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
     if path in d and d[path] is not None:
@@ -58,6 +60,7 @@ class Integration(models.Model):
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         INTERCOM = "intercom"
+        EMAIL = "email"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -408,32 +411,48 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_channels(self, authed_user) -> list[dict]:
+    def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel", authed_user)
-        private_channels = self._list_channels_by_type("private_channel", authed_user)
+        public_channels = self._list_channels_by_type("public_channel")
+        private_channels = self._list_channels_by_type("private_channel", should_include_private_channels, authed_user)
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def get_channel_by_id(self, channel_id: str) -> Optional[dict]:
+    def get_channel_by_id(
+        self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
+    ) -> Optional[dict]:
         try:
-            response = self.client.conversations_info(channel=channel_id)
+            response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
+            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
+            isMember = authed_user in members_response["members"]
+
+            if not isMember:
+                return None
+
+            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
+
             return {
                 "id": channel["id"],
-                "name": channel["name"],
+                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS if isPrivateWithoutAccess else channel["name"],
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
+                "is_private_without_access": isPrivateWithoutAccess,
             }
         except SlackApiError as e:
             if e.response["error"] == "channel_not_found":
                 return None
             raise
 
-    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
+    def _list_channels_by_type(
+        self,
+        type: Literal["public_channel", "private_channel"],
+        should_include_private_channels: bool = False,
+        authed_user: str | None = None,
+    ) -> list[dict]:
         max_page = 50
         channels = []
         cursor = None
@@ -446,6 +465,11 @@ class SlackIntegration:
                 res = self.client.users_conversations(
                     exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
                 )
+
+                for channel in res["channels"]:
+                    if channel["is_private"] and not should_include_private_channels:
+                        channel["name"] = PRIVATE_CHANNEL_WITHOUT_ACCESS
+                        channel["is_private_without_access"] = True
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]
@@ -731,3 +755,37 @@ class LinkedInAdsIntegration:
         )
 
         return response.json()
+
+
+class MailIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        self.integration = integration
+
+    @classmethod
+    def integration_from_keys(
+        cls, api_key: str, secret_key: str, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="email",
+            integration_id=api_key,
+            defaults={
+                "config": {
+                    "api_key": api_key,
+                    # TODO: Add support for other email vendors
+                    "vendor": "mailjet",
+                },
+                "sensitive_config": {
+                    "secret_key": secret_key,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration

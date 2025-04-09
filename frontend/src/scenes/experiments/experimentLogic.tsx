@@ -12,11 +12,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import {
+    featureFlagLogic as sceneFeatureFlagLogic,
     indexToVariantKeyFeatureFlagPayloads,
     validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
-import { featureFlagLogic as sceneFeatureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -28,6 +28,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
@@ -60,6 +61,7 @@ import {
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
+    ProjectTreeRef,
     PropertyMathType,
     TrendExperimentVariant,
     TrendResult,
@@ -253,6 +255,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
+        changeExperimentEndDate: (endDate: string) => ({ endDate }),
         setExperimentStatsVersion: (version: number) => ({ version }),
         launchExperiment: true,
         endExperiment: true,
@@ -881,6 +884,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (response?.id) {
                 const experimentId = response.id
+                refreshTreeItem('experiment', String(experimentId))
                 router.actions.push(urls.experiment(experimentId))
                 actions.addToExperiments(response)
                 lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
@@ -913,6 +917,10 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+        },
+        changeExperimentEndDate: async ({ endDate }) => {
+            actions.updateExperiment({ end_date: endDate })
+            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
         },
         setExperimentStatsVersion: async ({ version }, breakpoint) => {
             actions.updateExperiment({ stats_config: { version } })
@@ -1362,6 +1370,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
+                refreshTreeItem('experiment', String(values.experimentId))
                 actions.setUnmodifiedExperiment(structuredClone(response))
                 return response
             },
@@ -1471,6 +1480,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: ExperimentLogicProps) => props.experimentId],
+            (experimentId): ProjectTreeRef => ({ type: 'experiment', ref: String(experimentId) }),
         ],
         variants: [
             (s) => [s.experiment],

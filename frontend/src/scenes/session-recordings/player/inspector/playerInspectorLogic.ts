@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
@@ -24,6 +23,7 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,
@@ -753,13 +753,21 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         filteredItems: [
-            (s) => [s.allItems, s.miniFiltersByKey, s.showOnlyMatching, s.allowMatchingEventsFilter, s.trackedWindow],
+            (s) => [
+                s.allItems,
+                s.miniFiltersByKey,
+                s.showOnlyMatching,
+                s.allowMatchingEventsFilter,
+                s.trackedWindow,
+                s.hasEventsToDisplay,
+            ],
             (
                 allItems,
                 miniFiltersByKey,
                 showOnlyMatching,
                 allowMatchingEventsFilter,
-                trackedWindow
+                trackedWindow,
+                hasEventsToDisplay
             ): InspectorListItem[] => {
                 const filteredItems = filterInspectorListItems({
                     allItems,
@@ -767,7 +775,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
+                    hasEventsToDisplay,
                 })
+
                 // need to collapse adjacent inactivity items
                 // they look werong next to each other
                 return filteredItems.reduce((acc, item, index) => {
@@ -791,13 +801,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.showOnlyMatching,
                 s.allowMatchingEventsFilter,
                 s.trackedWindow,
+                s.hasEventsToDisplay,
             ],
             (
                 allItems,
                 miniFiltersForTypeByKey,
                 showOnlyMatching,
                 allowMatchingEventsFilter,
-                trackedWindow
+                trackedWindow,
+                hasEventsToDisplay
             ): (InspectorListItemEvent | InspectorListItemComment)[] => {
                 const eventFilteredItems = filterInspectorListItems({
                     allItems,
@@ -805,6 +817,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
+                    hasEventsToDisplay,
                 })
 
                 let items: (InspectorListItemEvent | InspectorListItemComment)[] = eventFilteredItems.filter(

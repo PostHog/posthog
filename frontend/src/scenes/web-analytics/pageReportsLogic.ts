@@ -520,14 +520,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 actions.setPageUrl(searchParams.pageURL)
             }
 
-            if (!!searchParams.stripQueryParams !== values.stripQueryParams) {
+            // Only toggle stripQueryParams if it's explicitly present in the URL
+            if ('stripQueryParams' in searchParams && !!searchParams.stripQueryParams !== values.stripQueryParams) {
                 actions.toggleStripQueryParams()
             }
         },
     }),
 
     actionToUrl: ({ values }) => ({
-        // So far we don't need to do anything for dateFilters because webAnalyticsLogic handles it.
         setPageUrl: () => {
             const searchParams = { ...router.values.searchParams }
 
@@ -537,14 +537,16 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 delete searchParams.pageURL
             }
 
-            searchParams.stripQueryParams = Boolean(values.stripQueryParams)
+            // Only include stripQueryParams if it's different from the URL
+            if (!!router.values.searchParams.stripQueryParams !== values.stripQueryParams) {
+                searchParams.stripQueryParams = values.stripQueryParams
+            }
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
         toggleStripQueryParams: () => {
             const searchParams = { ...router.values.searchParams }
-
-            searchParams.stripQueryParams = Boolean(values.stripQueryParams)
+            searchParams.stripQueryParams = values.stripQueryParams
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },

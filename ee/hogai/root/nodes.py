@@ -31,6 +31,7 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     HumanMessage,
+    FailureMessage,
 )
 
 RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters"]
@@ -81,7 +82,7 @@ CONTEXTUAL_TOOL_MODELS = tuple(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL.values())
 RootToolCall = create_and_query_insight | search_documentation | search_session_recordings
 root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight, search_documentation, *CONTEXTUAL_TOOL_MODELS])
 
-RootMessageUnion = HumanMessage | AssistantMessage | AssistantToolCallMessage
+RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
@@ -197,7 +198,7 @@ class RootNode(AssistantNode):
             elif isinstance(message, AssistantMessage):
                 # Filter out tool calls without a tool response, so the completion doesn't fail.
                 tool_calls = [
-                    tool for tool in message.model_dump()["tool_calls"] or [] if tool["id"] in tool_result_messages
+                    tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_messages
                 ]
 
                 history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls, id=message.id))
@@ -211,6 +212,10 @@ class RootNode(AssistantNode):
                             content=result_message.content, tool_call_id=tool_call_id, id=result_message.id
                         )
                     )
+            elif isinstance(message, FailureMessage):
+                history.append(
+                    LangchainAIMessage(content=message.content or "An unknown failure occurred.", id=message.id)
+                )
 
         return history
 

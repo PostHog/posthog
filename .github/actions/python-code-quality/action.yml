@@ -20,13 +20,13 @@ runs:
           uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
           with:
               python-version: ${{ inputs.python-version }}
-              cache: 'pip'
-              cache-dependency-path: '**/requirements*.txt'
               token: ${{ inputs.token }}
 
-        # uv is a fast pip alternative: https://github.com/astral-sh/uv/
-        - run: pip install uv
-          shell: bash
+        - name: Install uv
+          uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+          with:
+              enable-cache: true
+              pyproject-file: 'pyproject.toml'
 
         - name: Install SAML (python3-saml) dependencies
           shell: bash
@@ -37,7 +37,7 @@ runs:
         - name: Install Python dependencies
           shell: bash
           run: |
-              uv pip install --system -r requirements.txt -r requirements-dev.txt
+              UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
         - name: Check for syntax errors, import sort, and code style violations
           shell: bash

@@ -14,6 +14,24 @@ function mapStackFrameRecords(
     return newRecords.reduce((frames, record) => ({ ...frames, [record.raw_id]: record }), initialRecords)
 }
 
+interface FingerprintFrame {
+    type: 'frame'
+    raw_id: string
+    pieces: string[]
+}
+
+interface FingerprintException {
+    type: 'exception'
+    id: string // Exception ID
+    pieces: string[]
+}
+
+interface FingerprintManual {
+    type: 'manual'
+}
+
+export type FingerprintRecordPart = FingerprintManual | FingerprintFrame | FingerprintException
+
 export const stackFrameLogic = kea<stackFrameLogicType>([
     path(['components', 'Errors', 'stackFrameLogic']),
 
@@ -22,6 +40,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
         loadForSymbolSet: (symbolSetId: ErrorTrackingSymbolSet['id']) => ({ symbolSetId }),
         setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
         reverseFrameOrder: (reverseOrder: boolean) => ({ reverseOrder }),
+        highlightRecordPart: (part: FingerprintRecordPart | null) => ({ part }),
     }),
 
     reducers(() => ({
@@ -37,6 +56,12 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
             { persist: true },
             {
                 reverseFrameOrder: (_, { reverseOrder }) => reverseOrder,
+            },
+        ],
+        highlightedRecordPart: [
+            null as FingerprintRecordPart | null,
+            {
+                highlightRecordPart: (_, { part }) => part,
             },
         ],
     })),

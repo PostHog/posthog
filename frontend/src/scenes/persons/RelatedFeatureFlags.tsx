@@ -3,7 +3,6 @@ import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Link, Toolti
 import { useActions, useValues } from 'kea'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
@@ -83,9 +82,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 return (
                     <div className="break-words">
-                        {featureFlag.active && featureFlag.value
-                            ? capitalizeFirstLetter(featureFlag.value.toString())
-                            : 'False'}
+                        {featureFlag.active && featureFlag.value ? featureFlag.value.toString() : 'false'}
                     </div>
                 )
             },

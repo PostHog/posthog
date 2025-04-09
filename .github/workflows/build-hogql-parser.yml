@@ -125,14 +125,24 @@ jobs:
 
             - name: Update hogql-parser in requirements
               shell: bash
+              env:
+                  RETRIES: 20
               run: |
-                  local=$(python common/hogql_parser/setup.py --version)
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.in
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.txt
+                  # In case the version is not available yet, try up to $RETRIES times
+                  for i in {1..$RETRIES}; do
+                      if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
+                          break
+                      fi
+                      if [[ $i -eq $RETRIES ]]; then
+                        echo "Failed to update hogql-parser in requirements"
+                        exit 1
+                      fi
+                      sleep 0.5
+                  done
 
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               with:
-                  add: '["requirements.in", "requirements.txt"]'
+                  add: '["pyproject.toml", "uv.lock"]'
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}

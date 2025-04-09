@@ -42,7 +42,7 @@ from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
-from .experiment import Experiment, ExperimentSavedMetric
+from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey

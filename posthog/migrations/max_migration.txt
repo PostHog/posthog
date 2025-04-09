@@ -1,1 +1,1 @@
-0694_fix_revenue_tracking_config
+0706_alter_hogfunction_kind

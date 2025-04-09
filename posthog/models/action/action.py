@@ -9,6 +9,7 @@ from django.utils import timezone
 from posthog.hogql.errors import BaseHogQLError
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.signals import mutable_receiver
+from posthog.models.utils import RootTeamMixin
 from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
@@ -36,10 +37,11 @@ class ActionStepJSON:
     properties: Optional[list[dict]] = None
 
 
-class Action(FileSystemSyncMixin, models.Model):
+class Action(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
     description = models.TextField(blank=True, default="")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
@@ -84,7 +86,7 @@ class Action(FileSystemSyncMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             base_folder="Unfiled/Actions",
-            type="action",
+            type="action",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",
             href=f"/data-management/actions/{self.id}",

@@ -1,14 +1,13 @@
-import { IconCode } from '@posthog/icons'
+import { IconCode, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { getPropertyKey } from 'lib/taxonomy'
 import { allOperatorsMapping } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import React, { useState } from 'react'
-import { SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { QUESTION_TYPE_ICON_MAP, SURVEY_RESPONSE_PROPERTY, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import {
@@ -53,6 +52,18 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
         { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
     ],
     [SurveyQuestionType.Link]: [],
+}
+
+function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Element {
+    return (
+        <button
+            onClick={() => void copyToClipboard(`${SURVEY_RESPONSE_PROPERTY}_${questionId}`, 'survey response key')}
+            className="flex items-center cursor-pointer gap-1"
+        >
+            <IconCopy />
+            Copy survey response key
+        </button>
+    )
 }
 
 function _SurveyResponseFilters(): JSX.Element {
@@ -105,7 +116,7 @@ function _SurveyResponseFilters(): JSX.Element {
     return (
         <div className="deprecated-space-y-2">
             <div className="flex justify-between items-center">
-                <div className="text-sm font-medium">Filter survey results</div>
+                <h3 className="m-0">Filter survey results</h3>
                 <LemonButton size="small" type="secondary" icon={<IconCode />} onClick={() => setSqlHelperOpen(true)}>
                     Get SQL Query
                 </LemonButton>
@@ -128,8 +139,12 @@ function _SurveyResponseFilters(): JSX.Element {
                                     <div className="grid grid-cols-6 gap-2 p-2 items-center hover:bg-bg-light transition-all">
                                         <div className="col-span-3">
                                             <span className="font-medium">{question.question}</span>
-                                            <div className="text-muted text-xs">
-                                                {SurveyQuestionLabel[question.type]}
+                                            <div className="text-muted text-xs flex gap-4">
+                                                <span className="flex items-center gap-1">
+                                                    {QUESTION_TYPE_ICON_MAP[question.type]}
+                                                    {SurveyQuestionLabel[question.type]}
+                                                </span>
+                                                {question.id && <CopyResponseKeyButton questionId={question.id} />}
                                             </div>
                                         </div>
                                         <div>
@@ -148,7 +163,7 @@ function _SurveyResponseFilters(): JSX.Element {
                                                     currentFilter.operator
                                                 ) && (
                                                     <PropertyValue
-                                                        propertyKey={getSurveyResponseKey(question.questionIndex)}
+                                                        propertyKey={`${SURVEY_RESPONSE_PROPERTY}_${question.id}`}
                                                         type={PropertyFilterType.Event}
                                                         operator={currentFilter.operator}
                                                         value={currentFilter.value || []}
@@ -161,15 +176,6 @@ function _SurveyResponseFilters(): JSX.Element {
                                                                 : 'Enter text to match'
                                                         }
                                                         eventNames={['survey sent']}
-                                                        additionalPropertiesFilter={[
-                                                            {
-                                                                key: getPropertyKey(
-                                                                    '$survey_id',
-                                                                    TaxonomicFilterGroupType.Events
-                                                                ),
-                                                                values: survey.id,
-                                                            },
-                                                        ]}
                                                     />
                                                 )}
                                         </div>

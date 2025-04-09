@@ -2,7 +2,7 @@ use crate::{
     api::errors::FlagError,
     client::database::Client as DatabaseClient,
     flags::flag_models::FeatureFlagList,
-    metrics::metrics_consts::{
+    metrics::consts::{
         DB_FLAG_READS_COUNTER, DB_TEAM_READS_COUNTER, FLAG_CACHE_ERRORS_COUNTER,
         FLAG_CACHE_HIT_COUNTER, TEAM_CACHE_ERRORS_COUNTER, TEAM_CACHE_HIT_COUNTER,
         TOKEN_VALIDATION_ERRORS_COUNTER,
@@ -39,11 +39,7 @@ impl FlagService {
             Err(_) => {
                 match Team::from_pg(self.pg_client.clone(), token).await {
                     Ok(team) => {
-                        inc(
-                            DB_TEAM_READS_COUNTER,
-                            &[("token".to_string(), token.to_string())],
-                            1,
-                        );
+                        inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
                         if let Err(e) =
                             Team::update_redis_cache(self.redis_client.clone(), &team).await
@@ -71,10 +67,7 @@ impl FlagService {
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
-            &[
-                ("token".to_string(), token.to_string()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
+            &[("cache_hit".to_string(), cache_hit.to_string())],
             1,
         );
 
@@ -91,15 +84,9 @@ impl FlagService {
             Ok(team) => (Ok(team), true),
             Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
                 Ok(team) => {
-                    inc(
-                        DB_TEAM_READS_COUNTER,
-                        &[("token".to_string(), token.to_string())],
-                        1,
-                    );
+                    inc(DB_TEAM_READS_COUNTER, &[], 1);
                     // If we have the team in postgres, but not redis, update redis so we're faster next time
-                    if let Err(e) = Team::update_redis_cache(self.redis_client.clone(), &team).await
-                    {
-                        tracing::warn!("Failed to update Redis cache: {}", e);
+                    if (Team::update_redis_cache(self.redis_client.clone(), &team).await).is_err() {
                         inc(
                             TEAM_CACHE_ERRORS_COUNTER,
                             &[("reason".to_string(), "redis_update_failed".to_string())],
@@ -115,10 +102,7 @@ impl FlagService {
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
-            &[
-                ("token".to_string(), token.to_string()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
+            &[("cache_hit".to_string(), cache_hit.to_string())],
             1,
         );
 
@@ -138,19 +122,15 @@ impl FlagService {
                 Err(_) => {
                     match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
                         Ok(flags) => {
-                            inc(
-                                DB_FLAG_READS_COUNTER,
-                                &[("project_id".to_string(), project_id.to_string())],
-                                1,
-                            );
-                            if let Err(e) = FeatureFlagList::update_flags_in_redis(
+                            inc(DB_FLAG_READS_COUNTER, &[], 1);
+                            if (FeatureFlagList::update_flags_in_redis(
                                 self.redis_client.clone(),
                                 project_id,
                                 &flags,
                             )
-                            .await
+                            .await)
+                                .is_err()
                             {
-                                tracing::warn!("Failed to update Redis cache: {}", e);
                                 inc(
                                     FLAG_CACHE_ERRORS_COUNTER,
                                     &[("reason".to_string(), "redis_update_failed".to_string())],
@@ -167,10 +147,7 @@ impl FlagService {
         // Track cache hits and misses
         inc(
             FLAG_CACHE_HIT_COUNTER,
-            &[
-                ("project_id".to_string(), project_id.to_string()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
+            &[("cache_hit".to_string(), cache_hit.to_string())],
             1,
         );
 

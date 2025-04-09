@@ -13,6 +13,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.RevenueAnalytics]: () => import('products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.Activity]: () => import('./activity/ActivityScene'),
@@ -30,6 +31,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.PipelineNodeNew]: () => import('./pipeline/PipelineNodeNew'),
     [Scene.Pipeline]: () => import('./pipeline/Pipeline'),
     [Scene.PipelineNode]: () => import('./pipeline/PipelineNode'),
+    [Scene.Groups]: () => import('./groups/Groups'),
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
@@ -37,7 +39,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ExperimentsSharedMetric]: () => import('./experiments/SharedMetrics/SharedMetric'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
-    [Scene.FeatureManagement]: () => import('./feature-flags/FeatureManagement'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.ErrorTracking]: () => import('./error-tracking/ErrorTrackingScene'),
     [Scene.ErrorTrackingConfiguration]: () => import('./error-tracking/configuration/ErrorTrackingConfigurationScene'),
@@ -85,7 +86,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.MessagingBroadcasts]: () => import('products/messaging/frontend/Broadcasts'),
-    [Scene.MessagingAutomations]: () => import('products/messaging/frontend/Automations'),
+    [Scene.MessagingCampaigns]: () => import('products/messaging/frontend/Campaigns'),
     [Scene.MessagingLibrary]: () => import('products/messaging/frontend/Library'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
 }

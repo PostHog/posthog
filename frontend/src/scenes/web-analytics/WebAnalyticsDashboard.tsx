@@ -230,15 +230,11 @@ export const WebTabs = ({
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const { setTileVisualization } = useActions(webAnalyticsLogic)
     const { tileVisualizations } = useValues(webAnalyticsLogic)
     const visualization = tileVisualizations[tileId]
 
-    const isVisualizationToggleEnabled =
-        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TREND_VIZ_TOGGLE] &&
-        [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
+    const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
 
     const buttonsRow = [
         activeTab?.canOpenInsight && newInsightUrl ? (

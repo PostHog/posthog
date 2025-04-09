@@ -4,12 +4,12 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { wordPluralize } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { GroupType, GroupTypeIndex } from '~/types'
 
 import type { groupsModelType } from './groupsModelType'
-
 export interface Noun {
     singular: string
     plural: string
@@ -17,9 +17,9 @@ export interface Noun {
 
 export const groupsModel = kea<groupsModelType>([
     path(['models', 'groupsModel']),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
-    }),
+    })),
     loaders(({ values }) => ({
         groupTypesRaw: [
             [] as Array<GroupType>,
@@ -42,6 +42,17 @@ export const groupsModel = kea<groupsModelType>([
                         { group_type_index: groupTypeIndex }
                     )
                     return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
+                },
+                removeDetailDashboard: async (dashboardId: number) => {
+                    return values.groupTypesRaw.map((gt) => {
+                        if (gt.detail_dashboard === dashboardId) {
+                            return {
+                                ...gt,
+                                detail_dashboard: null,
+                            }
+                        }
+                        return gt
+                    })
                 },
                 setDefaultColumns: async ({
                     groupTypeIndex,
@@ -101,7 +112,7 @@ export const groupsModel = kea<groupsModelType>([
                         if (groupType) {
                             return {
                                 singular: groupType.name_singular || groupType.group_type,
-                                plural: groupType.name_plural || `${groupType.group_type}(s)`,
+                                plural: groupType.name_plural || wordPluralize(groupType.group_type),
                             }
                         }
                         return {
