@@ -45,6 +45,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "ref",
             "href",
             "meta",
+            "shortcut",
             "created_at",
             "created_by",
         ]
@@ -78,7 +79,11 @@ class FileSystemSerializer(serializers.ModelSerializer):
                     depth=depth_index,
                     type="folder",
                     created_by=request.user,
+                    shortcut=False,
                 )
+
+        if validated_data.get("shortcut") is None:
+            validated_data["shortcut"] = False
 
         depth = len(segments)
         file_system = FileSystem.objects.create(
@@ -116,6 +121,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
+        path_param = self.request.query_params.get("path")
         type_param = self.request.query_params.get("type")
         type__startswith_param = self.request.query_params.get("type__startswith")
         ref_param = self.request.query_params.get("ref")
@@ -127,6 +133,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except ValueError:
                 pass
 
+        if self.action == "list":
+            queryset = queryset.order_by("path")
+
+        if path_param:
+            queryset = queryset.filter(path=path_param)
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
         if type_param:
@@ -135,9 +146,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(type__startswith=type__startswith_param)
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
-
-        if self.action == "list":
-            queryset = queryset.order_by("path")
+            queryset = queryset.order_by("shortcut")  # override order
 
         if self.user_access_control:
             queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
@@ -242,6 +251,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     file.pk = None  # This removes the id
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
+                    file.shortcut = True
                     file.save()  # A new instance is created with a new id
 
                 targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
@@ -252,12 +262,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     instance.pk = None  # This removes the id
                     instance.path = new_path
                     instance.depth = len(split_path(instance.path))
+                    instance.shortcut = True
                     instance.save()  # A new instance is created with a new id
 
         else:
             instance.pk = None  # This removes the id
             instance.path = new_path + instance.path[len(instance.path) :]
             instance.depth = len(split_path(instance.path))
+            instance.shortcut = True
             instance.save()  # A new instance is created with a new id
 
         return Response(
@@ -277,6 +289,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
         return Response({"count": qs.count()}, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False)
+    def count_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get count of all files in a folder."""
+        path_param = self.request.query_params.get("path")
+        if not path_param:
+            return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+        count = FileSystem.objects.filter(team=self.team, path__startswith=f"{path_param}/").count()
+        return Response({"count": count}, status=status.HTTP_200_OK)
 
 
 def assure_parent_folders(path: str, team: Team, created_by: User) -> None:

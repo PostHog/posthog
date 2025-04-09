@@ -10,11 +10,8 @@ import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/Lem
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import {
     CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
-    CORE_FILTER_DEFINITIONS_BY_GROUP,
-    getCoreFilterDefinition,
     KNOWN_PROMOTED_PROPERTY_PARENTS,
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
-    PROPERTY_KEYS,
 } from 'lib/taxonomy'
 import { isObject, isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
@@ -23,6 +20,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
@@ -536,6 +535,10 @@ export function PropertiesTable({
                 />
             </>
         )
+    }
+
+    if (properties === undefined) {
+        return <div className="px-4 py-2">No defined properties</div>
     }
 
     // if none of above, it's a value

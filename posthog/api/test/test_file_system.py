@@ -77,6 +77,30 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertIn("id", response_data)
         self.assertEqual(response_data["path"], "MyFolder/Document.txt")
         self.assertEqual(response_data["type"], "doc-file")
+        self.assertEqual(response_data["shortcut"], False)
+        self.assertDictEqual(response_data["meta"], {"description": "A test file"})
+        self.assertEqual(response_data["created_by"]["id"], self.user.pk)
+
+    def test_create_shortcut(self):
+        """
+        Ensure that we can create a FileSystem object for our team.
+        """
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {
+                "path": "MyFolder/Document.txt",
+                "type": "doc-file",
+                "meta": {"description": "A test file"},
+                "shortcut": True,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+        response_data = response.json()
+        self.assertIn("id", response_data)
+        self.assertEqual(response_data["path"], "MyFolder/Document.txt")
+        self.assertEqual(response_data["type"], "doc-file")
+        self.assertEqual(response_data["shortcut"], True)
         self.assertDictEqual(response_data["meta"], {"description": "A test file"})
         self.assertEqual(response_data["created_by"]["id"], self.user.pk)
 
@@ -383,7 +407,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["results"][0]["path"], "Deep/Nested/Path")
 
-    def test_list_by_parent(self):
+    def test_list_by_parent_and_path(self):
         """
         Verify that passing ?parent=SomeFolder returns only items whose path starts with "SomeFolder/".
         """
@@ -403,6 +427,12 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertIn("SomeFolder/SubFolder/File2", paths)
         self.assertNotIn("RootItem", paths)
         self.assertNotIn("AnotherFolder/File3", paths)
+
+        # Filter by ?parent=SomeFolder
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?path=SomeFolder/File1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1, data["results"])
 
     def test_list_by_parent_and_depth(self):
         """
@@ -489,8 +519,13 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
         FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
 
-        # Move the folder
+        # Count the folder by id
         response = self.client.post(f"/api/projects/{self.team.id}/file_system/{folder.pk}/count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["count"], 2)
+
+        # Count the folder by path
+        response = self.client.post(f"/api/projects/{self.team.id}/file_system/count_by_path?path=OldFolder")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["count"], 2)
 
@@ -556,10 +591,12 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         result = response.json()
         self.assertEqual(result["path"], new_path)
+        self.assertEqual(result["shortcut"], True)
         # "NewFolder/NewFile.txt" should have a depth of 2.
         self.assertEqual(result["depth"], 2)
         # Ensure that the parent folder "NewFolder" was auto-created as a folder.
         self.assertTrue(FileSystem.objects.filter(team=self.team, path="NewFolder", type="folder").exists())
+        self.assertTrue(FileSystem.objects.filter(team=self.team, path="NewFolder/NewFile.txt", shortcut=True).exists())
 
     def test_link_folder_endpoint(self):
         """
