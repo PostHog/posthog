@@ -789,7 +789,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
             if (toCheck.length > 0 || toDelete.size > 0) {
                 actions.setCheckedItems({
-                    ...(toDelete.length === 0
+                    ...(toDelete.size === 0
                         ? checkedItems
                         : Object.fromEntries(Object.entries(checkedItems).filter((kv) => !toDelete.has(kv[0])))),
                     ...Object.fromEntries(toCheck.map((item) => [item, true])),
