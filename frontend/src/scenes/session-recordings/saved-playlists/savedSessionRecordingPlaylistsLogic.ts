@@ -153,6 +153,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             deletePlaylist: async ({ playlist }) => {
                 await deletePlaylist(playlist, () => actions.loadPlaylists())
                 values.playlists.results = values.playlists.results.filter((x) => x.short_id !== playlist.short_id)
+                actions.loadSavedFilters()
                 return values.playlists
             },
 

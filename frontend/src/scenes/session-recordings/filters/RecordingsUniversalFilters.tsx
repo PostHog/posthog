@@ -1,5 +1,5 @@
 import { IconClock, IconEye, IconFilter, IconHide, IconRevert } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonButtonProps, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonButtonProps, LemonInput, LemonModal, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -8,6 +8,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -22,9 +23,9 @@ import { RecordingUniversalFilters, ReplayTabs, UniversalFiltersGroup } from '~/
 
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
+import { createPlaylist } from '../playlist/playlistUtils'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { DurationFilter } from './DurationFilter'
-import { PeopleFilter } from './PeopleFilter'
 import { SavedFilters } from './SavedFilters'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -108,6 +109,18 @@ export const RecordingsUniversalFilters = ({
 
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
     const { savedFilters } = useValues(savedFiltersLogic)
+    const { loadSavedFilters } = useActions(savedFiltersLogic)
+
+    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
+
+    const newPlaylistHandler = async (name: string): Promise<void> => {
+        await createPlaylist({ name, filters }, false)
+        reportRecordingPlaylistCreated('new')
+        loadSavedFilters()
+        setName('')
+    }
+
+    const [name, setName] = useState('')
 
     return (
         <>
@@ -147,13 +160,15 @@ export const RecordingsUniversalFilters = ({
                     </LemonButton>
                     <LemonModal
                         isOpen={isFiltersExpanded}
-                        onClose={() => setIsFiltersExpanded(false)}
+                        onClose={(): void => {
+                            setIsFiltersExpanded(false)
+                        }}
                         width={750}
                         footer={
                             <div className="flex justify-between p-2 gap-2">
                                 <LemonButton
                                     type="secondary"
-                                    size="xsmall"
+                                    size="small"
                                     onClick={resetFilters}
                                     icon={<IconRevert />}
                                     tooltip="Reset any changes you've made to the filters"
@@ -165,12 +180,6 @@ export const RecordingsUniversalFilters = ({
                                 >
                                     Reset filters
                                 </LemonButton>
-                                {(totalFiltersCount ?? 0) > 0 &&
-                                    !savedFilters.results?.find((filter) => equal(filter.filters, filters)) && (
-                                        <LemonButton type="primary" size="xsmall" onClick={() => {}}>
-                                            Save filters
-                                        </LemonButton>
-                                    )}
                                 <LemonButton type="primary" size="small" onClick={() => setIsFiltersExpanded(false)}>
                                     Close
                                 </LemonButton>
@@ -187,12 +196,7 @@ export const RecordingsUniversalFilters = ({
                                         key: 'filters',
                                         label: <div className="px-2">Filters</div>,
                                         content: (
-                                            <div
-                                                className={clsx(
-                                                    'relative divide-y bg-surface-primary w-full ',
-                                                    className
-                                                )}
-                                            >
+                                            <div className={clsx('relative bg-surface-primary w-full ', className)}>
                                                 <div className="flex items-center py-2">
                                                     <AndOrFilterSelect
                                                         value={filters.filter_group.type}
@@ -215,7 +219,7 @@ export const RecordingsUniversalFilters = ({
                                                         }}
                                                         topLevelFilter={true}
                                                         suffix={['filter', 'filters']}
-                                                        size="xsmall"
+                                                        size="small"
                                                     />
                                                 </div>
                                                 <div className="flex justify-between px-2 py-2 flex-wrap gap-1">
@@ -238,7 +242,7 @@ export const RecordingsUniversalFilters = ({
                                                                 { key: 'All time', values: ['-90d'] },
                                                             ]}
                                                             dropdownPlacement="bottom-start"
-                                                            size="xsmall"
+                                                            size="small"
                                                         />
                                                         <DurationFilter
                                                             onChange={(newRecordingDurationFilter, newDurationType) => {
@@ -254,12 +258,12 @@ export const RecordingsUniversalFilters = ({
                                                             recordingDurationFilter={durationFilter}
                                                             durationTypeFilter={durationFilter.key}
                                                             pageKey="session-recordings"
-                                                            size="xsmall"
+                                                            size="small"
                                                         />
                                                     </div>
                                                     <div>
                                                         <TestAccountFilter
-                                                            size="xsmall"
+                                                            size="small"
                                                             filters={filters}
                                                             onChange={(testFilters) =>
                                                                 setFilters({
@@ -279,9 +283,34 @@ export const RecordingsUniversalFilters = ({
                                                             setFilters({ filter_group: filterGroup })
                                                         }
                                                     >
-                                                        <RecordingsUniversalFilterGroup size="xsmall" />
+                                                        <RecordingsUniversalFilterGroup
+                                                            size="small"
+                                                            totalFiltersCount={totalFiltersCount}
+                                                        />
                                                     </UniversalFilters>
                                                 </div>
+                                                {(totalFiltersCount ?? 0) > 0 &&
+                                                    !savedFilters.results?.find((filter) =>
+                                                        equal(filter.filters, filters)
+                                                    ) && (
+                                                        <div className="flex gap-2 p-2 justify-start">
+                                                            <LemonInput
+                                                                value={name}
+                                                                placeholder="Name"
+                                                                onChange={setName}
+                                                                size="small"
+                                                            />
+                                                            <LemonButton
+                                                                type="primary"
+                                                                size="xsmall"
+                                                                onClick={() => {
+                                                                    void newPlaylistHandler(name)
+                                                                }}
+                                                            >
+                                                                Save filters
+                                                            </LemonButton>
+                                                        </div>
+                                                    )}
                                             </div>
                                         ),
                                     },
@@ -289,23 +318,24 @@ export const RecordingsUniversalFilters = ({
                                         key: 'saved',
                                         label: (
                                             <div className="px-2 flex">
-                                                {' '}
-                                                {savedFilters.results?.length ? (
-                                                    <LemonBadge.Number
-                                                        count={savedFilters.results?.length}
-                                                        className="mr-2"
-                                                    />
-                                                ) : null}{' '}
-                                                Saved filters
+                                                <span>
+                                                    {savedFilters.results?.length ? (
+                                                        <LemonBadge.Number
+                                                            count={savedFilters.results?.length}
+                                                            className="mr-2"
+                                                        />
+                                                    ) : null}
+                                                </span>
+                                                <span>Saved filters</span>
                                             </div>
                                         ),
                                         content: <SavedFilters setFilters={setFilters} />,
                                     },
-                                    {
+                                    /*{
                                         key: 'person',
                                         label: <div className="px-2">Person</div>,
                                         content: <PeopleFilter setFilters={setFilters} />,
-                                    },
+                                    },*/
                                 ]}
                             />
                         </>
@@ -342,7 +372,13 @@ export const RecordingsUniversalFilters = ({
     )
 }
 
-const RecordingsUniversalFilterGroup = ({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element => {
+const RecordingsUniversalFilterGroup = ({
+    size = 'small',
+    totalFiltersCount,
+}: {
+    size?: LemonButtonProps['size']
+    totalFiltersCount?: number
+}): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
@@ -356,8 +392,11 @@ const RecordingsUniversalFilterGroup = ({ size = 'small' }: { size?: LemonButton
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup size={size} />
-                        <UniversalFilters.AddFilterButton size={size} type="secondary" />
+                        <UniversalFilters.PureTaxonomicFilter />
+                        <div className="flex items-center gap-2">
+                            {(totalFiltersCount ?? 0) > 0 && <span className="font-semibold">Applied filters:</span>}
+                            <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
+                        </div>
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value

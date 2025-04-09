@@ -34,7 +34,7 @@ export interface TaxonomicFilterProps {
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
     height?: number
-    width?: number
+    width?: number | string
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */

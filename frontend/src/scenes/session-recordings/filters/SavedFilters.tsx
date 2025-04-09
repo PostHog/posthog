@@ -67,7 +67,9 @@ export function SavedFilters({
                             <>
                                 <LemonButton
                                     status="danger"
-                                    onClick={() => deletePlaylist(playlist)}
+                                    onClick={() => {
+                                        deletePlaylist(playlist)
+                                    }}
                                     fullWidth
                                     loading={savedFiltersLoading}
                                 >
