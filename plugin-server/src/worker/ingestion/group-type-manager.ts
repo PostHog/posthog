@@ -45,12 +45,12 @@ export class GroupTypeManager {
         })
     }
 
-    public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
-        return (await this.loader.get(teamId.toString())) ?? {}
+    public async fetchGroupTypes(team: Team): Promise<GroupTypeToColumnIndex> {
+        return (await this.loader.get(team.root_team_id.toString())) ?? {}
     }
 
     public async fetchGroupTypeIndex(team: Team, groupType: string): Promise<GroupTypeIndex | null> {
-        const groupTypes = await this.fetchGroupTypes(team.root_team_id)
+        const groupTypes = await this.fetchGroupTypes(team)
         if (groupType in groupTypes) {
             return groupTypes[groupType]
         }

@@ -31,7 +31,7 @@ describe('GroupTypeManager()', () => {
         it('fetches and caches the group types', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
 
-            let groupTypes = await groupTypeManager.fetchGroupTypes(team.root_team_id)
+            let groupTypes = await groupTypeManager.fetchGroupTypes(team)
             expect(groupTypes).toEqual({})
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
@@ -40,14 +40,14 @@ describe('GroupTypeManager()', () => {
 
             jest.mocked(hub.db.postgres.query).mockClear()
 
-            groupTypes = await groupTypeManager.fetchGroupTypes(team.root_team_id)
+            groupTypes = await groupTypeManager.fetchGroupTypes(team)
 
             expect(groupTypes).toEqual({})
             expect(hub.db.postgres.query).toHaveBeenCalledTimes(0)
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:36').getTime())
 
-            groupTypes = await groupTypeManager.fetchGroupTypes(team.root_team_id)
+            groupTypes = await groupTypeManager.fetchGroupTypes(team)
 
             expect(groupTypes).toEqual({
                 foo: 0,
@@ -57,11 +57,11 @@ describe('GroupTypeManager()', () => {
         })
 
         it('fetches group types that have been inserted', async () => {
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({})
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({})
             expect(await groupTypeManager.insertGroupType(team, 'g0', 0)).toEqual([0, true])
             expect(await groupTypeManager.insertGroupType(team, 'g1', 1)).toEqual([1, true])
             groupTypeManager['loader'].markForRefresh('2')
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({ g0: 0, g1: 1 })
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({ g0: 0, g1: 1 })
         })
 
         it('handles conflicting by index when inserting and limits', async () => {
@@ -73,7 +73,7 @@ describe('GroupTypeManager()', () => {
             expect(await groupTypeManager.insertGroupType(team, 'g5', 0)).toEqual([null, false])
             expect(await groupTypeManager.insertGroupType(team, 'g6', 0)).toEqual([null, false])
 
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({
                 g0: 0,
                 g1: 1,
                 g2: 2,
@@ -89,7 +89,7 @@ describe('GroupTypeManager()', () => {
             expect(await groupTypeManager.insertGroupType(team, 'foo', 0)).toEqual([1, true])
             expect(await groupTypeManager.insertGroupType(team, 'foo', 0)).toEqual([1, false])
 
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({ group_name: 0, foo: 1 })
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({ group_name: 0, foo: 1 })
         })
     })
 
@@ -129,7 +129,7 @@ describe('GroupTypeManager()', () => {
             expect(await groupTypeManager.fetchGroupTypeIndex(team, 'third')).toEqual(2)
             jest.mocked(hub.db.postgres.query).mockClear()
 
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({
                 foo: 0,
                 second: 1,
                 third: 2,
@@ -141,25 +141,25 @@ describe('GroupTypeManager()', () => {
         })
 
         it('handles raciness for inserting a new group', async () => {
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({})
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({})
 
             await groupTypeManager.insertGroupType(team, 'foo', 0) // Emulate another thread inserting foo
             expect(await groupTypeManager.fetchGroupTypeIndex(team, 'second')).toEqual(1)
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({
                 foo: 0,
                 second: 1,
             })
         })
 
         it('handles raciness for when same group type has already been inserted for team and project', async () => {
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({})
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({})
 
             // Emulate another thread inserting group types, with both team and project the same
             await groupTypeManager.insertGroupType(team, 'foo', 0)
             await groupTypeManager.insertGroupType(team, 'bar', 0)
 
             expect(await groupTypeManager.fetchGroupTypeIndex(team, 'bar')).toEqual(1)
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({
                 foo: 0,
                 bar: 1,
             })
@@ -171,14 +171,14 @@ describe('GroupTypeManager()', () => {
             })
             const otherTeam: Team = (await fetchTeam(hub.postgres, otherTeamId))!
 
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({})
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({})
 
             // Emulate another thread inserting group types, with the project the same
             await groupTypeManager.insertGroupType(team, 'foo', 0)
             await groupTypeManager.insertGroupType(otherTeam, 'bar', 0)
 
             expect(await groupTypeManager.fetchGroupTypeIndex(team, 'bar')).toEqual(1)
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({
                 foo: 0,
                 bar: 1,
             })
@@ -192,7 +192,7 @@ describe('GroupTypeManager()', () => {
             await groupTypeManager.insertGroupType(team, 'g4', 4)
 
             expect(await groupTypeManager.fetchGroupTypeIndex(team, 'new')).toEqual(null)
-            expect(await groupTypeManager.fetchGroupTypes(team.root_team_id)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypes(team)).toEqual({
                 g0: 0,
                 g1: 1,
                 g2: 2,
