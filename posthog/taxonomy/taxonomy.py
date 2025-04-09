@@ -1,3 +1,4 @@
+import re
 from typing import Literal, NotRequired, TypedDict
 
 
@@ -1797,11 +1798,22 @@ for key in ["distinct_id", "timestamp", "event", "person_id"]:
     CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
 
 
+def decapitalize_first_word(text: str) -> str:
+    """Decapitalize the first word of a string, but leave acronyms and exceptions like `GeoIP` intact."""
+
+    def decapitalize(match):
+        """Decapitalize words like `Browser`, but leaves acronyms like `UTM` and exceptions like `GeoIP` intact."""
+        word = match.group(0)
+        return word[0].lower() + word[1:] if word.islower() or (not word.isupper() and word != "GeoIP") else word
+
+    return re.sub(r"^\b\w+\b", decapitalize, text, count=1)
+
+
 for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
     if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):
         CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = {
             **value,
-            "label": f"Latest {value['label']}",
+            "label": f"Latest {decapitalize_first_word(value['label'])}",
             "description": (
                 f"{value['description']} Data from the last time this user was seen."
                 if "description" in value
@@ -1811,7 +1823,7 @@ for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
 
         CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][f"$initial_{key.lstrip('$')}"] = {
             **value,
-            "label": f"Initial {value['label']}",
+            "label": f"Initial {decapitalize_first_word(value['label'])}",
             "description": (
                 f"{value['description']} Data from the first time this user was seen."
                 if "description" in value
@@ -1824,7 +1836,7 @@ for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
     if key in SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS:
         CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][f"$entry_{key.lstrip('$')}"] = {
             **value,
-            "label": f"Entry {value['label']}",
+            "label": f"Entry {decapitalize_first_word(value['label'])}",
             "description": (
                 f"{value['description']} Data from the first event in this session."
                 if "description" in value
@@ -1839,7 +1851,7 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
         **CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"][key],
         "label": f"Session entry {CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['label']}",
         "description": (
-            f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']}. Captured at the start of the session and remains constant for the duration of the session."
+            f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']} Captured at the start of the session and remains constant for the duration of the session."
         ),
     }
 

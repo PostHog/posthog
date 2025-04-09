@@ -35,7 +35,7 @@
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Setting person properties. Sent as `$set`",
+            "description": "Setting person properties. Sent as `$set`.",
             "ignored_in_assistant": true
         },
         "$opt_in": {
@@ -66,44 +66,44 @@
         },
         "$capture_metrics": {
             "label": "Capture metrics",
-            "description": "Metrics captured with values pertaining to your systems at a specific point in time",
+            "description": "Metrics captured with values pertaining to your systems at a specific point in time.",
             "ignored_in_assistant": true
         },
         "$identify": {
             "label": "Identify",
-            "description": "A user has been identified with properties",
+            "description": "A user has been identified with properties.",
             "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification."
         },
         "$create_alias": {
             "label": "Alias",
-            "description": "An alias ID has been added to a user",
+            "description": "An alias ID has been added to a user.",
             "ignored_in_assistant": true
         },
         "$merge_dangerously": {
             "label": "Merge",
-            "description": "An alias ID has been added to a user",
+            "description": "An alias ID has been added to a user.",
             "ignored_in_assistant": true
         },
         "$groupidentify": {
             "label": "Group identify",
-            "description": "A group has been identified with properties",
+            "description": "A group has been identified with properties.",
             "ignored_in_assistant": true
         },
         "$rageclick": {
             "label": "Rageclick",
-            "description": "A user has rapidly and repeatedly clicked in a single place"
+            "description": "A user has rapidly and repeatedly clicked in a single place."
         },
         "$dead_click": {
             "label": "Dead click",
-            "description": "A user has clicked on something that is probably not clickable"
+            "description": "A user has clicked on something that is probably not clickable."
         },
         "$exception": {
             "label": "Exception",
-            "description": "An unexpected error or unhandled exception in your application"
+            "description": "An unexpected error or unhandled exception in your application."
         },
         "$web_vitals": {
             "label": "Web vitals",
-            "description": "Automatically captured web vitals data"
+            "description": "Automatically captured web vitals data."
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
@@ -256,12 +256,12 @@
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Person properties to be set. Sent as `$set`",
+            "description": "Person properties to be set. Sent as `$set`.",
             "ignored_in_assistant": true
         },
         "$set_once": {
             "label": "Set person properties once",
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
             "ignored_in_assistant": true
         },
         "$pageview_id": {
@@ -1375,146 +1375,146 @@
         },
         "$ai_base_url": {
             "label": "AI base URL (LLM)",
-            "description": "The base URL of the request made to the LLM API",
+            "description": "The base URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/"]
         },
         "$ai_http_status": {
             "label": "AI HTTP status (LLM)",
-            "description": "The HTTP status code of the request made to the LLM API",
+            "description": "The HTTP status code of the request made to the LLM API.",
             "examples": [200, 429]
         },
         "$ai_input": {
             "label": "AI input (LLM)",
-            "description": "The input JSON that was sent to the LLM API",
+            "description": "The input JSON that was sent to the LLM API.",
             "examples": ["{\"content\": \"Explain quantum computing in simple terms.\", \"role\": \"user\"}"]
         },
         "$ai_input_tokens": {
             "label": "AI input tokens (LLM)",
-            "description": "The number of tokens in the input prompt that was sent to the LLM API",
+            "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23]
         },
         "$ai_output": {
             "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API",
+            "description": "The output JSON that was received from the LLM API.",
             "examples": [
                 "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
             ]
         },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
-            "description": "The output message choices JSON that was received from the LLM API",
+            "description": "The output message choices JSON that was received from the LLM API.",
             "examples": [
                 "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
             ]
         },
         "$ai_output_tokens": {
             "label": "AI output tokens (LLM)",
-            "description": "The number of tokens in the output from the LLM API",
+            "description": "The number of tokens in the output from the LLM API.",
             "examples": [23]
         },
         "$ai_cache_read_input_tokens": {
             "label": "AI cache read input tokens (LLM)",
-            "description": "The number of tokens read from the cache for the input prompt",
+            "description": "The number of tokens read from the cache for the input prompt.",
             "examples": [23]
         },
         "$ai_cache_creation_input_tokens": {
             "label": "AI cache creation input tokens (LLM)",
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only)",
+            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23]
         },
         "$ai_reasoning_tokens": {
             "label": "AI reasoning tokens (LLM)",
-            "description": "The number of tokens in the reasoning output from the LLM API",
+            "description": "The number of tokens in the reasoning output from the LLM API.",
             "examples": [23]
         },
         "$ai_input_cost_usd": {
             "label": "AI input cost USD (LLM)",
-            "description": "The cost in USD of the input tokens sent to the LLM API",
+            "description": "The cost in USD of the input tokens sent to the LLM API.",
             "examples": [0.0017]
         },
         "$ai_output_cost_usd": {
             "label": "AI output cost USD (LLM)",
-            "description": "The cost in USD of the output tokens received from the LLM API",
+            "description": "The cost in USD of the output tokens received from the LLM API.",
             "examples": [0.0024]
         },
         "$ai_total_cost_usd": {
             "label": "AI total cost USD (LLM)",
-            "description": "The total cost in USD of the request made to the LLM API (input + output costs)",
+            "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
             "examples": [0.0041]
         },
         "$ai_latency": {
             "label": "AI latency (LLM)",
-            "description": "The latency of the request made to the LLM API, in seconds",
+            "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361]
         },
         "$ai_model": {
             "label": "AI model (LLM)",
-            "description": "The model used to generate the output from the LLM API",
+            "description": "The model used to generate the output from the LLM API.",
             "examples": ["gpt-4o-mini"]
         },
         "$ai_model_parameters": {
             "label": "AI model parameters (LLM)",
-            "description": "The parameters used to configure the model in the LLM API, in JSON",
+            "description": "The parameters used to configure the model in the LLM API, in JSON.",
             "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"]
         },
         "$ai_tools": {
             "label": "AI tools (LLM)",
-            "description": "The tools available to the LLM",
+            "description": "The tools available to the LLM.",
             "examples": [
                 "[{\"type\": \"function\", \"function\": {\"name\": \"tool1\", \"arguments\": {\"arg1\": \"value1\", \"arg2\": \"value2\"}}}]"
             ]
         },
         "$ai_stream": {
             "label": "AI stream (LLM)",
-            "description": "Whether the response from the LLM API was streamed",
+            "description": "Whether the response from the LLM API was streamed.",
             "examples": ["true", "false"]
         },
         "$ai_temperature": {
             "label": "AI temperature (LLM)",
-            "description": "The temperature parameter used in the request to the LLM API",
+            "description": "The temperature parameter used in the request to the LLM API.",
             "examples": [0.7, 1.0]
         },
         "$ai_input_state": {
             "label": "AI Input State (LLM)",
-            "description": "Input state of the LLM agent"
+            "description": "Input state of the LLM agent."
         },
         "$ai_output_state": {
             "label": "AI Output State (LLM)",
-            "description": "Output state of the LLM agent"
+            "description": "Output state of the LLM agent."
         },
         "$ai_provider": {
             "label": "AI Provider (LLM)",
-            "description": "The provider of the AI model used to generate the output from the LLM API",
+            "description": "The provider of the AI model used to generate the output from the LLM API.",
             "examples": ["openai"]
         },
         "$ai_trace_id": {
             "label": "AI Trace ID (LLM)",
-            "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace",
+            "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"]
         },
         "$ai_request_url": {
             "label": "AI Request URL (LLM)",
-            "description": "The full URL of the request made to the LLM API",
+            "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"]
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
-            "description": "The name assigned to the metric used to evaluate the LLM trace",
+            "description": "The name assigned to the metric used to evaluate the LLM trace.",
             "examples": ["rating", "accuracy"]
         },
         "$ai_metric_value": {
             "label": "AI Metric Value (LLM)",
-            "description": "The value assigned to the metric used to evaluate the LLM trace",
+            "description": "The value assigned to the metric used to evaluate the LLM trace.",
             "examples": ["negative", "95"]
         },
         "$ai_feedback_text": {
             "label": "AI Feedback Text (LLM)",
-            "description": "The text provided by the user for feedback on the LLM trace",
+            "description": "The text provided by the user for feedback on the LLM trace.",
             "examples": ["\"The response was helpful, but it did not use the provided context.\""]
         },
         "$ai_parent_id": {
             "label": "AI Parent ID (LLM)",
-            "description": "The parent span ID of a span or generation, used to group a trace into a tree view",
+            "description": "The parent span ID of a span or generation, used to group a trace into a tree view.",
             "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"]
         },
         "$ai_span_id": {
@@ -1532,119 +1532,119 @@
             "description": "The current distinct ID of the user.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"]
         },
-        "$session_entry_twclid": {
-            "label": "Session entry twclid",
-            "description": "Twitter Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_dclid": {
-            "label": "Session entry dclid",
-            "description": "DoubleClick ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_gad_source": {
-            "label": "Session entry gad_source",
-            "description": "Google Ads Source. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_ttclid": {
-            "label": "Session entry ttclid",
-            "description": "TikTok Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_gclsrc": {
-            "label": "Session entry gclsrc",
-            "description": "Google Click Source. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_igshid": {
-            "label": "Session entry igshid",
-            "description": "Instagram Share ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_gclid": {
-            "label": "Session entry gclid",
-            "description": "Google Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_mc_cid": {
-            "label": "Session entry mc_cid",
-            "description": "Mailchimp Campaign ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_irclid": {
-            "label": "Session entry irclid",
-            "description": "Impact Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_fbclid": {
-            "label": "Session entry fbclid",
-            "description": "Facebook Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_msclkid": {
-            "label": "Session entry msclkid",
-            "description": "Microsoft Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
         "$session_entry_rdt_cid": {
             "label": "Session entry rdt_cid",
-            "description": "Reddit Click ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_host": {
-            "label": "Session entry Host",
-            "description": "The hostname of the Current URL.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["example.com", "localhost:8000"]
-        },
-        "$session_entry_utm_content": {
-            "label": "Session entry UTM content",
-            "description": "UTM content tag.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["bottom link", "second button"]
-        },
-        "$session_entry_wbraid": {
-            "label": "Session entry wbraid",
-            "description": "Google Ads, app to web. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry__kx": {
-            "label": "Session entry _kx",
-            "description": "Klaviyo Tracking ID. Captured at the start of the session and remains constant for the duration of the session."
-        },
-        "$session_entry_utm_term": {
-            "label": "Session entry UTM term",
-            "description": "UTM term tag.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["free goodies"]
-        },
-        "$session_entry_utm_campaign": {
-            "label": "Session entry UTM campaign",
-            "description": "UTM campaign tag.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["feature launch", "discount"]
+            "description": "Reddit Click ID Captured at the start of the session and remains constant for the duration of the session."
         },
         "$session_entry_referrer": {
             "label": "Session entry Referrer URL",
-            "description": "URL of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
+            "description": "URL of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["https://google.com/search?q=posthog&rlz=1C..."]
         },
-        "$session_entry_pathname": {
-            "label": "Session entry Path name",
-            "description": "The path of the Current URL, which means everything in the url after the domain.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["/pricing", "/about-us/team"]
+        "$session_entry_ttclid": {
+            "label": "Session entry ttclid",
+            "description": "TikTok Click ID Captured at the start of the session and remains constant for the duration of the session."
         },
-        "$session_entry_utm_medium": {
-            "label": "Session entry UTM medium",
-            "description": "UTM medium tag.. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["Social", "Organic", "Paid", "Email"]
+        "$session_entry_li_fat_id": {
+            "label": "Session entry li_fat_id",
+            "description": "LinkedIn First-Party Ad Tracking ID Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_host": {
+            "label": "Session entry Host",
+            "description": "The hostname of the Current URL. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["example.com", "localhost:8000"]
+        },
+        "$session_entry_gbraid": {
+            "label": "Session entry gbraid",
+            "description": "Google Ads, web to app Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_msclkid": {
+            "label": "Session entry msclkid",
+            "description": "Microsoft Click ID Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_utm_term": {
+            "label": "Session entry UTM term",
+            "description": "UTM term tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["free goodies"]
         },
         "$session_entry_referring_domain": {
             "label": "Session entry Referring domain",
-            "description": "Domain of where the user came from.. Captured at the start of the session and remains constant for the duration of the session.",
+            "description": "Domain of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["google.com", "facebook.com"]
         },
         "$session_entry_url": {
             "label": "Session entry Current URL",
-            "description": "The URL visited at the time of the event.. Captured at the start of the session and remains constant for the duration of the session.",
+            "description": "The URL visited at the time of the event. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["https://example.com/interesting-article?parameter=true"]
+        },
+        "$session_entry_dclid": {
+            "label": "Session entry dclid",
+            "description": "DoubleClick ID Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_gclid": {
+            "label": "Session entry gclid",
+            "description": "Google Click ID Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_irclid": {
+            "label": "Session entry irclid",
+            "description": "Impact Click ID Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_igshid": {
+            "label": "Session entry igshid",
+            "description": "Instagram Share ID Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_mc_cid": {
+            "label": "Session entry mc_cid",
+            "description": "Mailchimp Campaign ID Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_fbclid": {
+            "label": "Session entry fbclid",
+            "description": "Facebook Click ID Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_gad_source": {
+            "label": "Session entry gad_source",
+            "description": "Google Ads Source Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_pathname": {
+            "label": "Session entry Path name",
+            "description": "The path of the Current URL, which means everything in the url after the domain. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["/pricing", "/about-us/team"]
         },
         "$session_entry_utm_source": {
             "label": "Session entry UTM source",
-            "description": "UTM source tag.. Captured at the start of the session and remains constant for the duration of the session.",
+            "description": "UTM source tag. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["Google", "Bing", "Twitter", "Facebook"]
         },
-        "$session_entry_li_fat_id": {
-            "label": "Session entry li_fat_id",
-            "description": "LinkedIn First-Party Ad Tracking ID. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_utm_content": {
+            "label": "Session entry UTM content",
+            "description": "UTM content tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["bottom link", "second button"]
         },
-        "$session_entry_gbraid": {
-            "label": "Session entry gbraid",
-            "description": "Google Ads, web to app. Captured at the start of the session and remains constant for the duration of the session."
+        "$session_entry_utm_medium": {
+            "label": "Session entry UTM medium",
+            "description": "UTM medium tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["Social", "Organic", "Paid", "Email"]
+        },
+        "$session_entry_utm_campaign": {
+            "label": "Session entry UTM campaign",
+            "description": "UTM campaign tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["feature launch", "discount"]
+        },
+        "$session_entry_twclid": {
+            "label": "Session entry twclid",
+            "description": "Twitter Click ID Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_gclsrc": {
+            "label": "Session entry gclsrc",
+            "description": "Google Click Source Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry_wbraid": {
+            "label": "Session entry wbraid",
+            "description": "Google Ads, app to web Captured at the start of the session and remains constant for the duration of the session."
+        },
+        "$session_entry__kx": {
+            "label": "Session entry _kx",
+            "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session."
         }
     },
     "numerical_event_properties": {},
@@ -1703,12 +1703,12 @@
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Person properties to be set. Sent as `$set`",
+            "description": "Person properties to be set. Sent as `$set`.",
             "ignored_in_assistant": true
         },
         "$set_once": {
             "label": "Set person properties once",
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
             "ignored_in_assistant": true
         },
         "$pageview_id": {
@@ -1960,173 +1960,173 @@
             "system": true
         },
         "$geoip_city_name": {
-            "label": "Latest City name",
+            "label": "Latest city name",
             "description": "Name of the city matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["Sydney", "Chennai", "Brooklyn"]
         },
         "$initial_geoip_city_name": {
-            "label": "Initial City name",
+            "label": "Initial city name",
             "description": "Name of the city matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["Sydney", "Chennai", "Brooklyn"]
         },
         "$geoip_country_name": {
-            "label": "Latest Country name",
+            "label": "Latest country name",
             "description": "Name of the country matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["Australia", "India", "United States"]
         },
         "$initial_geoip_country_name": {
-            "label": "Initial Country name",
+            "label": "Initial country name",
             "description": "Name of the country matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["Australia", "India", "United States"]
         },
         "$geoip_country_code": {
-            "label": "Latest Country code",
+            "label": "Latest country code",
             "description": "Code of the country matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["AU", "IN", "US"]
         },
         "$initial_geoip_country_code": {
-            "label": "Initial Country code",
+            "label": "Initial country code",
             "description": "Code of the country matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["AU", "IN", "US"]
         },
         "$geoip_continent_name": {
-            "label": "Latest Continent name",
+            "label": "Latest continent name",
             "description": "Name of the continent matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["Oceania", "Asia", "North America"]
         },
         "$initial_geoip_continent_name": {
-            "label": "Initial Continent name",
+            "label": "Initial continent name",
             "description": "Name of the continent matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["Oceania", "Asia", "North America"]
         },
         "$geoip_continent_code": {
-            "label": "Latest Continent code",
+            "label": "Latest continent code",
             "description": "Code of the continent matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["OC", "AS", "NA"]
         },
         "$initial_geoip_continent_code": {
-            "label": "Initial Continent code",
+            "label": "Initial continent code",
             "description": "Code of the continent matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["OC", "AS", "NA"]
         },
         "$geoip_postal_code": {
-            "label": "Latest Postal code",
+            "label": "Latest postal code",
             "description": "Approximated postal code matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["2000", "600004", "11211"]
         },
         "$initial_geoip_postal_code": {
-            "label": "Initial Postal code",
+            "label": "Initial postal code",
             "description": "Approximated postal code matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["2000", "600004", "11211"]
         },
         "$geoip_postal_code_confidence": {
-            "label": "Latest Postal code identification confidence score",
+            "label": "Latest postal code identification confidence score",
             "description": "If provided by the licensed geoip database Data from the last time this user was seen.",
             "examples": ["null", "0.1"],
             "system": true,
             "ignored_in_assistant": true
         },
         "$initial_geoip_postal_code_confidence": {
-            "label": "Initial Postal code identification confidence score",
+            "label": "Initial postal code identification confidence score",
             "description": "If provided by the licensed geoip database Data from the first time this user was seen.",
             "examples": ["null", "0.1"],
             "system": true,
             "ignored_in_assistant": true
         },
         "$geoip_latitude": {
-            "label": "Latest Latitude",
+            "label": "Latest latitude",
             "description": "Approximated latitude matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["-33.8591", "13.1337", "40.7"]
         },
         "$initial_geoip_latitude": {
-            "label": "Initial Latitude",
+            "label": "Initial latitude",
             "description": "Approximated latitude matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["-33.8591", "13.1337", "40.7"]
         },
         "$geoip_longitude": {
-            "label": "Latest Longitude",
+            "label": "Latest longitude",
             "description": "Approximated longitude matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["151.2", "80.8008", "-73.9"]
         },
         "$initial_geoip_longitude": {
-            "label": "Initial Longitude",
+            "label": "Initial longitude",
             "description": "Approximated longitude matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["151.2", "80.8008", "-73.9"]
         },
         "$geoip_time_zone": {
-            "label": "Latest Timezone",
+            "label": "Latest timezone",
             "description": "Timezone matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["Australia/Sydney", "Asia/Kolkata", "America/New_York"]
         },
         "$initial_geoip_time_zone": {
-            "label": "Initial Timezone",
+            "label": "Initial timezone",
             "description": "Timezone matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["Australia/Sydney", "Asia/Kolkata", "America/New_York"]
         },
         "$geoip_subdivision_1_name": {
-            "label": "Latest Subdivision 1 name",
+            "label": "Latest subdivision 1 name",
             "description": "Name of the subdivision matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["New South Wales", "Tamil Nadu", "New York"]
         },
         "$initial_geoip_subdivision_1_name": {
-            "label": "Initial Subdivision 1 name",
+            "label": "Initial subdivision 1 name",
             "description": "Name of the subdivision matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["New South Wales", "Tamil Nadu", "New York"]
         },
         "$geoip_subdivision_1_code": {
-            "label": "Latest Subdivision 1 code",
+            "label": "Latest subdivision 1 code",
             "description": "Code of the subdivision matched to this event's IP address. Data from the last time this user was seen.",
             "examples": ["NSW", "TN", "NY"]
         },
         "$initial_geoip_subdivision_1_code": {
-            "label": "Initial Subdivision 1 code",
+            "label": "Initial subdivision 1 code",
             "description": "Code of the subdivision matched to this event's IP address. Data from the first time this user was seen.",
             "examples": ["NSW", "TN", "NY"]
         },
         "$geoip_subdivision_2_name": {
-            "label": "Latest Subdivision 2 name",
+            "label": "Latest subdivision 2 name",
             "description": "Name of the second subdivision matched to this event's IP address. Data from the last time this user was seen."
         },
         "$initial_geoip_subdivision_2_name": {
-            "label": "Initial Subdivision 2 name",
+            "label": "Initial subdivision 2 name",
             "description": "Name of the second subdivision matched to this event's IP address. Data from the first time this user was seen."
         },
         "$geoip_subdivision_2_code": {
-            "label": "Latest Subdivision 2 code",
+            "label": "Latest subdivision 2 code",
             "description": "Code of the second subdivision matched to this event's IP address. Data from the last time this user was seen."
         },
         "$initial_geoip_subdivision_2_code": {
-            "label": "Initial Subdivision 2 code",
+            "label": "Initial subdivision 2 code",
             "description": "Code of the second subdivision matched to this event's IP address. Data from the first time this user was seen."
         },
         "$geoip_subdivision_2_confidence": {
-            "label": "Latest Subdivision 2 identification confidence score",
+            "label": "Latest subdivision 2 identification confidence score",
             "description": "If provided by the licensed geoip database Data from the last time this user was seen.",
             "examples": ["null", "0.1"],
             "ignored_in_assistant": true,
             "system": true
         },
         "$initial_geoip_subdivision_2_confidence": {
-            "label": "Initial Subdivision 2 identification confidence score",
+            "label": "Initial subdivision 2 identification confidence score",
             "description": "If provided by the licensed geoip database Data from the first time this user was seen.",
             "examples": ["null", "0.1"],
             "ignored_in_assistant": true,
             "system": true
         },
         "$geoip_subdivision_3_name": {
-            "label": "Latest Subdivision 3 name",
+            "label": "Latest subdivision 3 name",
             "description": "Name of the third subdivision matched to this event's IP address. Data from the last time this user was seen."
         },
         "$initial_geoip_subdivision_3_name": {
-            "label": "Initial Subdivision 3 name",
+            "label": "Initial subdivision 3 name",
             "description": "Name of the third subdivision matched to this event's IP address. Data from the first time this user was seen."
         },
         "$geoip_subdivision_3_code": {
-            "label": "Latest Subdivision 3 code",
+            "label": "Latest subdivision 3 code",
             "description": "Code of the third subdivision matched to this event's IP address. Data from the last time this user was seen."
         },
         "$initial_geoip_subdivision_3_code": {
-            "label": "Initial Subdivision 3 code",
+            "label": "Initial subdivision 3 code",
             "description": "Code of the third subdivision matched to this event's IP address. Data from the first time this user was seen."
         },
         "$geoip_disable": {
@@ -2183,37 +2183,37 @@
             "examples": ["Click here!"]
         },
         "$app_build": {
-            "label": "Latest App build",
+            "label": "Latest app build",
             "description": "The build number for the app. Data from the last time this user was seen."
         },
         "$initial_app_build": {
-            "label": "Initial App build",
+            "label": "Initial app build",
             "description": "The build number for the app. Data from the first time this user was seen."
         },
         "$app_name": {
-            "label": "Latest App name",
+            "label": "Latest app name",
             "description": "The name of the app. Data from the last time this user was seen."
         },
         "$initial_app_name": {
-            "label": "Initial App name",
+            "label": "Initial app name",
             "description": "The name of the app. Data from the first time this user was seen."
         },
         "$app_namespace": {
-            "label": "Latest App namespace",
+            "label": "Latest app namespace",
             "description": "The namespace of the app as identified in the app store. Data from the last time this user was seen.",
             "examples": ["com.posthog.app"]
         },
         "$initial_app_namespace": {
-            "label": "Initial App namespace",
+            "label": "Initial app namespace",
             "description": "The namespace of the app as identified in the app store. Data from the first time this user was seen.",
             "examples": ["com.posthog.app"]
         },
         "$app_version": {
-            "label": "Latest App version",
+            "label": "Latest app version",
             "description": "The version of the app. Data from the last time this user was seen."
         },
         "$initial_app_version": {
-            "label": "Initial App version",
+            "label": "Initial app version",
             "description": "The version of the app. Data from the first time this user was seen."
         },
         "$device_manufacturer": {
@@ -2427,12 +2427,12 @@
             "examples": ["2023-05-20T15:31:00Z"]
         },
         "$browser": {
-            "label": "Latest Browser",
+            "label": "Latest browser",
             "description": "Name of the browser the user has used. Data from the last time this user was seen.",
             "examples": ["Chrome", "Firefox"]
         },
         "$initial_browser": {
-            "label": "Initial Browser",
+            "label": "Initial browser",
             "description": "Name of the browser the user has used. Data from the first time this user was seen.",
             "examples": ["Chrome", "Firefox"]
         },
@@ -2457,32 +2457,32 @@
             "examples": ["en", "ja"]
         },
         "$current_url": {
-            "label": "Latest Current URL",
+            "label": "Latest current URL",
             "description": "The URL visited at the time of the event. Data from the last time this user was seen.",
             "examples": ["https://example.com/interesting-article?parameter=true"]
         },
         "$initial_current_url": {
-            "label": "Initial Current URL",
+            "label": "Initial current URL",
             "description": "The URL visited at the time of the event. Data from the first time this user was seen.",
             "examples": ["https://example.com/interesting-article?parameter=true"]
         },
         "$browser_version": {
-            "label": "Latest Browser version",
+            "label": "Latest browser version",
             "description": "The version of the browser that was used. Used in combination with Browser. Data from the last time this user was seen.",
             "examples": ["70", "79"]
         },
         "$initial_browser_version": {
-            "label": "Initial Browser version",
+            "label": "Initial browser version",
             "description": "The version of the browser that was used. Used in combination with Browser. Data from the first time this user was seen.",
             "examples": ["70", "79"]
         },
         "$raw_user_agent": {
-            "label": "Latest Raw user agent",
+            "label": "Latest raw user agent",
             "description": "PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string. Data from the last time this user was seen.",
             "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"]
         },
         "$initial_raw_user_agent": {
-            "label": "Initial Raw user agent",
+            "label": "Initial raw user agent",
             "description": "PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string. Data from the first time this user was seen.",
             "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"]
         },
@@ -2492,22 +2492,22 @@
             "examples": ["Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)"]
         },
         "$screen_height": {
-            "label": "Latest Screen height",
+            "label": "Latest screen height",
             "description": "The height of the user's entire screen (in pixels). Data from the last time this user was seen.",
             "examples": ["2160", "1050"]
         },
         "$initial_screen_height": {
-            "label": "Initial Screen height",
+            "label": "Initial screen height",
             "description": "The height of the user's entire screen (in pixels). Data from the first time this user was seen.",
             "examples": ["2160", "1050"]
         },
         "$screen_width": {
-            "label": "Latest Screen width",
+            "label": "Latest screen width",
             "description": "The width of the user's entire screen (in pixels). Data from the last time this user was seen.",
             "examples": ["1440", "1920"]
         },
         "$initial_screen_width": {
-            "label": "Initial Screen width",
+            "label": "Initial screen width",
             "description": "The width of the user's entire screen (in pixels). Data from the first time this user was seen.",
             "examples": ["1440", "1920"]
         },
@@ -2516,22 +2516,22 @@
             "description": "The name of the active screen."
         },
         "$viewport_height": {
-            "label": "Latest Viewport height",
+            "label": "Latest viewport height",
             "description": "The height of the user's actual browser window (in pixels). Data from the last time this user was seen.",
             "examples": ["2094", "1031"]
         },
         "$initial_viewport_height": {
-            "label": "Initial Viewport height",
+            "label": "Initial viewport height",
             "description": "The height of the user's actual browser window (in pixels). Data from the first time this user was seen.",
             "examples": ["2094", "1031"]
         },
         "$viewport_width": {
-            "label": "Latest Viewport width",
+            "label": "Latest viewport width",
             "description": "The width of the user's actual browser window (in pixels). Data from the last time this user was seen.",
             "examples": ["1439", "1915"]
         },
         "$initial_viewport_width": {
-            "label": "Initial Viewport width",
+            "label": "Initial viewport width",
             "description": "The width of the user's actual browser window (in pixels). Data from the first time this user was seen.",
             "examples": ["1439", "1915"]
         },
@@ -2566,22 +2566,22 @@
             "examples": [3]
         },
         "$referrer": {
-            "label": "Latest Referrer URL",
+            "label": "Latest referrer URL",
             "description": "URL of where the user came from. Data from the last time this user was seen.",
             "examples": ["https://google.com/search?q=posthog&rlz=1C..."]
         },
         "$initial_referrer": {
-            "label": "Initial Referrer URL",
+            "label": "Initial referrer URL",
             "description": "URL of where the user came from. Data from the first time this user was seen.",
             "examples": ["https://google.com/search?q=posthog&rlz=1C..."]
         },
         "$referring_domain": {
-            "label": "Latest Referring domain",
+            "label": "Latest referring domain",
             "description": "Domain of where the user came from. Data from the last time this user was seen.",
             "examples": ["google.com", "facebook.com"]
         },
         "$initial_referring_domain": {
-            "label": "Initial Referring domain",
+            "label": "Initial referring domain",
             "description": "Domain of where the user came from. Data from the first time this user was seen.",
             "examples": ["google.com", "facebook.com"]
         },
@@ -2600,12 +2600,12 @@
             "examples": ["example.com", "localhost:8000"]
         },
         "$pathname": {
-            "label": "Latest Path name",
+            "label": "Latest path name",
             "description": "The path of the Current URL, which means everything in the url after the domain. Data from the last time this user was seen.",
             "examples": ["/pricing", "/about-us/team"]
         },
         "$initial_pathname": {
-            "label": "Initial Path name",
+            "label": "Initial path name",
             "description": "The path of the Current URL, which means everything in the url after the domain. Data from the first time this user was seen.",
             "examples": ["/pricing", "/about-us/team"]
         },
@@ -2691,12 +2691,12 @@
             "examples": ["https://sentry.io/..."]
         },
         "$device_type": {
-            "label": "Latest Device type",
+            "label": "Latest device type",
             "description": "The type of device that was used. Data from the last time this user was seen.",
             "examples": ["Mobile", "Tablet", "Desktop"]
         },
         "$initial_device_type": {
-            "label": "Initial Device type",
+            "label": "Initial device type",
             "description": "The type of device that was used. Data from the first time this user was seen.",
             "examples": ["Mobile", "Tablet", "Desktop"]
         },
@@ -3102,146 +3102,146 @@
         },
         "$ai_base_url": {
             "label": "AI base URL (LLM)",
-            "description": "The base URL of the request made to the LLM API",
+            "description": "The base URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/"]
         },
         "$ai_http_status": {
             "label": "AI HTTP status (LLM)",
-            "description": "The HTTP status code of the request made to the LLM API",
+            "description": "The HTTP status code of the request made to the LLM API.",
             "examples": [200, 429]
         },
         "$ai_input": {
             "label": "AI input (LLM)",
-            "description": "The input JSON that was sent to the LLM API",
+            "description": "The input JSON that was sent to the LLM API.",
             "examples": ["{\"content\": \"Explain quantum computing in simple terms.\", \"role\": \"user\"}"]
         },
         "$ai_input_tokens": {
             "label": "AI input tokens (LLM)",
-            "description": "The number of tokens in the input prompt that was sent to the LLM API",
+            "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23]
         },
         "$ai_output": {
             "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API",
+            "description": "The output JSON that was received from the LLM API.",
             "examples": [
                 "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
             ]
         },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
-            "description": "The output message choices JSON that was received from the LLM API",
+            "description": "The output message choices JSON that was received from the LLM API.",
             "examples": [
                 "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
             ]
         },
         "$ai_output_tokens": {
             "label": "AI output tokens (LLM)",
-            "description": "The number of tokens in the output from the LLM API",
+            "description": "The number of tokens in the output from the LLM API.",
             "examples": [23]
         },
         "$ai_cache_read_input_tokens": {
             "label": "AI cache read input tokens (LLM)",
-            "description": "The number of tokens read from the cache for the input prompt",
+            "description": "The number of tokens read from the cache for the input prompt.",
             "examples": [23]
         },
         "$ai_cache_creation_input_tokens": {
             "label": "AI cache creation input tokens (LLM)",
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only)",
+            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23]
         },
         "$ai_reasoning_tokens": {
             "label": "AI reasoning tokens (LLM)",
-            "description": "The number of tokens in the reasoning output from the LLM API",
+            "description": "The number of tokens in the reasoning output from the LLM API.",
             "examples": [23]
         },
         "$ai_input_cost_usd": {
             "label": "AI input cost USD (LLM)",
-            "description": "The cost in USD of the input tokens sent to the LLM API",
+            "description": "The cost in USD of the input tokens sent to the LLM API.",
             "examples": [0.0017]
         },
         "$ai_output_cost_usd": {
             "label": "AI output cost USD (LLM)",
-            "description": "The cost in USD of the output tokens received from the LLM API",
+            "description": "The cost in USD of the output tokens received from the LLM API.",
             "examples": [0.0024]
         },
         "$ai_total_cost_usd": {
             "label": "AI total cost USD (LLM)",
-            "description": "The total cost in USD of the request made to the LLM API (input + output costs)",
+            "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
             "examples": [0.0041]
         },
         "$ai_latency": {
             "label": "AI latency (LLM)",
-            "description": "The latency of the request made to the LLM API, in seconds",
+            "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361]
         },
         "$ai_model": {
             "label": "AI model (LLM)",
-            "description": "The model used to generate the output from the LLM API",
+            "description": "The model used to generate the output from the LLM API.",
             "examples": ["gpt-4o-mini"]
         },
         "$ai_model_parameters": {
             "label": "AI model parameters (LLM)",
-            "description": "The parameters used to configure the model in the LLM API, in JSON",
+            "description": "The parameters used to configure the model in the LLM API, in JSON.",
             "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"]
         },
         "$ai_tools": {
             "label": "AI tools (LLM)",
-            "description": "The tools available to the LLM",
+            "description": "The tools available to the LLM.",
             "examples": [
                 "[{\"type\": \"function\", \"function\": {\"name\": \"tool1\", \"arguments\": {\"arg1\": \"value1\", \"arg2\": \"value2\"}}}]"
             ]
         },
         "$ai_stream": {
             "label": "AI stream (LLM)",
-            "description": "Whether the response from the LLM API was streamed",
+            "description": "Whether the response from the LLM API was streamed.",
             "examples": ["true", "false"]
         },
         "$ai_temperature": {
             "label": "AI temperature (LLM)",
-            "description": "The temperature parameter used in the request to the LLM API",
+            "description": "The temperature parameter used in the request to the LLM API.",
             "examples": [0.7, 1.0]
         },
         "$ai_input_state": {
             "label": "AI Input State (LLM)",
-            "description": "Input state of the LLM agent"
+            "description": "Input state of the LLM agent."
         },
         "$ai_output_state": {
             "label": "AI Output State (LLM)",
-            "description": "Output state of the LLM agent"
+            "description": "Output state of the LLM agent."
         },
         "$ai_provider": {
             "label": "AI Provider (LLM)",
-            "description": "The provider of the AI model used to generate the output from the LLM API",
+            "description": "The provider of the AI model used to generate the output from the LLM API.",
             "examples": ["openai"]
         },
         "$ai_trace_id": {
             "label": "AI Trace ID (LLM)",
-            "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace",
+            "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"]
         },
         "$ai_request_url": {
             "label": "AI Request URL (LLM)",
-            "description": "The full URL of the request made to the LLM API",
+            "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"]
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
-            "description": "The name assigned to the metric used to evaluate the LLM trace",
+            "description": "The name assigned to the metric used to evaluate the LLM trace.",
             "examples": ["rating", "accuracy"]
         },
         "$ai_metric_value": {
             "label": "AI Metric Value (LLM)",
-            "description": "The value assigned to the metric used to evaluate the LLM trace",
+            "description": "The value assigned to the metric used to evaluate the LLM trace.",
             "examples": ["negative", "95"]
         },
         "$ai_feedback_text": {
             "label": "AI Feedback Text (LLM)",
-            "description": "The text provided by the user for feedback on the LLM trace",
+            "description": "The text provided by the user for feedback on the LLM trace.",
             "examples": ["\"The response was helpful, but it did not use the provided context.\""]
         },
         "$ai_parent_id": {
             "label": "AI Parent ID (LLM)",
-            "description": "The parent span ID of a span or generation, used to group a trace into a tree view",
+            "description": "The parent span ID of a span or generation, used to group a trace into a tree view.",
             "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"]
         },
         "$ai_span_id": {
@@ -3275,7 +3275,7 @@
         },
         "$end_timestamp": {
             "label": "End timestamp",
-            "description": "The timestamp of the last event from this session",
+            "description": "The timestamp of the last event from this session.",
             "examples": ["2023-05-20T16:30:00Z"],
             "type": "DateTime"
         },
@@ -3305,13 +3305,13 @@
         },
         "$exit_current_url": {
             "label": "Exit URL",
-            "description": "The last URL visited in this session. (deprecated, use $end_current_url)",
+            "description": "The last URL visited in this session. (deprecated, use $end_current_url).",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "type": "String"
         },
         "$exit_pathname": {
             "label": "Exit pathname",
-            "description": "The last pathname visited in this session. (deprecated, use $end_pathname)",
+            "description": "The last pathname visited in this session. (deprecated, use $end_pathname).",
             "examples": ["/interesting-article?parameter=true"],
             "type": "String"
         },
@@ -3381,7 +3381,7 @@
             "examples": ["free goodies"]
         },
         "$entry_referring_domain": {
-            "label": "Entry Referring domain",
+            "label": "Entry referring domain",
             "description": "Domain of where the user came from. Data from the first event in this session.",
             "examples": ["google.com", "facebook.com"]
         },
