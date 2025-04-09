@@ -4,7 +4,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import sane_repr
+from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from django.db.models import QuerySet
 
 from posthog.utils import absolute_uri
@@ -14,12 +14,12 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class DashboardManager(models.Manager):
+class DashboardManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Dashboard(FileSystemSyncMixin, models.Model):
+class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -90,8 +90,8 @@ class Dashboard(FileSystemSyncMixin, models.Model):
     # DEPRECATED: using the new "is_sharing_enabled" relation instead
     is_shared = models.BooleanField(default=False)
 
-    objects = DashboardManager()
-    objects_including_soft_deleted: models.Manager["Dashboard"] = models.Manager()
+    objects = DashboardManager()  # type: ignore
+    objects_including_soft_deleted: models.Manager["Dashboard"] = RootTeamManager()
 
     __repr__ = sane_repr("team_id", "id", "name")
 

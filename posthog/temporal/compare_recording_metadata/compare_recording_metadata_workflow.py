@@ -18,14 +18,15 @@ def get_session_replay_events(
     table_name: str,
     started_after: dt.datetime,
     started_before: dt.datetime,
+    session_length_limit_seconds: int = 172800,
 ) -> list[tuple]:
     """Get session replay events from the specified table within the time range."""
     query = """
         SELECT
             session_id,
             any(distinct_id) as distinct_id,
-            min(min_first_timestamp) as min_first_timestamp,
-            max(max_last_timestamp) as max_last_timestamp,
+            min(min_first_timestamp) as min_first_timestamp_agg,
+            max(max_last_timestamp) as max_last_timestamp_agg,
             argMinMerge(first_url) as first_url,
             groupUniqArrayArray(all_urls) as all_urls,
             sum(click_count) as click_count,
@@ -35,19 +36,20 @@ def get_session_replay_events(
             sum(console_log_count) as console_log_count,
             sum(console_warn_count) as console_warn_count,
             sum(console_error_count) as console_error_count,
-            sum(size) as size,
             sum(message_count) as message_count,
             sum(event_count) as event_count,
             argMinMerge(snapshot_source) as snapshot_source,
             argMinMerge(snapshot_library) as snapshot_library
             {block_fields}
-        FROM
-            {table}
+        FROM {table}
+        WHERE min_first_timestamp >= toDateTime(%(started_after)s)
+        AND max_last_timestamp <= toDateTime(%(started_before)s) + INTERVAL {session_length_limit_seconds} SECOND
         GROUP BY
             session_id
         HAVING
-            min_first_timestamp >= toDateTime(%(started_after)s)
-            AND min_first_timestamp <= toDateTime(%(started_before)s)
+            min_first_timestamp_agg >= toDateTime(%(started_after)s)
+            AND min_first_timestamp_agg <= toDateTime(%(started_before)s)
+            AND max_last_timestamp_agg <= min_first_timestamp_agg + INTERVAL {session_length_limit_seconds} SECOND
     """
 
     # Add block-related fields only for v2 table
@@ -62,7 +64,9 @@ def get_session_replay_events(
     )
 
     return sync_execute(
-        query.format(table=table_name, block_fields=block_fields),
+        query.format(
+            table=table_name, block_fields=block_fields, session_length_limit_seconds=session_length_limit_seconds
+        ),
         {
             "started_after": started_after.strftime("%Y-%m-%d %H:%M:%S"),
             "started_before": started_before.strftime("%Y-%m-%d %H:%M:%S"),
@@ -72,8 +76,8 @@ def get_session_replay_events(
 
 FIELD_NAMES = [
     "distinct_id",
-    "min_first_timestamp",
-    "max_last_timestamp",
+    "min_first_timestamp_agg",
+    "max_last_timestamp_agg",
     "first_url",
     "all_urls",
     "click_count",
@@ -83,7 +87,6 @@ FIELD_NAMES = [
     "console_log_count",
     "console_warn_count",
     "console_error_count",
-    "size",
     "message_count",
     "event_count",
     "snapshot_source",
@@ -98,6 +101,7 @@ class CompareRecordingMetadataActivityInputs:
     started_after: str = dataclasses.field()
     started_before: str = dataclasses.field()
     window_result_limit: int | None = dataclasses.field(default=None)
+    session_length_limit_seconds: int = dataclasses.field(default=172800)  # 48h default
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -105,6 +109,7 @@ class CompareRecordingMetadataActivityInputs:
             "started_after": self.started_after,
             "started_before": self.started_before,
             "window_result_limit": self.window_result_limit,
+            "session_length_limit_seconds": self.session_length_limit_seconds,
         }
 
 
@@ -114,10 +119,13 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
     logger = get_internal_logger()
     start_time = dt.datetime.now()
     await logger.ainfo(
-        "Starting comparison activity for time range %s to %s%s",
+        "Starting comparison activity for time range %s to %s%s%s",
         inputs.started_after,
         inputs.started_before,
         f" (limiting to {inputs.window_result_limit} sessions)" if inputs.window_result_limit else "",
+        f" (session length limit: {inputs.session_length_limit_seconds}s)"
+        if inputs.session_length_limit_seconds
+        else "",
     )
 
     async with Heartbeater():
@@ -130,12 +138,14 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                 "session_replay_events",
                 started_after,
                 started_before,
+                inputs.session_length_limit_seconds,
             ),
             asyncio.to_thread(
                 get_session_replay_events,
                 "session_replay_events_v2_test",
                 started_after,
                 started_before,
+                inputs.session_length_limit_seconds,
             ),
         )
 
@@ -202,6 +212,7 @@ class CompareRecordingMetadataWorkflowInputs:
     started_before: str = dataclasses.field()
     window_seconds: int = dataclasses.field(default=300)  # 5 minutes default
     window_result_limit: int | None = dataclasses.field(default=None)  # No limit by default
+    session_length_limit_seconds: int = dataclasses.field(default=172800)  # 48h default
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -210,6 +221,7 @@ class CompareRecordingMetadataWorkflowInputs:
             "started_before": self.started_before,
             "window_seconds": self.window_seconds,
             "window_result_limit": self.window_result_limit,
+            "session_length_limit_seconds": self.session_length_limit_seconds,
         }
 
 
@@ -231,21 +243,24 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
                 raise ValueError(f"Required field {field} not provided")
             loaded[field] = dt.datetime.fromisoformat(loaded[field])
 
-        # Optional window_seconds with default
         window_seconds = loaded.get("window_seconds", 300)
         if not isinstance(window_seconds, int) or window_seconds <= 0:
             raise ValueError("window_seconds must be a positive integer")
 
-        # Optional window_result_limit with default
         window_result_limit = loaded.get("window_result_limit")
         if window_result_limit is not None and not isinstance(window_result_limit, int | None):
             raise ValueError("window_result_limit must be an integer or None")
+
+        session_length_limit_seconds = loaded.get("session_length_limit_seconds", 172800)
+        if not isinstance(session_length_limit_seconds, int) or session_length_limit_seconds <= 0:
+            raise ValueError("session_length_limit_seconds must be a positive integer")
 
         return CompareRecordingMetadataWorkflowInputs(
             started_after=loaded["started_after"],
             started_before=loaded["started_before"],
             window_seconds=window_seconds,
             window_result_limit=window_result_limit,
+            session_length_limit_seconds=session_length_limit_seconds,
         )
 
     @staticmethod
@@ -298,6 +313,7 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
                 started_after=window_start.isoformat(),
                 started_before=window_end.isoformat(),
                 window_result_limit=inputs.window_result_limit,
+                session_length_limit_seconds=inputs.session_length_limit_seconds,
             )
 
             await temporalio.workflow.execute_activity(

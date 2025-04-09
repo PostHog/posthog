@@ -522,19 +522,8 @@ const Content = ({
     setProgress,
     progress,
 }: any): JSX.Element | null => {
-    if (activeTab === OutputTab.Results) {
-        if (responseError) {
-            return (
-                <ErrorState
-                    responseError={responseError}
-                    sourceQuery={sourceQuery}
-                    queryCancelled={queryCancelled}
-                    response={response}
-                />
-            )
-        }
-
-        return responseLoading ? (
+    if (responseLoading) {
+        return (
             <div className="flex flex-1 p-2 w-full justify-center items-center">
                 <StatelessInsightLoadingState
                     queryId={queryId}
@@ -543,13 +532,36 @@ const Content = ({
                     progress={progress}
                 />
             </div>
-        ) : !response ? (
+        )
+    }
+
+    if (responseError) {
+        return (
+            <ErrorState
+                responseError={responseError}
+                sourceQuery={sourceQuery}
+                queryCancelled={queryCancelled}
+                response={response}
+            />
+        )
+    }
+
+    if (!response) {
+        const msg =
+            activeTab === OutputTab.Results
+                ? 'Query results will appear here.'
+                : 'Query results will be visualized here.'
+        return (
             <div className="flex flex-1 justify-center items-center">
                 <span className="text-secondary mt-3">
-                    Query results will appear here. Press <KeyboardShortcut command enter /> to run the query.
+                    {msg} Press <KeyboardShortcut command enter /> to run the query.
                 </span>
             </div>
-        ) : (
+        )
+    }
+
+    if (activeTab === OutputTab.Results) {
+        return (
             <TabScroller>
                 <DataGrid
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
@@ -561,24 +573,7 @@ const Content = ({
     }
 
     if (activeTab === OutputTab.Visualization) {
-        if (responseError) {
-            return (
-                <ErrorState
-                    responseError={responseError}
-                    sourceQuery={sourceQuery}
-                    queryCancelled={queryCancelled}
-                    response={response}
-                />
-            )
-        }
-
-        return !response ? (
-            <div className="flex flex-1 justify-center items-center">
-                <span className="text-secondary mt-3">
-                    Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the query.
-                </span>
-            </div>
-        ) : (
+        return (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}

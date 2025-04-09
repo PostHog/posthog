@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::cohort::cohort_models::Cohort;
+use crate::cohorts::cohort_models::Cohort;
 use crate::flags::flag_matching::PostgresReader;
 use crate::metrics::consts::{
     COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER, DB_COHORT_ERRORS_COUNTER,
@@ -104,7 +104,7 @@ impl CohortCacheManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cohort::cohort_models::Cohort;
+    use crate::cohorts::cohort_models::Cohort;
     use crate::team::team_models::Team;
     use crate::utils::test_utils::{
         insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
