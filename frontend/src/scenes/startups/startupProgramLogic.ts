@@ -40,8 +40,7 @@ export const RAISED_OPTIONS = [
 
 export const YC_BATCH_OPTIONS = [
     { label: 'Select your batch', value: '' },
-    { label: 'Summer 2025', value: 'S25' },
-    { label: 'Spring 2025', value: 'X25' },
+    // { label: 'Summer 2025', value: 'S25' }, # Too early to show, X25 only starting in April 2025
     { label: 'Winter 2025', value: 'W25' },
     { label: 'Fall 2024', value: 'F24' },
     { label: 'Summer 2024', value: 'S24' },
@@ -57,9 +56,6 @@ export const YC_BATCH_OPTIONS = [
 
 export interface StartupProgramFormValues {
     type: string
-    email: string
-    first_name: string
-    last_name: string
     startup_domain: string
     organization_name: string
     organization_id: string
@@ -67,7 +63,6 @@ export interface StartupProgramFormValues {
     incorporation_date: Dayjs | null
     yc_batch?: string
     yc_proof_screenshot_url?: string
-    customer_id?: string
     yc_merch_count?: number
 }
 
@@ -130,7 +125,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
         validateYCBatch: true,
         setYCValidationState: (state: 'none' | 'validating' | 'valid' | 'invalid') => ({ state }),
         setYCValidationError: (error: string | null) => ({ error }),
-        setVerifiedCompanyName: (name: string | null) => ({ name }),
     }),
     reducers({
         formSubmitted: [
@@ -151,13 +145,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
             {
                 setYCValidationError: (_, { error }) => error,
                 validateYCBatch: () => null,
-            },
-        ],
-        verifiedCompanyName: [
-            null as string | null,
-            {
-                validateYCBatch: () => null,
-                setYCValidationState: (state, { state: newState }) => (newState === 'valid' ? state : null),
             },
         ],
     }),
@@ -198,7 +185,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 if (foundCompany) {
                     actions.setYCValidationState('valid')
                     actions.setYCValidationError(null)
-                    actions.setVerifiedCompanyName(foundCompany.name)
+                    // actions.setVerifiedCompanyName(foundCompany.name)
                 } else {
                     actions.setYCValidationState('invalid')
                     actions.setYCValidationError(
@@ -251,27 +238,16 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
         startupProgram: {
             defaults: {
                 type: props.isYC ? 'YC' : 'startup',
-                email: values.user?.email || '',
-                first_name: values.user?.first_name || '',
-                last_name: values.user?.last_name || '',
                 startup_domain: values.domainFromEmail || '',
                 organization_name: values.currentOrganization?.name || '',
                 organization_id: values.currentOrganization?.id || '',
-                customer_id: values.billing?.customer_id || '',
                 raised: null,
                 incorporation_date: null,
                 yc_batch: props.isYC ? '' : undefined,
                 yc_proof_screenshot_url: undefined,
                 yc_merch_count: props.isYC ? 1 : undefined,
             },
-            errors: ({
-                organization_name,
-                organization_id,
-                raised,
-                incorporation_date,
-                yc_batch,
-                yc_proof_screenshot_url,
-            }) => {
+            errors: ({ organization_id, raised, incorporation_date, yc_batch, yc_proof_screenshot_url }) => {
                 if (!values.billing?.has_active_subscription) {
                     return {
                         _form: 'You need to upgrade to a paid plan before submitting your application',
@@ -279,7 +255,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 }
 
                 return {
-                    organization_name: !organization_name ? 'Please enter your PostHog organization name' : undefined,
                     organization_id: !organization_id ? 'Please select an organization' : undefined,
                     raised: validateFunding(raised, props.isYC),
                     incorporation_date: validateIncorporationDate(incorporation_date, props.isYC),

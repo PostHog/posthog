@@ -210,7 +210,7 @@ class StartupApplicationSerializer(serializers.Serializer):
                     )
 
             data["yc_verified_automatically"] = str(verified)
-            # Add YC credit type ($50k/$25k for 12 months)
+            data["yc_deal_type"] = get_yc_deal_type(data["yc_batch"])
 
             # Remove startup fields for YC program
             data.pop("raised", None)

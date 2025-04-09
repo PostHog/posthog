@@ -34,7 +34,6 @@ export function StartupProgram(): JSX.Element {
         isUserOrganizationOwnerOrAdmin,
         ycValidationState,
         ycValidationError,
-        verifiedCompanyName,
         startupProgramErrors,
     } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
@@ -336,10 +335,7 @@ export function StartupProgram(): JSX.Element {
                                         {ycValidationState === 'valid' && (
                                             <div className="flex items-center gap-2 text-success">
                                                 <IconCheck className="shrink-0" />
-                                                <span>
-                                                    We were able to confirm your YC membership
-                                                    {verifiedCompanyName && ` for ${verifiedCompanyName}`}!
-                                                </span>
+                                                <span>We were able to confirm your YC membership</span>
                                             </div>
                                         )}
                                         {ycValidationState === 'invalid' && (
