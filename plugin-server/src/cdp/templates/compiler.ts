@@ -13,7 +13,7 @@ const CACHE_FILE = path.join(__dirname, '.tmp/cache.json')
 
 let CACHE: Record<string, HogBytecode> | null = null
 
-export async function compileHog(hog: string): Promise<HogBytecode> {
+export async function compileHog(hog: string, isFilters = false): Promise<HogBytecode> {
     if (CACHE === null) {
         mkdirSync(path.dirname(CACHE_FILE), { recursive: true })
 
@@ -26,25 +26,28 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
     }
     CACHE = CACHE ?? {}
 
-    if (CACHE[hog]) {
+    if (CACHE[hog] && !isFilters) {
         return CACHE[hog]
     }
 
     // We invoke the ./bin/hog from the root of the directory like bin/hoge <file.hog> [output.hoge]
     // We need to write and read from a temp file
     const uuid = new UUIDT().toString()
-    const tempFile = path.join(tmpdir(), `hog-${uuid}.hog`)
+    const tempFile = path.join(tmpdir(), isFilters ? `filters-${uuid}.json` : `hog-${uuid}.hog`)
     await writeFile(tempFile, hog)
 
-    const outputFile = path.join(tmpdir(), `hog-${uuid}.hoge`)
+    const outputFile = path.join(tmpdir(), `${isFilters ? 'filters' : 'hog'}-${uuid}.hoge`)
     try {
         await new Promise((resolve, reject) => {
-            exec(`cd ${ROOT_DIR} && ./bin/hoge ${tempFile} ${outputFile}`, (error, stdout) =>
+            console.log('tempFile', tempFile)
+            console.log('outputFile', outputFile)
+            console.log('calling', `cd ${ROOT_DIR} && ./bin/hoge ${tempFile} ${outputFile}`)
+            exec(`cd ${ROOT_DIR} && DEBUG=1 ./bin/hoge ${tempFile} ${outputFile}`, (error, stdout) =>
                 error ? reject(error) : resolve(stdout)
             )
         })
     } catch (error) {
-        console.error('Failed to compile hog:', hog)
+        console.error('Failed to compile hog:', error)
         throw error
     }
 
