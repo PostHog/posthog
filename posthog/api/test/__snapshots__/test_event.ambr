@@ -11,8 +11,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values.1
@@ -28,8 +27,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values.2
@@ -45,8 +43,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values.3
@@ -62,8 +59,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values.4
@@ -79,8 +75,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values.5
@@ -96,8 +91,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values.6
@@ -113,8 +107,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values.7
@@ -144,8 +137,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.1
@@ -161,8 +153,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.2
@@ -178,8 +169,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.3
@@ -195,8 +185,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.4
@@ -212,8 +201,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.5
@@ -229,8 +217,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.6
@@ -246,8 +233,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.7
