@@ -17,6 +17,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -32,7 +33,6 @@ import {
 
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
 import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
