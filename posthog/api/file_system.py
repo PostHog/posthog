@@ -296,8 +296,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         path_param = self.request.query_params.get("path")
         if not path_param:
             return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-        count = FileSystem.objects.filter(team=self.team, path__startswith=f"{path_param}/").count()
-        return Response({"count": count}, status=status.HTTP_200_OK)
+
+        qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{path_param}/")
+        if self.user_access_control:
+            qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+
+        return Response({"count": qs.count}, status=status.HTTP_200_OK)
 
 
 def assure_parent_folders(path: str, team: Team, created_by: User) -> None:
