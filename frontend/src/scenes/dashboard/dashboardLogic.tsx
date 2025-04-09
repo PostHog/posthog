@@ -1194,24 +1194,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : null
             },
         ],
-
-        sortTilesByLayout: [
-            (s) => [s.layoutForItem],
-            (layoutForItem) => (tiles: Array<DashboardTile>) => {
-                return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
-                    const ax = layoutForItem[a.id]?.x ?? 0
-                    const ay = layoutForItem[a.id]?.y ?? 0
-                    const bx = layoutForItem[b.id]?.x ?? 0
-                    const by = layoutForItem[b.id]?.y ?? 0
-                    if (ay < by || (ay == by && ax < bx)) {
-                        return -1
-                    } else if (ay > by || (ay == by && ax > bx)) {
-                        return 1
-                    }
-                    return 0
-                })
-            },
-        ],
         dataColorTheme: [
             (s) => [s.dataColorThemeId, s.getTheme],
             (dataColorThemeId, getTheme): DataColorTheme | null => getTheme(dataColorThemeId),
@@ -1383,14 +1365,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return true
                     }
                 })
-                // sort tiles by layout to ensure insights are computed in order of appearance on dashboard
-                .sort((a, b) => {
-                    const ay = a.layouts?.xs?.y ?? 0
-                    const ax = a.layouts?.xs?.x ?? 0
-                    const by = b.layouts?.xs?.y ?? 0
-                    const bx = b.layouts?.xs?.x ?? 0
-                    return ay !== by ? ay - by : ax - bx
-                })
+                // sort tiles so we poll them in the exact order they are computed on the backend
+                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                 .map((t) => t.insight)
                 .filter((i): i is QueryBasedInsightModel => !!i)
 
@@ -1514,7 +1490,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            await runWithLimit(fetchItemFunctions, 2)
+            await runWithLimit(fetchItemFunctions, 1)
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
