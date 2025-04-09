@@ -15,8 +15,7 @@ use crate::metrics::consts::{
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
     FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME,
-    FLAG_STATIC_COHORT_DB_EVALUATION_TIME, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER,
+    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
@@ -1345,26 +1344,43 @@ impl FeatureFlagMatcher {
         &mut self,
         flags: &[FeatureFlag],
     ) -> Result<(), FlagError> {
-        // First, prepare cohort data since other evaluations may depend on it
-        let cohort_timer = common_metrics::timing_guard(FLAG_STATIC_COHORT_DB_EVALUATION_TIME, &[]);
-        self.prepare_cohort_data().await?;
-        cohort_timer.fin();
+        // Get cohorts first since we need the IDs
+        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
+        let static_cohort_ids: Vec<CohortId> = cohorts
+            .iter()
+            .filter(|c| c.is_static)
+            .map(|c| c.id)
+            .collect();
 
         // Then prepare group mappings and properties
         let group_timer = common_metrics::timing_guard(FLAG_GROUP_FETCH_TIME, &[]);
         let group_data = self.prepare_group_data(flags).await?;
         group_timer.fin();
 
-        // Finally fetch and cache all properties (the timer is included in prepare_properties_data, so we don't need to add it here)
-        self.prepare_properties_data(&group_data).await?;
-        Ok(())
-    }
-
-    /// Fetches and caches static cohort memberships
-    async fn prepare_cohort_data(&mut self) -> Result<(), FlagError> {
-        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
-        self.evaluate_and_cache_static_cohorts(&cohorts).await?;
-        Ok(())
+        // Single DB operation for properties and cohorts
+        let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
+        match fetch_and_locally_cache_all_relevant_properties(
+            &mut self.flag_evaluation_state,
+            self.reader.clone(),
+            self.distinct_id.clone(),
+            self.team_id,
+            &group_data.type_indexes,
+            &group_data.keys,
+            Some(static_cohort_ids),
+        )
+        .await
+        {
+            Ok(_) => {
+                inc(DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, &[], 1);
+                db_fetch_timer.label("outcome", "success").fin();
+                Ok(())
+            }
+            Err(e) => {
+                error!("Error fetching properties: {:?}", e);
+                db_fetch_timer.label("outcome", "error").fin();
+                Err(e)
+            }
+        }
     }
 
     /// Analyzes flags and prepares required group type data
@@ -1405,36 +1421,6 @@ impl FeatureFlagMatcher {
             .collect();
 
         Ok(GroupEvaluationData { type_indexes, keys })
-    }
-
-    /// Fetches and caches all required properties and times the operation
-    async fn prepare_properties_data(
-        &mut self,
-        group_data: &GroupEvaluationData,
-    ) -> Result<(), FlagError> {
-        let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
-
-        match fetch_and_locally_cache_all_relevant_properties(
-            &mut self.flag_evaluation_state,
-            self.reader.clone(),
-            self.distinct_id.clone(),
-            self.team_id,
-            &group_data.type_indexes,
-            &group_data.keys,
-        )
-        .await
-        {
-            Ok(_) => {
-                inc(DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, &[], 1);
-                db_fetch_timer.label("outcome", "success").fin();
-                Ok(())
-            }
-            Err(e) => {
-                error!("Error fetching properties: {:?}", e);
-                db_fetch_timer.label("outcome", "error").fin();
-                Err(e)
-            }
-        }
     }
 }
 

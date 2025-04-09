@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use sqlx::{postgres::PgQueryResult, Acquire};
+use sqlx::{postgres::PgQueryResult, Acquire, Row};
 use std::fmt::Write;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
@@ -11,6 +11,12 @@ use tracing::info;
 
 use crate::{
     api::errors::FlagError,
+    cohorts::cohort_models::CohortId,
+    metrics::consts::{
+        FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DB_CONNECTION_TIME,
+        FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_PERSON_PROCESSING_TIME,
+        FLAG_PERSON_QUERY_TIME,
+    },
     properties::{property_matching::match_property, property_models::PropertyFilter},
 };
 
@@ -63,63 +69,75 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     team_id: TeamId,
     group_type_indexes: &HashSet<GroupTypeIndex>,
     group_keys: &HashSet<String>,
+    cohort_ids: Option<Vec<CohortId>>,
 ) -> Result<(), FlagError> {
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[]);
     let mut conn = reader.as_ref().get_connection().await?;
+    conn_timer.fin();
 
-    let query = r#"
-        SELECT
-            (
-                SELECT "posthog_person"."id"
-                FROM "posthog_person"
-                INNER JOIN "posthog_persondistinctid"
-                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
-                WHERE
-                    "posthog_persondistinctid"."distinct_id" = $1
-                    AND "posthog_persondistinctid"."team_id" = $2
-                    AND "posthog_person"."team_id" = $2
-                LIMIT 1
-            ) AS person_id,
-            (
-                SELECT "posthog_person"."properties"
-                FROM "posthog_person"
-                INNER JOIN "posthog_persondistinctid"
-                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
-                WHERE
-                    "posthog_persondistinctid"."distinct_id" = $1
-                    AND "posthog_persondistinctid"."team_id" = $2
-                    AND "posthog_person"."team_id" = $2
-                LIMIT 1
-            ) AS person_properties,
-            (
-                SELECT
-                    json_object_agg(
-                        "posthog_group"."group_type_index",
-                        "posthog_group"."group_properties"
-                    )
-                FROM "posthog_group"
-                WHERE
-                    "posthog_group"."team_id" = $2
-                    AND "posthog_group"."group_type_index" = ANY($3)
-                    AND "posthog_group"."group_key" = ANY($4)
-            ) AS group_properties
+    // First query: Get person data
+    let person_query = r#"
+        SELECT DISTINCT ON (ppd.distinct_id)
+            p.id as person_id,
+            p.properties as person_properties
+        FROM posthog_persondistinctid ppd
+        INNER JOIN posthog_person p 
+            ON p.id = ppd.person_id 
+            AND p.team_id = ppd.team_id
+        WHERE ppd.distinct_id = $1 
+            AND ppd.team_id = $2
     "#;
 
-    let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
-    let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
-
-    let row: (Option<PersonId>, Option<Value>, Option<Value>) = sqlx::query_as(query)
+    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &[]);
+    let (person_id, person_props): (Option<PersonId>, Option<Value>) = sqlx::query_as(person_query)
         .bind(&distinct_id)
         .bind(team_id)
-        .bind(&group_type_indexes_vec)
-        .bind(&group_keys_vec) // Bind group_keys_vec to $4
         .fetch_optional(&mut *conn)
         .await?
-        .unwrap_or((None, None, None));
+        .unwrap_or((None, None));
+    person_query_timer.fin();
 
-    let (person_id, person_props, group_props) = row;
-
+    let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
         flag_evaluation_state.set_person_id(person_id);
+
+        // If we have cohort IDs to check and a valid person_id, do the cohort query
+        if let Some(cohort_ids) = cohort_ids {
+            let cohort_query = r#"
+                WITH cohort_membership AS (
+                    SELECT c.cohort_id, 
+                           CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
+                    FROM unnest($1::integer[]) AS c(cohort_id)
+                    LEFT JOIN posthog_cohortpeople AS pc
+                      ON pc.person_id = $2
+                      AND pc.cohort_id = c.cohort_id
+                )
+                SELECT cohort_id, is_member
+                FROM cohort_membership
+            "#;
+
+            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
+            let cohort_rows = sqlx::query(cohort_query)
+                .bind(&cohort_ids)
+                .bind(person_id)
+                .fetch_all(&mut *conn)
+                .await?;
+            cohort_timer.fin();
+
+            let cohort_processing_timer =
+                common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
+            let cohort_results: HashMap<CohortId, bool> = cohort_rows
+                .into_iter()
+                .map(|row| {
+                    let cohort_id: CohortId = row.get("cohort_id");
+                    let is_member: bool = row.get("is_member");
+                    (cohort_id, is_member)
+                })
+                .collect();
+
+            flag_evaluation_state.set_static_cohort_matches(cohort_results);
+            cohort_processing_timer.fin();
+        }
     }
 
     if let Some(person_props) = person_props {
@@ -132,27 +150,40 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 .collect(),
         );
     }
+    person_processing_timer.fin();
 
-    if let Some(group_props) = group_props {
-        let group_props_map: HashMap<GroupTypeIndex, HashMap<String, Value>> = group_props
-            .as_object()
-            .unwrap_or(&serde_json::Map::new())
-            .iter()
-            .map(|(k, v)| {
-                let group_type_index = k.parse().unwrap_or_default();
-                let properties: HashMap<String, Value> = v
-                    .as_object()
-                    .unwrap_or(&serde_json::Map::new())
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                (group_type_index, properties)
-            })
-            .collect();
+    // Only fetch group data if we have group types to look up
+    if !group_type_indexes.is_empty() && !group_keys.is_empty() {
+        let group_query = r#"
+            SELECT 
+                group_type_index,
+                group_properties
+            FROM posthog_group
+            WHERE team_id = $1
+                AND group_type_index = ANY($2)
+                AND group_key = ANY($3)
+        "#;
 
-        for (group_type_index, properties) in group_props_map {
-            flag_evaluation_state.set_group_properties(group_type_index, properties);
+        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
+        let groups = sqlx::query(group_query)
+            .bind(team_id)
+            .bind(group_type_indexes.iter().collect::<Vec<_>>())
+            .bind(group_keys.iter().collect::<Vec<_>>())
+            .fetch_all(&mut *conn)
+            .await?;
+        group_query_timer.fin();
+
+        let group_processing_timer = common_metrics::timing_guard(FLAG_GROUP_PROCESSING_TIME, &[]);
+        for row in groups {
+            let group_type_index: GroupTypeIndex = row.get("group_type_index");
+            let properties: Value = row.get("group_properties");
+
+            if let Value::Object(props) = properties {
+                let properties = props.into_iter().map(|(k, v)| (k, v)).collect();
+                flag_evaluation_state.set_group_properties(group_type_index, properties);
+            }
         }
+        group_processing_timer.fin();
     }
 
     Ok(())
