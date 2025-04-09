@@ -71,6 +71,18 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         <LemonButton
                             type="primary"
                             icon={<IconCheck color="var(--success)" />}
+                            onClick={() => {
+                                props.onAccept?.()
+                                props.onRun?.()
+                            }}
+                            tooltipPlacement="top"
+                            size="small"
+                        >
+                            Accept & run
+                        </LemonButton>
+                        <LemonButton
+                            type="tertiary"
+                            icon={<IconCheck color="var(--success)" />}
                             onClick={props.onAccept}
                             tooltipPlacement="top"
                             size="small"
