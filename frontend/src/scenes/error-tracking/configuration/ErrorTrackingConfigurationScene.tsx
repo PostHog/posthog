@@ -91,12 +91,7 @@ export const scene: SceneExport = {
 export function ErrorTrackingConfigurationScene(): JSX.Element {
     return (
         <ErrorTrackingSetupPrompt>
-            <Settings
-                logicKey={ERROR_TRACKING_LOGIC_KEY}
-                sectionId="environment-error-tracking"
-                // settingId="error-tracking-exception-autocapture" // acts as a default
-                handleLocally
-            />
+            <Settings logicKey={ERROR_TRACKING_LOGIC_KEY} sectionId="environment-error-tracking" handleLocally />
         </ErrorTrackingSetupPrompt>
     )
 }
