@@ -1,6 +1,8 @@
 import { DatabaseSchemaField, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { DataWarehouseSyncInterval } from '~/types'
 
+export const DATAWAREHOUSE_EDITOR_ITEM_ID = 'new-SQL'
+
 export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): DataVisualizationNode => {
     return {
         kind: NodeKind.DataVisualizationNode,

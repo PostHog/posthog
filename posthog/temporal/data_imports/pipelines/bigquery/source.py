@@ -1,6 +1,7 @@
 import collections.abc
 import contextlib
 import typing
+from datetime import date, datetime
 
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -128,9 +129,12 @@ def bigquery_source(
                     raise ValueError("incremental_field and incremental_field_type can't be None")
 
                 if db_incremental_field_last_value is None:
-                    last_value = incremental_type_to_initial_value(incremental_field_type)
+                    last_value: int | datetime | date | str = incremental_type_to_initial_value(incremental_field_type)
                 else:
                     last_value = db_incremental_field_last_value
+
+                if isinstance(last_value, datetime) or isinstance(last_value, date):
+                    last_value = f"'{last_value.isoformat()}'"
 
                 query = f"""
                 SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`

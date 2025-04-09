@@ -6,18 +6,17 @@ import api from 'lib/api'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
-    Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
     manualLinkSources,
     ManualLinkSourceType,
+    PipelineStage,
     PipelineTab,
     ProductKey,
     SourceConfig,
@@ -41,10 +40,15 @@ const Caption = (): JSX.Element => (
             here
         </Link>
         .
+        <br />
+        Currently, read permissions are required for the following resources:
+        <br />
+        Account, Invoice, Customer, Subscription, Product, Price, BalanceTransaction, Charge.
     </>
 )
 
-export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
+export const getHubspotRedirectUri = (): string =>
+    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source)}?kind=hubspot`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
@@ -264,7 +268,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
             {
                 type: 'select',
-                name: 'use_ssl',
+                name: 'using_ssl',
                 label: 'Use SSL?',
                 defaultValue: '1',
                 required: true,
@@ -827,7 +831,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
-    connect({
+    connect(() => ({
         values: [
             dataWarehouseTableLogic,
             ['tableLoading'],
@@ -844,7 +848,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-    }),
+    })),
     reducers({
         manualLinkingProvider: [
             null as ManualLinkSourceType | null,
@@ -1010,17 +1014,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 return 'Next'
             },
-        ],
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: Scene.DataWarehouse,
-                    name: 'Data Warehouse',
-                    path: urls.dataWarehouse(),
-                },
-                { key: [Scene.DataWarehouse, 'New'], name: 'New' },
-            ],
         ],
         showFooter: [
             (s) => [s.selectedConnector, s.isManualLinkFormVisible],
@@ -1268,17 +1261,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
-            if (kind === 'hubspot') {
-                router.actions.push(urls.dataWarehouseTable(), { kind, code: searchParams.code })
-            }
-            if (kind === 'salesforce') {
-                router.actions.push(urls.dataWarehouseTable(), {
-                    kind,
-                })
-            }
-        },
-        '/data-warehouse/new': (_, searchParams) => {
+        [urls.pipelineNodeNew(PipelineStage.Source)]: (_, searchParams) => {
             if (searchParams.kind == 'hubspot' && searchParams.code) {
                 actions.selectConnector(SOURCE_DETAILS['Hubspot'])
                 actions.handleRedirect(searchParams.kind, {

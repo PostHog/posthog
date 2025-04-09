@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.postgres.fields import ArrayField
 
 
 # This table is responsible for mapping between group types for a Team/Project and event columns
@@ -11,6 +12,10 @@ class GroupTypeMapping(models.Model):
     # Used to display in UI
     name_singular = models.CharField(max_length=400, null=True, blank=True)
     name_plural = models.CharField(max_length=400, null=True, blank=True)
+
+    default_columns = ArrayField(models.TextField(), null=True, blank=True)
+
+    detail_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         indexes = [

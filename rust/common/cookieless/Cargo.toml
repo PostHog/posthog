@@ -12,6 +12,7 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 common-metrics = { path = "../metrics" }
 common-redis = { path = "../redis" }
+common-types = { path = "../types" }
 itoa = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
 public-suffix = { workspace = true }
@@ -21,6 +22,7 @@ serde_json = { workspace = true }
 siphasher = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
+tracing = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]

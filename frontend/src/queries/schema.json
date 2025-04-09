@@ -474,6 +474,9 @@
                     "$ref": "#/definitions/ElementPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/EventMetadataPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/SessionPropertyFilter"
                 },
                 {
@@ -593,6 +596,10 @@
             },
             "type": "object"
         },
+        "AssistantContextualTool": {
+            "enum": ["search_session_recordings", "_"],
+            "type": "string"
+        },
         "AssistantDateRange": {
             "additionalProperties": false,
             "description": "This filter only works with absolute dates.",
@@ -650,7 +657,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -1592,6 +1599,10 @@
                 "type": {
                     "const": "tool",
                     "type": "string"
+                },
+                "ui_payload": {
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
+                    "type": "object"
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -2139,6 +2150,7 @@
                 "cohort",
                 "person",
                 "event",
+                "event_metadata",
                 "group",
                 "session",
                 "hogql",
@@ -7118,25 +7130,12 @@
                     "type": "string"
                 }
             },
-            "required": ["assignee", "description", "first_seen", "id", "name", "status"],
+            "required": ["aggregations", "assignee", "description", "first_seen", "id", "last_seen", "name", "status"],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
             "additionalProperties": false,
             "properties": {
-                "customVolume": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "type": "number"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
                 "occurrences": {
                     "type": "number"
                 },
@@ -7152,14 +7151,14 @@
                     },
                     "type": "array"
                 },
-                "volumeMonth": {
+                "volumeRange": {
                     "items": {
                         "type": "number"
                     },
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeMonth", "customVolume"],
+            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeRange"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -7190,16 +7189,6 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/ErrorTrackingIssueAssignee"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "customVolume": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/ErrorTrackingSparklineConfig"
                         },
                         {
                             "type": "null"
@@ -7249,9 +7238,12 @@
                 "status": {
                     "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
                     "type": "string"
+                },
+                "volumeResolution": {
+                    "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["dateRange", "kind"],
+            "required": ["dateRange", "kind", "volumeResolution"],
             "type": "object"
         },
         "ErrorTrackingQueryResponse": {
@@ -7339,20 +7331,6 @@
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
-        "ErrorTrackingSparklineConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "interval": {
-                    "enum": ["minute", "hour", "day", "week", "month"],
-                    "type": "string"
-                },
-                "value": {
-                    "$ref": "#/definitions/integer"
-                }
-            },
-            "required": ["value", "interval"],
-            "type": "object"
-        },
         "EventDefinition": {
             "additionalProperties": false,
             "properties": {
@@ -7368,6 +7346,29 @@
                 }
             },
             "required": ["event", "properties", "elements"],
+            "type": "object"
+        },
+        "EventMetadataPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "event_metadata",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "EventOddsRatioSerialized": {
@@ -7804,23 +7805,46 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
-        "ExperimentActionMetricConfig": {
+        "ExperimentDataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
-                "action": {
-                    "type": "number"
+                "custom_name": {
+                    "type": "string"
+                },
+                "data_warehouse_join_key": {
+                    "type": "string"
+                },
+                "events_join_key": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "kind": {
-                    "const": "ExperimentActionMetricConfig",
+                    "const": "ExperimentDataWarehouseNode",
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
                 },
                 "math_hogql": {
                     "type": "string"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
@@ -7832,35 +7856,9 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
-                }
-            },
-            "required": ["kind", "action"],
-            "type": "object"
-        },
-        "ExperimentDataWarehouseMetricConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "data_warehouse_join_key": {
-                    "type": "string"
                 },
-                "events_join_key": {
-                    "type": "string"
-                },
-                "kind": {
-                    "const": "ExperimentDataWarehouseMetricConfig",
-                    "type": "string"
-                },
-                "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
-                },
-                "math_hogql": {
-                    "type": "string"
-                },
-                "math_property": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
+                "response": {
+                    "type": "object"
                 },
                 "table_name": {
                     "type": "string"
@@ -7869,7 +7867,7 @@
                     "type": "string"
                 }
             },
-            "required": ["kind", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
+            "required": ["data_warehouse_join_key", "events_join_key", "kind", "table_name", "timestamp_field"],
             "type": "object"
         },
         "ExperimentEventExposureConfig": {
@@ -7890,39 +7888,6 @@
                 }
             },
             "required": ["kind", "event", "properties"],
-            "type": "object"
-        },
-        "ExperimentEventMetricConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "event": {
-                    "type": "string"
-                },
-                "kind": {
-                    "const": "ExperimentEventMetricConfig",
-                    "type": "string"
-                },
-                "math": {
-                    "$ref": "#/definitions/ExperimentMetricMathType"
-                },
-                "math_hogql": {
-                    "type": "string"
-                },
-                "math_property": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "properties": {
-                    "description": "Properties configurable in the interface",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["kind", "event"],
             "type": "object"
         },
         "ExperimentExposureCriteria": {
@@ -8004,6 +7969,60 @@
                 }
             },
             "required": ["variant", "days", "exposure_counts"],
+            "type": "object"
+        },
+        "ExperimentFunnelMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "funnel",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "series": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelMetricStep"
+                    },
+                    "type": "array"
+                },
+                "time_window_hours": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "metric_type", "series"],
+            "type": "object"
+        },
+        "ExperimentFunnelMetricStep": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
+        },
+        "ExperimentFunnelMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "metric_type": {
+                    "const": "funnel",
+                    "type": "string"
+                },
+                "series": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelMetricStep"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["metric_type", "series"],
             "type": "object"
         },
         "ExperimentFunnelsQuery": {
@@ -8100,31 +8119,60 @@
             ],
             "type": "object"
         },
-        "ExperimentMetric": {
+        "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
-                "inverse": {
-                    "type": "boolean"
-                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
                 },
-                "metric_config": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/ExperimentEventMetricConfig"
-                        },
-                        {
-                            "$ref": "#/definitions/ExperimentActionMetricConfig"
-                        },
-                        {
-                            "$ref": "#/definitions/ExperimentDataWarehouseMetricConfig"
-                        }
-                    ]
-                },
                 "metric_type": {
-                    "$ref": "#/definitions/ExperimentMetricType"
+                    "const": "mean",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "time_window_hours": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "metric_type", "source"],
+            "type": "object"
+        },
+        "ExperimentMeanMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "metric_type": {
+                    "const": "mean",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                }
+            },
+            "required": ["metric_type", "source"],
+            "type": "object"
+        },
+        "ExperimentMetric": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentMeanMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelMetric"
+                }
+            ]
+        },
+        "ExperimentMetricBaseProperties": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
                 },
                 "name": {
                     "type": "string"
@@ -8133,16 +8181,39 @@
                     "type": "number"
                 }
             },
-            "required": ["kind", "metric_type", "metric_config"],
+            "required": ["kind"],
             "type": "object"
         },
         "ExperimentMetricMathType": {
             "enum": ["total", "sum"],
             "type": "string"
         },
+        "ExperimentMetricSource": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentDataWarehouseNode"
+                }
+            ]
+        },
         "ExperimentMetricType": {
             "enum": ["funnel", "mean"],
             "type": "string"
+        },
+        "ExperimentMetricTypeProps": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentMeanMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelMetricTypeProps"
+                }
+            ]
         },
         "ExperimentQuery": {
             "additionalProperties": false,
@@ -8423,9 +8494,23 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "FileSystemCount": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "number"
+                }
+            },
+            "required": ["count"],
+            "type": "object"
+        },
         "FileSystemEntry": {
             "additionalProperties": false,
             "properties": {
+                "_loading": {
+                    "description": "Used to indicate pending actions, frontend only",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
                     "type": "string"
@@ -8455,12 +8540,16 @@
                     "type": "string"
                 }
             },
-            "required": ["path"],
+            "required": ["id", "path"],
             "type": "object"
         },
         "FileSystemImport": {
             "additionalProperties": false,
             "properties": {
+                "_loading": {
+                    "description": "Used to indicate pending actions, frontend only",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
                     "type": "string"
@@ -8485,7 +8574,6 @@
                 },
                 "icon": {},
                 "id": {
-                    "description": "Unique UUID for tree entry",
                     "type": "string"
                 },
                 "meta": {
@@ -9682,9 +9770,6 @@
                 "isValid": {
                     "type": "boolean"
                 },
-                "isValidView": {
-                    "type": "boolean"
-                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -9862,6 +9947,9 @@
                     "type": "string"
                 },
                 "useMaterializedViews": {
+                    "type": "boolean"
+                },
+                "usePresortedEventsTable": {
                     "type": "boolean"
                 }
             },
@@ -10342,6 +10430,9 @@
                     "type": "boolean"
                 },
                 "hidePersonsModal": {
+                    "type": "boolean"
+                },
+                "hideTooltipOnScroll": {
                     "type": "boolean"
                 },
                 "kind": {
@@ -11015,6 +11106,83 @@
                 }
             ]
         },
+        "MaxInnerUniversalFiltersGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/MaxUniversalFilterValue"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxOuterUniversalFiltersGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInnerUniversalFiltersGroup"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxRecordingUniversalFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "duration": {
+                    "items": {
+                        "$ref": "#/definitions/RecordingDurationFilter"
+                    },
+                    "type": "array"
+                },
+                "filter_group": {
+                    "$ref": "#/definitions/MaxOuterUniversalFiltersGroup"
+                },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
+                "order": {
+                    "$ref": "#/definitions/RecordingOrder",
+                    "default": "start_time"
+                }
+            },
+            "required": ["duration", "filter_group"],
+            "type": "object"
+        },
+        "MaxUniversalFilterValue": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/RecordingPropertyFilter"
+                }
+            ]
+        },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
             "properties": {
@@ -11029,7 +11197,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "group", "session", "hogql"],
+            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
         "NodeKind": {
@@ -11078,11 +11246,9 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
-                "ExperimentEventMetricConfig",
-                "ExperimentActionMetricConfig",
-                "ExperimentDataWarehouseMetricConfig",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
+                "ExperimentDataWarehouseNode",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
@@ -11487,6 +11653,7 @@
             "enum": [
                 "meta",
                 "event",
+                "event_metadata",
                 "person",
                 "element",
                 "feature",
@@ -12060,9 +12227,6 @@
                             "$ref": "#/definitions/QueryIndexUsage"
                         },
                         "isValid": {
-                            "type": "boolean"
-                        },
-                        "isValidView": {
                             "type": "boolean"
                         },
                         "notices": {
@@ -14431,6 +14595,29 @@
             "required": ["type", "content"],
             "type": "object"
         },
+        "RecordingDurationFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/DurationType"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "recording",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
         "RecordingOrder": {
             "enum": [
                 "duration",
@@ -14502,6 +14689,12 @@
                 },
                 "date_to": {
                     "type": ["string", "null"]
+                },
+                "distinct_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "events": {
                     "items": {
@@ -14947,12 +15140,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleDataWarehouseTablesQueryResponse": {
@@ -15022,12 +15212,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleEventsQueryResponse": {
@@ -15085,13 +15272,6 @@
                     "$ref": "#/definitions/CurrencyCode",
                     "default": "USD"
                 },
-                "dataWarehouseTables": {
-                    "default": [],
-                    "items": {
-                        "$ref": "#/definitions/RevenueTrackingDataWarehouseTable"
-                    },
-                    "type": "array"
-                },
                 "events": {
                     "default": [],
                     "items": {
@@ -15100,29 +15280,7 @@
                     "type": "array"
                 }
             },
-            "required": ["baseCurrency", "events", "dataWarehouseTables"],
-            "type": "object"
-        },
-        "RevenueTrackingDataWarehouseTable": {
-            "additionalProperties": false,
-            "properties": {
-                "revenueColumn": {
-                    "type": "string"
-                },
-                "revenueCurrencyColumn": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
-                    "default": {
-                        "static": "USD"
-                    }
-                },
-                "tableName": {
-                    "type": "string"
-                },
-                "timestampColumn": {
-                    "type": "string"
-                }
-            },
-            "required": ["tableName", "timestampColumn", "revenueColumn", "revenueCurrencyColumn"],
+            "required": ["baseCurrency", "events"],
             "type": "object"
         },
         "RevenueTrackingEventItem": {
@@ -15160,6 +15318,30 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "content": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "string"
+                        },
+                        "tool_call_id": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "const": "tool",
+                            "type": "string"
+                        },
+                        "ui_payload": {
+                            "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
+                            "type": "object"
+                        }
+                    },
+                    "required": ["content", "tool_call_id", "type"],
+                    "type": "object"
                 }
             ]
         },
@@ -15211,6 +15393,9 @@
                     "type": "boolean"
                 },
                 "hidePersonsModal": {
+                    "type": "boolean"
+                },
+                "hideTooltipOnScroll": {
                     "type": "boolean"
                 },
                 "kind": {
@@ -15944,6 +16129,7 @@
                 "events",
                 "event_properties",
                 "event_feature_flags",
+                "event_metadata",
                 "numerical_event_properties",
                 "person_properties",
                 "pageview_urls",
@@ -16295,10 +16481,18 @@
                     "default": "ActionsLineGraph"
                 },
                 "formula": {
+                    "deprecated": "Use formulaNodes instead.",
                     "type": "string"
                 },
+                "formulaNodes": {
+                    "description": "List of formulas with optional custom names. Takes precedence over formula/formulas if set.",
+                    "items": {
+                        "$ref": "#/definitions/TrendsFormulaNode"
+                    },
+                    "type": "array"
+                },
                 "formulas": {
-                    "description": "List of formulas to apply to the data. Takes precedence over formula if both are set.",
+                    "deprecated": "Use formulaNodes instead.",
                     "items": {
                         "type": "string"
                     },
@@ -16446,6 +16640,20 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "TrendsFormulaNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "description": "Optional user-defined name for the formula",
+                    "type": "string"
+                },
+                "formula": {
+                    "type": "string"
+                }
+            },
+            "required": ["formula"],
             "type": "object"
         },
         "TrendsQuery": {
@@ -16698,7 +16906,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query"],
+            "required": ["type", "query", "answer"],
             "type": "object"
         },
         "VizSpecificOptions": {

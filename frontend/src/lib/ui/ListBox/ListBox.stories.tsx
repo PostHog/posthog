@@ -34,7 +34,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild className="mb-4">
                     <LemonInput
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     />
                 </ListBox.Item>
                 <ListBox.Item asChild>
@@ -42,7 +42,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                         to="https://www.google.com"
                         targetBlank
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 1 (Link)
                     </LemonButton>
@@ -50,7 +50,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild onClick={() => alert('clicked')}>
                     <LemonButton
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 2 (Clickable)
                     </LemonButton>
@@ -59,7 +59,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                     <LemonButton
                         fullWidth
                         disabledReason="This is a disabled reason"
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 3
                     </LemonButton>
@@ -77,7 +77,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                             <ListBox.Item asChild>
                                 <LemonButton
                                     fullWidth
-                                    className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                                    className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                                 >
                                     Option 3 (Accordion)
                                 </LemonButton>
@@ -87,7 +87,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                             <ListBox.Item asChild>
                                 <LemonButton
                                     fullWidth
-                                    className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                                    className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                                 >
                                     Option 3 child
                                 </LemonButton>
@@ -99,7 +99,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild>
                     <LemonButton
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 4
                     </LemonButton>
@@ -107,7 +107,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild>
                     <LemonButton
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 5
                     </LemonButton>
@@ -115,7 +115,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild>
                     <LemonButton
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 6
                     </LemonButton>
@@ -123,7 +123,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild>
                     <LemonButton
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 7
                     </LemonButton>
@@ -131,7 +131,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild>
                     <LemonButton
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 8
                     </LemonButton>
@@ -139,7 +139,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild>
                     <LemonButton
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 9
                     </LemonButton>
@@ -147,7 +147,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild>
                     <LemonButton
                         fullWidth
-                        className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
+                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 10
                     </LemonButton>

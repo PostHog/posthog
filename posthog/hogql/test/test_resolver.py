@@ -18,6 +18,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
 )
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, print_prepared_ast
@@ -46,7 +47,7 @@ class TestResolver(BaseTest):
         )
 
     def setUp(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(team=self.team)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -390,15 +391,17 @@ class TestResolver(BaseTest):
 
     def test_lambda_parent_scope(self):
         # does not raise
-        node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) from events")
+        node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) as am from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # found a type
-        lambda_type: ast.SelectQueryType = cast(ast.SelectQueryType, cast(ast.Call, node.select[1]).args[0].type)
+        lambda_type: ast.SelectQueryType = cast(
+            ast.SelectQueryType, cast(ast.Call, cast(ast.Alias, node.select[1]).expr).args[0].type
+        )
         self.assertEqual(lambda_type.parent, node.type)
         self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
         assert isinstance(lambda_type.parent, ast.SelectQueryType)
-        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
+        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp", "am"])
 
     def test_field_traverser_double_dot(self):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
@@ -638,10 +641,12 @@ class TestResolver(BaseTest):
             assert selected.type == ast.DateTimeType(nullable=False)
 
     def test_recording_button_tag(self):
-        node: ast.SelectQuery = self._select("select <RecordingButton sessionId={'12345'} />")
+        node: ast.SelectQuery = self._select(
+            "select <RecordingButton sessionId={'12345'} recordingStatus={'active'} />"
+        )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
-        node2 = self._select("select recording_button('12345')")
+        node2 = self._select("select recording_button('12345', 'active')")
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2
 
@@ -712,3 +717,13 @@ class TestResolver(BaseTest):
         ):
             node: ast.SelectQuery = self._select(query)
             resolve_types(node, context, dialect="clickhouse")
+
+    def test_nested_table_name(self):
+        self.database.__setattr__("nested.events", EventsTable())
+        query = "SELECT * FROM nested.events"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+
+    def test_deeply_nested_table_name(self):
+        self.database.__setattr__("nested.events.some.other.table", EventsTable())
+        query = "SELECT * FROM nested.events.some.other.table"
+        resolve_types(self._select(query), self.context, dialect="hogql")

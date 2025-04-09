@@ -7,10 +7,10 @@ import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_tren
 import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
 import {
-    ExperimentActionMetricConfig,
-    ExperimentDataWarehouseMetricConfig,
+    ActionsNode,
+    EventsNode,
+    ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
-    ExperimentEventMetricConfig,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
@@ -37,7 +37,7 @@ import {
     filterToMetricConfig,
     getMinimumDetectableEffect,
     getViewRecordingFilters,
-    metricConfigToFilter,
+    metricToFilter,
     metricToQuery,
     percentageDistribution,
     transformFiltersForWinningVariant,
@@ -631,18 +631,22 @@ describe('filterToExposureConfig', () => {
     })
 })
 
-describe('metricConfigToFilter', () => {
+describe('metricToFilter', () => {
     it('returns the correct filter for an event', () => {
-        const metricConfig = {
-            kind: NodeKind.ExperimentEventMetricConfig,
-            event: '$pageview',
-            name: '$pageview',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
-            properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
-        } as ExperimentEventMetricConfig
-        const filter = metricConfigToFilter(metricConfig)
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                math: 'total',
+                math_property: undefined,
+                math_hogql: undefined,
+                properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
+            } as EventsNode,
+        }
+        const filter = metricToFilter(metric)
         expect(filter).toEqual({
             events: [
                 {
@@ -661,16 +665,20 @@ describe('metricConfigToFilter', () => {
         })
     })
     it('returns the correct filter for an action', () => {
-        const metricConfig = {
-            kind: NodeKind.ExperimentActionMetricConfig,
-            action: 8,
-            name: 'jan-16-running payment action',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
-            properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
-        } as ExperimentActionMetricConfig
-        const filter = metricConfigToFilter(metricConfig)
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ActionsNode,
+                id: 8,
+                name: 'jan-16-running payment action',
+                math: 'total',
+                math_property: undefined,
+                math_hogql: undefined,
+                properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+            } as ActionsNode,
+        }
+        const filter = metricToFilter(metric)
         expect(filter).toEqual({
             events: [],
             actions: [
@@ -689,18 +697,22 @@ describe('metricConfigToFilter', () => {
         })
     })
     it('returns the correct filter for a data warehouse metric', () => {
-        const metricConfig = {
-            kind: NodeKind.ExperimentDataWarehouseMetricConfig,
-            table_name: 'mysql_payments',
-            name: 'mysql_payments',
-            timestamp_field: 'timestamp',
-            events_join_key: 'person.properties.email',
-            data_warehouse_join_key: 'customer.email',
-            math: ExperimentMetricMathType.TotalCount,
-            math_property: undefined,
-            math_hogql: undefined,
-        } as ExperimentDataWarehouseMetricConfig
-        const filter = metricConfigToFilter(metricConfig)
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: 'mysql_payments',
+                name: 'mysql_payments',
+                timestamp_field: 'timestamp',
+                events_join_key: 'person.properties.email',
+                data_warehouse_join_key: 'customer.email',
+                math: ExperimentMetricMathType.TotalCount,
+                math_property: undefined,
+                math_hogql: undefined,
+            } as ExperimentDataWarehouseNode,
+        }
+        const filter = metricToFilter(metric)
         expect(filter).toEqual({
             events: [],
             actions: [],
@@ -740,22 +752,25 @@ describe('filterToMetricConfig', () => {
                 },
             ],
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(event)
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, [event], undefined)
         expect(metricConfig).toEqual({
-            kind: NodeKind.ExperimentEventMetricConfig,
-            event: '$pageview',
-            name: '$pageview',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
-            properties: [
-                {
-                    key: '$browser',
-                    value: ['Chrome'],
-                    operator: 'exact',
-                    type: 'event',
-                },
-            ],
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                math: 'total',
+                math_property: undefined,
+                math_hogql: undefined,
+                properties: [
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: 'exact',
+                        type: 'event',
+                    },
+                ],
+            },
         })
     })
     it('returns the correct metric config for an action', () => {
@@ -776,15 +791,18 @@ describe('filterToMetricConfig', () => {
             order: 0,
             uuid: '29c01ac4-ebc3-4cb8-9d82-287c0487056e',
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(action)
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, [action], undefined, undefined)
         expect(metricConfig).toEqual({
-            kind: NodeKind.ExperimentActionMetricConfig,
-            action: '8',
-            name: 'jan-16-running payment action',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
-            properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ActionsNode,
+                id: '8',
+                name: 'jan-16-running payment action',
+                math: 'total',
+                math_property: undefined,
+                math_hogql: undefined,
+                properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+            },
         })
     })
     it('returns the correct metric config for a data warehouse metric', () => {
@@ -797,17 +815,20 @@ describe('filterToMetricConfig', () => {
             events_join_key: 'person.properties.email',
             data_warehouse_join_key: 'customer.email',
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(dataWarehouse)
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, [dataWarehouse])
         expect(metricConfig).toEqual({
-            kind: NodeKind.ExperimentDataWarehouseMetricConfig,
-            table_name: 'mysql_payments',
-            name: 'mysql_payments',
-            timestamp_field: 'timestamp',
-            events_join_key: 'person.properties.email',
-            data_warehouse_join_key: 'customer.email',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: 'mysql_payments',
+                name: 'mysql_payments',
+                timestamp_field: 'timestamp',
+                events_join_key: 'person.properties.email',
+                data_warehouse_join_key: 'customer.email',
+                math: ExperimentMetricMathType.TotalCount,
+                math_property: undefined,
+                math_hogql: undefined,
+            },
         })
     })
 })
@@ -817,10 +838,13 @@ describe('metricToQuery', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.FUNNEL,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: 'purchase',
-            },
+            series: [
+                {
+                    event: 'purchase',
+                    kind: NodeKind.EventsNode,
+                    name: 'purchase',
+                },
+            ],
         }
 
         const query = metricToQuery(metric, false)
@@ -838,11 +862,14 @@ describe('metricToQuery', () => {
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: '$feature_flag_called',
+                    event: '$pageview',
+                    name: '$pageview',
+                    custom_name: 'Placeholder for experiment exposure',
                 },
                 {
                     kind: NodeKind.EventsNode,
                     event: 'purchase',
+                    name: 'purchase',
                 },
             ],
         })
@@ -852,8 +879,8 @@ describe('metricToQuery', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
+            source: {
+                kind: NodeKind.EventsNode,
                 event: '$pageview',
                 name: '$pageview',
             },
@@ -886,8 +913,8 @@ describe('metricToQuery', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
+            source: {
+                kind: NodeKind.EventsNode,
                 event: '$pageview',
                 name: '$pageview',
                 math: ExperimentMetricMathType.Sum,
@@ -921,17 +948,17 @@ describe('metricToQuery', () => {
     })
 
     it('returns undefined for unsupported metric types', () => {
-        const metric: ExperimentMetric = {
+        const metric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: 'unsupported_type' as ExperimentMetricType,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
+            source: {
+                kind: NodeKind.EventsNode,
                 event: '$pageview',
                 name: '$pageview',
             },
         }
 
-        const query = metricToQuery(metric, false)
+        const query = metricToQuery(metric as ExperimentMetric, false)
         expect(query).toBeUndefined()
     })
 })

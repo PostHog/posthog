@@ -121,13 +121,17 @@ function DashboardScene(): JSX.Element {
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
+                            DashboardPlacement.Group,
                         ].includes(placement) &&
                             dashboard && <DashboardEditBar />}
-                        {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
-                            <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
-                                Edit dashboard
-                            </LemonButton>
-                        )}
+                        {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
+                            dashboard?.id && (
+                                <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
+                                    {placement === DashboardPlacement.Group
+                                        ? 'Edit dashboard template'
+                                        : 'Edit dashboard'}
+                                </LemonButton>
+                            )}
                         {placement !== DashboardPlacement.Export && (
                             <div className="flex shrink-0 deprecated-space-x-4 dashoard-items-actions">
                                 <div

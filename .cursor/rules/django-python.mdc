@@ -1,6 +1,7 @@
 ---
 description: Rules for writing Python with Django (most PostHog backend code)
 globs: ee/*.py, posthog/*.py
+alwaysApply: false
 ---
 
 You are an expert in Python, Django, and scalable web application development.
@@ -100,5 +101,5 @@ Integration tests
   - Integration tests should ensure that the feature works end-to-end. They must cover all the important use cases of the feature.
   
 Running commands
-- Use `uv pip install` instead of `pip install`
+- Use `uv sync` instead of `pip install -r ...`, and `uv add PACKAGE` instead of `pip install PACKAGE`
 Refer to Django documentation for best practices in views, models, forms, and security considerations.

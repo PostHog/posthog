@@ -70,7 +70,7 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string,
-        processPerson: boolean = false
+        processPerson: boolean
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard(

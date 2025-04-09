@@ -1,1 +1,1 @@
-0691_action_embedding_version
+0706_alter_hogfunction_kind

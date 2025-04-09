@@ -12,6 +12,8 @@ const meta: Meta<typeof LemonTagComponent> = {
 export default meta
 type Story = StoryObj<typeof LemonTagComponent>
 
+const SIZES: ('small' | 'medium')[] = ['small', 'medium']
+
 const ALL_COLORS: LemonTagType[] = [
     'primary',
     'option',
@@ -28,12 +30,21 @@ const ALL_COLORS: LemonTagType[] = [
 
 export const LemonTag: Story = {
     render: () => (
-        <div className="flex gap-1 flex-wrap">
-            {ALL_COLORS.map((type) => (
-                <LemonTagComponent key={type} type={type}>
-                    {type}
-                </LemonTagComponent>
-            ))}
+        <div className="space-y-2">
+            {SIZES.map((size) => {
+                return (
+                    <div key={size}>
+                        <h4 className="capitalize">{size}</h4>
+                        <div className="flex gap-1 flex-wrap">
+                            {ALL_COLORS.map((type) => (
+                                <LemonTagComponent key={type} type={type} size={size}>
+                                    {type}
+                                </LemonTagComponent>
+                            ))}
+                        </div>
+                    </div>
+                )
+            })}
         </div>
     ),
 }

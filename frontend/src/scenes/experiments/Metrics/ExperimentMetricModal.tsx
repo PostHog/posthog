@@ -1,5 +1,6 @@
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useCallback } from 'react'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
@@ -34,7 +35,17 @@ export function ExperimentMetricModal({
     const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
 
-    if (!metricIdx && metricIdx !== 0) {
+    const handleSetMetric = useCallback(
+        (newMetric: ExperimentMetric): void => {
+            if (metricIdx == null) {
+                return
+            }
+            setMetric({ metricIdx, metric: newMetric, isSecondary })
+        },
+        [metricIdx, isSecondary, setMetric]
+    )
+
+    if (metricIdx == null) {
         return <></>
     }
 
@@ -122,9 +133,7 @@ export function ExperimentMetricModal({
             </div>
             <ExperimentMetricForm
                 metric={metric}
-                handleSetMetric={({ newMetric }: { newMetric: ExperimentMetric }) => {
-                    setMetric({ metricIdx, metric: newMetric, isSecondary })
-                }}
+                handleSetMetric={handleSetMetric}
                 filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
             />
         </LemonModal>

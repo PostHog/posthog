@@ -19,11 +19,12 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { cn } from 'lib/utils/css-classes'
 import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
+import { isCoreFilter } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
     CohortType,
@@ -332,6 +333,24 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <DefinitionPopover.Card
                         title="Sent as"
                         value={<span className="text-xs font-mono">{_definition.name}</span>}
+                    />
+                </DefinitionPopover.Section>
+            </>
+        )
+    }
+    if (group.type === TaxonomicFilterGroupType.EventMetadata) {
+        const _definition = definition as PropertyDefinition
+        return (
+            <>
+                {sharedComponents}
+                <DefinitionPopover.Grid cols={2}>
+                    <DefinitionPopover.Card title="Type" value={_definition.property_type ?? '-'} />
+                </DefinitionPopover.Grid>
+                <LemonDivider className="DefinitionPopover my-4" />
+                <DefinitionPopover.Section>
+                    <DefinitionPopover.Card
+                        title="Sent as"
+                        value={<span className="text-xs font-mono">{_definition.id}</span>}
                     />
                 </DefinitionPopover.Section>
             </>

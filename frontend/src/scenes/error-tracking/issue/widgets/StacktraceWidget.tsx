@@ -1,5 +1,5 @@
 import { IconFilter, IconSort } from '@posthog/icons'
-import { LemonButton, LemonWidget } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonWidget } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
@@ -7,16 +7,16 @@ import { ChainedStackTraces } from 'lib/components/Errors/StackTraces'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 
 import { errorTrackingIssueSceneLogic } from '../../errorTrackingIssueSceneLogic'
-import { getExceptionAttributes, hasAnyInAppFrames } from '../../utils'
+import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from '../../utils'
 
 export function StacktraceWidget(): JSX.Element {
-    const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
+    const { properties, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
 
     const { showAllFrames, frameOrderReversed } = useValues(stackFrameLogic)
     const { setShowAllFrames, reverseFrameOrder } = useActions(stackFrameLogic)
-    const { exceptionList } = getExceptionAttributes(issueProperties)
+    const { exceptionList } = getExceptionAttributes(properties)
 
-    const hasStacktrace = exceptionList.length > 0
+    const showStacktrace = hasStacktrace(exceptionList)
     const hasAnyInApp = hasAnyInAppFrames(exceptionList)
     const orderedExceptions = applyFrameOrder(exceptionList, frameOrderReversed)
 
@@ -25,7 +25,7 @@ export function StacktraceWidget(): JSX.Element {
             title="Stacktrace"
             actions={
                 <div className="flex gap-2">
-                    {hasStacktrace && (
+                    {!propertiesLoading && showStacktrace && (
                         <LemonButton
                             className="space-x-2"
                             type="tertiary"
@@ -36,7 +36,7 @@ export function StacktraceWidget(): JSX.Element {
                             <IconSort />
                         </LemonButton>
                     )}
-                    {hasAnyInApp && (
+                    {!propertiesLoading && hasAnyInApp && (
                         <LemonButton
                             className="space-x-2"
                             type="tertiary"
@@ -51,19 +51,25 @@ export function StacktraceWidget(): JSX.Element {
             }
         >
             <div className="p-2">
-                {hasStacktrace && (
+                {!propertiesLoading && showStacktrace && (
                     <ChainedStackTraces
                         showAllFrames={hasAnyInApp ? showAllFrames : true}
                         exceptionList={orderedExceptions}
                     />
                 )}
-                {!hasStacktrace && (
+                {!propertiesLoading && !showStacktrace && (
                     <EmptyMessage
                         title="No stacktrace available"
                         description="Make sure sdk is setup correctly or contact support if problem persists"
                         buttonText="Check documentation"
                         buttonTo="https://posthog.com/docs/error-tracking/installation"
                     />
+                )}
+                {propertiesLoading && (
+                    <div className="space-y-2">
+                        <LemonSkeleton />
+                        <LemonSkeleton.Row repeat={2} />
+                    </div>
                 )}
             </div>
         </LemonWidget>

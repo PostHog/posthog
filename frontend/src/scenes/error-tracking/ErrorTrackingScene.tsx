@@ -10,21 +10,17 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { posthog } from 'posthog-js'
-import { useRef } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -37,7 +33,7 @@ import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { StatusIndicator } from './issue/Indicator'
-import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
+import { OccurrenceSparkline, useSparklineData } from './OccurrenceSparkline'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -47,7 +43,6 @@ export const scene: SceneExport = {
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
     const { query } = useValues(errorTrackingSceneLogic)
-    const floatingContainerRef = useRef<HTMLDivElement>(null)
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
     }
@@ -57,6 +52,7 @@ export function ErrorTrackingScene(): JSX.Element {
             error: {
                 width: '50%',
                 render: CustomGroupTitleColumn,
+                renderTitle: CustomGroupTitleHeader,
             },
             occurrences: { align: 'center', render: CountColumn },
             sessions: { align: 'center', render: CountColumn },
@@ -64,7 +60,6 @@ export function ErrorTrackingScene(): JSX.Element {
             volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { align: 'center', render: AssigneeColumn },
         },
-        refresh: 'blocking',
         showOpenEditorButton: false,
         insightProps: insightProps,
         emptyStateHeading: 'No issues found',
@@ -72,64 +67,63 @@ export function ErrorTrackingScene(): JSX.Element {
     }
 
     return (
-        <FloatingContainerContext.Provider value={floatingContainerRef}>
-            <ErrorTrackingSetupPrompt>
-                <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-                    <Header />
-                    {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
-                        <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-                    ) : (
-                        <IngestionStatusCheck />
-                    )}
-                    <ErrorTrackingFilters />
-                    <LemonDivider className="mt-2" />
-                    <ErrorTrackingListOptions />
-                    <Query query={query} context={context} />
-                </BindLogic>
-            </ErrorTrackingSetupPrompt>
-        </FloatingContainerContext.Provider>
+        <ErrorTrackingSetupPrompt>
+            <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+                <Header />
+                {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                <ErrorTrackingFilters />
+                <LemonDivider className="mt-2" />
+                <ErrorTrackingListOptions />
+                <Query query={query} context={context} />
+            </BindLogic>
+        </ErrorTrackingSetupPrompt>
     )
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
+    const { dateRange } = useValues(errorTrackingLogic)
+    const { sparklineSelectedPeriod } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-
-    if (!record.aggregations) {
-        return null
-    }
-
-    const [data, labels] =
-        sparklineSelectedPeriod === '24h'
-            ? [record.aggregations.volumeDay, sparklineLabelsDay]
-            : sparklineSelectedPeriod === '30d'
-            ? [record.aggregations.volumeMonth, sparklineLabelsMonth]
-            : customSparklineConfig
-            ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
-            : [null, null]
-
-    return data ? (
+    const { values, labels } = useSparklineData(sparklineSelectedPeriod, dateRange, record.aggregations)
+    return (
         <div className="flex justify-end">
-            <Sparkline className="h-8" data={data} labels={labels} />
+            <OccurrenceSparkline className="h-8" values={values} labels={labels} displayXAxis={false} />
         </div>
-    ) : null
+    )
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { sparklineSelectedPeriod, sparklineOptions } = useValues(errorTrackingLogic)
-    const { setSparklineSelectedPeriod: onChange } = useActions(errorTrackingLogic)
+    const { sparklineSelectedPeriod, sparklineOptions } = useValues(errorTrackingSceneLogic)
+    const { setSparklineSelectedPeriod } = useActions(errorTrackingSceneLogic)
 
-    return sparklineSelectedPeriod && sparklineOptions ? (
+    return (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
             <LemonSegmentedButton
                 size="xsmall"
                 value={sparklineSelectedPeriod}
-                options={Object.values(sparklineOptions)}
-                onChange={onChange}
+                options={sparklineOptions}
+                onChange={setSparklineSelectedPeriod}
             />
         </div>
-    ) : null
+    )
+}
+
+const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
+    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
+    const { results } = useValues(errorTrackingDataNodeLogic)
+    const allSelected = results.length == selectedIssueIds.length && selectedIssueIds.length > 0
+
+    return (
+        <div className="flex gap-2 items-center">
+            <LemonCheckbox
+                checked={allSelected}
+                onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
+            />
+            {columnName}
+        </div>
+    )
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
@@ -184,8 +178,8 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 }
 
 const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
-    const aggregations = (record as ErrorTrackingIssue).aggregations as ErrorTrackingIssueAggregations
-    const count = aggregations[columnName as 'occurrences' | 'sessions' | 'users']
+    const aggregations = (record as ErrorTrackingIssue).aggregations
+    const count = aggregations ? aggregations[columnName as 'occurrences' | 'sessions' | 'users'] : 0
 
     return (
         <span className="text-lg font-medium">

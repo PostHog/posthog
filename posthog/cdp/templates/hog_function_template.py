@@ -33,10 +33,14 @@ HogFunctionTemplateType = Literal[
 ]
 
 
+HogFunctionTemplateKind = Literal["messaging_campaign"]
+
+
 @dataclasses.dataclass(frozen=True)
 class HogFunctionSubTemplate:
     id: SubTemplateId
     name: str
+    free: Optional[bool] = None
     description: Optional[str] = None
     filters: Optional[dict] = None
     masking: Optional[dict] = None
@@ -77,6 +81,7 @@ class HogFunctionTemplate:
     mapping_templates: Optional[list[HogFunctionMappingTemplate]] = None
     masking: Optional[dict] = None
     icon_url: Optional[str] = None
+    kind: Optional[HogFunctionTemplateKind] = None
 
 
 class HogFunctionTemplateMigrator:

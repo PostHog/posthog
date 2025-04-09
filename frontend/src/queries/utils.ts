@@ -1,7 +1,6 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionsNode,
@@ -45,6 +44,7 @@ import {
     SessionAttributionExplorerQuery,
     StickinessQuery,
     TracesQuery,
+    TrendsFormulaNode,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -315,16 +315,23 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
-export const getFormula = (query: InsightQueryNode): string | undefined => {
+export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.formulas?.[0] || query.trendsFilter?.formula
     }
     return undefined
 }
 
-export const getFormulas = (query: InsightQueryNode): string[] | undefined => {
+export const getFormulas = (query: InsightQueryNode | null): string[] | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.formulas || (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+    }
+    return undefined
+}
+
+export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNode[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.formulaNodes
     }
     return undefined
 }
@@ -502,6 +509,9 @@ export function taxonomicGroupFilterToHogQL(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue
 ): string | null {
+    if (groupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+    }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
@@ -536,6 +546,9 @@ function isHogQlIdentifier(value: any): value is HogQLIdentifier {
 }
 
 function formatHogQlValue(value: any): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { teamLogic } = require('scenes/teamLogic')
+
     if (Array.isArray(value)) {
         return `[${value.map(formatHogQlValue).join(', ')}]`
     } else if (dayjs.isDayjs(value)) {
@@ -548,7 +561,7 @@ function formatHogQlValue(value: any): string {
         return String(value)
     } else if (value === null) {
         throw new Error(
-            `null cannot be interpolated for HogQL. if a null check is needed, make 'IS NULL' part of your query`
+            `null cannot be interpolated for SQL. if a null check is needed, make 'IS NULL' part of your query`
         )
     } else {
         throw new Error(`Unsupported interpolated value type: ${typeof value}`)

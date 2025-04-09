@@ -1,8 +1,8 @@
 import { IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -25,46 +25,41 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
     return (
         <>
             <nav
-                className={clsx('flex flex-col max-h-screen min-h-screen relative w-[320px] border-r border-primary')}
+                className={clsx(
+                    'flex flex-col max-h-screen min-h-screen relative w-[var(--project-panel-width)] border-r border-primary'
+                )}
                 ref={containerRef}
             >
                 <div className="flex justify-between p-1 bg-surface-tertiary">
                     <ProjectDropdownMenu />
+
                     <div className="flex gap-px items-center justify-end">
                         {!isMobileLayout && (
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                            <ButtonPrimitive
                                 onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
-                                className="hover:bg-fill-highlight-100 shrink-0"
-                                icon={
-                                    isLayoutPanelPinned ? (
-                                        <IconWrapper>
-                                            <IconPinFilled />
-                                        </IconWrapper>
-                                    ) : (
-                                        <IconWrapper>
-                                            <IconPin />
-                                        </IconWrapper>
-                                    )
-                                }
-                            />
+                                tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                            >
+                                {isLayoutPanelPinned ? (
+                                    <IconPinFilled className="size-3 text-tertiary" />
+                                ) : (
+                                    <IconPin className="size-3 text-tertiary" />
+                                )}
+                            </ButtonPrimitive>
                         )}
 
                         {panelActions ?? null}
                     </div>
                 </div>
-                <div className="border-b border-secondary h-px" />
+                <div className="border-b border-primary h-px" />
                 <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
                     <div className="flex gap-1 p-1 items-center justify-between">
                         <LemonInput
                             placeholder={searchPlaceholder}
                             className="w-full"
                             prefix={
-                                <IconWrapper>
-                                    <IconSearch />
-                                </IconWrapper>
+                                <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
+                                    <IconSearch className="size-4" />
+                                </div>
                             }
                             autoFocus
                             size="small"
@@ -72,18 +67,15 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                             onChange={(value) => setSearchTerm(value)}
                             suffix={
                                 searchTerm ? (
-                                    <LemonButton
-                                        size="small"
-                                        type="tertiary"
+                                    <ButtonPrimitive
+                                        size="sm"
+                                        iconOnly
                                         onClick={() => clearSearch()}
-                                        icon={
-                                            <IconWrapper>
-                                                <IconX />
-                                            </IconWrapper>
-                                        }
-                                        className="bg-transparent [&_svg]:opacity-30 hover:[&_svg]:opacity-100"
+                                        className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
                                         tooltip="Clear search"
-                                    />
+                                    >
+                                        <IconX className="size-4" />
+                                    </ButtonPrimitive>
                                 ) : null
                             }
                             onKeyDown={(e) => {

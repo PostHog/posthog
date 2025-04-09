@@ -117,6 +117,7 @@ export const TECHNOLOGY = {
         'IconApp',
         'IconFolder',
         'IconFolderOpen',
+        'IconFolderPlus',
     ],
     UI: [
         'IconPassword',

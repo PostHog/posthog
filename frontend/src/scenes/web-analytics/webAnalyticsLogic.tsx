@@ -2,7 +2,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -967,20 +967,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_tracking_config
-                        ? currentTeam.revenue_tracking_config.events.map((e) => ({
-                              math: PropertyMathType.Sum,
-                              name: e.eventName,
-                              event: e.eventName,
-                              kind: NodeKind.EventsNode,
-                              custom_name: e.eventName,
-                              math_property: e.revenueProperty,
-                              math_property_revenue_currency: e.revenueCurrencyProperty,
-                          }))
+                        ? ([
+                              ...currentTeam.revenue_tracking_config.events.map((e) => ({
+                                  name: e.eventName,
+                                  event: e.eventName,
+                                  custom_name: e.eventName,
+                                  math: PropertyMathType.Sum,
+                                  kind: NodeKind.EventsNode,
+                                  math_property: e.revenueProperty,
+                                  math_property_revenue_currency: e.revenueCurrencyProperty,
+                              })),
+                          ] as EventsNode[])
                         : []
 
                 const conversionRevenueSeries =
                     conversionGoal && 'customEventName' in conversionGoal && includeRevenue
-                        ? revenueEventsSeries.filter((e) => e.event === conversionGoal.customEventName)
+                        ? revenueEventsSeries.filter((e) => 'event' in e && e.event === conversionGoal.customEventName)
                         : []
 
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
@@ -1021,6 +1023,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         hidePersonsModal: true,
                         embedded: true,
+                        hideTooltipOnScroll: true,
                     },
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
@@ -1058,7 +1061,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
                     // which will actually be handled by a WebStatsTrendTile instead of a WebStatsTableTile
-                    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TREND_VIZ_TOGGLE] && visualization === 'graph') {
+                    if (visualization === 'graph') {
                         return {
                             ...baseTabProps,
                             query: {
@@ -1078,6 +1081,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 hidePersonsModal: true,
                                 embedded: true,
+                                hideTooltipOnScroll: true,
                             },
                             canOpenInsight: true,
                             canOpenModal: false,
@@ -1889,7 +1893,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                    !conversionGoal
                         ? {
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
@@ -2290,7 +2294,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     actionToUrl(({ values }) => {
         const stateToUrl = (): string => {
-            const urlParams = new URLSearchParams()
+            const searchParams = { ...router.values.searchParams }
+            const urlParams = new URLSearchParams(searchParams)
 
             const {
                 rawWebAnalyticsFilters,

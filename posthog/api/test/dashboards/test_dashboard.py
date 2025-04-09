@@ -11,8 +11,10 @@ from rest_framework import status
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
+from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -267,7 +269,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 7
+            baseline = 6
 
             with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
@@ -522,6 +524,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         dashboard_two_after_delete = self.dashboard_api.get_dashboard(dashboard_two_id)
         assert len(dashboard_two_after_delete["tiles"]) == 1
+
+    def test_delete_dashboard_resets_group_type_detail_dashboard_if_needed(self):
+        group_type = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
+        group_type.detail_dashboard = dashboard
+        group_type.save()
+
+        self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
+        group_type.refresh_from_db()
+        self.assertIsNone(group_type.detail_dashboard)
 
     def test_dashboard_items(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})

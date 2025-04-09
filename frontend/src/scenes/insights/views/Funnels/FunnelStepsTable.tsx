@@ -37,7 +37,7 @@ export function FunnelStepsTable(): JSX.Element | null {
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
 
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const allChecked = flattenedBreakdowns?.every(
@@ -119,7 +119,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 {formatBreakdownLabel(
                                     value,
                                     breakdownFilter,
-                                    cohorts.results,
+                                    allCohorts.results,
                                     formatPropertyValueForDisplay
                                 )}
                                 {showCustomizationIcon && (

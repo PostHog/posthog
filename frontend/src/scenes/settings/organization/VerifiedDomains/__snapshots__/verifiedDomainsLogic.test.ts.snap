@@ -105,16 +105,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         ],
         "revenue_tracking_config": {
           "baseCurrency": "USD",
-          "dataWarehouseTables": [
-            {
-              "revenueColumn": "revenue",
-              "revenueCurrencyColumn": {
-                "static": "SCR",
-              },
-              "tableName": "mock_table",
-              "timestampColumn": "timestamp",
-            },
-          ],
           "events": [
             {
               "eventName": "purchase",
