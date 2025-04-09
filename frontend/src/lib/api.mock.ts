@@ -134,15 +134,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 revenueCurrencyProperty: { static: CurrencyCode.ZAR },
             },
         ],
-        dataWarehouseTables: [
-            {
-                tableName: 'mock_table',
-                distinctIdColumn: 'distinct_id',
-                timestampColumn: 'timestamp',
-                revenueColumn: 'revenue',
-                revenueCurrencyColumn: { static: CurrencyCode.SCR },
-            },
-        ],
     },
     flags_persistence_default: false,
     access_control_version: 'v1',

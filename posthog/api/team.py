@@ -845,19 +845,10 @@ class PremiumMultiEnvironmentPermission(BasePermission):
             if project.organization.teams.filter(is_demo=True).count() > 0:
                 return False
 
-        has_environments_feature = project.organization.is_feature_available(AvailableFeature.ENVIRONMENTS)
+        environments_feature = project.organization.get_available_feature(AvailableFeature.ENVIRONMENTS)
         current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
-
-        allowed_team_per_project_count = next(
-            (
-                feature.get("limit")
-                for feature in project.organization.available_product_features or []
-                if feature.get("key") == AvailableFeature.ENVIRONMENTS
-            ),
-            None,
-        )
-
-        if has_environments_feature:
+        if environments_feature:
+            allowed_team_per_project_count = environments_feature.get("limit")
             # If allowed_project_count is None then the user is allowed unlimited projects
             if allowed_team_per_project_count is None:
                 return True
