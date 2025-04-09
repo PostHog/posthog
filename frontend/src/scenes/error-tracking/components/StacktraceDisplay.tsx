@@ -53,7 +53,7 @@ export function StacktraceDisplay({
     return (
         <div className={className}>
             {match([propertiesLoading, issueLoading, hasStacktrace])
-                .with([true, true, P.any], () => (
+                .with([P.any, true, P.any], () => (
                     <div>
                         <div className="h-14 flex flex-col justify-around">
                             <LemonSkeleton className="w-[25%] h-3" />
@@ -67,7 +67,7 @@ export function StacktraceDisplay({
                 .with([true, false, P.any], () => (
                     <div>
                         {renderExceptionHeader({
-                            type: issue?.name || 'Unknown',
+                            type: issue?.name || 'Unknown Type',
                             value: issue?.description || 'Unknown',
                         })}
                         <div className="flex justify-center items-center h-32">
@@ -75,7 +75,7 @@ export function StacktraceDisplay({
                         </div>
                     </div>
                 ))
-                .with([false, P.any, true], () => (
+                .with([false, false, true], () => (
                     <ChainedStackTraces
                         showAllFrames={showAllFrames}
                         exceptionList={exceptionList}
@@ -83,7 +83,7 @@ export function StacktraceDisplay({
                         fingerprintRecords={fingerprintRecords}
                     />
                 ))
-                .with([false, P.any, false], () => (
+                .with([false, false, false], () => (
                     <div>
                         {renderExceptionHeader({
                             type: issue?.name || 'Unknown',
@@ -98,7 +98,7 @@ export function StacktraceDisplay({
                         />
                     </div>
                 ))
-                .exhaustive()}
+                .otherwise(() => null)}
         </div>
     )
 }

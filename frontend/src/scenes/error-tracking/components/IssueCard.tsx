@@ -23,7 +23,11 @@ export function IssueCard(): JSX.Element {
                 setShowStacktrace(!showStacktrace)
             }}
         >
-            <Collapsible isExpanded={showStacktrace} className="pb-2 flex w-full" minHeight="calc(var(--spacing) * 13)">
+            <Collapsible
+                isExpanded={showStacktrace && !propertiesLoading}
+                className="pb-2 flex w-full"
+                minHeight="calc(var(--spacing) * 13)"
+            >
                 <StacktraceDisplay
                     className={cn('flex-grow', showContext ? 'w-2/3' : 'w-full')}
                     truncateMessage={!showStacktrace}
@@ -55,6 +59,7 @@ export function IssueCard(): JSX.Element {
                         size="xsmall"
                         bordered
                         onChange={setShowAllFrames}
+                        className="select-none"
                     />
                     <LemonSwitch
                         id="show-context"
@@ -63,6 +68,7 @@ export function IssueCard(): JSX.Element {
                         size="xsmall"
                         bordered
                         onChange={setShowContext}
+                        className="select-none"
                     />
                 </IssueCardActions>
             </div>
