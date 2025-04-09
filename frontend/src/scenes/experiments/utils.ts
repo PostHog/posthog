@@ -332,6 +332,7 @@ export function getDefaultCountMetric(): ExperimentMetric {
         source: {
             kind: NodeKind.EventsNode,
             event: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
         },
     }
 }
