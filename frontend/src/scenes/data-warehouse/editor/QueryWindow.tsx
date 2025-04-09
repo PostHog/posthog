@@ -7,7 +7,6 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
-import MaxTool from 'scenes/max/MaxTool'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
@@ -38,9 +37,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadata,
         setMetadataLoading,
         saveAsView,
-        setSuggestedQueryInput,
-        onAcceptSuggestedQueryInput,
-        onRejectSuggestedQueryInput,
     } = useActions(multitabEditorLogic)
 
     const { response } = useValues(dataNodeLogic)
@@ -113,55 +109,38 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     </LemonButton>
                 )}
             </div>
-            <MaxTool
-                name="generate_hogql_query"
-                displayName="Write and tweak SQL"
-                context={{
-                    current_query: queryInput,
+            <QueryPane
+                originalValue={suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined}
+                queryInput={suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput}
+                sourceQuery={sourceQuery.source}
+                promptError={null}
+                onRun={runQuery}
+                codeEditorProps={{
+                    queryKey: codeEditorKey,
+                    onChange: (v) => {
+                        setQueryInput(v ?? '')
+                    },
+                    onMount: (editor, monaco) => {
+                        onSetMonacoAndEditor(monaco, editor)
+                    },
+                    onPressCmdEnter: (value, selectionType) => {
+                        if (value && selectionType === 'selection') {
+                            runQuery(value)
+                        } else {
+                            runQuery()
+                        }
+                    },
+                    onError: (error) => {
+                        setError(error)
+                    },
+                    onMetadata: (metadata) => {
+                        setMetadata(metadata)
+                    },
+                    onMetadataLoading: (loading) => {
+                        setMetadataLoading(loading)
+                    },
                 }}
-                callback={(toolOutput: string) => {
-                    setSuggestedQueryInput(toolOutput)
-                }}
-            >
-                <QueryPane
-                    originalValue={
-                        suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined
-                    }
-                    queryInput={
-                        suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput
-                    }
-                    sourceQuery={sourceQuery.source}
-                    promptError={null}
-                    onAccept={onAcceptSuggestedQueryInput}
-                    onRun={runQuery}
-                    onReject={onRejectSuggestedQueryInput}
-                    codeEditorProps={{
-                        queryKey: codeEditorKey,
-                        onChange: (v) => {
-                            setQueryInput(v ?? '')
-                        },
-                        onMount: (editor, monaco) => {
-                            onSetMonacoAndEditor(monaco, editor)
-                        },
-                        onPressCmdEnter: (value, selectionType) => {
-                            if (value && selectionType === 'selection') {
-                                runQuery(value)
-                            } else {
-                                runQuery()
-                            }
-                        },
-                        onError: (error) => {
-                            setError(error)
-                        },
-                        onMetadata: (metadata) => {
-                            setMetadata(metadata)
-                        },
-                        onMetadataLoading: (loading) => {
-                            setMetadataLoading(loading)
-                        },
-                    }}
-                />
-            </MaxTool>
+            />
             <InternalQueryWindow />
         </div>
     )

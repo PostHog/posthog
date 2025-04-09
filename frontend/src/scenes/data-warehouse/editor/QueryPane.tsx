@@ -1,13 +1,15 @@
 import { IconCheck, IconX } from '@posthog/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import MaxTool from 'scenes/max/MaxTool'
 
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
+import { multitabEditorLogic } from './multitabEditorLogic'
 
 interface QueryPaneProps {
     queryInput: string
@@ -15,13 +17,13 @@ interface QueryPaneProps {
     codeEditorProps: Partial<CodeEditorProps>
     sourceQuery: HogQLQuery
     originalValue?: string
-    onAccept?: () => void
-    onReject?: () => void
     onRun?: () => void
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
+    const { setSuggestedQueryInput, onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } =
+        useActions(multitabEditorLogic)
 
     return (
         <>
@@ -62,6 +64,21 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         )}
                     </AutoSizer>
                 </div>
+                <div className="absolute bottom-6 right-4">
+                    <MaxTool
+                        name="generate_hogql_query"
+                        displayName="Write and tweak SQL"
+                        context={{
+                            current_query: props.queryInput,
+                        }}
+                        callback={(toolOutput: string) => {
+                            setSuggestedQueryInput(toolOutput)
+                        }}
+                        suggestions={[]}
+                    >
+                        <div className="relative" />
+                    </MaxTool>
+                </div>
                 {props.originalValue && (
                     <div
                         className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
@@ -72,7 +89,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             type="primary"
                             icon={<IconCheck color="var(--success)" />}
                             onClick={() => {
-                                props.onAccept?.()
+                                onAcceptSuggestedQueryInput()
                                 setTimeout(() => {
                                     // Hacky to use setTimeout, but for some reason onRun seemed not to run
                                     // when immediately after onAccept
@@ -87,7 +104,9 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         <LemonButton
                             type="tertiary"
                             icon={<IconCheck color="var(--success)" />}
-                            onClick={props.onAccept}
+                            onClick={() => {
+                                onAcceptSuggestedQueryInput()
+                            }}
                             tooltipPlacement="top"
                             size="small"
                         >
@@ -96,7 +115,9 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         <LemonButton
                             status="danger"
                             icon={<IconX />}
-                            onClick={props.onReject}
+                            onClick={() => {
+                                onRejectSuggestedQueryInput()
+                            }}
                             tooltipPlacement="top"
                             size="small"
                         >
