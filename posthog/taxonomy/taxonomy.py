@@ -97,7 +97,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
-        "All Events": {
+        "All events": {
             "label": "All events",
             "description": "This is a wildcard that matches all events.",
         },
@@ -136,35 +136,35 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$opt_in": {
-            "label": "Opt In",
+            "label": "Opt in",
             "description": "When a user opts into analytics.",
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$feature_flag_called": {
-            "label": "Feature Flag Called",
+            "label": "Feature flag called",
             "description": (
-                'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try "Active Feature Flags".'
+                'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try "Active feature flags".'
             ),
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
         },
         "$feature_view": {
-            "label": "Feature View",
+            "label": "Feature view",
             "description": "When a user views a feature.",
             "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
         },
         "$feature_interaction": {
-            "label": "Feature Interaction",
+            "label": "Feature interaction",
             "description": "When a user interacts with a feature.",
             "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
         },
         "$feature_enrollment_update": {
-            "label": "Feature Enrollment",
+            "label": "Feature enrollment",
             "description": "When a user enrolls with a feature.",
             "description_llm": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
         },
         "$capture_metrics": {
-            "label": "Capture Metrics",
+            "label": "Capture metrics",
             "description": "Metrics captured with values pertaining to your systems at a specific point in time",
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
@@ -184,7 +184,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$groupidentify": {
-            "label": "Group Identify",
+            "label": "Group identify",
             "description": "A group has been identified with properties",
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
@@ -228,39 +228,39 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI embedding (LLM)",
             "description": "A call to an embedding model.",
         },
-        "Application Opened": {
-            "label": "Application Opened",
+        "Application opened": {
+            "label": "Application opened",
             "description": "When a user opens the mobile app either for the first time or from the foreground.",
         },
-        "Application Backgrounded": {
-            "label": "Application Backgrounded",
+        "Application backgrounded": {
+            "label": "Application backgrounded",
             "description": "When a user puts the mobile app in the background.",
         },
-        "Application Updated": {
-            "label": "Application Updated",
+        "Application updated": {
+            "label": "Application updated",
             "description": "When a user upgrades the mobile app.",
         },
-        "Application Installed": {
-            "label": "Application Installed",
+        "Application installed": {
+            "label": "Application installed",
             "description": "When a user installs the mobile app.",
         },
-        "Application Became Active": {
-            "label": "Application Became Active",
+        "Application became active": {
+            "label": "Application became active",
             "description": "When a user puts the mobile app in the foreground.",
         },
-        "Deep Link Opened": {
-            "label": "Deep Link Opened",
+        "Deep link opened": {
+            "label": "Deep link opened",
             "description": "When a user opens the mobile app via a deep link.",
         },
     },
     "elements": {
         "tag_name": {
-            "label": "Tag Name",
+            "label": "Tag name",
             "description": "HTML tag name of the element which you want to filter.",
             "examples": ["a", "button", "input"],
         },
         "selector": {
-            "label": "CSS Selector",
+            "label": "CSS selector",
             "description": "Select any element by CSS selector.",
             "examples": ["div > a", "table td:nth-child(2)", ".my-class"],
         },
@@ -302,14 +302,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     },
     "event_properties": {
         "$python_runtime": {
-            "label": "Python Runtime",
+            "label": "Python runtime",
             "description": "The Python runtime that was used to capture the event.",
             "examples": ["CPython"],
             "system": True,
             "ignored_in_assistant": True,
         },
         "$python_version": {
-            "label": "Python Version",
+            "label": "Python version",
             "description": "The Python version that was used to capture the event.",
             "examples": ["3.11.5"],
             "system": True,
@@ -344,7 +344,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         # do we need distinct_id and $session_duration here in the back end?
         "$copy_type": {
-            "label": "Copy Type",
+            "label": "Copy type",
             "description": "Type of copy event.",
             "examples": ["copy", "cut"],
             "ignored_in_assistant": True,
@@ -371,19 +371,19 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,
         },
         "$autocapture_disabled_server_side": {
-            "label": "Autocapture Disabled Server-Side",
+            "label": "Autocapture disabled server-side",
             "description": "If autocapture has been disabled server-side.",
             "system": True,
             "ignored_in_assistant": True,
         },
         "$console_log_recording_enabled_server_side": {
-            "label": "Console Log Recording Enabled Server-Side",
+            "label": "Console log recording enabled server-side",
             "description": "If console log recording has been enabled server-side.",
             "system": True,
             "ignored_in_assistant": True,
         },
         "$session_recording_recorder_version_server_side": {
-            "label": "Session Recording Recorder Version Server-Side",
+            "label": "Session recording recorder version server-side",
             "description": "The version of the session recording recorder that is enabled server-side.",
             "examples": ["v2"],
             "system": True,
@@ -397,12 +397,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,
         },
         "$feature_flag_payloads": {
-            "label": "Feature Flag Payloads",
+            "label": "Feature flag payloads",
             "description": "Feature flag payloads active in the environment.",
             "ignored_in_assistant": True,
         },
         "$capture_failed_request": {
-            "label": "Capture Failed Request",
+            "label": "Capture failed request",
             "description": "",
             "ignored_in_assistant": True,
         },
@@ -523,13 +523,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
         },
         "$anon_distinct_id": {
-            "label": "Anon Distinct ID",
+            "label": "Anon distinct ID",
             "description": "If the user was previously anonymous, their anonymous ID will be set here.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
             "system": True,
         },
         "$event_type": {
-            "label": "Event Type",
+            "label": "Event type",
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
             "examples": ["click", "submit", "change"],
         },
@@ -545,7 +545,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["1681211521.345"],
         },
         "$browser_type": {
-            "label": "Browser Type",
+            "label": "Browser type",
             "description": "This is only added when posthog-js config.opt_out_useragent_filter is true.",
             "examples": ["browser", "bot"],
         },
@@ -618,37 +618,37 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
         },
         "$geoip_city_name": {
-            "label": "City Name",
+            "label": "City name",
             "description": "Name of the city matched to this event's IP address.",
             "examples": ["Sydney", "Chennai", "Brooklyn"],
         },
         "$geoip_country_name": {
-            "label": "Country Name",
+            "label": "Country name",
             "description": "Name of the country matched to this event's IP address.",
             "examples": ["Australia", "India", "United States"],
         },
         "$geoip_country_code": {
-            "label": "Country Code",
+            "label": "Country code",
             "description": "Code of the country matched to this event's IP address.",
             "examples": ["AU", "IN", "US"],
         },
         "$geoip_continent_name": {
-            "label": "Continent Name",
+            "label": "Continent name",
             "description": "Name of the continent matched to this event's IP address.",
             "examples": ["Oceania", "Asia", "North America"],
         },
         "$geoip_continent_code": {
-            "label": "Continent Code",
+            "label": "Continent code",
             "description": "Code of the continent matched to this event's IP address.",
             "examples": ["OC", "AS", "NA"],
         },
         "$geoip_postal_code": {
-            "label": "Postal Code",
+            "label": "Postal code",
             "description": "Approximated postal code matched to this event's IP address.",
             "examples": ["2000", "600004", "11211"],
         },
         "$geoip_postal_code_confidence": {
-            "label": "Postal Code identification confidence score",
+            "label": "Postal code identification confidence score",
             "description": "If provided by the licensed geoip database",
             "examples": ["null", "0.1"],
             "system": True,
@@ -670,21 +670,21 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["Australia/Sydney", "Asia/Kolkata", "America/New_York"],
         },
         "$geoip_subdivision_1_name": {
-            "label": "Subdivision 1 Name",
+            "label": "Subdivision 1 name",
             "description": "Name of the subdivision matched to this event's IP address.",
             "examples": ["New South Wales", "Tamil Nadu", "New York"],
         },
         "$geoip_subdivision_1_code": {
-            "label": "Subdivision 1 Code",
+            "label": "Subdivision 1 code",
             "description": "Code of the subdivision matched to this event's IP address.",
             "examples": ["NSW", "TN", "NY"],
         },
         "$geoip_subdivision_2_name": {
-            "label": "Subdivision 2 Name",
+            "label": "Subdivision 2 name",
             "description": "Name of the second subdivision matched to this event's IP address.",
         },
         "$geoip_subdivision_2_code": {
-            "label": "Subdivision 2 Code",
+            "label": "Subdivision 2 code",
             "description": "Code of the second subdivision matched to this event's IP address.",
         },
         "$geoip_subdivision_2_confidence": {
@@ -695,15 +695,15 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
         },
         "$geoip_subdivision_3_name": {
-            "label": "Subdivision 3 Name",
+            "label": "Subdivision 3 name",
             "description": "Name of the third subdivision matched to this event's IP address.",
         },
         "$geoip_subdivision_3_code": {
-            "label": "Subdivision 3 Code",
+            "label": "Subdivision 3 code",
             "description": "Code of the third subdivision matched to this event's IP address.",
         },
         "$geoip_disable": {
-            "label": "GeoIP Disabled",
+            "label": "GeoIP disabled",
             "description": "Whether to skip GeoIP processing for the event.",
         },
         "$geoip_city_confidence": {
@@ -727,49 +727,49 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["0.5"],
         },
         "$el_text": {
-            "label": "Element Text",
+            "label": "Element text",
             "description": "The text of the element that was clicked. Only sent with Autocapture events.",
             "examples": ["Click here!"],
         },
         "$app_build": {
-            "label": "App Build",
+            "label": "App build",
             "description": "The build number for the app.",
         },
         "$app_name": {
-            "label": "App Name",
+            "label": "App name",
             "description": "The name of the app.",
         },
         "$app_namespace": {
-            "label": "App Namespace",
+            "label": "App namespace",
             "description": "The namespace of the app as identified in the app store.",
             "examples": ["com.posthog.app"],
         },
         "$app_version": {
-            "label": "App Version",
+            "label": "App version",
             "description": "The version of the app.",
         },
         "$device_manufacturer": {
-            "label": "Device Manufacturer",
+            "label": "Device manufacturer",
             "description": "The manufacturer of the device",
             "examples": ["Apple", "Samsung"],
         },
         "$device_name": {
-            "label": "Device Name",
+            "label": "Device name",
             "description": "Name of the device",
             "examples": ["iPhone 12 Pro", "Samsung Galaxy 10"],
         },
         "$is_emulator": {
-            "label": "Is Emulator",
+            "label": "Is emulator",
             "description": "Indicates whether the app is running on an emulator or a physical device",
             "examples": ["true", "false"],
         },
         "$is_mac_catalyst_app": {
-            "label": "Is Mac Catalyst App",
+            "label": "Is Mac Catalyst app",
             "description": "Indicates whether the app is a Mac Catalyst app running on macOS",
             "examples": ["true", "false"],
         },
         "$is_ios_running_on_mac": {
-            "label": "Is iOS App Running on Mac",
+            "label": "Is iOS app running on Mac",
             "description": "Indicates whether the app is an iOS app running on macOS (Apple Silicon)",
             "examples": ["true", "false"],
         },
@@ -779,12 +779,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["en-US", "de-DE"],
         },
         "$os_name": {
-            "label": "OS Name",
+            "label": "OS name",
             "description": "The Operating System name",
             "examples": ["iOS", "Android"],
         },
         "$os_version": {
-            "label": "OS Version",
+            "label": "OS version",
             "description": "The Operating System version.",
             "examples": ["15.5"],
         },
@@ -801,7 +801,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The location of a Touch event on the Y axis",
         },
         "$plugins_succeeded": {
-            "label": "Plugins Succeeded",
+            "label": "Plugins succeeded",
             "description": "Plugins that successfully processed the event, e.g. edited properties (plugin method `processEvent`).",
         },
         "$groups": {
@@ -829,15 +829,15 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
         },
         "$group_set": {
-            "label": "Group Set",
+            "label": "Group set",
             "description": "Group properties to be set",
         },
         "$group_key": {
-            "label": "Group Key",
+            "label": "Group key",
             "description": "Specified group key",
         },
         "$group_type": {
-            "label": "Group Type",
+            "label": "Group type",
             "description": "Specified group type",
         },
         "$window_id": {
@@ -851,63 +851,63 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
         },
         "$plugins_failed": {
-            "label": "Plugins Failed",
+            "label": "Plugins failed",
             "description": "Plugins that failed to process the event (plugin method `processEvent`).",
         },
         "$plugins_deferred": {
-            "label": "Plugins Deferred",
+            "label": "Plugins deferred",
             "description": "Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method `onEvent`).",
         },
         "$$plugin_metrics": {
-            "label": "Plugin Metric",
+            "label": "Plugin metric",
             "description": "Performance metrics for a given plugin.",
         },
         "$creator_event_uuid": {
-            "label": "Creator Event ID",
+            "label": "Creator event ID",
             "description": "Unique ID for the event, which created this person.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
         "utm_source": {
-            "label": "UTM Source",
+            "label": "UTM source",
             "description": "UTM source tag.",
             "examples": ["Google", "Bing", "Twitter", "Facebook"],
         },
         "$initial_utm_source": {
-            "label": "Initial UTM Source",
+            "label": "Initial UTM source",
             "description": "UTM source tag.",
             "examples": ["Google", "Bing", "Twitter", "Facebook"],
         },
         "utm_medium": {
-            "label": "UTM Medium",
+            "label": "UTM medium",
             "description": "UTM medium tag.",
             "examples": ["Social", "Organic", "Paid", "Email"],
         },
         "utm_campaign": {
-            "label": "UTM Campaign",
+            "label": "UTM campaign",
             "description": "UTM campaign tag.",
             "examples": ["feature launch", "discount"],
         },
         "utm_name": {
-            "label": "UTM Name",
+            "label": "UTM name",
             "description": "UTM campaign tag, sent via Segment.",
             "examples": ["feature launch", "discount"],
         },
         "utm_content": {
-            "label": "UTM Content",
+            "label": "UTM content",
             "description": "UTM content tag.",
             "examples": ["bottom link", "second button"],
         },
         "utm_term": {
-            "label": "UTM Term",
+            "label": "UTM term",
             "description": "UTM term tag.",
             "examples": ["free goodies"],
         },
         "$performance_page_loaded": {
-            "label": "Page Loaded",
+            "label": "Page loaded",
             "description": "The time taken until the browser's page load event in milliseconds.",
         },
         "$performance_raw": {
-            "label": "Browser Performance",
+            "label": "Browser performance",
             "description": "The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired",
             "system": True,
         },
@@ -917,7 +917,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
         },
         "$sentry_event_id": {
-            "label": "Sentry Event ID",
+            "label": "Sentry event ID",
             "description": "This is the Sentry key for an event.",
             "examples": ["byroc2ar9ee4ijqp"],
             "system": True,
@@ -929,7 +929,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
         },
         "$sent_at": {
-            "label": "Sent At",
+            "label": "Sent at",
             "description": "Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.",
             "examples": ["2023-05-20T15:31:00Z"],
         },
@@ -944,12 +944,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["Windows", "Mac OS X"],
         },
         "$browser_language": {
-            "label": "Browser Language",
+            "label": "Browser language",
             "description": "Language.",
             "examples": ["en", "en-US", "cn", "pl-PL"],
         },
         "$browser_language_prefix": {
-            "label": "Browser Language Prefix",
+            "label": "Browser language prefix",
             "description": "Language prefix.",
             "examples": [
                 "en",
@@ -962,41 +962,41 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["https://example.com/interesting-article?parameter=true"],
         },
         "$browser_version": {
-            "label": "Browser Version",
+            "label": "Browser version",
             "description": "The version of the browser that was used. Used in combination with Browser.",
             "examples": ["70", "79"],
         },
         "$raw_user_agent": {
-            "label": "Raw User Agent",
+            "label": "Raw user agent",
             "description": "PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string.",
             "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"],
         },
         "$user_agent": {
-            "label": "Raw User Agent",
+            "label": "Raw user agent",
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",
             "examples": ["Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)"],
         },
         "$screen_height": {
-            "label": "Screen Height",
+            "label": "Screen height",
             "description": "The height of the user's entire screen (in pixels).",
             "examples": ["2160", "1050"],
         },
         "$screen_width": {
-            "label": "Screen Width",
+            "label": "Screen width",
             "description": "The width of the user's entire screen (in pixels).",
             "examples": ["1440", "1920"],
         },
         "$screen_name": {
-            "label": "Screen Name",
+            "label": "Screen name",
             "description": "The name of the active screen.",
         },
         "$viewport_height": {
-            "label": "Viewport Height",
+            "label": "Viewport height",
             "description": "The height of the user's actual browser window (in pixels).",
             "examples": ["2094", "1031"],
         },
         "$viewport_width": {
-            "label": "Viewport Width",
+            "label": "Viewport width",
             "description": "The width of the user's actual browser window (in pixels).",
             "examples": ["1439", "1915"],
         },
@@ -1006,27 +1006,27 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["web", "posthog-ios"],
         },
         "$lib_custom_api_host": {
-            "label": "Library Custom API Host",
+            "label": "Library custom API host",
             "description": "The custom API host used to send the event.",
             "examples": ["https://ph.example.com"],
         },
         "$lib_version": {
-            "label": "Library Version",
+            "label": "Library version",
             "description": "Version of the library used to send the event. Used in combination with Library.",
             "examples": ["1.0.3"],
         },
         "$lib_version__major": {
-            "label": "Library Version (Major)",
+            "label": "Library version (major)",
             "description": "Major version of the library used to send the event.",
             "examples": [1],
         },
         "$lib_version__minor": {
-            "label": "Library Version (Minor)",
+            "label": "Library version (minor)",
             "description": "Minor version of the library used to send the event.",
             "examples": [0],
         },
         "$lib_version__patch": {
-            "label": "Library Version (Patch)",
+            "label": "Library version (patch)",
             "description": "Patch version of the library used to send the event.",
             "examples": [3],
         },
@@ -1036,7 +1036,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["https://google.com/search?q=posthog&rlz=1C..."],
         },
         "$referring_domain": {
-            "label": "Referring Domain",
+            "label": "Referring domain",
             "description": "Domain of where the user came from.",
             "examples": ["google.com", "facebook.com"],
         },
@@ -1045,7 +1045,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "This variable will be set to the distinct ID if you've called `posthog.identify('distinct id')`. If the user is anonymous, it'll be empty.",
         },
         "$ip": {
-            "label": "IP Address",
+            "label": "IP address",
             "description": "IP address for this user when the event was sent.",
             "examples": ["203.0.113.0"],
         },
@@ -1055,67 +1055,67 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["example.com", "localhost:8000"],
         },
         "$pathname": {
-            "label": "Path Name",
+            "label": "Path name",
             "description": "The path of the Current URL, which means everything in the url after the domain.",
             "examples": ["/pricing", "/about-us/team"],
         },
         "$search_engine": {
-            "label": "Search Engine",
+            "label": "Search engine",
             "description": "The search engine the user came in from (if any).",
             "examples": ["Google", "DuckDuckGo"],
         },
         "$active_feature_flags": {
-            "label": "Active Feature Flags",
+            "label": "Active feature flags",
             "description": "Keys of the feature flags that were active while this event was sent.",
             "examples": ["['beta-feature']"],
         },
         "$enabled_feature_flags": {
-            "label": "Enabled Feature Flags",
+            "label": "Enabled feature flags",
             "description": "Keys and multivariate values of the feature flags that were active while this event was sent.",
             "examples": ['{"flag": "value"}'],
         },
         "$feature_flag_response": {
-            "label": "Feature Flag Response",
+            "label": "Feature flag response",
             "description": "What the call to feature flag responded with.",
             "examples": ["true", "false"],
         },
         "$feature_flag_payload": {
-            "label": "Feature Flag Response Payload",
+            "label": "Feature flag response payload",
             "description": "The JSON payload that the call to feature flag responded with (if any)",
             "examples": ['{"variant": "test"}'],
         },
         "$feature_flag": {
-            "label": "Feature Flag",
-            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active Feature Flags".',
+            "label": "Feature flag",
+            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active feature flags".',
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {
-            "label": "Feature Flag Evaluation Reason",
+            "label": "Feature flag evaluation reason",
             "description": "The reason the feature flag was matched or not matched.",
             "examples": ["Matched condition set 1"],
         },
         "$feature_flag_request_id": {
-            "label": "Feature Flag Request ID",
+            "label": "Feature flag request ID",
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
         },
         "$feature_flag_version": {
-            "label": "Feature Flag Version",
+            "label": "Feature flag version",
             "description": "The version of the feature flag that was called.",
             "examples": ["3"],
         },
         "$survey_response": {
-            "label": "Survey Response",
+            "label": "Survey response",
             "description": "The response value for the first question in the survey.",
             "examples": ["I love it!", 5, "['choice 1', 'choice 3']"],
         },
         "$survey_name": {
-            "label": "Survey Name",
+            "label": "Survey name",
             "description": "The name of the survey.",
             "examples": ["Product Feedback for New Product", "Home page NPS"],
         },
         "$survey_questions": {
-            "label": "Survey Questions",
+            "label": "Survey questions",
             "description": "The questions asked in the survey.",
         },
         "$survey_id": {
@@ -1123,11 +1123,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The unique identifier for the survey.",
         },
         "$survey_iteration": {
-            "label": "Survey Iteration Number",
+            "label": "Survey iteration number",
             "description": "The iteration number for the survey.",
         },
         "$survey_iteration_start_date": {
-            "label": "Survey Iteration Start Date",
+            "label": "Survey iteration start date",
             "description": "The start date for the current iteration of the survey.",
         },
         "$device": {
@@ -1141,7 +1141,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["https://sentry.io/..."],
         },
         "$device_type": {
-            "label": "Device Type",
+            "label": "Device type",
             "description": "The type of device that was used.",
             "examples": ["Mobile", "Tablet", "Desktop"],
         },
@@ -1151,7 +1151,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [2.75],
         },
         "$device_model": {
-            "label": "Device Model",
+            "label": "Device model",
             "description": "The model of the device that was used.",
             "examples": ["iPhone9,3", "SM-G965W"],
         },
@@ -1171,47 +1171,47 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["true", "false"],
         },
         "$client_session_initial_referring_host": {
-            "label": "Referrer Host",
+            "label": "Referrer host",
             "description": "Host that the user came from. (First-touch, session-scoped)",
             "examples": ["google.com", "facebook.com"],
         },
         "$client_session_initial_pathname": {
-            "label": "Initial Path",
+            "label": "Initial path",
             "description": "Path that the user started their session on. (First-touch, session-scoped)",
             "examples": ["/register", "/some/landing/page"],
         },
         "$client_session_initial_utm_source": {
-            "label": "Initial UTM Source",
+            "label": "Initial UTM source",
             "description": "UTM Source. (First-touch, session-scoped)",
             "examples": ["Google", "Bing", "Twitter", "Facebook"],
         },
         "$client_session_initial_utm_campaign": {
-            "label": "Initial UTM Campaign",
+            "label": "Initial UTM campaign",
             "description": "UTM Campaign. (First-touch, session-scoped)",
             "examples": ["feature launch", "discount"],
         },
         "$client_session_initial_utm_medium": {
-            "label": "Initial UTM Medium",
+            "label": "Initial UTM medium",
             "description": "UTM Medium. (First-touch, session-scoped)",
             "examples": ["Social", "Organic", "Paid", "Email"],
         },
         "$client_session_initial_utm_content": {
-            "label": "Initial UTM Source",
+            "label": "Initial UTM source",
             "description": "UTM Source. (First-touch, session-scoped)",
             "examples": ["bottom link", "second button"],
         },
         "$client_session_initial_utm_term": {
-            "label": "Initial UTM Source",
+            "label": "Initial UTM source",
             "description": "UTM Source. (First-touch, session-scoped)",
             "examples": ["free goodies"],
         },
         "$network_carrier": {
-            "label": "Network Carrier",
+            "label": "Network carrier",
             "description": "The network carrier that the user is on.",
             "examples": ["cricket", "telecom"],
         },
         "from_background": {
-            "label": "From Background",
+            "label": "From background",
             "description": "Whether the app was opened for the first time or from the background.",
             "examples": ["true", "false"],
         },
@@ -1221,27 +1221,27 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["https://open.my.app"],
         },
         "referring_application": {
-            "label": "Referrer Application",
+            "label": "Referrer application",
             "description": "The namespace of the app that made the request.",
             "examples": ["com.posthog.app"],
         },
         "version": {
-            "label": "App Version",
+            "label": "App version",
             "description": "The version of the app",
             "examples": ["1.0.0"],
         },
         "previous_version": {
-            "label": "App Previous Version",
+            "label": "App previous version",
             "description": "The previous version of the app",
             "examples": ["1.0.0"],
         },
         "build": {
-            "label": "App Build",
+            "label": "App build",
             "description": "The build number for the app",
             "examples": ["1"],
         },
         "previous_build": {
-            "label": "App Previous Build",
+            "label": "App previous build",
             "description": "The previous build number for the app",
             "examples": ["1"],
         },
@@ -1310,11 +1310,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "TikTok Click ID",
         },
         "$is_identified": {
-            "label": "Is Identified",
+            "label": "Is identified",
             "description": "When the person was identified",
         },
         "$initial_person_info": {
-            "label": "Initial Person Info",
+            "label": "Initial person info",
             "description": "posthog-js initial person information. used in the $set_once flow",
             "system": True,
         },
@@ -1390,8 +1390,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$prev_pageview_last_content": {
             "examples": [0],
-            "label": "Previous pageview last content",
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
+            "label": "Previous pageview last content",
         },
         "$prev_pageview_last_content_percentage": {
             "examples": [0],
@@ -1419,11 +1419,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Previous pageview duration",
         },
         "$surveys_activated": {
-            "label": "Surveys Activated",
+            "label": "Surveys activated",
             "description": "The surveys that were activated for this event.",
         },
         "$process_person_profile": {
-            "label": "Person Profile processing flag",
+            "label": "Person profile processing flag",
             "description": "The setting from an SDK to control whether an event has person processing enabled",
             "system": True,
         },
@@ -1483,103 +1483,103 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         # AI
         "$ai_base_url": {
-            "label": "AI Base URL (LLM)",
+            "label": "AI base URL (LLM)",
             "description": "The base URL of the request made to the LLM API",
             "examples": ["https://api.openai.com/v1/"],
         },
         "$ai_http_status": {
-            "label": "AI HTTP Status (LLM)",
+            "label": "AI HTTP status (LLM)",
             "description": "The HTTP status code of the request made to the LLM API",
             "examples": [200, 429],
         },
         "$ai_input": {
-            "label": "AI Input (LLM)",
+            "label": "AI input (LLM)",
             "description": "The input JSON that was sent to the LLM API",
             "examples": ['{"content": "Explain quantum computing in simple terms.", "role": "user"}'],
         },
         "$ai_input_tokens": {
-            "label": "AI Input Tokens (LLM)",
+            "label": "AI input tokens (LLM)",
             "description": "The number of tokens in the input prmopt that was sent to the LLM API",
             "examples": [23],
         },
         "$ai_output": {
-            "label": "AI Output (LLM)",
+            "label": "AI output (LLM)",
             "description": "The output JSON that was received from the LLM API",
             "examples": [
                 '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
             ],
         },
         "$ai_output_choices": {
-            "label": "AI Output (LLM)",
+            "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API",
             "examples": [
                 '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
             ],
         },
         "$ai_output_tokens": {
-            "label": "AI Output Tokens (LLM)",
+            "label": "AI output tokens (LLM)",
             "description": "The number of tokens in the output from the LLM API",
             "examples": [23],
         },
         "$ai_cache_read_input_tokens": {
-            "label": "AI Cache Read Input Tokens (LLM)",
+            "label": "AI cache read input tokens (LLM)",
             "description": "The number of tokens read from the cache for the input prompt",
             "examples": [23],
         },
         "$ai_cache_creation_input_tokens": {
-            "label": "AI Cache Creation Input Tokens (LLM)",
+            "label": "AI cache creation input tokens (LLM)",
             "description": "The number of tokens created in the cache for the input prompt (anthropic only)",
             "examples": [23],
         },
         "$ai_reasoning_tokens": {
-            "label": "AI Reasoning Tokens (LLM)",
+            "label": "AI reasoning tokens (LLM)",
             "description": "The number of tokens in the reasoning output from the LLM API",
             "examples": [23],
         },
         "$ai_input_cost_usd": {
-            "label": "AI Input Cost USD (LLM)",
+            "label": "AI input cost USD (LLM)",
             "description": "The cost in USD of the input tokens sent to the LLM API",
             "examples": [0.0017],
         },
         "$ai_output_cost_usd": {
-            "label": "AI Output Cost USD (LLM)",
+            "label": "AI output cost USD (LLM)",
             "description": "The cost in USD of the output tokens received from the LLM API",
             "examples": [0.0024],
         },
         "$ai_total_cost_usd": {
-            "label": "AI Total Cost USD (LLM)",
+            "label": "AI total cost USD (LLM)",
             "description": "The total cost in USD of the request made to the LLM API (input + output costs)",
             "examples": [0.0041],
         },
         "$ai_latency": {
-            "label": "AI Latency (LLM)",
+            "label": "AI latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds",
             "examples": [0.361],
         },
         "$ai_model": {
-            "label": "AI Model (LLM)",
+            "label": "AI model (LLM)",
             "description": "The model used to generate the output from the LLM API",
             "examples": ["gpt-4o-mini"],
         },
         "$ai_model_parameters": {
-            "label": "AI Model Parameters (LLM)",
+            "label": "AI model parameters (LLM)",
             "description": "The parameters used to configure the model in the LLM API, in JSON",
             "examples": ['{"temperature": 0.5, "max_tokens": 50}'],
         },
         "$ai_tools": {
-            "label": "AI Tools (LLM)",
+            "label": "AI tools (LLM)",
             "description": "The tools available to the LLM",
             "examples": [
                 '[{"type": "function", "function": {"name": "tool1", "arguments": {"arg1": "value1", "arg2": "value2"}}}]',
             ],
         },
         "$ai_stream": {
-            "label": "AI Stream (LLM)",
+            "label": "AI stream (LLM)",
             "description": "Whether the response from the LLM API was streamed",
             "examples": ["true", "false"],
         },
         "$ai_temperature": {
-            "label": "AI Temperature (LLM)",
+            "label": "AI temperature (LLM)",
             "description": "The temperature parameter used in the request to the LLM API",
             "examples": [0.7, 1.0],
         },
@@ -1737,7 +1737,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     },
     "groups": {
         "$group_key": {
-            "label": "Group Key",
+            "label": "Group key",
             "description": "Specified group key",
         },
     },
