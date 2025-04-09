@@ -17,8 +17,11 @@ pub struct ExecutionContext<'a> {
     max_stack_depth: usize,
 }
 
-pub struct ExecOutcome {
-    pub returned: Option<HogLiteral>, // If Some, we're finished executing the program
+#[derive(Debug, Clone)]
+pub enum StepOutcome {
+    Finished(HogLiteral),
+    NativeCall(String, Vec<HogValue>),
+    Continue,
 }
 
 pub struct CallFrame {
@@ -157,7 +160,7 @@ impl<'a> VmState<'a> {
         T: FromHogLiteral,
     {
         match self.pop_stack()? {
-            HogValue::Lit(lit) => lit.try_into(),
+            HogValue::Lit(lit) => lit.try_into(), // Purely an optimisation to skip a clone
             other => other.deref(&self.heap)?.clone().try_into(),
         }
     }
@@ -210,7 +213,11 @@ impl<'a> VmState<'a> {
         self.stack.get(idx).cloned().ok_or(VmError::StackUnderflow)
     }
 
-    pub fn step(&mut self) -> Result<ExecOutcome, VmError> {
+    fn prep_native_call(&self, name: String, args: Vec<HogValue>) -> StepOutcome {
+        return StepOutcome::NativeCall(name, args);
+    }
+
+    pub fn step(&mut self) -> Result<StepOutcome, VmError> {
         let op: Operation = self.next()?;
 
         match op {
@@ -247,7 +254,36 @@ impl<'a> VmState<'a> {
                     return Err(VmError::UnknownGlobal(chain.join(".")));
                 }
             }
-            Operation::CallGlobal => return Err(VmError::NotImplemented("CallGlobal".to_string())),
+            // We don't implement DeclareFn, because it's not used in the current compiler - it uses
+            // "callables" constructed on the stack, which are then called by constructing a "closure",
+            // which is basically a function call that wraps a "callable" and populates it's argument list
+            Operation::DeclareFn => return Err(VmError::NotImplemented("DeclareFn".to_string())),
+            Operation::CallGlobal => {
+                // The TS impl here has a bunch of special case handling for functions with particular names.
+                // I'm hoping I can simplify that here by unifying the native call interface a bit
+                let name: String = self.next()?;
+                let arg_count: usize = self.next()?;
+                // NOTE - the TS implementation has a clause here that looks for the name in the
+                // "declared functions" - basically, the legacy way of declaring a function before Callable
+                // and closures were introduced. We leave it out because, as above, DeclareFn isn't supported
+                let available_args = self.stack.len() - self.current_frame_base();
+                if available_args < arg_count {
+                    return Err(VmError::NotEnoughArguments(name, available_args, arg_count));
+                }
+                let mut args = Vec::with_capacity(arg_count);
+                for _ in 0..arg_count {
+                    args.push(self.pop_stack()?);
+                }
+                if self.version == 0 {
+                    // In v0, the arguments were expected to be passed in
+                    // stack push order, not pop order. We simulate that here
+                    // but always popping, but then maybe reversing
+                    args.reverse();
+                }
+                // This VM does native calls like so: it returns a "native call" struct,
+                // which the executing environment can use to execute the native call.
+                return Ok(self.prep_native_call(name, args));
+            }
             Operation::And => {
                 let count: usize = self.next()?;
                 let mut acc: HogLiteral = true.into();
@@ -403,15 +439,11 @@ impl<'a> VmState<'a> {
                 let result = self.pop_stack()?;
                 let last_frame = self.stack_frames.pop();
                 let Some(frame) = last_frame else {
-                    return Ok(ExecOutcome {
-                        returned: Some(result.deref(&self.heap)?.clone()),
-                    });
+                    return Ok(StepOutcome::Finished(result.deref(&self.heap)?.clone()));
                 };
 
                 if self.stack_frames.is_empty() {
-                    return Ok(ExecOutcome {
-                        returned: Some(result.deref(&self.heap)?.clone()),
-                    });
+                    return Ok(StepOutcome::Finished(result.deref(&self.heap)?.clone()));
                 };
 
                 self.truncate_stack(frame.stack_start)?;
@@ -439,10 +471,6 @@ impl<'a> VmState<'a> {
                     }
                 }
             }
-            // We don't implement DeclareFn, because it's not used in the current compiler - it uses
-            // "callables" constructed on the stack, which are then called by constructing a "closure",
-            // which is basically a function call that wraps a "callable" and populates it's argument list
-            Operation::DeclareFn => return Err(VmError::NotImplemented("DeclareFn".to_string())),
             Operation::Dict => {
                 let element_count: usize = self.next()?;
                 let mut keys = Vec::with_capacity(element_count);
@@ -661,7 +689,7 @@ impl<'a> VmState<'a> {
             }
         }
 
-        Ok(ExecOutcome { returned: None }) // Continue executing
+        Ok(StepOutcome::Continue)
     }
 }
 
@@ -673,6 +701,10 @@ pub struct VmFailure {
     pub step: usize,
 }
 
+// A "native function" is a function that can be called from within the VM. It takes a list
+// of arguments, and returns either a value, or null.
+pub type NativeFunction = fn(&VmState, Vec<HogValue>) -> Result<HogValue, VmError>;
+
 pub fn sync_execute(bytecode: &[JsonValue], max_steps: usize) -> Result<HogLiteral, VmFailure> {
     let context = ExecutionContext {
         bytecode,
@@ -680,23 +712,28 @@ pub fn sync_execute(bytecode: &[JsonValue], max_steps: usize) -> Result<HogLiter
         max_stack_depth: 1024,
     };
 
-    let mut vm = VmState::new(&context).map_err(|e| VmFailure {
+    let fail = |e, vm: Option<&VmState>, step: usize| VmFailure {
         error: e,
-        ip: 0,
-        stack: Vec::new(),
-        step: 0,
-    })?;
+        ip: vm.map_or(0, |vm| vm.ip),
+        stack: vm.map_or(Vec::new(), |vm| vm.stack.clone()),
+        step,
+    };
+
+    let mut vm = VmState::new(&context).map_err(|e| fail(e, None, 0))?;
 
     let mut i = 0;
     while i < max_steps {
-        let res = vm.step().map_err(|e| VmFailure {
-            error: e,
-            ip: vm.ip,
-            stack: vm.stack.clone(),
-            step: i,
-        })?;
+        let res = vm.step().map_err(|e| fail(e, Some(&vm), i))?;
 
-        if let Some(returned) = res.returned {
+        match res {
+            StepOutcome::Continue => {
+                i += 1;
+            }
+            StepOutcome::Finished(res) => return Ok(res),
+            StepOutcome::NativeCall(_, _) => todo!(),
+        }
+
+        if let StepOutcome::Finished(returned) = res {
             return Ok(returned);
         }
         i += 1;
@@ -704,10 +741,5 @@ pub fn sync_execute(bytecode: &[JsonValue], max_steps: usize) -> Result<HogLiter
 
     let err = VmError::OutOfResource("steps".to_string());
 
-    return Err(VmFailure {
-        error: err,
-        ip: vm.ip,
-        stack: vm.stack,
-        step: i,
-    });
+    return Err(fail(err, Some(&vm), i));
 }

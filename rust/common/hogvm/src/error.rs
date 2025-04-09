@@ -57,4 +57,6 @@ pub enum VmError {
     NoFrame,
     #[error("Capture index out of bounds: {0}")]
     CaptureOutOfBounds(usize),
+    #[error("Not enough arguments for function {0}: {1} available, {2} required")]
+    NotEnoughArguments(String, usize, usize),
 }
