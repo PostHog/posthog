@@ -157,20 +157,22 @@ class RootNode(AssistantNode):
             if isinstance(message, HumanMessage):
                 history.append(LangchainHumanMessage(content=message.content, id=message.id))
             elif isinstance(message, AssistantMessage):
-                history.append(
-                    LangchainAIMessage(
-                        content=message.content,
-                        # Filter out tool calls without a tool response, so the completion doesn't fail.
-                        tool_calls=[call.model_dump() for call in message.tool_calls if call.id in tool_result_messages]
-                        if message.tool_calls
-                        else [],
-                        id=message.id,
+                # Filter out tool calls without a tool response, so the completion doesn't fail.
+                tool_calls = [
+                    tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_messages
+                ]
+
+                history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls, id=message.id))
+
+                # Append associated tool call messages.
+                for tool_call in tool_calls:
+                    tool_call_id = tool_call["id"]
+                    result_message = tool_result_messages[tool_call_id]
+                    history.append(
+                        LangchainToolMessage(
+                            content=result_message.content, tool_call_id=tool_call_id, id=result_message.id
+                        )
                     )
-                )
-            elif isinstance(message, AssistantToolCallMessage):
-                history.append(
-                    LangchainToolMessage(content=message.content, tool_call_id=message.tool_call_id, id=message.id)
-                )
             elif isinstance(message, FailureMessage):
                 history.append(
                     LangchainAIMessage(content=message.content or "An unknown failure occurred.", id=message.id)
