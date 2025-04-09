@@ -62,11 +62,10 @@ class HogQLGeneratorTool(MaxTool):
             template_format="mustache",
         )
 
-        chain = prompt | self._model
-
         final_error: Optional[Exception] = None
         for _ in range(3):
             try:
+                chain = prompt | self._model
                 result = chain.invoke({**self.context})
                 parsed_result = self._parse_output(result, hogql_context)
                 break
