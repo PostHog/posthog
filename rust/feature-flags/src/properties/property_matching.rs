@@ -126,17 +126,26 @@ pub fn match_property(
                 // When value doesn't exist:
                 // - for Regex: it's not a match (false)
                 // - for NotRegex: it is a match (true)
+                println!("No match value found for regex match on key: {}", key);
                 return Ok(operator == OperatorType::NotRegex);
             }
             let pattern = match Regex::new(&to_string_representation(value)) {
                 Ok(pattern) => pattern,
-                Err(_) => return Ok(false),
-                //TODO: Should we return Err here and handle elsewhere?
-                //Err(FlagMatchingError::InvalidRegexPattern)
-                // python just returns false here
+                Err(e) => {
+                    println!(
+                        "Failed to compile regex pattern '{}': {}",
+                        to_string_representation(value),
+                        e
+                    );
+                    return Ok(false);
+                }
             };
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
+            println!("Attempting regex match:");
+            println!("  Pattern: {}", to_string_representation(value));
+            println!("  Testing against: {}", haystack);
             let match_ = pattern.find(&haystack);
+            println!("  Match result: {:?}", match_);
 
             if operator == OperatorType::Regex {
                 Ok(match_.is_some())

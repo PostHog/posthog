@@ -1,12 +1,26 @@
+use common_types::PersonId;
+use petgraph::algo::is_cyclic_directed;
+use petgraph::algo::toposort;
+use petgraph::graph::DiGraph;
+use serde_json::Value;
+use sqlx::Row;
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tracing::instrument;
 
-use crate::cohort::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
+use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
+use crate::flags::flag_matching::PostgresReader;
+use crate::properties::property_matching::match_property;
+use crate::properties::property_models::OperatorType;
 use crate::{
     api::errors::FlagError, client::database::Client as DatabaseClient,
     properties::property_models::PropertyFilter,
 };
+
+use super::cohort_models::CohortPropertyType;
+use super::cohort_models::CohortValues;
 
 impl Cohort {
     /// Returns all cohorts for a given team
@@ -176,13 +190,319 @@ impl InnerCohortProperty {
             .flat_map(|value| value.values)
             .collect()
     }
+
+    pub fn evaluate(
+        &self,
+        target_properties: &HashMap<String, Value>,
+        cohort_matches: &HashMap<CohortId, bool>,
+    ) -> Result<bool, FlagError> {
+        match self.prop_type {
+            CohortPropertyType::OR => {
+                for cohort_values in &self.values {
+                    if evaluate_cohort_values(cohort_values, target_properties, cohort_matches)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            CohortPropertyType::AND => {
+                for cohort_values in &self.values {
+                    if !evaluate_cohort_values(cohort_values, target_properties, cohort_matches)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+        }
+    }
+}
+
+fn evaluate_cohort_values(
+    values: &CohortValues,
+    target_properties: &HashMap<String, Value>,
+    cohort_matches: &HashMap<CohortId, bool>,
+) -> Result<bool, FlagError> {
+    match values.prop_type.as_str() {
+        "OR" => {
+            for filter in &values.values {
+                if filter.is_cohort() {
+                    // Handle cohort membership check
+                    if apply_cohort_membership_logic(&[filter.clone()], cohort_matches)? {
+                        return Ok(true);
+                    }
+                } else {
+                    // Handle regular property check
+                    if match_property(filter, target_properties, false).unwrap_or(false) {
+                        return Ok(true);
+                    }
+                }
+            }
+            Ok(false)
+        }
+        "AND" | "property" => {
+            for filter in &values.values {
+                if filter.is_cohort() {
+                    // Handle cohort membership check
+                    if !apply_cohort_membership_logic(&[filter.clone()], cohort_matches)? {
+                        return Ok(false);
+                    }
+                } else {
+                    // Handle regular property check
+                    if !match_property(filter, target_properties, false).unwrap_or(false) {
+                        return Ok(false);
+                    }
+                }
+            }
+            Ok(true)
+        }
+        _ => Err(FlagError::CohortFiltersParsingError),
+    }
+}
+
+/// Evaluates a dynamic cohort and its dependencies.
+/// This uses a topological sort to evaluate dependencies first, which is necessary
+/// because a cohort can depend on another cohort, and we need to respect the dependency order.
+pub fn evaluate_dynamic_cohorts(
+    initial_cohort_id: CohortId,
+    target_properties: &HashMap<String, Value>,
+    cohorts: &[Cohort],
+) -> Result<bool, FlagError> {
+    // First check if this is a static cohort
+    let initial_cohort = cohorts
+        .iter()
+        .find(|c| c.id == initial_cohort_id)
+        .ok_or(FlagError::CohortNotFound(initial_cohort_id.to_string()))?;
+
+    // If it's static, we don't need to evaluate dependencies
+    if initial_cohort.is_static {
+        return Ok(false); // Static cohorts are handled by evaluate_static_cohorts
+    }
+
+    let cohort_dependency_graph = build_cohort_dependency_graph(initial_cohort_id, cohorts)?;
+
+    // Keep the topological sort to handle dependencies correctly
+    let sorted_cohort_ids_as_graph_nodes =
+        toposort(&cohort_dependency_graph, None).map_err(|e| {
+            FlagError::CohortDependencyCycle(format!("Cyclic dependency detected: {:?}", e))
+        })?;
+
+    let mut evaluation_results = HashMap::new();
+
+    // Iterate through the sorted nodes in reverse order
+    for node in sorted_cohort_ids_as_graph_nodes.into_iter().rev() {
+        let cohort_id = cohort_dependency_graph[node];
+        let cohort = cohorts
+            .iter()
+            .find(|c| c.id == cohort_id)
+            .ok_or(FlagError::CohortNotFound(cohort_id.to_string()))?;
+
+        let dependencies = cohort.extract_dependencies()?;
+
+        // Check if all dependencies have been met
+        let dependencies_met = dependencies
+            .iter()
+            .all(|dep_id| evaluation_results.get(dep_id).copied().unwrap_or(false));
+
+        println!("Dependencies met: {}", dependencies_met);
+
+        // If dependencies are not met, mark as not matched and continue
+        if !dependencies_met {
+            evaluation_results.insert(cohort_id, false);
+            continue;
+        }
+
+        // Here's where we use our new hierarchical evaluation
+        let filters = match &cohort.filters {
+            Some(filters) => filters,
+            None => {
+                evaluation_results.insert(cohort_id, false);
+                continue;
+            }
+        };
+
+        // Parse and evaluate using the hierarchical structure
+        let cohort_property: CohortProperty = match serde_json::from_value(filters.clone()) {
+            Ok(prop) => prop,
+            Err(e) => {
+                println!("Failed to parse cohort property: {}", e);
+                evaluation_results.insert(cohort_id, false);
+                continue;
+            }
+        };
+
+        // Use our new evaluation method that respects OR/AND structure
+        let matches = cohort_property
+            .properties
+            .evaluate(target_properties, &evaluation_results)?;
+
+        println!("Cohort {} evaluation result: {}", cohort_id, matches);
+        evaluation_results.insert(cohort_id, matches);
+    }
+
+    // Return the evaluation result for the initial cohort
+    evaluation_results
+        .get(&initial_cohort_id)
+        .copied()
+        .ok_or_else(|| FlagError::CohortNotFound(initial_cohort_id.to_string()))
+}
+
+/// Apply cohort membership logic (i.e., IN|NOT_IN)
+pub fn apply_cohort_membership_logic(
+    cohort_filters: &[PropertyFilter],
+    cohort_matches: &HashMap<CohortId, bool>,
+) -> Result<bool, FlagError> {
+    for filter in cohort_filters {
+        let cohort_id = filter
+            .get_cohort_id()
+            .ok_or(FlagError::CohortFiltersParsingError)?;
+        let matches = cohort_matches.get(&cohort_id).copied().unwrap_or(false);
+        let operator = filter.operator.unwrap_or(OperatorType::In);
+
+        // Combine the operator logic directly within this method
+        let membership_match = match operator {
+            OperatorType::In => matches,
+            OperatorType::NotIn => !matches,
+            // Currently supported operators are IN and NOT IN
+            // Any other operator defaults to false
+            _ => false,
+        };
+
+        // If any filter does not match, return false early
+        if !membership_match {
+            return Ok(false);
+        }
+    }
+    // All filters matched
+    Ok(true)
+}
+
+/// Constructs a dependency graph for cohorts.
+///
+/// Example dependency graph:
+/// ```text
+///   A    B
+///   |   /|
+///   |  / |
+///   | /  |
+///   C    D
+///   \   /
+///    \ /
+///     E
+/// ```
+/// In this example:
+/// - Cohorts A and B are root nodes (no dependencies)
+/// - C depends on A and B
+/// - D depends on B
+/// - E depends on C and D
+///
+/// The graph is acyclic, which is required for valid cohort dependencies.
+fn build_cohort_dependency_graph(
+    initial_cohort_id: CohortId,
+    cohorts: &[Cohort],
+) -> Result<DiGraph<CohortId, ()>, FlagError> {
+    let mut graph = DiGraph::new();
+    let mut node_map = HashMap::new();
+    let mut queue = VecDeque::new();
+
+    let initial_cohort = cohorts
+        .iter()
+        .find(|c| c.id == initial_cohort_id)
+        .ok_or(FlagError::CohortNotFound(initial_cohort_id.to_string()))?;
+
+    if initial_cohort.is_static {
+        return Ok(graph);
+    }
+
+    // This implements a breadth-first search (BFS) traversal to build a directed graph of cohort dependencies.
+    // Starting from the initial cohort, we:
+    // 1. Add each cohort as a node in the graph
+    // 2. Track visited nodes in a map to avoid duplicates
+    // 3. For each cohort, get its dependencies and add directed edges from the cohort to its dependencies
+    // 4. Queue up any unvisited dependencies to process their dependencies later
+    // This builds up the full dependency graph level by level, which we can later check for cycles
+    queue.push_back(initial_cohort_id);
+    node_map.insert(initial_cohort_id, graph.add_node(initial_cohort_id));
+
+    while let Some(cohort_id) = queue.pop_front() {
+        let cohort = cohorts
+            .iter()
+            .find(|c| c.id == cohort_id)
+            .ok_or(FlagError::CohortNotFound(cohort_id.to_string()))?;
+        let dependencies = cohort.extract_dependencies()?;
+        for dep_id in dependencies {
+            // Retrieve the current node **before** mutable borrowing
+            // This is safe because we're not mutating the node map,
+            // and it keeps the borrow checker happy
+            let current_node = node_map[&cohort_id];
+            // Add dependency node if we haven't seen this cohort ID before in our traversal.
+            // This happens when we discover a new dependency that wasn't previously
+            // encountered while processing other cohorts in the graph.
+            let dep_node = node_map
+                .entry(dep_id)
+                .or_insert_with(|| graph.add_node(dep_id));
+
+            graph.add_edge(current_node, *dep_node, ());
+
+            if !node_map.contains_key(&dep_id) {
+                queue.push_back(dep_id);
+            }
+        }
+    }
+
+    if is_cyclic_directed(&graph) {
+        return Err(FlagError::CohortDependencyCycle(format!(
+            "Cyclic dependency detected starting at cohort {}",
+            initial_cohort_id
+        )));
+    }
+
+    Ok(graph)
+}
+
+/// Evaluate static cohort filters by checking if the person is in each cohort.
+pub async fn evaluate_static_cohorts(
+    reader: PostgresReader,
+    person_id: PersonId,
+    cohort_ids: Vec<CohortId>,
+) -> Result<Vec<(CohortId, bool)>, FlagError> {
+    let mut conn = reader.get_connection().await?;
+
+    let query = r#"
+           WITH cohort_membership AS (
+               SELECT c.cohort_id, 
+                      CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
+               FROM unnest($1::integer[]) AS c(cohort_id)
+               LEFT JOIN posthog_cohortpeople AS pc
+                 ON pc.person_id = $2
+                 AND pc.cohort_id = c.cohort_id
+           )
+           SELECT cohort_id, is_member
+           FROM cohort_membership
+       "#;
+
+    let rows = sqlx::query(query)
+        .bind(&cohort_ids)
+        .bind(person_id)
+        .fetch_all(&mut *conn)
+        .await?;
+
+    let result = rows
+        .into_iter()
+        .map(|row| {
+            let cohort_id: CohortId = row.get("cohort_id");
+            let is_member: bool = row.get("is_member");
+            (cohort_id, is_member)
+        })
+        .collect();
+
+    Ok(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        cohort::cohort_models::{CohortPropertyType, CohortValues},
+        cohorts::cohort_models::{CohortPropertyType, CohortValues},
         utils::test_utils::{
             insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
             setup_pg_writer_client,
