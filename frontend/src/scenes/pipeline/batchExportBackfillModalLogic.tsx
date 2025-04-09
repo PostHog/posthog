@@ -107,7 +107,6 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                     }
                 }
 
-                await new Promise((resolve) => setTimeout(resolve, 1000))
                 await api.batchExports
                     .createBackfill(props.id, {
                         start_at: earliest_backfill ? null : start_at?.toISOString() ?? null,

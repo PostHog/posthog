@@ -1980,6 +1980,11 @@ export type ExperimentMetricBaseProperties = {
     conversion_window_unit?: FunnelConversionWindowTimeUnit
 }
 
+export type ExperimentMetricOutlierHandling = {
+    lower_bound_percentile?: number
+    upper_bound_percentile?: number
+}
+
 export interface ExperimentDataWarehouseNode extends EntityNode {
     kind: NodeKind.ExperimentDataWarehouseNode
     table_name: string
@@ -1992,10 +1997,11 @@ export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWa
 
 export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
 
-export type ExperimentMeanMetric = ExperimentMetricBaseProperties & {
-    metric_type: ExperimentMetricType.MEAN
-    source: ExperimentMetricSource
-}
+export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
+    ExperimentMetricOutlierHandling & {
+        metric_type: ExperimentMetricType.MEAN
+        source: ExperimentMetricSource
+    }
 
 export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
     metric.metric_type === ExperimentMetricType.MEAN
