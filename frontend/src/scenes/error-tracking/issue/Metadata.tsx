@@ -53,7 +53,7 @@ export const Metadata = (): JSX.Element => {
             hoverEffect={false}
             className="grid grid-cols-[minmax(180px,min-content)_1fr] grid-rows-[50px_minmax(200px,_1fr)] p-0 overflow-hidden items-center"
         >
-            <div className="h-full flex items-center justify-center p-1 pl-2  border-b w-full gap-2">
+            <div className="h-full flex items-center justify-center p-1 pl-2 border-b w-full gap-2">
                 <DateRangeFilter fullWidth className="w-full" />
             </div>
             <div className="h-full flex items-center justify-center p-1 border-b w-full gap-2">

@@ -1,10 +1,10 @@
 import { FingerprintRecordPart } from 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingException } from 'lib/components/Errors/types'
+import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Errors/types'
+import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
-import { match, P } from 'ts-pattern'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -65,13 +65,11 @@ export const mergeIssues = (
     }
 }
 
-export type Runtime = 'web' | 'python' | 'node' | 'unknown'
-
 export type ExceptionAttributes = {
     ingestionErrors?: string[]
     exceptionList: ErrorTrackingException[]
     fingerprintRecords?: FingerprintRecordPart[]
-    runtime: Runtime
+    runtime: ErrorTrackingRuntime
 } & Record<
     'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level' | 'url' | 'unhandled',
     string | boolean | undefined
@@ -117,11 +115,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     }
 
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
-    const runtime: Runtime = match<string, Runtime>($lib)
-        .with('posthog-python', () => 'python')
-        .with('posthog-node', () => 'node')
-        .with(P.union('posthog-js', 'web'), () => 'web')
-        .otherwise(() => 'unknown')
+    const runtime: ErrorTrackingRuntime = getRuntimeFromLib($lib)
 
     return {
         type,
@@ -145,24 +139,8 @@ export function getSessionId(properties: Record<string, any>): string | undefine
     return properties['$session_id']
 }
 
-export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
-}
-
-export function hasInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
-}
-
-export function hasNonInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => !in_app))
-}
-
 export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
     return value === THIRD_PARTY_SCRIPT_ERROR
-}
-
-export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
 }
 
 export function generateSparklineLabels(range: DateRange, resolution: number): Dayjs[] {

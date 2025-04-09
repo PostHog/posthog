@@ -4,6 +4,7 @@ import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
+import { hasStacktrace } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { posthog } from 'posthog-js'
@@ -28,7 +29,6 @@ import {
     ExceptionAttributes,
     getExceptionAttributes,
     getSessionId,
-    hasStacktrace,
     resolveDateRange,
 } from './utils'
 

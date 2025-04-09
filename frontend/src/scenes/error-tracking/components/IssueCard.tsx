@@ -103,7 +103,7 @@ function StacktraceExpander(): JSX.Element {
                         />
                     </>
                 ))
-                .exhaustive()}
+                .otherwise(() => null)}
         </span>
     )
 }

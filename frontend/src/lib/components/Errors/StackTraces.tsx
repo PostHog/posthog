@@ -16,6 +16,7 @@ import {
     ErrorTrackingStackFrameContext,
     ErrorTrackingStackFrameContextLine,
 } from './types'
+import { stacktraceHasInAppFrames } from './utils'
 
 export type ExceptionHeaderProps = {
     id?: string
@@ -56,6 +57,7 @@ export function ChainedStackTraces({
     onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element {
     const { loadFromRawIds } = useActions(stackFrameLogic)
+    const getters = useFingerprintGetters(fingerprintRecords)
 
     useEffect(() => {
         const frames: ErrorTrackingStackFrame[] = exceptionList.flatMap((e) => {
@@ -73,8 +75,8 @@ export function ChainedStackTraces({
             {exceptionList.map(({ stacktrace, value, type, id }, index) => {
                 if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
-                    const hasOnlyNonInAppFrames = frames?.every((frame) => !frame.in_app)
-                    const part = fingerprintRecords.find((record) => record.type == 'exception' && record.id === id)
+                    const hasInAppFrames = stacktraceHasInAppFrames(stacktrace)
+                    const part = getters.getExceptionPart(id)
                     const traceHeaderProps = { id, type, value, part }
                     return (
                         <div
@@ -85,14 +87,14 @@ export function ChainedStackTraces({
                                 .with(P.nullish, () => <ExceptionHeader {...traceHeaderProps} />)
                                 .with(P.any, () => renderExceptionHeader!(traceHeaderProps))
                                 .exhaustive()}
-                            {match([showAllFrames, hasOnlyNonInAppFrames])
+                            {match([showAllFrames, !hasInAppFrames])
                                 .with([false, true], () => null)
                                 .otherwise(() => (
                                     <Trace
                                         frames={frames || []}
                                         showAllFrames={showAllFrames}
                                         embedded={embedded}
-                                        fingerprintRecords={fingerprintRecords}
+                                        getters={getters}
                                         onFrameContextClick={onFrameContextClick}
                                     />
                                 ))}
@@ -106,25 +108,24 @@ export function ChainedStackTraces({
 
 function Trace({
     frames,
-    fingerprintRecords,
     showAllFrames,
     embedded,
+    getters,
     onFrameContextClick,
 }: {
     frames: ErrorTrackingStackFrame[]
-    fingerprintRecords: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded: boolean
+    getters?: FingerprintGetters
     onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element | null {
     const { stackFrameRecords } = useValues(stackFrameLogic)
-    const checkers = useFingerprintRecords(fingerprintRecords)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     const panels = displayFrames.map(
         ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }) => {
             const record = stackFrameRecords[raw_id]
-            const part = checkers.getFramePart(raw_id)
+            const part = getters?.getFramePart(raw_id)
             return {
                 key: raw_id,
                 header: (
@@ -177,7 +178,7 @@ export type FingerprintGetters = {
     getFramePart(frameId: string): FingerprintRecordPart | undefined
 }
 
-function useFingerprintRecords(fingerprintRecords: FingerprintRecordPart[]): FingerprintGetters {
+function useFingerprintGetters(fingerprintRecords: FingerprintRecordPart[]): FingerprintGetters {
     return useMemo(() => {
         return {
             getExceptionPart(excId: string) {
