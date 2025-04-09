@@ -1,4 +1,4 @@
-import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
+import { GroupTypeIndex, GroupTypeToColumnIndex, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
@@ -8,7 +8,7 @@ import { TeamManager } from './team-manager'
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
 
-export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
+export type GroupTypesByTeamId = Record<TeamId, GroupTypeToColumnIndex>
 
 export class GroupTypeManager {
     private loader: LazyLoader<GroupTypeToColumnIndex>
@@ -34,8 +34,8 @@ export class GroupTypeManager {
                         const groupTypes = (response[row.project_id] = response[row.project_id] ?? {})
                         groupTypes[row.group_type] = row.group_type_index
                     }
-                    for (const projectId of projectIds) {
-                        response[projectId] = response[projectId] ?? {}
+                    for (const teamId of teamIds) {
+                        response[teamId] = response[teamId] ?? {}
                     }
                 } finally {
                     clearTimeout(timeout)
@@ -45,8 +45,8 @@ export class GroupTypeManager {
         })
     }
 
-    public async fetchGroupTypes(projectId: ProjectId): Promise<GroupTypeToColumnIndex> {
-        return (await this.loader.get(projectId.toString())) ?? {}
+    public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
+        return (await this.loader.get(teamId.toString())) ?? {}
     }
 
     public async fetchGroupTypeIndex(team: Team, groupType: string): Promise<GroupTypeIndex | null> {
@@ -66,14 +66,6 @@ export class GroupTypeManager {
             await this.captureGroupTypeInsert(team.root_team_id, groupType, groupTypeIndex)
         }
         return groupTypeIndex
-    }
-
-    public async fetchGroupTypesForProjects(projectIds: ProjectId[] | Set<ProjectId>): Promise<GroupTypesByProjectId> {
-        const results = await this.loader.getMany(Array.from(projectIds).map((id) => id.toString()))
-
-        return Object.fromEntries(
-            Object.entries(results).map(([projectId, groupTypes]) => [projectId, groupTypes ?? {}])
-        )
     }
 
     public async insertGroupType(

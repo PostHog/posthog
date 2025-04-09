@@ -13,7 +13,6 @@ import {
     PreIngestionEvent,
     RawClickHouseEvent,
     Team,
-    TeamId,
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
@@ -166,10 +165,10 @@ export class EventsProcessor {
 
         if (processPerson) {
             // Adds group_0 etc values to properties
-            properties = await addGroupProperties(team.id, team.project_id, properties, this.groupTypeManager)
+            properties = await addGroupProperties(team, properties, this.groupTypeManager)
 
             if (event === '$groupidentify') {
-                await this.upsertGroup(team, team.id, properties, timestamp)
+                await this.upsertGroup(team, properties, timestamp)
             }
         }
 
@@ -195,7 +194,7 @@ export class EventsProcessor {
     }
 
     createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawClickHouseEvent {
-        const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
+        const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
         try {
@@ -290,7 +289,14 @@ export class EventsProcessor {
         const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(team, groupType)
 
         if (groupTypeIndex !== null) {
-            await upsertGroup(this.db, team, groupTypeIndex, groupKey.toString(), groupPropertiesToSet || {}, timestamp)
+            await upsertGroup(
+                this.db,
+                team.id,
+                groupTypeIndex,
+                groupKey.toString(),
+                groupPropertiesToSet || {},
+                timestamp
+            )
         }
     }
 
@@ -317,7 +323,7 @@ export class EventsProcessor {
                 const { $group_type: groupType, $group_set: groupPropertiesToSet } = properties
                 if (groupType != null && groupPropertiesToSet != null) {
                     // This "fetch" is side-effecty, it inserts a group-type and assigns an index if one isn't found
-                    promises.push(this.groupTypeManager.fetchGroupTypeIndex(team.id, team.project_id, groupType))
+                    promises.push(this.groupTypeManager.fetchGroupTypeIndex(team, groupType))
                 }
             }
 
