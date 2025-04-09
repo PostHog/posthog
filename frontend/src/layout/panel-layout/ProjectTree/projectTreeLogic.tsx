@@ -510,7 +510,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         sortedItems: [
             (s) => [s.viableItems],
-            (viableItems): FileSystemEntry[] => [...viableItems].sort((a, b) => a.path.localeCompare(b.path)),
+            (viableItems): FileSystemEntry[] =>
+                [...viableItems].sort((a, b) => (a.path > b.path ? 1 : a.path < b.path ? -1 : 0)),
         ],
         viableItemsById: [
             (s) => [s.viableItems],
