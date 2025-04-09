@@ -15121,9 +15121,12 @@
             "properties": {
                 "count": {
                     "$ref": "#/definitions/integer"
+                },
+                "label": {
+                    "type": "string"
                 }
             },
-            "required": ["count"],
+            "required": ["count", "label"],
             "type": "object"
         },
         "RevenueCurrencyPropertyConfig": {
