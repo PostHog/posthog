@@ -155,7 +155,7 @@ export function ProjectTree(): JSX.Element {
                     >
                         <ButtonPrimitive menuItem>
                             {checkedItemCountNumeric > 1 && checkedItems[item.id]
-                                ? `Remove ${checkedItemsCount} item${checkedItemCountNumeric === 1 ? '' : 's'}`
+                                ? `Delete ${checkedItemsCount} item${checkedItemCountNumeric === 1 ? '' : 's'}`
                                 : item.record?.shortcut
                                 ? 'Remove shortcut'
                                 : "Delete and move back to 'Unfiled'"}
