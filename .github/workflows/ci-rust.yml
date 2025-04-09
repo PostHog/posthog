@@ -141,11 +141,11 @@ jobs:
                   enable-cache: true
                   pyproject-file: 'pyproject.toml'
 
-            - name: Install SAML (python3-saml) dependencies
+            - name: Install SAML (python3-saml) dependencies, PG tools
               if: needs.changes.outputs.rust == 'true'
               run: |
                   sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgres-client
 
             - name: Install python dependencies
               if: needs.changes.outputs.rust == 'true'
@@ -157,6 +157,10 @@ jobs:
               run: |
                   cd ../ && ./bin/download-mmdb
 
+            - name: Export migration files
+              if: needs.changes.outputs.rust == 'true'
+              run: ./bin/migrate
+
             - name: Bootstrap test databases, run cargo test
               if: needs.changes.outputs.rust == 'true'
               env:
@@ -165,7 +169,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
               run: |
                   echo "Starting Cargo test suite..."
-                  ./bin/run_workspace_tests ${{ matrix.package }}
+                  ./bin/run_workspace_tests -s -p ${{ matrix.package }}
                   echo "Cargo test completed"
 
     linting:

@@ -6,15 +6,41 @@ set -euo pipefail
 ## Run *full workspace* test schema migrations, and all subproject test suites
 #
 
-# single, optional argument: the name of a subpackage to test.
-# if empty, defaults to full-workspace test run
-SUBPKG_NAME="${1:-workspace}"
-
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 source "$SCRIPT_DIR/util"
 
-# run the migrations (test schemas + django postgres models only!)
-$SCRIPT_DIR/migrate
+function usage {
+  echo "$0 [-s] [-p PKG]"
+  echo -e "Arguments:"
+  echo -e "-s       Skip running migrations prior to test execution"
+  echo -e "-p PKG   Only run the workspace tests for the named package"
+
+  exit 1
+}
+
+SUBPKG_NAME=workspace
+SKIP_MIGRATIONS=
+
+while getopts "sp:" opt; do
+  case "$opt" in
+    p)
+      SUBPKG_NAME="$OPTARG"
+      ;;
+
+    s)
+      SKIP_MIGRATIONS=1
+      ;;
+
+    *)
+      usage
+      ;;
+  esac
+done
+
+# conditionally run the migrations (test schemas + django postgres models only!)
+if [[ -n "$SKIP_MIGRATIONS" ]]; then
+  $SCRIPT_DIR/migrate
+fi
 
 # if a workspace subpackage name was provided, only
 # execute the test suite for that package (used in CI)
