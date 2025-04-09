@@ -35,8 +35,10 @@ import importlib
 import pkgutil
 import products
 
-# Dynamically import max_tools from all products
+# TRICKY: Dynamically import max_tools from all products
 for module_info in pkgutil.iter_modules(products.__path__):
+    if module_info.name in ("conftest", "test"):
+        continue  # We mustn't import test modules in prod
     try:
         importlib.import_module(f"products.{module_info.name}.backend.max_tools")
     except ModuleNotFoundError:
