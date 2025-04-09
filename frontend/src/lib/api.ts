@@ -72,6 +72,7 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
+    HogFunctionKind,
     HogFunctionStatus,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
@@ -125,6 +126,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyStats,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -2059,9 +2061,13 @@ const api = {
         async list({
             filters,
             types,
+            kinds,
+            excludeKinds,
         }: {
             filters?: any
             types?: HogFunctionTypeType[]
+            kinds?: HogFunctionKind[]
+            excludeKinds?: HogFunctionKind[]
         }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -2069,6 +2075,8 @@ const api = {
                     filters,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
+                    ...(kinds ? { kind: kinds.join(',') } : {}),
+                    ...(excludeKinds ? { exclude_kind: excludeKinds.join(',') } : {}),
                 })
                 .get()
         },
@@ -2600,6 +2608,43 @@ const api = {
             }
             return await apiRequest.create()
         },
+        async getSurveyStats({
+            surveyId,
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            surveyId: Survey['id']
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+
+            return await apiRequest.withQueryString(queryParams).get()
+        },
+        async getGlobalSurveyStats({
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().surveys().withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+            return await apiRequest.get()
+        },
     },
 
     dataWarehouseTables: {
@@ -2744,6 +2789,9 @@ const api = {
         },
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
+        },
+        async delete_data(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('delete_data').delete()
         },
         async logs(
             schemaId: ExternalDataSourceSchema['id'],

@@ -1,7 +1,6 @@
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
@@ -27,6 +26,7 @@ import {
     ResultCustomizationByValue,
 } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionFilter,
     AnyPartialFilterType,

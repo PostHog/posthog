@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconArrowUpRight, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -15,6 +15,19 @@ export interface ConvertProps {
     checkedItems: Record<string, boolean>
     root: string
     searchTerm?: string
+}
+
+export function wrapWithShortutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
+    if (item.shortcut) {
+        return (
+            <div className="relative">
+                {icon}
+                <IconArrowUpRight className="absolute bottom-[-0.25rem] left-[-0.25rem] scale-75 bg-white border border-black" />
+            </div>
+        )
+    }
+
+    return icon
 }
 
 export function convertFileSystemEntryToTreeDataItem({
@@ -111,7 +124,11 @@ export function convertFileSystemEntryToTreeDataItem({
             id: nodeId,
             name: itemName,
             displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />,
-            icon: item._loading ? <Spinner /> : ('icon' in item && item.icon) || iconForType(item.type),
+            icon: item._loading ? (
+                <Spinner />
+            ) : (
+                wrapWithShortutIcon(item, ('icon' in item && item.icon) || iconForType(item.type))
+            ),
             record: item,
             checked: checkedItems[nodeId],
             onClick: () => {
@@ -184,9 +201,9 @@ export function convertFileSystemEntryToTreeDataItem({
             folderNode.children.push({
                 id: `${root}-folder-empty/${folderNode.id}`,
                 name: 'Empty folder',
-                displayName: <em className="text-muted">Empty folder</em>,
-                icon: <IconPlus />,
+                displayName: <span className="italic text-tertiary pl-2">Empty folder</span>,
                 disableSelect: true,
+                type: 'empty-folder',
             })
         }
         if (indeterminateFolders[folderNode.id] && !folderNode.checked) {

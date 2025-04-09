@@ -13,11 +13,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isNotNil, isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import {
-    CurrencyCode,
-    RevenueTrackingDataWarehouseTable,
-    RevenueTrackingEventItem,
-} from '~/queries/schema/schema-general'
+import { CurrencyCode, RevenueTrackingEventItem } from '~/queries/schema/schema-general'
 import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from './dataThemeLogic'
@@ -437,28 +433,10 @@ const teamActionsMapping: Record<
         const removedEvents = beforeEventNames?.filter((event) => !afterEventNames?.includes(event))
         const modifiedEvents = afterEventNames?.filter((event) => beforeEventNames?.includes(event))
 
-        const beforedataWarehouseTables: RevenueTrackingDataWarehouseTable[] =
-            typeof change.before === 'object' && change.before && 'dataWarehouseTables' in change.before
-                ? change.before.dataWarehouseTables
-                : []
-        const afterdataWarehouseTables: RevenueTrackingDataWarehouseTable[] =
-            typeof change.after === 'object' && change.after && 'dataWarehouseTables' in change.after
-                ? change.after.dataWarehouseTables
-                : []
-
-        const beforeExternalDataSchemaNames = beforedataWarehouseTables?.map((schema) => schema?.tableName)
-        const afterExternalDataSchemaNames = afterdataWarehouseTables?.map((schema) => schema?.tableName)
-        const addeddataWarehouseTables = afterExternalDataSchemaNames?.filter(
-            (schema) => !beforeExternalDataSchemaNames?.includes(schema)
-        )
-        const removeddataWarehouseTables = beforeExternalDataSchemaNames?.filter(
-            (schema) => !afterExternalDataSchemaNames?.includes(schema)
-        )
-        const modifieddataWarehouseTables = afterExternalDataSchemaNames?.filter((schema) =>
-            beforeExternalDataSchemaNames?.includes(schema)
-        )
-
         const changes = [
+            beforeCurrency && afterCurrency && beforeCurrency !== afterCurrency
+                ? `changed base currency from ${beforeCurrency} to ${afterCurrency}`
+                : null,
             addedEvents?.length
                 ? `added ${addedEvents.length} ${pluralize(
                       addedEvents.length,
@@ -482,33 +460,6 @@ const teamActionsMapping: Record<
                       'events',
                       true
                   )} (${modifiedEvents.join(', ')})`
-                : null,
-            addeddataWarehouseTables?.length
-                ? `added ${addeddataWarehouseTables.length} ${pluralize(
-                      addeddataWarehouseTables.length,
-                      'data warehouse table',
-                      'data warehouse tables',
-                      true
-                  )} (${addeddataWarehouseTables.join(', ')})`
-                : null,
-            removeddataWarehouseTables?.length
-                ? `removed ${removeddataWarehouseTables.length} ${pluralize(
-                      removeddataWarehouseTables.length,
-                      'data warehouse table',
-                      'data warehouse tables',
-                      true
-                  )} (${removeddataWarehouseTables.join(', ')})`
-                : null,
-            modifieddataWarehouseTables?.length
-                ? `modified ${modifieddataWarehouseTables.length} ${pluralize(
-                      modifieddataWarehouseTables.length,
-                      'data warehouse table',
-                      'data warehouse tables',
-                      true
-                  )} (${modifieddataWarehouseTables.join(', ')})`
-                : null,
-            beforeCurrency && afterCurrency && beforeCurrency !== afterCurrency
-                ? `changed base currency from ${beforeCurrency} to ${afterCurrency}`
                 : null,
         ].filter(isNotNil)
 
@@ -542,7 +493,15 @@ const teamActionsMapping: Record<
     primary_dashboard: () => null,
     slack_incoming_webhook: () => null,
     timezone: () => null,
-    surveys_opt_in: () => null,
+    surveys_opt_in: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [<>{change?.after ? 'enabled' : 'disabled'} surveys</>],
+        }
+    },
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,

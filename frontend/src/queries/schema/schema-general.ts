@@ -17,6 +17,7 @@ import {
     ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
+    FunnelConversionWindowTimeUnit,
     FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
@@ -414,7 +415,6 @@ export enum QueryIndexUsage {
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
-    isValidView?: boolean
     isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
@@ -1764,7 +1764,6 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
     kind: NodeKind.RevenueExampleEventsQuery
-    revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
@@ -1781,7 +1780,6 @@ export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<Revenu
 export interface RevenueExampleDataWarehouseTablesQuery
     extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
     kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
-    revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
@@ -1869,6 +1867,8 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+    /** Whether this is a shortcut or the actual item */
+    shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
 }
@@ -1976,7 +1976,8 @@ export const enum ExperimentMetricType {
 export type ExperimentMetricBaseProperties = {
     kind: NodeKind.ExperimentMetric
     name?: string
-    time_window_hours?: number
+    conversion_window?: integer
+    conversion_window_unit?: FunnelConversionWindowTimeUnit
 }
 
 export interface ExperimentDataWarehouseNode extends EntityNode {
@@ -1996,10 +1997,16 @@ export type ExperimentMeanMetric = ExperimentMetricBaseProperties & {
     source: ExperimentMetricSource
 }
 
+export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
+    metric.metric_type === ExperimentMetricType.MEAN
+
 export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
     series: ExperimentFunnelMetricStep[]
 }
+
+export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
+    metric.metric_type === ExperimentMetricType.FUNNEL
 
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
@@ -2776,18 +2783,6 @@ export interface RevenueTrackingEventItem {
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
 }
 
-export interface RevenueTrackingDataWarehouseTable {
-    tableName: string
-    distinctIdColumn: string
-    timestampColumn: string
-    revenueColumn: string
-
-    /**
-     * @default {"static": "USD"}
-     */
-    revenueCurrencyColumn: RevenueCurrencyPropertyConfig
-}
-
 export interface RevenueTrackingConfig {
     /**
      * @default 'USD'
@@ -2798,9 +2793,4 @@ export interface RevenueTrackingConfig {
      * @default []
      */
     events: RevenueTrackingEventItem[]
-
-    /**
-     * @default []
-     */
-    dataWarehouseTables: RevenueTrackingDataWarehouseTable[]
 }

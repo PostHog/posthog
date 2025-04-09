@@ -5,6 +5,7 @@ from celery import shared_task
 from django.db import models
 from rest_framework import serializers
 
+from posthog.models.dashboard import Dashboard
 from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -12,7 +13,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamMixin
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
 
@@ -56,7 +57,7 @@ class ProductIntentSerializer(serializers.Serializer):
     intent_context = serializers.CharField(required=False, default="unknown")
 
 
-class ProductIntent(UUIDModel):
+class ProductIntent(UUIDModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -155,6 +156,19 @@ class ProductIntent(UUIDModel):
 
         return False
 
+    def has_activated_product_analytics(self) -> bool:
+        insights = Insight.objects.filter(team=self.team, created_by__isnull=False)
+
+        if insights.count() < 3:
+            return False
+
+        dashboards = Dashboard.objects.filter(team=self.team, created_by__isnull=False)
+
+        if dashboards.count() < 1:
+            return False
+
+        return self.team.ingested_event
+
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
@@ -162,6 +176,7 @@ class ProductIntent(UUIDModel):
             "feature_flags": self.has_activated_feature_flags,
             "session_replay": self.has_activated_session_replay,
             "error_tracking": self.has_activated_error_tracking,
+            "product_analytics": self.has_activated_product_analytics,
             "surveys": self.has_activated_surveys,
         }
 
