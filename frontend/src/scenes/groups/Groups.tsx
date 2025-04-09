@@ -41,7 +41,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     ? `No ${groupTypeNamePlural} found`
                     : `No ${groupTypeNamePlural} exist because none have been identified`,
                 emptyStateDetail: queryWasModified ? (
-                    'Try changing the date range, or changing the property filters.'
+                    'Try changing the date range or property filters.'
                 ) : (
                     <>
                         Go to the{' '}
