@@ -130,10 +130,9 @@ pub fn match_property(
             }
             let pattern = match Regex::new(&to_string_representation(value)) {
                 Ok(pattern) => pattern,
-                Err(_) => return Ok(false),
-                //TODO: Should we return Err here and handle elsewhere?
-                //Err(FlagMatchingError::InvalidRegexPattern)
-                // python just returns false here
+                Err(_) => {
+                    return Ok(false);
+                }
             };
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
             let match_ = pattern.find(&haystack);
