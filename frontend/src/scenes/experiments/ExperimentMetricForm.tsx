@@ -153,6 +153,9 @@ export function ExperimentMetricForm({
                 />
             )}
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+            {metric.metric_type === ExperimentMetricType.MEAN && (
+                <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+            )}
         </div>
     )
 }
