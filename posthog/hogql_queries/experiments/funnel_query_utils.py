@@ -2,6 +2,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.models.team.team import Team
 from posthog.hogql_queries.experiments.base_query_utils import (
+    conversion_window_to_seconds,
     event_or_action_to_filter,
 )
 from posthog.schema import (
@@ -26,8 +27,10 @@ def funnel_steps_to_window_funnel_expr(funnel_metric: ExperimentFunnelMetric) ->
     funnel_steps_str = ", ".join([f"funnel_step = 'step_{i}'" for i, _ in enumerate(funnel_metric.series)])
 
     num_steps = len(funnel_metric.series)
-    if funnel_metric.time_window_hours is not None:
-        conversion_window_seconds = int(funnel_metric.time_window_hours * 60 * 60)
+    if funnel_metric.conversion_window is not None and funnel_metric.conversion_window_unit is not None:
+        conversion_window_seconds = conversion_window_to_seconds(
+            funnel_metric.conversion_window, funnel_metric.conversion_window_unit
+        )
     else:
         # Default to include all events selected, so we just set a large value here (3 years)
         # Events outside the experiment duration will be filtered out by the query runner
