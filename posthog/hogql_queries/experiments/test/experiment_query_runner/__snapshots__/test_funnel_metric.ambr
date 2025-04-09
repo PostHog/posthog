@@ -8,7 +8,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
+            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -74,7 +74,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(6048000000000000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
+            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
