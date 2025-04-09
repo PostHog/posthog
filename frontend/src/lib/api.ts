@@ -126,6 +126,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyStats,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -396,6 +397,9 @@ class ApiRequest {
     }
     public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
+    }
+    public fileSystemCountByPath(path: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent('count_by_path').withQueryString({ path })
     }
 
     // # Plugins
@@ -811,7 +815,7 @@ class ApiRequest {
 
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
     }
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
@@ -1043,7 +1047,7 @@ class ApiRequest {
 
     // External Data Source
     public externalDataSources(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('external_data_sources')
+        return this.environmentsDetail(teamId).addPathComponent('external_data_sources')
     }
 
     public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1051,7 +1055,7 @@ class ApiRequest {
     }
 
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('external_data_schemas')
+        return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1251,6 +1255,7 @@ const api = {
     fileSystem: {
         async list({
             parent,
+            path,
             depth,
             limit,
             offset,
@@ -1260,6 +1265,7 @@ const api = {
             type__startswith,
         }: {
             parent?: string
+            path?: string
             depth?: number
             limit?: number
             offset?: number
@@ -1270,7 +1276,7 @@ const api = {
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
-                .withQueryString({ parent, depth, limit, offset, search, ref, type, type__startswith })
+                .withQueryString({ parent, path, depth, limit, offset, search, ref, type, type__startswith })
                 .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
@@ -1293,6 +1299,9 @@ const api = {
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
+        },
+        async countByPath(path: string): Promise<FileSystemCount> {
+            return await new ApiRequest().fileSystemCountByPath(path).create()
         },
     },
 
@@ -2606,6 +2615,43 @@ const api = {
                 apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
             }
             return await apiRequest.create()
+        },
+        async getSurveyStats({
+            surveyId,
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            surveyId: Survey['id']
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+
+            return await apiRequest.withQueryString(queryParams).get()
+        },
+        async getGlobalSurveyStats({
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().surveys().withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+            return await apiRequest.get()
         },
     },
 

@@ -90,15 +90,15 @@ pub struct FlagsOptionsResponse {
 pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
-    pub variant: String,
+    pub variant: Option<String>,
     pub reason: FlagEvaluationReason,
     pub metadata: FlagDetailsMetadata,
 }
 
 impl FlagDetails {
     pub fn to_value(&self) -> FlagValue {
-        if !self.variant.is_empty() {
-            FlagValue::String(self.variant.clone())
+        if let Some(variant) = &self.variant {
+            FlagValue::String(variant.clone())
         } else {
             FlagValue::Boolean(self.enabled)
         }
@@ -132,7 +132,7 @@ impl FromFeatureAndMatch for FlagDetails {
         FlagDetails {
             key: flag.key.clone(),
             enabled: flag_match.matches,
-            variant: flag_match.variant.clone().unwrap_or_default(),
+            variant: flag_match.variant.clone(),
             reason: FlagEvaluationReason {
                 code: flag_match.reason.to_string(),
                 condition_index: flag_match.condition_index.map(|i| i as i32),
@@ -151,7 +151,7 @@ impl FromFeatureAndMatch for FlagDetails {
         FlagDetails {
             key: flag.key.clone(),
             enabled: false,
-            variant: "".to_string(),
+            variant: None,
             reason: FlagEvaluationReason {
                 code: error_reason.to_string(),
                 condition_index: None,
@@ -287,7 +287,7 @@ mod tests {
             FlagDetails {
                 key: "flag_with_payload".to_string(),
                 enabled: true,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -308,7 +308,7 @@ mod tests {
             FlagDetails {
                 key: "flag2".to_string(),
                 enabled: true,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -329,7 +329,7 @@ mod tests {
             FlagDetails {
                 key: "flag_with_null_payload".to_string(),
                 enabled: true,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),

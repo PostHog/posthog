@@ -327,7 +327,7 @@ class TestQuotaLimiting(BaseTest):
 
             self.organization.refresh_from_db()
             assert self.organization.usage == {
-                "events": {"usage": 99, "limit": 100, "todays_usage": 10},
+                "events": {"usage": 99, "limit": 100, "todays_usage": 10, "quota_limited_until": 1612137599},
                 "exceptions": {"usage": 10, "limit": 100, "todays_usage": 0},
                 "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
                 "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
