@@ -14,10 +14,7 @@ from posthog.schema import (
     WebOverviewQueryResponse,
     WebOverviewQuery,
 )
-from posthog.hogql.database.schema.exchange_rate import (
-    revenue_sum_expression_for_events,
-    revenue_expression_for_data_warehouse,
-)
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
@@ -25,7 +22,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_query(self) -> ast.SelectQuery:
         return self.outer_select
 
     def calculate(self):
@@ -162,7 +159,6 @@ HAVING {inside_start_timestamp_period}
             column_name: str,
             alias: str,
             params: Optional[list[ast.Expr]] = None,
-            extra_args: Optional[list[ast.Expr]] = None,
         ):
             if not self.query_compare_to_date_range:
                 return ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
@@ -174,7 +170,6 @@ HAVING {inside_start_timestamp_period}
                 self.query_date_range.date_to_as_hogql(),
                 alias=alias,
                 params=params,
-                extra_args=extra_args,
             )
 
         def previous_period_aggregate(
@@ -182,7 +177,6 @@ HAVING {inside_start_timestamp_period}
             column_name: str,
             alias: str,
             params: Optional[list[ast.Expr]] = None,
-            extra_args: Optional[list[ast.Expr]] = None,
         ):
             if not self.query_compare_to_date_range:
                 return ast.Alias(alias=alias, expr=ast.Constant(value=None))
@@ -194,31 +188,16 @@ HAVING {inside_start_timestamp_period}
                 self.query_compare_to_date_range.date_to_as_hogql(),
                 alias=alias,
                 params=params,
-                extra_args=extra_args,
             )
-
-        session_id_is_not_null = ast.Call(name="isNotNull", args=[ast.Field(chain=["session_id"])])
 
         if self.query.conversionGoal:
             select = [
-                current_period_aggregate(
-                    "uniq", "session_person_id", "unique_users", extra_args=[session_id_is_not_null]
-                ),
-                previous_period_aggregate(
-                    "uniq", "session_person_id", "previous_unique_users", extra_args=[session_id_is_not_null]
-                ),
-                current_period_aggregate(
-                    "sum", "conversion_count", "total_conversion_count", extra_args=[session_id_is_not_null]
-                ),
-                previous_period_aggregate(
-                    "sum", "conversion_count", "previous_total_conversion_count", extra_args=[session_id_is_not_null]
-                ),
-                current_period_aggregate(
-                    "uniq", "conversion_person_id", "unique_conversions", extra_args=[session_id_is_not_null]
-                ),
-                previous_period_aggregate(
-                    "uniq", "conversion_person_id", "previous_unique_conversions", extra_args=[session_id_is_not_null]
-                ),
+                current_period_aggregate("uniq", "session_person_id", "unique_users"),
+                previous_period_aggregate("uniq", "session_person_id", "previous_unique_users"),
+                current_period_aggregate("sum", "conversion_count", "total_conversion_count"),
+                previous_period_aggregate("sum", "conversion_count", "previous_total_conversion_count"),
+                current_period_aggregate("uniq", "conversion_person_id", "unique_conversions"),
+                previous_period_aggregate("uniq", "conversion_person_id", "previous_unique_conversions"),
                 ast.Alias(
                     alias="conversion_rate",
                     expr=ast.Call(
@@ -236,60 +215,28 @@ HAVING {inside_start_timestamp_period}
                     ),
                 ),
             ]
+
             if self.query.includeRevenue:
                 select.extend(
                     [
-                        current_period_aggregate(
-                            "sum",
-                            "session_conversion_revenue",
-                            "conversion_revenue",
-                            extra_args=[session_id_is_not_null],
-                        ),
-                        previous_period_aggregate(
-                            "sum",
-                            "session_conversion_revenue",
-                            "previous_conversion_revenue",
-                            extra_args=[session_id_is_not_null],
-                        ),
+                        current_period_aggregate("sum", "session_conversion_revenue", "conversion_revenue"),
+                        previous_period_aggregate("sum", "session_conversion_revenue", "previous_conversion_revenue"),
                     ]
                 )
         else:
             select = [
-                current_period_aggregate(
-                    "uniq", "session_person_id", "unique_users", extra_args=[session_id_is_not_null]
-                ),
-                previous_period_aggregate(
-                    "uniq", "session_person_id", "previous_unique_users", extra_args=[session_id_is_not_null]
-                ),
-                current_period_aggregate(
-                    "sum",
-                    "filtered_pageview_count",
-                    "total_filtered_pageview_count",
-                    extra_args=[session_id_is_not_null],
-                ),
-                previous_period_aggregate(
-                    "sum",
-                    "filtered_pageview_count",
-                    "previous_filtered_pageview_count",
-                    extra_args=[session_id_is_not_null],
-                ),
-                current_period_aggregate("uniq", "session_id", "unique_sessions", extra_args=[session_id_is_not_null]),
-                previous_period_aggregate(
-                    "uniq", "session_id", "previous_unique_sessions", extra_args=[session_id_is_not_null]
-                ),
-                current_period_aggregate(
-                    "avg", "session_duration", "avg_duration_s", extra_args=[session_id_is_not_null]
-                ),
-                previous_period_aggregate(
-                    "avg", "session_duration", "prev_avg_duration_s", extra_args=[session_id_is_not_null]
-                ),
-                current_period_aggregate("avg", "is_bounce", "bounce_rate", extra_args=[session_id_is_not_null]),
-                previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate", extra_args=[session_id_is_not_null]),
+                current_period_aggregate("uniq", "session_person_id", "unique_users"),
+                previous_period_aggregate("uniq", "session_person_id", "previous_unique_users"),
+                current_period_aggregate("sum", "filtered_pageview_count", "total_filtered_pageview_count"),
+                previous_period_aggregate("sum", "filtered_pageview_count", "previous_filtered_pageview_count"),
+                current_period_aggregate("uniq", "session_id", "unique_sessions"),
+                previous_period_aggregate("uniq", "session_id", "previous_unique_sessions"),
+                current_period_aggregate("avg", "session_duration", "avg_duration_s"),
+                previous_period_aggregate("avg", "session_duration", "prev_avg_duration_s"),
+                current_period_aggregate("avg", "is_bounce", "bounce_rate"),
+                previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
             ]
 
-            # NOTE: This won't include `session_id_is_not_null` because
-            # we want to include revenue coming from Data Warehouse tables
-            # and those won't contain `session_id`
             if self.query.includeRevenue:
                 select.extend(
                     [
@@ -298,75 +245,7 @@ HAVING {inside_start_timestamp_period}
                     ]
                 )
 
-        query = ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
-
-        # If we can find some selects for DW revenue, then join it with that instead of just the inner select
-        if self.data_warehouse_revenue_selects:
-            query.select_from = ast.JoinExpr(
-                table=ast.SelectSetQuery.create_from_queries(
-                    [self.inner_select, *self.data_warehouse_revenue_selects],
-                    set_operator="UNION ALL",
-                )
-            )
-
-        assert isinstance(query, ast.SelectQuery)
-        return query
-
-    @cached_property
-    def data_warehouse_revenue_selects(self) -> list[ast.SelectQuery]:
-        if not self.include_data_warehouse_revenue:
-            return []
-
-        if not self.query.includeRevenue:
-            return []
-
-        if not self.team.revenue_config.dataWarehouseTables:
-            return []
-
-        queries: list[ast.SelectQuery] = []
-
-        # This is a little bit complicated, but here's the gist of it:
-        #
-        # We need to include the same amount of columns in this select query as in the inner select query
-        # It also needs to be in the exact same order because ClickHouse doesn't care about the column names
-        # from subsequent queries in a SelectSetQuery, it only cares about the names of the first query
-        # and then the positions of the columns in subsequent queries.
-        #
-        # So we need to iterate over the columns in the inner select query and create a new alias for each column.
-        # Because we don't care about the value, and we actually want to ignore them in the main query,
-        # we set them to `None` and then replace `session_revenue` and `start_timestamp` with the
-        # revenue column and timestamp column from the data warehouse table respectively.
-        for table in self.team.revenue_config.dataWarehouseTables:
-            select_columns: list[ast.Expr] = []
-            for select in self.inner_select.select:
-                if not isinstance(select, ast.Alias):  # Guarantee type-safety
-                    continue
-
-                new_select = ast.Alias(alias=select.alias, expr=ast.Constant(value=None))
-
-                # Only care about timestamp and revenue, keep the rest as None
-                if select.alias == "start_timestamp":
-                    new_select = ast.Alias(
-                        alias=select.alias,
-                        expr=ast.Field(chain=[table.tableName, table.timestampColumn]),
-                    )
-                elif select.alias == "session_revenue":
-                    new_select = ast.Alias(
-                        alias=select.alias,
-                        expr=revenue_expression_for_data_warehouse(self.team.revenue_config, table),
-                    )
-
-                select_columns.append(new_select)
-
-            queries.append(
-                ast.SelectQuery(
-                    select=select_columns,
-                    select_from=ast.JoinExpr(table=ast.Field(chain=[table.tableName])),
-                    where=self._periods_expression("start_timestamp"),
-                )
-            )
-
-        return queries
+        return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
 
 
 def to_data(

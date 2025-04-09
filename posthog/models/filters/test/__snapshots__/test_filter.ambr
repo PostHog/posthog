@@ -479,6 +479,7 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
@@ -594,6 +595,7 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
@@ -700,6 +702,7 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
@@ -719,6 +722,7 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
@@ -932,6 +936,7 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
@@ -951,6 +956,7 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
