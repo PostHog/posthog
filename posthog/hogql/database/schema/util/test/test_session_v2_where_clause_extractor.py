@@ -532,12 +532,12 @@ FROM
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, %(hogql_val_7)s)), e__session.session_id_v7)
 WHERE
-    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_20)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_21)s, %(hogql_val_22)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_23)s), assumeNotNull(toDateTime(%(hogql_val_24)s, %(hogql_val_25)s))), equals(e.event, %(hogql_val_26)s), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
+    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_20)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_21)s, %(hogql_val_22)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_23)s), assumeNotNull(toDateTime(%(hogql_val_24)s, %(hogql_val_25)s))), equals(e.event, %(hogql_val_26)s), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
                     cohortpeople.person_id AS person_id
                 FROM
                     cohortpeople
                 WHERE
-                    and(equals(cohortpeople.team_id, <TEAM_ID>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))))))
+                    and(equals(cohortpeople.team_id, <TEAM_ID>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0))))), isNull(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)))))
 GROUP BY
     day_start,
     breakdown_value

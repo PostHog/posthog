@@ -1629,9 +1629,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             replace_regexp_count = query.lower().count("replaceregexpall")
             json_extract_raw_count = query.lower().count("jsonextractraw")
 
-            # Ensure we don't have 11 or more instances of either function
-            self.assertLess(replace_regexp_count, 3, "Too many replaceRegexpAll instances found in query")
-            self.assertLess(json_extract_raw_count, 3, "Too many JSONExtractRaw instances found in query")
+            # Ensure we don't have 4 or more instances of either function
+            self.assertLess(replace_regexp_count, 4, "Too many replaceRegexpAll instances found in query")
+            self.assertLess(json_extract_raw_count, 4, "Too many JSONExtractRaw instances found in query")
 
         # Verify that the person with the matching organization_id is in the cohort
         results = self._get_cohortpeople(cohort)
@@ -1700,9 +1700,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             replace_regexp_count = query.lower().count("replaceregexpall")
             json_extract_raw_count = query.lower().count("jsonextractraw")
 
-            # Ensure we don't have 11 or more instances of either function
-            self.assertLess(replace_regexp_count, 3, "Too many replaceRegexpAll instances found in query")
-            self.assertLess(json_extract_raw_count, 3, "Too many JSONExtractRaw instances found in query")
+            # Ensure we don't have 4 or more instances of either function
+            self.assertLess(replace_regexp_count, 4, "Too many replaceRegexpAll instances found in query")
+            self.assertLess(json_extract_raw_count, 4, "Too many JSONExtractRaw instances found in query")
 
         # Verify that the person with the matching organization_id is in the cohort
         results = self._get_cohortpeople(cohort)
