@@ -18,7 +18,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
         return null
     }
 
-    const scrollOffset = posthog.scrollManager.scrollY()
+    const scrollOffset = (posthog as any).scrollManager.scrollY()
     const scrolledMouseY = mouseY + scrollOffset
 
     const elementInMouseY = heatmapElements.find((x, i) => {
@@ -72,7 +72,7 @@ export function ScrollDepth(): JSX.Element | null {
         return null
     }
 
-    const scrollOffset = posthog.scrollManager.scrollY()
+    const scrollOffset = (posthog as any).scrollManager.scrollY()
 
     // We want to have a fading color from red to orange to green to blue to grey, fading from the highest count to the lowest
     const maxCount = heatmapElements[0]?.count ?? 0
