@@ -216,6 +216,7 @@ class StartupApplicationSerializer(serializers.Serializer):
         organization = Organization.objects.get(id=validated_data["organization_id"])
 
         submission_data = {
+            "submitted_at": timezone.now(),
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,

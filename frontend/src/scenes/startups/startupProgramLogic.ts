@@ -31,11 +31,11 @@ const PUBLIC_EMAIL_DOMAINS = [
 
 export const RAISED_OPTIONS = [
     { label: 'Bootstrapped', value: '0' },
-    { label: 'Under $100k', value: '100000' },
-    { label: 'From $100k to $500k', value: '500000' },
-    { label: 'From $500k to $1m', value: '1000000' },
-    { label: 'From $1m to $5m', value: '5000000' },
-    { label: 'More than $5m', value: '100000000000' },
+    { label: 'Under $100k', value: '99999' },
+    { label: 'From $100k to $500k', value: '499999' },
+    { label: 'From $500k to $1m', value: '999999' },
+    { label: 'From $1m to $5m', value: '4999999' },
+    { label: '$5m or more', value: '5000000' },
 ]
 
 export const YC_BATCH_OPTIONS = [
