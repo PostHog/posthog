@@ -320,7 +320,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         (props: SessionRecordingPlaylistLogicProps) =>
             `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
-    connect({
+    connect(() => ({
         actions: [
             eventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
@@ -335,7 +335,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
         ],
-    }),
+    })),
 
     actions({
         setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
@@ -716,6 +716,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
 
+        hiddenRecordings: [
+            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.selectedRecordingId],
+            (sessionRecordings, hideViewedRecordings, selectedRecordingId): SessionRecordingType[] => {
+                return sessionRecordings.filter((rec) => {
+                    if (hideViewedRecordings === 'current-user' && rec.viewed && rec.id !== selectedRecordingId) {
+                        return true
+                    }
+
+                    if (
+                        hideViewedRecordings === 'any-user' &&
+                        (rec.viewed || !!rec.viewers.length) &&
+                        rec.id !== selectedRecordingId
+                    ) {
+                        return true
+                    }
+
+                    return false
+                })
+            },
+        ],
+
         otherRecordings: [
             (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId, s.filters],
             (
@@ -760,6 +781,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.pinnedRecordings, s.otherRecordings],
             (pinnedRecordings, otherRecordings): number => {
                 return otherRecordings.length + pinnedRecordings.length
+            },
+        ],
+
+        hiddenRecordingsCount: [
+            (s) => [s.hiddenRecordings],
+            (hiddenRecordings): number => {
+                return hiddenRecordings?.length ?? 0
             },
         ],
 

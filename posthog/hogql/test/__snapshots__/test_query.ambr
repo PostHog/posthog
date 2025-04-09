@@ -43,7 +43,7 @@
   '''
   -- ClickHouse
   
-  SELECT arrayMap(x -> multiply(x, 2), [1, 2, 3]), 1 
+  SELECT arrayMap(x -> multiply(x, 2), [1, 2, 3]) AS `arrayMap(x -> multiply(x, 2), [1, 2, 3])`, 1 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1
   
@@ -133,7 +133,7 @@
   FROM (
   SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, nullIf(nullIf(argMinMerge(raw_sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s) AS `$entry_current_url`, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_2)s)) AS `$start_timestamp`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 99999), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('today', 6, 'UTC')), 0), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('today', 6, 'UTC')), 0)) 
+  WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3)))) 
   GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS sessions 
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), 0), ifNull(greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), 0)) 
   LIMIT 100 
@@ -339,7 +339,7 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, count() 
+  SELECT events.event AS event, count() AS `count()` 
   FROM events LEFT OUTER JOIN (
   SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
@@ -375,7 +375,7 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, count(*) 
+  SELECT events.event AS event, count(*) AS `count(*)` 
   FROM events 
   WHERE and(equals(events.team_id, 99999), in(events.person_id, (
   SELECT cohortpeople.person_id AS person_id 
@@ -405,7 +405,7 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, count() 
+  SELECT events.event AS event, count() AS `count()` 
   FROM events LEFT OUTER JOIN (
   SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
@@ -437,7 +437,7 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, count(*) 
+  SELECT events.event AS event, count(*) AS `count(*)` 
   FROM events 
   WHERE and(equals(events.team_id, 99999), in(events.person_id, (
   SELECT person_static_cohort.person_id AS person_id 
@@ -463,7 +463,7 @@
   '''
   -- ClickHouse
   
-  SELECT count(), events.event AS event 
+  SELECT count() AS `count()`, events.event AS event 
   FROM events 
   WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
   GROUP BY events.event 
@@ -680,7 +680,7 @@
   '''
   -- ClickHouse
   
-  SELECT s__pdi__person.properties___sneaky_mail AS sneaky_mail, count() 
+  SELECT s__pdi__person.properties___sneaky_mail AS sneaky_mail, count() AS `count()` 
   FROM events AS s INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -902,7 +902,7 @@
   '''
   -- ClickHouse
   
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS sneaky_mail, count() 
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS sneaky_mail, count() AS `count()` 
   FROM events AS s 
   WHERE equals(s.team_id, 99999) 
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') 

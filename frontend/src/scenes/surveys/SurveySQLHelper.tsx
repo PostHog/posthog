@@ -3,13 +3,13 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { SurveyQuestionType } from 'posthog-js'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
 import { Survey, SurveyQuestion } from '~/types'
 
-import { createAnswerFilterHogQLExpression, getResponseFieldCondition } from './utils'
+import { createAnswerFilterHogQLExpression } from './utils'
 
 interface SurveySQLHelperProps {
     isOpen: boolean
@@ -24,7 +24,9 @@ export function SurveySQLHelper({ isOpen, onClose }: SurveySQLHelperProps): JSX.
     const generateSingleQuestionQuery = (question: SurveyQuestion, index: number): string => {
         return `SELECT
     distinct_id,
-    ${getResponseFieldCondition(index, question.id)} AS "${question.question}",
+    getSurveyResponse(${index}, '${question.id}'${
+            question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
+        }) AS "${question.question}",
     timestamp
 FROM
     events
@@ -40,7 +42,9 @@ LIMIT
     const generateFullSurveyQuery = (): string => {
         const questionSelects = survey.questions
             .map((question: SurveyQuestion, index: number) => {
-                return `    ${getResponseFieldCondition(index, question.id)} AS "${question.question}"`
+                return `    getSurveyResponse(${index}, '${question.id}'${
+                    question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
+                }) AS "${question.question}"`
             })
             .join(',\n')
 
@@ -61,15 +65,7 @@ LIMIT
 
     // Function to open query in a new insight
     const openInInsight = (query: string): void => {
-        const insightQuery = {
-            kind: NodeKind.DataTableNode,
-            full: true,
-            source: {
-                kind: NodeKind.HogQLQuery,
-                query: query,
-            },
-        }
-        router.actions.push(urls.insightNew({ query: insightQuery }))
+        router.actions.push(urls.sqlEditor(query))
     }
 
     return (

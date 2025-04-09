@@ -29,7 +29,7 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 
 export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     path(['toolbar', 'elements', 'heatmapToolbarMenuLogic']),
-    connect({
+    connect(() => ({
         values: [
             currentPageLogic,
             ['href', 'wildcardHref'],
@@ -58,7 +58,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'setCommonFilters',
                 'setHeatmapFixedPositionMode',
                 'setHref as setDataHref',
-                'setUrlMatch',
                 'resetHeatmapData',
                 'patchHeatmapFilters',
                 'loadHeatmap',
@@ -67,7 +66,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'setHeatmapScrollY',
             ],
         ],
-    }),
+    })),
     actions({
         getElementStats: (url?: string | null) => ({
             url,
@@ -78,9 +77,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
-        loadAllEnabled: (delayMs: number = 0) => ({ delayMs }),
-        maybeLoadClickmap: (delayMs: number = 0) => ({ delayMs }),
-        maybeLoadHeatmap: (delayMs: number = 0) => ({ delayMs }),
+        loadAllEnabled: true,
+        maybeLoadClickmap: true,
+        maybeLoadHeatmap: true,
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -117,6 +116,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             {
                 resetElementStats: () => emptyElementsStatsPages,
                 getElementStats: async ({ url }, breakpoint) => {
+                    await breakpoint(150)
+
                     const { href, wildcardHref } = values
                     let defaultUrl: string = ''
                     if (!url) {
@@ -150,6 +151,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         undefined,
                         url ? 'use-as-provided' : 'full'
                     )
+                    breakpoint()
 
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
@@ -157,7 +159,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     }
 
                     const paginatedResults = await response.json()
-                    breakpoint()
 
                     if (!Array.isArray(paginatedResults.results)) {
                         throw new Error('Error loading HeatMap data!')
@@ -331,36 +332,35 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     subscriptions(({ actions }) => ({
         viewportRange: () => {
-            actions.maybeLoadHeatmap(500)
+            actions.maybeLoadHeatmap()
         },
     })),
     listeners(({ actions, values }) => ({
         enableHeatmap: () => {
+            // need to set the href at least once to get the heatmap to load
+            actions.setDataHref(values.href)
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
 
         disableHeatmap: () => {
             actions.resetElementStats()
+            actions.resetHeatmapData()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
 
-        loadAllEnabled: async ({ delayMs }, breakpoint) => {
-            await breakpoint(delayMs)
-
+        loadAllEnabled: async () => {
             actions.maybeLoadHeatmap()
             actions.maybeLoadClickmap()
         },
 
-        maybeLoadClickmap: async ({ delayMs }, breakpoint) => {
-            await breakpoint(delayMs)
-            if (values.heatmapEnabled && values.clickmapsEnabled) {
+        maybeLoadClickmap: async () => {
+            if (values.clickmapsEnabled) {
                 actions.getElementStats()
             }
         },
 
-        maybeLoadHeatmap: async ({ delayMs }, breakpoint) => {
-            await breakpoint(delayMs)
+        maybeLoadHeatmap: async () => {
             if (values.heatmapEnabled) {
                 if (values.heatmapFilters.enabled && values.heatmapFilters.type) {
                     actions.loadHeatmap()
@@ -370,16 +370,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         setHref: ({ href }) => {
             actions.setDataHref(href)
-            actions.setUrlMatch('exact')
-            actions.loadAllEnabled()
+            actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
             actions.setDataHref(href)
-            actions.setUrlMatch('regex')
-            actions.loadAllEnabled(1000)
+            actions.maybeLoadClickmap()
         },
         setCommonFilters: () => {
-            actions.loadAllEnabled(200)
+            actions.loadAllEnabled()
         },
 
         // Only trigger element stats loading if clickmaps are enabled
@@ -400,12 +398,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 // Clear the heatmap if the type changes
                 actions.resetHeatmapData()
             }
-            actions.maybeLoadHeatmap(200)
+            actions.maybeLoadHeatmap()
         },
     })),
     afterMount(({ actions, values, cache }) => {
-        actions.loadAllEnabled()
-
         cache.scrollCheckTimer = setInterval(() => {
             const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
             if (values.heatmapScrollY !== scrollY) {
@@ -414,8 +410,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         }, 100)
     }),
     beforeUnmount(({ cache }) => {
-        window.removeEventListener('keydown', cache.keyDownListener)
-        window.removeEventListener('keyup', cache.keyUpListener)
         clearInterval(cache.scrollCheckTimer)
     }),
 ])

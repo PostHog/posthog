@@ -200,7 +200,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
     },
     [NodeKind.DataVisualizationNode]: {
-        name: 'Data visualization',
+        name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
         icon: IconTableChart,
         inMenu: false,

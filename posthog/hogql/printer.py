@@ -121,8 +121,12 @@ def prepare_ast_for_printing(
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
+            # Passing both `team_id` and `team` because `team` is not always available in the context
             context.database = create_hogql_database(
-                context.team_id, context.modifiers, context.team, timings=context.timings
+                context.team_id,
+                modifiers=context.modifiers,
+                team=context.team,
+                timings=context.timings,
             )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
@@ -380,6 +384,9 @@ class _Printer(Visitor):
                         else:
                             # Non-unique hidden alias. Skip.
                             column = column.expr
+                    elif isinstance(column, ast.Call):
+                        column_alias = print_prepared_ast(column, self.context, dialect="hogql")
+                        column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
                 columns = [self.visit(column) for column in node.select]
@@ -794,6 +801,11 @@ class _Printer(Visitor):
         if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
             "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
         ):
+            not_nullable = True
+        hack_sessions_timestamp = (
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+        )
+        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
             not_nullable = True
 
         constant_lambda = None

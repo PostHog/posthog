@@ -176,7 +176,7 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
             {showSetupWizard && (
                 <>
                     <h2>Automated Installation</h2>
-                    <SetupWizardBanner />
+                    <SetupWizardBanner integrationName="Next.js" />
                     <LemonDivider label="OR" />
                     <h2>Manual Installation</h2>
                 </>

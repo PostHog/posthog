@@ -40,18 +40,6 @@ class FileSystem(models.Model):
         return self.path
 
 
-def generate_unique_path(team: Team, base_folder: str, name: str) -> str:
-    desired = f"{base_folder}/{escape_path(name)}"
-    path = desired
-    index = 1
-
-    # TODO: speed this up by making just one query, and zero on first insert
-    while FileSystem.objects.filter(team=team, path=path).exists():
-        path = f"{desired} ({index})"
-        index += 1
-    return path
-
-
 def create_or_update_file(
     *,
     team: Team,
@@ -62,31 +50,26 @@ def create_or_update_file(
     href: str,
     meta: dict,
     created_by: Optional[User] = None,
-) -> FileSystem:
-    existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).first()
-    if existing:
-        # Optionally rename the path to match the new name
+):
+    has_existing = False
+    all_existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).all()
+    for existing in all_existing:
+        has_existing = True
         segments = split_path(existing.path)
         if len(segments) <= 2:
-            new_path = generate_unique_path(team, base_folder, name)
+            new_path = f"{base_folder}/{escape_path(name)}"
         else:
-            # Replace last segment
             segments[-1] = escape_path(name)
             new_path = join_path(segments)
-
-        # Ensure uniqueness
-        if FileSystem.objects.filter(team=team, path=new_path).exclude(id=existing.id).exists():
-            new_path = generate_unique_path(team, base_folder, name)
-
         existing.path = new_path
         existing.depth = len(split_path(new_path))
         existing.href = href
         existing.meta = meta
         existing.save()
-        return existing
-    else:
-        full_path = generate_unique_path(team, base_folder, name)
-        new_fs = FileSystem.objects.create(
+
+    if not has_existing:
+        full_path = f"{base_folder}/{escape_path(name)}"
+        FileSystem.objects.create(
             team=team,
             path=full_path,
             depth=len(split_path(full_path)),
@@ -96,7 +79,6 @@ def create_or_update_file(
             meta=meta,
             created_by=created_by,
         )
-        return new_fs
 
 
 def delete_file(*, team: Team, file_type: str, ref: str):

@@ -35,7 +35,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive className="max-w-[210px]">
+                <ButtonPrimitive className="max-w-[210px]" iconOnly={isLayoutNavCollapsed ? true : false}>
                     {currentOrganization ? (
                         <UploadedLogo
                             name={currentOrganization.name}
@@ -44,7 +44,12 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             size={isLayoutNavCollapsed ? 'medium' : 'xsmall'}
                         />
                     ) : (
-                        <IconPlusSmall />
+                        <UploadedLogo
+                            name="?"
+                            entityId=""
+                            mediaId=""
+                            size={isLayoutNavCollapsed ? 'medium' : 'xsmall'}
+                        />
                     )}
                     {!isLayoutNavCollapsed && (
                         <>
@@ -56,19 +61,31 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     )}
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="start" className="w-fit min-w-[240px]">
+            <DropdownMenuContent
+                loop
+                align="start"
+                className={`
+                min-w-[200px] 
+                max-w-[var(--project-panel-inner-width)] 
+            `}
+            >
                 <DropdownMenuLabel>Organizations</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {currentOrganization && (
                     <DropdownMenuItem asChild>
-                        <ButtonPrimitive menuItem active>
+                        <ButtonPrimitive
+                            menuItem
+                            active
+                            tooltip={`Current organization: ${currentOrganization.name}`}
+                            tooltipPlacement="right"
+                        >
                             <UploadedLogo
                                 size="xsmall"
                                 name={currentOrganization.name}
                                 entityId={currentOrganization.id}
                                 mediaId={currentOrganization.logo_media_id}
                             />
-                            {currentOrganization.name}
+                            <span className="truncate">{currentOrganization.name}</span>
                             <div className="ml-auto">
                                 <AccessLevelIndicator organization={currentOrganization} />
                             </div>
@@ -77,7 +94,12 @@ export function OrganizationDropdownMenu(): JSX.Element {
                 )}
                 {otherOrganizations.map((otherOrganization) => (
                     <DropdownMenuItem key={otherOrganization.id} asChild>
-                        <ButtonPrimitive menuItem onClick={() => updateCurrentOrganization(otherOrganization.id)}>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => updateCurrentOrganization(otherOrganization.id)}
+                            tooltip={`Switch to organization: ${otherOrganization.name}`}
+                            tooltipPlacement="right"
+                        >
                             <UploadedLogo
                                 size="xsmall"
                                 name={otherOrganization.name}
@@ -108,6 +130,8 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                     }
                                 )
                             }
+                            tooltip="Create a new organization"
+                            tooltipPlacement="right"
                         >
                             <IconPlusSmall className="size-4" />
                             New organization

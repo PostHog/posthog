@@ -773,7 +773,7 @@
              (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                      raw_sessions.session_id_v7 AS session_id_v7
               FROM raw_sessions
-              WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0))
+              WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
               GROUP BY raw_sessions.session_id_v7,
                        raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
@@ -837,7 +837,7 @@
           (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                   raw_sessions.session_id_v7 AS session_id_v7
            FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0))
+           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
                     raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), ifNull(greater(e__session.`$session_duration`, 12.0), 0))
@@ -898,7 +898,7 @@
           (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                   raw_sessions.session_id_v7 AS session_id_v7
            FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0))
+           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
                     raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, '$autocapture'), ifNull(less(e__session.`$session_duration`, 30.0), 0))
@@ -932,7 +932,7 @@
           (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                   raw_sessions.session_id_v7 AS session_id_v7
            FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0))
+           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
                     raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), ifNull(greater(e__session.`$session_duration`, 500.0), 0))

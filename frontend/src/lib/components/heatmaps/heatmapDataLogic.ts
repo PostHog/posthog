@@ -12,6 +12,7 @@ import {
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
+import { isLikelyRegex } from 'lib/utils/regexp'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
@@ -36,9 +37,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHref: (href: string) => ({ href }),
-        setUrlMatch: (match: 'exact' | 'regex') => ({
-            match,
-        }),
         setFetchFn: (fetchFn: 'native' | 'toolbar') => ({ fetchFn }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
@@ -86,13 +84,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         href: [
             null as string | null,
             {
-                setHref: (_, { href }) => href,
-            },
-        ],
-        urlMatch: [
-            'exact' as 'exact' | 'regex',
-            {
-                setUrlMatch: (_, { match }) => match,
+                setHref: (_, { href }) => {
+                    return href
+                },
             },
         ],
         heatmapScrollY: [
@@ -114,12 +108,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             {
                 resetHeatmapData: () => ({ results: [] }),
                 loadHeatmap: async (_, breakpoint) => {
-                    const href = values.href
-                    const matchType = values.urlMatch
+                    if (!values.href || !values.href.trim().length) {
+                        return null
+                    }
+                    await breakpoint(150)
+
                     const { date_from, date_to, filter_test_accounts } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
-                    const urlExact = matchType === 'exact' ? href : undefined
-                    const urlRegex = matchType === 'regex' ? href : undefined
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
                     const apiURL = `/api/heatmap/${encodeParams(
@@ -127,8 +122,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             type,
                             date_from,
                             date_to,
-                            url_exact: urlExact,
-                            url_pattern: urlRegex,
+                            url_exact: isLikelyRegex(values.href) ? undefined : values.href,
+                            url_pattern: isLikelyRegex(values.href) ? values.href : undefined,
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
@@ -137,8 +132,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         '?'
                     )}`
 
-                    breakpoint()
                     const response = await (values.fetchFn === 'toolbar' ? toolbarFetch(apiURL, 'GET') : fetch(apiURL))
+                    breakpoint()
 
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()

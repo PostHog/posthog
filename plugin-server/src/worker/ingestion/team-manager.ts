@@ -1,19 +1,29 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
+import { Counter } from 'prom-client'
 
+import { defaultConfig } from '../../config/config'
 import { ONE_MINUTE } from '../../config/constants'
 import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
 import { PipelineEvent, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
+import { logger } from '../../utils/logger'
 import { captureTeamEvent } from '../../utils/posthog'
+import { TeamManagerLazy } from '../../utils/team-manager-lazy'
+
+const teamLoaderComparisonCounter = new Counter({
+    name: 'team_loader_comparison',
+    help: 'Checks team returned is the same as the lazy team',
+    labelNames: ['result'],
+})
 
 export class TeamManager {
     postgres: PostgresRouter
     teamCache: LRU<TeamId, Team | null>
     tokenToTeamIdCache: LRU<string, TeamId | null>
 
-    constructor(postgres: PostgresRouter) {
+    constructor(postgres: PostgresRouter, private teamManagerLazy?: TeamManagerLazy) {
         this.postgres = postgres
 
         this.teamCache = new LRU({
@@ -39,6 +49,27 @@ export class TeamManager {
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
+        const team = await this._fetchTeam(teamId)
+
+        try {
+            // NOTE: This is testing code to compare the outputs and ensure all is valid
+            if (defaultConfig.LAZY_TEAM_MANAGER_COMPARISON && this.teamManagerLazy) {
+                const lazyTeam = await this.teamManagerLazy.getTeam(teamId)
+
+                if (lazyTeam?.id === team?.id) {
+                    teamLoaderComparisonCounter.inc({ result: 'equal' })
+                } else {
+                    teamLoaderComparisonCounter.inc({ result: 'not_equal' })
+                }
+            }
+        } catch (e) {
+            logger.error('Error comparing teams', { error: e, teamId })
+        }
+
+        return team
+    }
+
+    private async _fetchTeam(teamId: number): Promise<Team | null> {
         const cachedTeam = this.getCachedTeam(teamId)
         if (cachedTeam !== undefined) {
             return cachedTeam

@@ -49,7 +49,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
-    connect({
+    connect(() => ({
         values: [
             authorizedUrlListLogic({
                 ...defaultAuthorizedUrlProperties,
@@ -59,8 +59,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             heatmapDataLogic,
             ['heatmapEmpty'],
         ],
-        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setUrlMatch']],
-    }),
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref']],
+    })),
 
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
@@ -248,7 +248,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 return checkUrlIsAuthorized(browserUrl)
             },
         ],
-
         isBrowserUrlValid: [
             (s) => [s.browserUrl],
             (browserUrl) => {
@@ -413,6 +412,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         maybeLoadTopUrls: () => {
             if (!values.topUrls && !values.topUrlsLoading) {
                 actions.loadTopUrls()
+            }
+        },
+
+        setReplayIframeDataURL: async ({ url }, breakpoint) => {
+            await breakpoint(150)
+            if (url?.trim().length) {
+                // we don't want to use the toolbar fetch or the iframe message approach
+                actions.setFetchFn('native')
+                actions.setHref(url)
             }
         },
 

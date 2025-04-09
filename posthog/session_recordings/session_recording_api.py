@@ -28,6 +28,7 @@ from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
 
+from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.api.person import MinimalPersonSerializer
@@ -614,12 +615,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         NB version 1 of this API has been deprecated and ClickHouse stored snapshots are no longer supported.
         """
 
-        recording = self.get_object()
+        recording: SessionRecording = self.get_object()
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
         source = request.GET.get("source")
+        is_v2_enabled = request.GET.get("blob_v2", "false") == "true"
 
         event_properties = {
             "team_id": self.team.pk,
@@ -639,16 +641,23 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if source:
             SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
-        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
-        if personal_api_key:
-            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=personal_api_key, source=source).inc()
-
-        is_v2_enabled = posthoganalytics.feature_enabled(
-            "recordings-blobby-v2-replay",
-            str(self.team.pk),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-        )
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            used_key = request.successful_authenticator.personal_api_key
+            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=used_key.value, source=source).inc()
+            # we want to track personal api key usage of this endpoint
+            # with better visibility than just the token in a counter
+            posthoganalytics.capture(
+                self._distinct_id_from_request(request),
+                "snapshots_api_called_with_personal_api_key",
+                {
+                    "key_label": used_key.label,
+                    "key_scopes": used_key.scopes,
+                    "key_scoped_teams": used_key.scoped_teams,
+                    "session_requested": recording.session_id,
+                    "recording_start_time": recording.start_time,
+                    "source": source,
+                },
+            )
 
         if not source:
             return self._gather_session_recording_sources(recording, is_v2_enabled)
@@ -685,6 +694,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 event="recording list filters changed",
                 properties={"$current_url": current_url, "$session_id": session_id, **partial_filters},
                 team=team,
+            )
+
+            ProductIntent.register(
+                team=team,
+                product_type="session_replay",
+                context="session_replay_set_filters",
+                user=cast(User, request.user),
+                metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )
 
     def _gather_session_recording_sources(self, recording: SessionRecording, is_v2_enabled: bool = False) -> Response:

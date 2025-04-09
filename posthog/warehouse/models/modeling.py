@@ -320,7 +320,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
-        return create_hogql_database(team_id=team.pk, team_arg=team)
+        return create_hogql_database(team=team)
 
     def get_or_create_root_path_for_data_warehouse_table(
         self, data_warehouse_table: DataWarehouseTable

@@ -4,7 +4,7 @@ from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments import (
     CONTROL_VARIANT_KEY,
@@ -27,11 +27,17 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.experiment import Experiment
-from posthog.hogql_queries.experiments.query_logic import (
+from posthog.hogql_queries.experiments.base_query_utils import (
+    conversion_window_to_seconds,
+    event_or_action_to_filter,
     get_data_warehouse_metric_source,
     get_metric_value,
+)
+from posthog.hogql_queries.experiments.funnel_query_utils import (
+    funnel_steps_to_filter,
+    funnel_steps_to_window_funnel_expr,
+    get_funnel_step_level_expr,
 )
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
@@ -50,7 +56,7 @@ from posthog.schema import (
     DateRange,
     IntervalType,
 )
-from typing import Optional, Union, cast
+from typing import Optional, cast
 from datetime import datetime, timedelta, UTC
 
 
@@ -67,6 +73,11 @@ class ExperimentQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
+        self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
+        self.entity_key = "person_id"
+        if isinstance(self.group_type_index, int):
+            self.entity_key = f"$group_{self.group_type_index}"
+
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
@@ -109,7 +120,7 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
     def _get_metric_time_window(self, left: ast.Expr) -> list[ast.CompareOperation]:
-        if self.metric.time_window_hours:
+        if self.metric.conversion_window is not None and self.metric.conversion_window_unit is not None:
             # Define conversion window as hours after exposure
             time_window_clause = ast.CompareOperation(
                 left=left,
@@ -117,7 +128,16 @@ class ExperimentQueryRunner(QueryRunner):
                     name="plus",
                     args=[
                         ast.Field(chain=["exposure_data", "first_exposure_time"]),
-                        ast.Call(name="toIntervalHour", args=[ast.Constant(value=self.metric.time_window_hours)]),
+                        ast.Call(
+                            name="toIntervalSecond",
+                            args=[
+                                ast.Constant(
+                                    value=conversion_window_to_seconds(
+                                        self.metric.conversion_window, self.metric.conversion_window_unit
+                                    )
+                                ),
+                            ],
+                        ),
                     ],
                 ),
                 op=ast.CompareOperationOp.Lt,
@@ -212,7 +232,8 @@ class ExperimentQueryRunner(QueryRunner):
             if exposure_config.get("properties"):
                 for property in exposure_config.get("properties"):
                     exposure_property_filters.append(property_to_expr(property, self.team))
-            exposure_conditions.append(ast.And(exprs=exposure_property_filters))
+            if exposure_property_filters:
+                exposure_conditions.append(ast.And(exprs=exposure_property_filters))
 
         # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
         if event == "$feature_flag_called":
@@ -225,7 +246,7 @@ class ExperimentQueryRunner(QueryRunner):
             )
 
         exposure_query_select: list[ast.Expr] = [
-            ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
+            ast.Alias(alias="entity_id", expr=ast.Field(chain=[self.entity_key])),
             ast.Alias(
                 alias="variant",
                 expr=parse_expr(
@@ -264,34 +285,6 @@ class ExperimentQueryRunner(QueryRunner):
             where=ast.And(exprs=exposure_conditions),
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
-
-    def _funnel_step_to_filter(self, funnel_step: Union[EventsNode, ActionsNode]) -> ast.Expr:
-        """
-        Returns the filter for a single funnel step.
-        """
-
-        if funnel_step.kind == "ActionsNode":
-            raise NotImplementedError("Funnel steps for actions are not supported yet")
-
-        event_filter: ast.Expr = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=funnel_step.event),
-        )
-
-        if funnel_step.properties:
-            event_properties = ast.And(
-                exprs=[property_to_expr(property, self.team) for property in funnel_step.properties]
-            )
-            event_filter = ast.And(exprs=[event_filter, event_properties])
-
-        return event_filter
-
-    def _funnel_steps_to_filter(self, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
-        """
-        Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
-        """
-        return ast.Or(exprs=[self._funnel_step_to_filter(funnel_step) for funnel_step in funnel_steps])
 
     def _get_metric_events_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
@@ -353,26 +346,11 @@ class ExperimentQueryRunner(QueryRunner):
                             ),
                         )
 
-                    case EventsNode() | ActionsNode():
-                        if metric.source.kind == "ActionsNode":
-                            try:
-                                action = Action.objects.get(
-                                    pk=int(metric.source.id), team__project_id=self.team.project_id
-                                )
-                                event_filter = action_to_expr(action)
-                            except Action.DoesNotExist:
-                                # If an action doesn't exist, we want to return no events
-                                event_filter = parse_expr("1 = 2")
-                        else:
-                            event_filter = ast.CompareOperation(
-                                left=ast.Field(chain=["event"]),
-                                right=ast.Constant(value=metric.source.event),
-                                op=ast.CompareOperationOp.Eq,
-                            )
+                    case EventsNode() | ActionsNode() as metric_source:
                         return ast.SelectQuery(
                             select=[
                                 ast.Field(chain=["events", "timestamp"]),
-                                ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
+                                ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", self.entity_key])),
                                 ast.Field(chain=["exposure_data", "variant"]),
                                 ast.Field(chain=["events", "event"]),
                                 ast.Alias(alias="value", expr=get_metric_value(self.metric)),
@@ -385,7 +363,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     alias="exposure_data",
                                     constraint=ast.JoinConstraint(
                                         expr=ast.CompareOperation(
-                                            left=ast.Field(chain=["events", "person_id"]),
+                                            left=ast.Field(chain=["events", self.entity_key]),
                                             right=ast.Field(chain=["exposure_data", "entity_id"]),
                                             op=ast.CompareOperationOp.Eq,
                                         ),
@@ -396,7 +374,7 @@ class ExperimentQueryRunner(QueryRunner):
                             where=ast.And(
                                 exprs=[
                                     *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
-                                    event_filter,
+                                    event_or_action_to_filter(self.team, metric_source),
                                     *self._get_test_accounts_filter(),
                                 ],
                             ),
@@ -406,9 +384,10 @@ class ExperimentQueryRunner(QueryRunner):
                 return ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
-                        ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", self.entity_key])),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
+                        ast.Alias(alias="funnel_step", expr=get_funnel_step_level_expr(self.team, metric)),
                     ],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=["events"]),
@@ -418,7 +397,7 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="exposure_data",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
-                                    left=ast.Field(chain=["events", "person_id"]),
+                                    left=ast.Field(chain=["events", self.entity_key]),
                                     right=ast.Field(chain=["exposure_data", "entity_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
@@ -430,7 +409,7 @@ class ExperimentQueryRunner(QueryRunner):
                         exprs=[
                             *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                             *self._get_test_accounts_filter(),
-                            self._funnel_steps_to_filter(metric.series),
+                            funnel_steps_to_filter(self.team, metric.series),
                         ],
                     ),
                 )
@@ -438,35 +417,12 @@ class ExperimentQueryRunner(QueryRunner):
             case _:
                 raise ValueError(f"Unsupported metric: {self.metric}")
 
-    def _funnel_steps_to_window_funnel_expr(self, funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
-        """
-        Returns the expression for the window funnel. The expression returns 1 if the user completed the whole funnel, 0 if they didn't.
-        """
-
-        for step in funnel_metric.series:
-            if step.kind == "ActionsNode":
-                raise NotImplementedError("Funnel steps for actions are not supported yet")
-
-        series = [step for step in funnel_metric.series if step.kind == "EventsNode"]
-
-        # TODO: get conversion time window from funnel config
-        num_steps = len(funnel_metric.series)
-        conversion_time_window = 6048000000000000
-        funnel_steps_str = ", ".join([f"event = {ast.Constant(value=step.event).to_hogql()}" for step in series])
-        return parse_expr(
-            f"windowFunnel({conversion_time_window})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
-            placeholders={
-                "conversion_time_window": ast.Constant(value=conversion_time_window),
-                "num_steps": ast.Constant(value=num_steps),
-            },
-        )
-
     def _get_metric_aggregation_expr(self) -> ast.Expr:
         match self.metric:
             case ExperimentMeanMetric():
                 return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
             case ExperimentFunnelMetric():
-                return self._funnel_steps_to_window_funnel_expr(self.metric)
+                return funnel_steps_to_window_funnel_expr(self.metric)
 
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
