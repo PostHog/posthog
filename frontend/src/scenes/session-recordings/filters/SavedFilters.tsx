@@ -1,5 +1,6 @@
 import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { RecordingUniversalFilters, ReplayTabs, SessionRecordingPlaylistType } from '~/types'
@@ -18,6 +19,8 @@ export function SavedFilters({
     const { savedFilters, savedFiltersLoading, pagination } = useValues(savedFiltersLogic)
     const { deletePlaylist } = useActions(savedFiltersLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
+
+    const showCountColumn = useFeatureFlag('SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN')
 
     if (savedFiltersLoading || savedFilters.results?.length === 0) {
         return <SavedSessionRecordingPlaylistsEmptyState />
@@ -50,7 +53,10 @@ export function SavedFilters({
     }
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
-        countColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
+        countColumn({ showCountColumn }) as LemonTableColumn<
+            SessionRecordingPlaylistType,
+            keyof SessionRecordingPlaylistType | undefined
+        >,
         nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
         {
             width: 0,
