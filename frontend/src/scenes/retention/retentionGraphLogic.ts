@@ -3,7 +3,6 @@ import { dayjs, QUnitType } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
@@ -11,6 +10,7 @@ import { InsightLogicProps, RetentionPeriod } from '~/types'
 import { dateOptionToTimeIntervalMap } from './constants'
 import type { retentionGraphLogicType } from './retentionGraphLogicType'
 import { retentionLogic } from './retentionLogic'
+
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
 export const retentionGraphLogic = kea<retentionGraphLogicType>([
@@ -23,8 +23,6 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
             ['hasValidBreakdown', 'results', 'selectedBreakdownValue'],
-            teamLogic,
-            ['timezone'],
         ],
     })),
     selectors({
@@ -42,8 +40,8 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         count: 0,
                         label: cohortRetention.date
                             ? period === 'Hour'
-                                ? cohortRetention.date.format('MMM D, h A')
-                                : cohortRetention.date.format('MMM D')
+                                ? dayjs.utc(cohortRetention.date).format('MMM D, h A')
+                                : dayjs.utc(cohortRetention.date).format('MMM D')
                             : cohortRetention.label,
                         data: cohortRetention.values.map((value) => value.percentage),
                         index: datasetIndex,
@@ -53,8 +51,8 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
         ],
 
         incompletenessOffsetFromEnd: [
-            (s) => [s.dateRange, s.retentionFilter, s.trendSeries, s.timezone],
-            (dateRange, retentionFilter, trendSeries, timezone) => {
+            (s) => [s.dateRange, s.retentionFilter, s.trendSeries],
+            (dateRange, retentionFilter, trendSeries) => {
                 const { date_to } = dateRange || {}
                 const { period } = retentionFilter || {}
 
@@ -66,12 +64,9 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 }
                 const numUnits = trendSeries[0].days.length
                 const interval = dateOptionToTimeIntervalMap?.[period ?? RetentionPeriod.Day]
-                const startDate = dayjs().tz(timezone).startOf(interval)
+                const startDate = dayjs.utc().startOf(interval)
                 const startIndex = trendSeries[0].days.findIndex(
-                    (_, i) =>
-                        dayjs(date_to)
-                            .tz(timezone)
-                            .add(i - numUnits, interval as QUnitType) >= startDate
+                    (_, i) => dayjs.utc(date_to).add(i - numUnits, interval as QUnitType) >= startDate
                 )
 
                 if (startIndex !== undefined && startIndex !== -1) {

@@ -545,6 +545,11 @@ class RetentionQueryRunner(QueryRunner):
             interval, self.query_date_range.interval_name.title()
         )
 
+        if self.query_date_range.interval_type == IntervalType.HOUR:
+            utfoffset = self.team.timezone_info.utcoffset(date)
+            if utfoffset is not None:
+                date = date + utfoffset
+
         return date
 
     def calculate(self) -> RetentionQueryResponse:
@@ -583,10 +588,7 @@ class RetentionQueryRunner(QueryRunner):
                 breakdown_results = [
                     {
                         "values": [
-                            {
-                                **result_dict.get((start_interval, return_interval), {"count": 0}),
-                                "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
-                            }
+                            result_dict.get((start_interval, return_interval), {"count": 0})
                             for return_interval in range(self.query_date_range.lookahead)
                         ],
                         "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
@@ -607,10 +609,7 @@ class RetentionQueryRunner(QueryRunner):
             results = [
                 {
                     "values": [
-                        {
-                            **result_dict.get((start_interval, return_interval), {"count": 0}),
-                            "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
-                        }
+                        result_dict.get((start_interval, return_interval), {"count": 0})
                         for return_interval in range(self.query_date_range.lookahead)
                     ],
                     "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
