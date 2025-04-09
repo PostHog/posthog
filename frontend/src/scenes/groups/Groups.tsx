@@ -46,7 +46,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     <>
                         Go to the{' '}
                         <Link to="https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups">
-                            group analytics documentation
+                            group analytics docs
                         </Link>{' '}
                         to learn what needs to be done
                     </>
