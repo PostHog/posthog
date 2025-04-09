@@ -310,6 +310,9 @@ class TestPathsV2(SharedSetup):
 class TestPathsV2BaseEventsQuery(SharedSetup):
     maxDiff = None
 
+    def test_event_base_query(self):
+        pass
+
     def test_date_filters(self):
         _ = journeys_for(
             team=self.team,
@@ -387,3 +390,41 @@ class TestPathsV2BaseEventsQuery(SharedSetup):
             response.results,
             [(datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC), UUID("c6d7a3d6-6307-9297-248b-3569c2ae4c93"), "event1")],
         )
+
+    @pytest.mark.skip(reason="TODO: pending start and end event implementation")
+    def test_start_and_end_event(self):
+        pass
+
+
+class TestPathsV2PathsPerActorAsArrayQuery(SharedSetup):
+    maxDiff = None
+
+    def test_aggregates_items_into_arrays(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {"event": "event1", "timestamp": "2023-03-12 12:00:00"},
+                    {"event": "event2", "timestamp": "2023-03-12 12:00:00"},
+                ],
+                "person2": [
+                    {"event": "event3", "timestamp": "2023-03-12 12:00:00"},
+                    {"event": "event4", "timestamp": "2023-03-12 12:00:00"},
+                ],
+            },
+        )
+        query = PathsV2Query(filterTestAccounts=True)
+
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            paths_per_actor_as_array_query = query_runner._paths_per_actor_as_array_query()
+            response = execute_hogql_query(query=paths_per_actor_as_array_query, team=self.team)
+
+        self.assertEqual(
+            response.results,
+            [(datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC), UUID("c6d7a3d6-6307-9297-248b-3569c2ae4c93"), "event1")],
+        )
+
+    @pytest.mark.skip(reason="TODO: pending start and end event implementation")
+    def test_start_and_end_event(self):
+        pass
