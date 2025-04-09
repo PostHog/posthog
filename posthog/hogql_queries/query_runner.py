@@ -378,7 +378,9 @@ def get_query_runner(
         )
 
     if kind == "RevenueExampleEventsQuery":
-        from .web_analytics.revenue_example_events_query_runner import RevenueExampleEventsQueryRunner
+        from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
+            RevenueExampleEventsQueryRunner,
+        )
 
         return RevenueExampleEventsQueryRunner(
             query=query,
@@ -389,7 +391,7 @@ def get_query_runner(
         )
 
     if kind == "RevenueExampleDataWarehouseTablesQuery":
-        from .web_analytics.revenue_example_data_warehouse_tables_query_runner import (
+        from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
             RevenueExampleDataWarehouseTablesQueryRunner,
         )
 

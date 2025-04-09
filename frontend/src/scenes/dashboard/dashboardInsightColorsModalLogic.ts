@@ -84,9 +84,9 @@ export function extractBreakdownValues(
 
 export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardInsightColorsModalLogic']),
-    connect({
+    connect(() => ({
         values: [cohortsModel, ['cohorts']],
-    }),
+    })),
     actions({
         showInsightColorsModal: (id: number) => ({ id }),
         hideInsightColorsModal: true,

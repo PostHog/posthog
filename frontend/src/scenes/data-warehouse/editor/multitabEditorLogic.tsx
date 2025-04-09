@@ -33,12 +33,6 @@ import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
 
-const dataNodeKey = insightVizDataNodeKey({
-    dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
-    cachedInsight: null,
-    doNotLoad: true,
-})
-
 export interface MultitabEditorLogicProps {
     key: string
     monaco?: Monaco | null
@@ -85,7 +79,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries'], userLogic, ['user']],
         actions: [
             dataWarehouseViewsLogic,
@@ -98,7 +92,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             outputPaneLogic,
             ['setActiveTab'],
         ],
-    }),
+    })),
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
@@ -129,7 +123,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateInsight: true,
         setCacheLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
-        setIsValidView: (isValidView: boolean) => ({ isValidView }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
         setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
@@ -260,12 +253,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as string | null,
             {
                 setError: (_, { error }) => error,
-            },
-        ],
-        isValidView: [
-            false,
-            {
-                setIsValidView: (_, { isValidView }) => isValidView,
             },
         ],
         metadataLoading: [
@@ -881,7 +868,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     return `InsightViz.${editingInsight.short_id}`
                 }
 
-                return activeModelUri?.uri.path ?? dataNodeKey
+                return (
+                    activeModelUri?.uri.path ??
+                    insightVizDataNodeKey({
+                        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+                        cachedInsight: null,
+                        doNotLoad: true,
+                    })
+                )
             },
         ],
     }),
