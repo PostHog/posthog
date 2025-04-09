@@ -678,6 +678,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return projectTree
             },
         ],
+        checkedItemCountNumeric: [
+            (s) => [s.checkedItems],
+            (checkedItems): number => Object.values(checkedItems).filter((v) => !!v).length,
+        ],
         checkedItemsCount: [
             (s) => [s.checkedItems, s.viableItemsById],
             (checkedItems, viableItemsById): string => {
@@ -859,7 +863,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
         moveItem: async ({ item, newPath, force }) => {
             if (newPath === item.path) {
-                lemonToast.error('Cannot move folder into itself')
                 return
             }
             if (!item.id) {

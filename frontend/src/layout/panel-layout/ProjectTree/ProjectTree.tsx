@@ -25,6 +25,7 @@ export function ProjectTree(): JSX.Element {
         treeItemsNew,
         checkedItems,
         checkedItemsCount,
+        checkedItemCountNumeric,
     } = useValues(projectTreeLogic)
 
     const {
@@ -218,6 +219,7 @@ export function ProjectTree(): JSX.Element {
                 }}
                 enableMultiSelection={checkedItemsCount !== '0'}
                 onItemChecked={onItemChecked}
+                checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
                     if (!isLayoutPanelPinned) {
                         clearActivePanelIdentifier()
@@ -252,11 +254,11 @@ export function ProjectTree(): JSX.Element {
                     }
                     const oldItem = viableItems.find((i) => itemToId(i) === oldId)
                     const newItem = viableItems.find((i) => itemToId(i) === newId)
-                    if (oldItem === newItem) {
+                    if (oldItem === newItem || !oldItem || !newItem) {
                         return false
                     }
-                    const oldPath = oldItem?.path
-                    const folder = newItem?.path
+                    const oldPath = oldItem.path
+                    const folder = newItem.path
 
                     if (checkedItems[oldId]) {
                         moveCheckedItems(folder)
@@ -271,7 +273,7 @@ export function ProjectTree(): JSX.Element {
                         const oldFile = oldSplit.pop()
                         if (oldFile) {
                             const newFile = joinPath([...splitPath(String(folder)), oldFile])
-                            if (newFile !== oldPath) {
+                            if (oldItem && newFile !== oldPath) {
                                 moveItem(oldItem, newFile)
                             }
                         }

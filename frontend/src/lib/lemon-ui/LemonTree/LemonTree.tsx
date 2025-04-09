@@ -1,4 +1,4 @@
-import { DndContext, DragEndEvent, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { IconEllipsis, IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -96,6 +96,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemUnapplied?: (item: TreeDataItem) => boolean
     /** The function to call when the item is checked. */
     onItemChecked?: (id: string, checked: boolean) => void
+    /** Count of checked items */
+    checkedItemCount?: number
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     /** Set the IDs of the expanded items. */
@@ -459,6 +461,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isFinishedBuildingTreeData,
             enableMultiSelection = false,
             onItemChecked,
+            checkedItemCount,
             emptySpaceContextMenu,
             ...props
         },
@@ -487,6 +490,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
         const [isDragging, setIsDragging] = useState(false)
+        const [activeDragItem, setActiveDragItem] = useState<TreeDataItem | null>(null)
 
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
@@ -1025,11 +1029,29 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             }
         }, [expandedItemIds, expandedItemIdsState])
 
+        const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
+            for (const item of items) {
+                if (item.id === itemId) {
+                    return item
+                } else if (item.children) {
+                    const found = findItem(item.children, itemId)
+                    if (found) {
+                        return found
+                    }
+                }
+            }
+            return undefined
+        }
+
         return (
             <DndContext
                 sensors={sensors}
-                onDragStart={() => {
+                onDragStart={(event) => {
                     setIsDragging(true)
+                    const item = findItem(data, String(event.active?.id))
+                    if (item) {
+                        setActiveDragItem(item)
+                    }
                 }}
                 onDragEnd={(dragEvent) => {
                     const active = dragEvent.active?.id
@@ -1091,6 +1113,30 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         </ContextMenu>
                     </TreeNodeDroppable>
                 </ScrollableShadows>
+
+                {/* Custom drag overlay */}
+                <DragOverlay dropAnimation={null}>
+                    {activeDragItem && (
+                        <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)]">
+                            {/*<div className="shrink-0">*/}
+                            {/*    <TreeNodeDisplayIcon*/}
+                            {/*        item={activeDragItem}*/}
+                            {/*        expandedItemIds={expandedItemIdsState}*/}
+                            {/*        defaultNodeIcon={defaultNodeIcon}*/}
+                            {/*    />*/}
+                            {/*</div>*/}
+                            <span className="truncate font-medium">
+                                {activeDragItem.displayName || activeDragItem.name}
+                            </span>
+                            {activeDragItem.checked && checkedItemCount > 1 && (
+                                <span className="ml-1 text-xs rounded-full bg-primary-highlight px-2 py-0.5 whitespace-nowrap">
+                                    +<span>{checkedItemCount - 1}</span>{' '}
+                                    <span>other{checkedItemCount - 1 === 1 ? '' : 's'}</span>
+                                </span>
+                            )}
+                        </ButtonPrimitive>
+                    )}
+                </DragOverlay>
             </DndContext>
         )
     }
