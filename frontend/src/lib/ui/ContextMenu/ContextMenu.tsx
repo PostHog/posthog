@@ -68,16 +68,12 @@ const ContextMenuContent = React.forwardRef<
                 ref={ref}
                 className={cn(
                     `z-top relative overflow-hidden min-w-[8rem] max-w-[200px] rounded-md border border-secondary bg-surface-primary text-primary shadow`,
-                    `max-h-[calc(var(--radix-popper-available-height)-100px)]`,
+                    `max-h-[calc(90vh-100px)]`,
                     className
                 )}
                 {...props}
             >
-                <ScrollableShadows
-                    direction="vertical"
-                    styledScrollbars
-                    innerClassName="p-1 max-h-[calc(var(--radix-popper-available-height)-50px)]"
-                >
+                <ScrollableShadows direction="vertical" styledScrollbars innerClassName="p-1 max-h-[calc(90vh-100px)]">
                     {children}
                 </ScrollableShadows>
             </ContextMenuPrimitive.Content>
