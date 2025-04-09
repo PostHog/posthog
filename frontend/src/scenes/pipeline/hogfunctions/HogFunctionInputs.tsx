@@ -19,7 +19,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     HogFunctionConfigurationType,
@@ -30,7 +30,7 @@ import {
 
 import { EmailTemplater } from './email-templater/EmailTemplater'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
-import { hogFunctionInputLogic } from './HogFunctionInputLogic'
+import { formatJsonValue, hogFunctionInputLogic } from './HogFunctionInputLogic'
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
 
@@ -62,17 +62,12 @@ function JsonConfigField(props: {
     templating?: boolean
 }): JSX.Element {
     const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
-    const [key] = useState(`json_field_${Math.random().toString(36).substring(2, 11)}`)
+    const key = useMemo(() => `json_field_${Math.random().toString(36).substring(2, 11)}`, [])
 
     // Set up validation logic for this JSON field
     const logic = hogFunctionInputLogic({
         fieldKey: key,
-        initialValue:
-            props.value === undefined || props.value === null
-                ? '{}'
-                : typeof props.value !== 'string'
-                ? JSON.stringify(props.value, null, 2)
-                : props.value,
+        initialValue: props.value,
         onChange: props.onChange,
     })
 
@@ -80,18 +75,13 @@ function JsonConfigField(props: {
     const { setJsonValue } = useActions(logic)
 
     // Format initial value for display
-    const initialValue =
-        props.value === undefined || props.value === null
-            ? '{}'
-            : typeof props.value !== 'string'
-            ? JSON.stringify(props.value, null, 2)
-            : props.value
+    const formattedValue = useMemo(() => formatJsonValue(props.value), [props.value])
 
     return (
         <div className="flex flex-col gap-1 w-full">
             <CodeEditorResizeable
                 language={props.templating ? 'hogJson' : 'json'}
-                value={initialValue}
+                value={formattedValue}
                 onChange={(value) => setJsonValue(value || '{}')}
                 options={{
                     lineNumbers: 'off',
@@ -105,11 +95,7 @@ function JsonConfigField(props: {
                 }}
                 globals={props.templating ? globalsWithInputs : undefined}
             />
-            {error && (
-                <div className="text-danger text-xs mt-1 px-2 py-2 bg-danger-highlight rounded">
-                    <div className="font-semibold">{error}</div>
-                </div>
-            )}
+            {error && <LemonField.Pure error={error} />}
         </div>
     )
 }

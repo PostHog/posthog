@@ -8,6 +8,17 @@ export interface HogFunctionInputLogicProps {
     onChange?: (value: string) => void
 }
 
+/**
+ * Format a JSON value for display in the editor
+ */
+export function formatJsonValue(value: any): string {
+    if (value === undefined || value === null) {
+        return '{}'
+    }
+
+    return typeof value !== 'string' ? JSON.stringify(value, null, 2) : value
+}
+
 export const hogFunctionInputLogic = kea<hogFunctionInputLogicType>({
     path: ['scenes', 'pipeline', 'hogfunctions', 'hogFunctionInputLogic'],
     props: {} as HogFunctionInputLogicProps,
@@ -38,51 +49,41 @@ export const hogFunctionInputLogic = kea<hogFunctionInputLogicType>({
         hasError: [(s: any) => [s.error], (error: string | null) => !!error],
     },
 
-    listeners: ({ actions, props }: { actions: any; props: HogFunctionInputLogicProps }) => {
-        let timeout: number | null = null
+    listeners: ({ actions, props }) => ({
+        setJsonValue: async ({ value }, breakpoint) => {
+            // Don't validate empty values
+            if (!value || value.trim() === '') {
+                actions.setError(null)
+                return
+            }
 
-        return {
-            setJsonValue: ({ value }: { value: string }) => {
-                // Don't validate empty values
-                if (!value || value.trim() === '') {
-                    actions.setError(null)
-                    return
+            // Notify parent about the change
+            props.onChange?.(value)
+
+            // Wait for 600ms before validating, and break if setJsonValue is called again
+            await breakpoint(600)
+
+            try {
+                JSON.parse(value)
+                actions.setError(null)
+            } catch (e: any) {
+                // Prettify common errors
+                let errorMessage = e.message || 'Invalid JSON'
+
+                // Special case for undefined
+                if (errorMessage.includes("'u'") && value.includes('undefined')) {
+                    errorMessage = "Error: 'undefined' is not allowed in JSON. Use null instead."
                 }
 
-                // Notify parent about the change
-                props.onChange?.(value)
-
-                // Clear any existing timeout to reset the timer
-                if (timeout !== null) {
-                    clearTimeout(timeout)
-                }
-
-                // Set a new timeout - only validate after user stops typing
-                timeout = window.setTimeout(() => {
-                    try {
-                        JSON.parse(value)
-                        actions.setError(null)
-                    } catch (e: any) {
-                        // Prettify common errors
-                        let errorMessage = e.message || 'Invalid JSON'
-
-                        // Special case for undefined
-                        if (errorMessage.includes("'u'") && value.includes('undefined')) {
-                            errorMessage = "Error: 'undefined' is not allowed in JSON. Use null instead."
-                        }
-
-                        actions.setError(errorMessage)
-                    }
-                    timeout = null
-                }, 600)
-            },
-        }
-    },
+                actions.setError(errorMessage)
+            }
+        },
+    }),
 
     // Initialize on props changes or mounting
-    propsChanged: ({ actions, props }: { actions: any; props: HogFunctionInputLogicProps }) => {
+    propsChanged({ actions, props }: { actions: any; props: HogFunctionInputLogicProps }) {
         if (props.initialValue !== undefined) {
-            actions.setJsonValue(props.initialValue)
+            actions.setJsonValue(formatJsonValue(props.initialValue))
         }
     },
 })
