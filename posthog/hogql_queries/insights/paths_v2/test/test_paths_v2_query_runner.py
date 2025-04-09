@@ -1,17 +1,29 @@
 from abc import ABC
+from datetime import datetime
+from uuid import UUID
 
 from freezegun.api import freeze_time
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paths_v2.paths_v2_query_runner import (
     POSTHOG_OTHER,
     POSTHOG_DROPOFF,
     PathsV2QueryRunner,
 )
-from posthog.schema import PathsV2Filter, PathsV2Item, PathsV2Query
+from posthog.schema import (
+    DateRange,
+    PathsV2Filter,
+    PathsV2Item,
+    PathsV2Query,
+    EventsNode,
+    EventPropertyFilter,
+    PropertyOperator,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
 )
 from posthog.test.test_journeys import journeys_for
+import pytz
 
 
 class SharedSetup(ClickhouseTestMixin, APIBaseTest, ABC):
@@ -265,12 +277,16 @@ class TestPathsV2(SharedSetup):
         filter = PathsV2Filter()
         query = PathsV2Query(
             series=[
-                {
-                    "kind": "EventsNode",
-                    "event": "$identify",
-                    "name": "$identify",
-                    "properties": [{"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event"}],
-                }
+                EventsNode(
+                    kind="EventsNode",
+                    event="$identify",
+                    name="$identify",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$browser", value=["Chrome"], operator=PropertyOperator.EXACT, type="event"
+                        )
+                    ],
+                )
             ],
             pathsV2Filter=filter,
         )
@@ -286,4 +302,86 @@ class TestPathsV2(SharedSetup):
                 PathsV2Item(step_index=4.0, source_step="c", target_step="c", value=1.0),
                 PathsV2Item(step_index=5.0, source_step="c", target_step=POSTHOG_DROPOFF, value=1.0),
             ],
+        )
+
+
+class TestPathsV2BaseEventsQuery(SharedSetup):
+    maxDiff = None
+
+    def test_date_filters(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {"event": "event1", "timestamp": "2023-03-01 12:00:00"},
+                    {"event": "event2", "timestamp": "2023-03-02 12:00:00"},
+                    {"event": "event3", "timestamp": "2023-03-03 12:00:00"},
+                ],
+            },
+        )
+        query = PathsV2Query(dateRange=DateRange(date_from="2023-03-02", date_to="2023-03-02"))
+
+        query_runner = self._get_query_runner(query=query)
+        event_base_query = query_runner._event_base_query()
+        response = execute_hogql_query(query=event_base_query, team=self.team)
+
+        self.assertEqual(
+            response.results,
+            [
+                (
+                    datetime(2023, 3, 2, 12, 0, tzinfo=pytz.UTC),
+                    UUID("19817248-b1a1-f231-a0f6-a530155cbd20"),
+                    "event2",
+                ),
+            ],
+        )
+
+    def test_property_filters(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {"event": "event1", "timestamp": "2023-03-12 12:00:00", "properties": {"$browser": "Chrome"}},
+                    {"event": "event2", "timestamp": "2023-03-12 12:00:00", "properties": {"$browser": "Firefox"}},
+                ],
+            },
+        )
+        query = PathsV2Query(
+            properties=[
+                EventPropertyFilter(key="$browser", value=["Chrome"], operator=PropertyOperator.EXACT, type="event")
+            ],
+        )
+
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            event_base_query = query_runner._event_base_query()
+            response = execute_hogql_query(query=event_base_query, team=self.team)
+
+        self.assertEqual(
+            response.results,
+            [(datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC), UUID("231700cd-f48e-754a-6bf1-744a9464be9e"), "event1")],
+        )
+
+    def test_test_account_filters(self):
+        self.team.test_account_filters = [{"key": "$browser", "value": "Chrome", "operator": "exact", "type": "event"}]
+        self.team.save()
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {"event": "event1", "timestamp": "2023-03-12 12:00:00", "properties": {"$browser": "Chrome"}},
+                    {"event": "event2", "timestamp": "2023-03-12 12:00:00", "properties": {"$browser": "Firefox"}},
+                ],
+            },
+        )
+        query = PathsV2Query(filterTestAccounts=True)
+
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            event_base_query = query_runner._event_base_query()
+            response = execute_hogql_query(query=event_base_query, team=self.team)
+
+        self.assertEqual(
+            response.results,
+            [(datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC), UUID("c6d7a3d6-6307-9297-248b-3569c2ae4c93"), "event1")],
         )
