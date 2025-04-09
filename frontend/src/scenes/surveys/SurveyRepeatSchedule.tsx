@@ -86,7 +86,7 @@ function SurveyIterationOptions(): JSX.Element {
     return (
         <>
             <LemonField.Pure
-                info="Showing a survey all the time requires at least version 1.220.0 of posthog-js"
+                info="Showing a survey every time the display conditions are met requires at least version 1.234.11 of posthog-js"
                 label={<h3 className="mb-0">How often should we show this survey?</h3>}
             >
                 <LemonRadio
