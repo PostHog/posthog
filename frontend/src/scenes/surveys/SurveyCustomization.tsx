@@ -52,6 +52,9 @@ export function Customization({
         : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
+    const isWidgetSurveyWithSelectorWidgetType =
+        type === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
+
     return (
         <>
             <div className="flex flex-col font-semibold">
@@ -83,41 +86,44 @@ export function Customization({
                     {validationErrors?.borderColor && <LemonField.Error error={validationErrors?.borderColor} />}
                 </LemonField.Pure>
                 <>
-                    <LemonField.Pure className="mt-2" label="Position">
+                    <LemonField.Pure
+                        className="mt-2"
+                        label="Position"
+                        info={
+                            isWidgetSurveyWithSelectorWidgetType
+                                ? 'The "next to trigger" option requires posthog.js version TODO_BEFORE_MERGE or higher.'
+                                : undefined
+                        }
+                    >
                         <div className="flex gap-1">
-                            {Object.values(SurveyPosition)
-                                .filter((position) => {
-                                    if (
-                                        position === SurveyPosition.NextToTrigger &&
-                                        type === SurveyType.Widget &&
-                                        appearance.widgetType !== SurveyWidgetType.Selector
-                                    ) {
-                                        return false
-                                    }
-                                    return true
-                                })
-                                .map((position) => {
-                                    return (
-                                        <LemonButton
-                                            key={position}
-                                            tooltip={
-                                                position === SurveyPosition.NextToTrigger
-                                                    ? 'This option is only available for widget surveys. The survey will be displayed next to the trigger button.'
-                                                    : undefined
-                                            }
-                                            type="tertiary"
-                                            onClick={() => onAppearanceChange({ ...appearance, position })}
-                                            active={appearance.position === position}
-                                            disabledReason={
-                                                surveysStylingAvailable
-                                                    ? null
-                                                    : 'Upgrade your plan to customize survey position.'
-                                            }
-                                        >
-                                            {position}
-                                        </LemonButton>
-                                    )
-                                })}
+                            {Object.values(SurveyPosition).map((position) => {
+                                if (
+                                    position === SurveyPosition.NextToTrigger &&
+                                    !isWidgetSurveyWithSelectorWidgetType
+                                ) {
+                                    return null
+                                }
+                                return (
+                                    <LemonButton
+                                        key={position}
+                                        tooltip={
+                                            position === SurveyPosition.NextToTrigger
+                                                ? 'This option is only available for widget surveys. The survey will be displayed next to the trigger button.'
+                                                : undefined
+                                        }
+                                        type="tertiary"
+                                        onClick={() => onAppearanceChange({ ...appearance, position })}
+                                        active={appearance.position === position}
+                                        disabledReason={
+                                            surveysStylingAvailable
+                                                ? null
+                                                : 'Upgrade your plan to customize survey position.'
+                                        }
+                                    >
+                                        {position}
+                                    </LemonButton>
+                                )
+                            })}
                         </div>
                     </LemonField.Pure>
                 </>
