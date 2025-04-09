@@ -300,7 +300,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self.user_access_control:
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
-        return Response({"count": qs.count}, status=status.HTTP_200_OK)
+        return Response({"count": qs.count()}, status=status.HTTP_200_OK)
 
 
 def assure_parent_folders(path: str, team: Team, created_by: User) -> None:
