@@ -49,265 +49,280 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
     return (
         <div className="cohort">
-            <Form
-                id="cohort"
-                logic={cohortEditLogic}
-                props={logicProps}
-                formKey="cohort"
-                enableFormOnSubmit
-                className={cohort.is_calculating ? 'pointer-events-none opacity-50' : ''}
+            <Tooltip
+                title={
+                    cohort.is_calculating
+                        ? 'This cohort is being calculated. You cannot make changes until calculation is complete.'
+                        : undefined
+                }
             >
-                <PageHeader
-                    buttons={
-                        <div className="flex items-center gap-2">
-                            {isNewCohort ? (
-                                <LemonButton
-                                    data-attr="cancel-cohort"
-                                    type="secondary"
-                                    onClick={() => {
-                                        router.actions.push(urls.cohorts())
-                                    }}
-                                    disabledReason={cohortLoading ? 'Cohort is loading' : undefined}
-                                >
-                                    Cancel
-                                </LemonButton>
-                            ) : (
-                                <More
-                                    overlay={
-                                        <>
-                                            {!cohort.is_static && (
+                <fieldset disabled={cohort.is_calculating} className="border-0 p-0 m-0 min-w-0 disabled:opacity-50">
+                    <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
+                        <PageHeader
+                            buttons={
+                                <div className="flex items-center gap-2">
+                                    {isNewCohort ? (
+                                        <LemonButton
+                                            data-attr="cancel-cohort"
+                                            type="secondary"
+                                            onClick={() => {
+                                                router.actions.push(urls.cohorts())
+                                            }}
+                                            disabledReason={cohortLoading ? 'Cohort is loading' : undefined}
+                                        >
+                                            Cancel
+                                        </LemonButton>
+                                    ) : (
+                                        <More
+                                            overlay={
                                                 <>
+                                                    {!cohort.is_static && (
+                                                        <>
+                                                            <LemonButton
+                                                                onClick={() => duplicateCohort(false)}
+                                                                fullWidth
+                                                                disabledReason={
+                                                                    cohort.is_calculating
+                                                                        ? 'Cohort is still calculating'
+                                                                        : undefined
+                                                                }
+                                                                loading={duplicatedCohortLoading}
+                                                            >
+                                                                Duplicate as dynamic cohort
+                                                            </LemonButton>
+                                                            <LemonButton
+                                                                onClick={() => duplicateCohort(true)}
+                                                                fullWidth
+                                                                disabledReason={
+                                                                    cohort.is_calculating
+                                                                        ? 'Cohort is still calculating'
+                                                                        : undefined
+                                                                }
+                                                                loading={duplicatedCohortLoading}
+                                                            >
+                                                                Duplicate as static cohort
+                                                            </LemonButton>
+                                                            <LemonDivider />
+                                                        </>
+                                                    )}
                                                     <LemonButton
-                                                        onClick={() => duplicateCohort(false)}
+                                                        data-attr="delete-cohort"
                                                         fullWidth
-                                                        disabledReason={
-                                                            cohort.is_calculating
-                                                                ? 'Cohort is still calculating'
-                                                                : undefined
-                                                        }
-                                                        loading={duplicatedCohortLoading}
+                                                        status="danger"
+                                                        onClick={deleteCohort}
                                                     >
-                                                        Duplicate as dynamic cohort
+                                                        Delete cohort
                                                     </LemonButton>
-                                                    <LemonButton
-                                                        onClick={() => duplicateCohort(true)}
-                                                        fullWidth
-                                                        disabledReason={
-                                                            cohort.is_calculating
-                                                                ? 'Cohort is still calculating'
-                                                                : undefined
-                                                        }
-                                                        loading={duplicatedCohortLoading}
-                                                    >
-                                                        Duplicate as static cohort
-                                                    </LemonButton>
-                                                    <LemonDivider />
                                                 </>
-                                            )}
-                                            <LemonButton
-                                                data-attr="delete-cohort"
+                                            }
+                                        />
+                                    )}
+                                    {!isNewCohort && (
+                                        <NotebookSelectButton
+                                            type="secondary"
+                                            resource={{
+                                                type: NotebookNodeType.Cohort,
+                                                attrs: { id },
+                                            }}
+                                        />
+                                    )}
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="save-cohort"
+                                        htmlType="submit"
+                                        loading={cohortLoading || cohort.is_calculating}
+                                        form="cohort"
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </div>
+                            }
+                        />
+                        <div className="deprecated-space-y-2 max-w-200">
+                            <div className="flex gap-4 flex-wrap">
+                                <div className="flex-1">
+                                    <LemonField name="name" label="Name">
+                                        <LemonInput data-attr="cohort-name" />
+                                    </LemonField>
+                                </div>
+                                <div className="flex-1">
+                                    <LemonField name="is_static" label="Type">
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                disabledReason={
+                                                    isNewCohort
+                                                        ? null
+                                                        : 'Create a new cohort to use a different type of cohort.'
+                                                }
+                                                options={COHORT_TYPE_OPTIONS}
+                                                value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
+                                                onChange={(cohortType) => {
+                                                    onChange(cohortType === CohortTypeEnum.Static)
+                                                }}
                                                 fullWidth
-                                                status="danger"
-                                                onClick={deleteCohort}
-                                            >
-                                                Delete cohort
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                            )}
-                            {!isNewCohort && (
-                                <NotebookSelectButton
-                                    type="secondary"
-                                    resource={{
-                                        type: NotebookNodeType.Cohort,
-                                        attrs: { id },
-                                    }}
-                                />
-                            )}
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-cohort"
-                                htmlType="submit"
-                                loading={cohortLoading || cohort.is_calculating}
-                                form="cohort"
-                            >
-                                Save
-                            </LemonButton>
-                        </div>
-                    }
-                />
-                <div className="deprecated-space-y-2 max-w-200">
-                    <div className="flex gap-4 flex-wrap">
-                        <div className="flex-1">
-                            <LemonField name="name" label="Name">
-                                <LemonInput data-attr="cohort-name" />
-                            </LemonField>
-                        </div>
-                        <div className="flex-1">
-                            <LemonField name="is_static" label="Type">
-                                {({ value, onChange }) => (
-                                    <LemonSelect
-                                        disabledReason={
-                                            isNewCohort
-                                                ? null
-                                                : 'Create a new cohort to use a different type of cohort.'
-                                        }
-                                        options={COHORT_TYPE_OPTIONS}
-                                        value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                        onChange={(cohortType) => {
-                                            onChange(cohortType === CohortTypeEnum.Static)
-                                        }}
-                                        fullWidth
-                                        data-attr="cohort-type"
-                                    />
+                                                data-attr="cohort-type"
+                                            />
+                                        )}
+                                    </LemonField>
+                                </div>
+                                {!isNewCohort && !cohort?.is_static && (
+                                    <div className="max-w-70 w-fit">
+                                        <div className="flex gap-1 flex-col">
+                                            <LemonLabel>Last calculated</LemonLabel>
+                                            {cohort.is_calculating ? (
+                                                <div className="text-s">In progress...</div>
+                                            ) : cohort.last_calculation ? (
+                                                <div className="flex flex-1 flex-row gap-1">
+                                                    <TZLabel time={cohort.last_calculation} />
+                                                    {cohort.errors_calculating ? (
+                                                        <Tooltip
+                                                            title={
+                                                                "The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation."
+                                                            }
+                                                        >
+                                                            <div className="text-danger">
+                                                                <IconErrorOutline className="text-danger text-xl shrink-0" />
+                                                            </div>
+                                                        </Tooltip>
+                                                    ) : null}
+                                                </div>
+                                            ) : (
+                                                <div className="text-s">Not yet calculated</div>
+                                            )}
+                                            <div className="text-secondary text-xs">
+                                                Cohorts are recalculated every 24 hours
+                                            </div>
+                                        </div>
+                                    </div>
                                 )}
-                            </LemonField>
+                            </div>
+                            <div className="ph-ignore-input">
+                                <LemonField name="description" label="Description" data-attr="cohort-description">
+                                    <LemonTextArea />
+                                </LemonField>
+                            </div>
                         </div>
-                        {!isNewCohort && !cohort?.is_static && (
-                            <div className="max-w-70 w-fit">
-                                <div className="flex gap-1 flex-col">
-                                    <LemonLabel>Last calculated</LemonLabel>
-                                    {cohort.is_calculating ? (
-                                        <div className="text-s">In progress...</div>
-                                    ) : cohort.last_calculation ? (
-                                        <div className="flex flex-1 flex-row gap-1">
-                                            <TZLabel time={cohort.last_calculation} />
-                                            {cohort.errors_calculating ? (
-                                                <Tooltip
-                                                    title={
-                                                        "The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation."
-                                                    }
-                                                >
-                                                    <div className="text-danger">
-                                                        <IconErrorOutline className="text-danger text-xl shrink-0" />
+                        {cohort.is_static ? (
+                            <div className="mt-4 ph-ignore-input">
+                                <LemonField
+                                    name="csv"
+                                    label={isNewCohort ? 'Upload users' : 'Add users'}
+                                    data-attr="cohort-csv"
+                                >
+                                    {({ onChange }) => (
+                                        <>
+                                            <span>
+                                                Upload a CSV file to add users to your cohort. The CSV file only
+                                                requires a single column with the user’s distinct ID. The very first row
+                                                (the header) will be skipped during import.
+                                            </span>
+                                            <LemonFileInput
+                                                accept=".csv"
+                                                multiple={false}
+                                                value={cohort.csv ? [cohort.csv] : []}
+                                                onChange={(files) => onChange(files[0])}
+                                                showUploadedFiles={false}
+                                                callToAction={
+                                                    <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1">
+                                                        {cohort.csv ? (
+                                                            <>
+                                                                <IconUploadFile
+                                                                    style={{
+                                                                        fontSize: '3rem',
+                                                                        color: 'var(--text-secondary)',
+                                                                    }}
+                                                                />
+                                                                <div>{cohort.csv?.name ?? 'File chosen'}</div>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <IconUploadFile
+                                                                    style={{
+                                                                        fontSize: '3rem',
+                                                                        color: 'var(--text-secondary)',
+                                                                    }}
+                                                                />
+                                                                <div>
+                                                                    Drag a file here or click to browse for a file
+                                                                </div>
+                                                            </>
+                                                        )}
                                                     </div>
-                                                </Tooltip>
-                                            ) : null}
+                                                }
+                                            />
+                                        </>
+                                    )}
+                                </LemonField>
+                            </div>
+                        ) : (
+                            <>
+                                <LemonDivider className="my-6" />
+                                {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
+                                    <LemonBanner type="info">
+                                        This cohort manages exposure for an experiment. Editing this cohort may change
+                                        experiment metrics. If unsure,{' '}
+                                        <Link to={urls.experiment(cohort.experiment_set[0])}>
+                                            check the experiment details.
+                                        </Link>
+                                    </LemonBanner>
+                                )}
+                                <div className="flex items-center justify-between my-4">
+                                    <div className="flex flex-col">
+                                        <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>
+                                        <span>
+                                            Actors who match the following criteria will be part of the cohort.
+                                            Continuously updated automatically.
+                                        </span>
+                                    </div>
+                                    <AndOrFilterSelect
+                                        value={cohort.filters.properties.type}
+                                        onChange={(value) => {
+                                            setOuterGroupsType(value)
+                                        }}
+                                        topLevelFilter={true}
+                                        suffix={['criterion', 'criteria']}
+                                    />
+                                </div>
+                                <CohortCriteriaGroups id={logicProps.id} />
+                            </>
+                        )}
+
+                        {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
+                        {typeof cohort.id === 'number' && (
+                            <>
+                                <LemonDivider className="my-6" />
+                                <div>
+                                    <h3 className="l3 mb-4">
+                                        Persons in this cohort
+                                        <span className="text-secondary ml-2">
+                                            {!cohort.is_calculating &&
+                                                `(${cohort.count} matching ${pluralize(
+                                                    cohort.count ?? 0,
+                                                    'person',
+                                                    'persons',
+                                                    false
+                                                )})`}
+                                        </span>
+                                    </h3>
+                                    {cohort.is_calculating ? (
+                                        <div className="cohort-recalculating flex items-center">
+                                            <Spinner className="mr-4" />
+                                            We're recalculating who belongs to this cohort. This could take up to a
+                                            couple of minutes.
                                         </div>
                                     ) : (
-                                        <div className="text-s">Not yet calculated</div>
+                                        <Query
+                                            query={query}
+                                            setQuery={setQuery}
+                                            context={{ refresh: 'force_blocking' }}
+                                        />
                                     )}
-                                    <div className="text-secondary text-xs">
-                                        Cohorts are recalculated every 24 hours
-                                    </div>
                                 </div>
-                            </div>
+                            </>
                         )}
-                    </div>
-                    <div className="ph-ignore-input">
-                        <LemonField name="description" label="Description" data-attr="cohort-description">
-                            <LemonTextArea />
-                        </LemonField>
-                    </div>
-                </div>
-                {cohort.is_static ? (
-                    <div className="mt-4 ph-ignore-input">
-                        <LemonField
-                            name="csv"
-                            label={isNewCohort ? 'Upload users' : 'Add users'}
-                            data-attr="cohort-csv"
-                        >
-                            {({ onChange }) => (
-                                <>
-                                    <span>
-                                        Upload a CSV file to add users to your cohort. The CSV file only requires a
-                                        single column with the user’s distinct ID. The very first row (the header) will
-                                        be skipped during import.
-                                    </span>
-                                    <LemonFileInput
-                                        accept=".csv"
-                                        multiple={false}
-                                        value={cohort.csv ? [cohort.csv] : []}
-                                        onChange={(files) => onChange(files[0])}
-                                        showUploadedFiles={false}
-                                        callToAction={
-                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1">
-                                                {cohort.csv ? (
-                                                    <>
-                                                        <IconUploadFile
-                                                            style={{ fontSize: '3rem', color: 'var(--text-secondary)' }}
-                                                        />
-                                                        <div>{cohort.csv?.name ?? 'File chosen'}</div>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <IconUploadFile
-                                                            style={{ fontSize: '3rem', color: 'var(--text-secondary)' }}
-                                                        />
-                                                        <div>Drag a file here or click to browse for a file</div>
-                                                    </>
-                                                )}
-                                            </div>
-                                        }
-                                    />
-                                </>
-                            )}
-                        </LemonField>
-                    </div>
-                ) : (
-                    <>
-                        <LemonDivider className="my-6" />
-                        {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
-                            <LemonBanner type="info">
-                                This cohort manages exposure for an experiment. Editing this cohort may change
-                                experiment metrics. If unsure,{' '}
-                                <Link to={urls.experiment(cohort.experiment_set[0])}>
-                                    check the experiment details.
-                                </Link>
-                            </LemonBanner>
-                        )}
-                        <div className="flex items-center justify-between my-4">
-                            <div className="flex flex-col">
-                                <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>
-                                <span>
-                                    Actors who match the following criteria will be part of the cohort. Continuously
-                                    updated automatically.
-                                </span>
-                            </div>
-                            <AndOrFilterSelect
-                                value={cohort.filters.properties.type}
-                                onChange={(value) => {
-                                    setOuterGroupsType(value)
-                                }}
-                                topLevelFilter={true}
-                                suffix={['criterion', 'criteria']}
-                            />
-                        </div>
-                        <CohortCriteriaGroups id={logicProps.id} />
-                    </>
-                )}
-
-                {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
-                {typeof cohort.id === 'number' && (
-                    <>
-                        <LemonDivider className="my-6" />
-                        <div>
-                            <h3 className="l3 mb-4">
-                                Persons in this cohort
-                                <span className="text-secondary ml-2">
-                                    {!cohort.is_calculating &&
-                                        `(${cohort.count} matching ${pluralize(
-                                            cohort.count ?? 0,
-                                            'person',
-                                            'persons',
-                                            false
-                                        )})`}
-                                </span>
-                            </h3>
-                            {cohort.is_calculating ? (
-                                <div className="cohort-recalculating flex items-center">
-                                    <Spinner className="mr-4" />
-                                    We're recalculating who belongs to this cohort. This could take up to a couple of
-                                    minutes.
-                                </div>
-                            ) : (
-                                <Query query={query} setQuery={setQuery} context={{ refresh: 'force_blocking' }} />
-                            )}
-                        </div>
-                    </>
-                )}
-            </Form>
+                    </Form>
+                </fieldset>
+            </Tooltip>
         </div>
     )
 }
