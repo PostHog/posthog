@@ -74,7 +74,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
-        setLastSeenLoading: (loading: boolean) => ({ loading }),
     }),
 
     defaults({
@@ -83,7 +82,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: null as ErrorTrackingIssueSummary | null,
         volumeResolution: 50,
         lastSeen: null as Dayjs | null,
-        lastSeenLoading: false,
     }),
 
     reducers({
@@ -107,12 +105,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     return lastSeen
                 }
                 return prevLastSeen
-            },
-        },
-        lastSeenLoading: {
-            setLastSeenLoading: (_, { loading }) => {
-                // TODO: Load last seen loading from API
-                return loading
             },
         },
     }),
@@ -244,8 +236,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
             loadIssue: actions.loadSummary,
-            loadSummarySuccess: () => actions.setLastSeenLoading(false),
-            loadSummaryFailure: () => actions.setLastSeenLoading(false),
             loadIssueSuccess: [({ issue }) => actions.loadProperties(getPropertiesDateRange(issue))],
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
