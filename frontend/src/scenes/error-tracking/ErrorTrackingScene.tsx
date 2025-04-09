@@ -99,12 +99,14 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
     return (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            <LemonSegmentedButton
-                size="xsmall"
-                value={sparklineSelectedPeriod}
-                options={sparklineOptions}
-                onChange={setSparklineSelectedPeriod}
-            />
+            {sparklineOptions.length > 0 && (
+                <LemonSegmentedButton
+                    size="xsmall"
+                    value={sparklineSelectedPeriod}
+                    options={sparklineOptions}
+                    onChange={setSparklineSelectedPeriod}
+                />
+            )}
         </div>
     )
 }
