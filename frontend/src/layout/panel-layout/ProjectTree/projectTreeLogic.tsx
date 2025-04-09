@@ -923,6 +923,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     item = items[0]
                 } else {
                     lemonToast.error(`Could not find filesystem entry for ${item.path}. Can't delete.`)
+                    return
                 }
             }
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
