@@ -25,16 +25,8 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const {
-        allTabs,
-        activeModelUri,
-        queryInput,
-        editingView,
-        editingInsight,
-        sourceQuery,
-        isValidView,
-        suggestedQueryInput,
-    } = useValues(multitabEditorLogic)
+    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, isValidView } =
+        useValues(multitabEditorLogic)
     const {
         renameTab,
         selectTab,
@@ -43,12 +35,10 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setQueryInput,
         runQuery,
         setError,
-        setIsValidView,
         setMetadata,
         setMetadataLoading,
         saveAsView,
-        onAcceptSuggestedQueryInput,
-        onRejectSuggestedQueryInput,
+        setIsValidView,
         setSuggestedQueryInput,
     } = useActions(multitabEditorLogic)
 
@@ -57,6 +47,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
+
+    const isMaterializedView = !!editingView?.status
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -84,7 +76,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     <span className="pl-2 text-xs">
                         {editingView && (
                             <>
-                                Editing {editingView.last_run_at ? 'materialized view' : 'view'} "{editingView.name}"
+                                Editing {isMaterializedView ? 'materialized view' : 'view'} "{editingView.name}"
                             </>
                         )}
                         {editingInsight && <>Editing insight "{editingInsight.name}"</>}
@@ -104,29 +96,18 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     query: queryInput,
                                 },
                                 types: response?.types ?? [],
+                                shouldRematerialize: isMaterializedView,
                             })
                         }
-                        disabledReason={
-                            !isValidView
-                                ? 'Some fields may need an alias'
-                                : updatingDataWarehouseSavedQuery
-                                ? 'Saving...'
-                                : ''
-                        }
+                        disabledReason={updatingDataWarehouseSavedQuery ? 'Saving...' : ''}
                         icon={<IconDownload />}
                         type="tertiary"
                         size="xsmall"
                     >
-                        Update view
+                        {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                     </LemonButton>
                 ) : (
-                    <LemonButton
-                        onClick={() => saveAsView()}
-                        disabledReason={isValidView ? '' : 'Some fields may need an alias'}
-                        icon={<IconDownload />}
-                        type="tertiary"
-                        size="xsmall"
-                    >
+                    <LemonButton onClick={() => saveAsView()} icon={<IconDownload />} type="tertiary" size="xsmall">
                         Save as view
                     </LemonButton>
                 )}
@@ -142,16 +123,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 }}
             >
                 <QueryPane
-                    originalValue={
-                        suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined
-                    }
-                    queryInput={
-                        suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput
-                    }
+                    queryInput={queryInput}
                     sourceQuery={sourceQuery.source}
                     promptError={null}
-                    onAccept={onAcceptSuggestedQueryInput}
-                    onReject={onRejectSuggestedQueryInput}
                     codeEditorProps={{
                         queryKey: codeEditorKey,
                         onChange: (v) => {
@@ -167,7 +141,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 runQuery()
                             }
                         },
-                        onError: (error, isValidView) => {
+                        onError: (error) => {
                             setError(error)
                             setIsValidView(isValidView)
                         },

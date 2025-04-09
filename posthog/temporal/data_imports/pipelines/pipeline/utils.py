@@ -285,14 +285,21 @@ def should_partition_table(
 
 
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
+    used_names = set()
+
     for column_name in table.column_names:
         normalized_column_name = normalize_column_name(column_name)
+
+        if normalized_column_name in used_names or normalized_column_name in table.column_names:
+            continue
+
         if normalized_column_name != column_name:
             table = table.set_column(
                 table.schema.get_field_index(column_name),
                 normalized_column_name,
                 table.column(column_name),  # type: ignore
             )
+            used_names.add(normalized_column_name)
 
     return table
 

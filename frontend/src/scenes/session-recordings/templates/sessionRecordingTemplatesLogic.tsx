@@ -67,9 +67,9 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
     path(() => ['scenes', 'session-recordings', 'templates', 'sessionReplayTemplatesLogic']),
     props({} as ReplayTemplateLogicPropsType),
     key((props) => `${props.category}-${props.template.key}`),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions({
         setVariables: (variables?: ReplayTemplateVariableType[]) => ({ variables }),
         setVariable: (variable: ReplayTemplateVariableType) => ({ variable }),

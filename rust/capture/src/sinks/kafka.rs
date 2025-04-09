@@ -140,6 +140,10 @@ impl KafkaSink {
                 config.kafka_metadata_max_age_ms.to_string(),
             )
             .set(
+                "topic.metadata.refresh.interval.ms",
+                config.kafka_topic_metadata_refresh_interval_ms.to_string(),
+            )
+            .set(
                 "message.send.max.retries",
                 config.kafka_producer_max_retries.to_string(),
             )
@@ -406,6 +410,7 @@ mod tests {
             kafka_producer_linger_ms: 0,
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
+            kafka_topic_metadata_refresh_interval_ms: 20000,
             kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),

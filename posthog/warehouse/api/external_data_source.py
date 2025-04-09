@@ -38,6 +38,7 @@ from posthog.temporal.data_imports.pipelines.schemas import (
 )
 from posthog.temporal.data_imports.pipelines.stripe import (
     validate_credentials as validate_stripe_credentials,
+    StripePermissionError,
 )
 from posthog.temporal.data_imports.pipelines.vitally import (
     validate_credentials as validate_vitally_credentials,
@@ -946,7 +947,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Validate sourced credentials
         if source_type == ExternalDataSource.Type.STRIPE:
             key = request.data.get("stripe_secret_key", "")
-            if not validate_stripe_credentials(api_key=key):
+            try:
+                validate_stripe_credentials(api_key=key)
+            except StripePermissionError as e:
+                missing_resources = ", ".join(e.missing_permissions.keys())
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid credentials: Stripe API key lacks permissions for {missing_resources}"},
+                )
+            except Exception:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Stripe secret is incorrect"},

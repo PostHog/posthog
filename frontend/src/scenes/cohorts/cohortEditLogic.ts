@@ -18,6 +18,7 @@ import {
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
@@ -243,8 +244,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
                     cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
                     breakpoint()
+
                     delete cohort['csv']
                     actions.setCohort(cohort)
+                    refreshTreeItem('cohort', cohort.id)
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
                     })

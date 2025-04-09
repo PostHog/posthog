@@ -33,12 +33,6 @@ import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
 
-const dataNodeKey = insightVizDataNodeKey({
-    dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
-    cachedInsight: null,
-    doNotLoad: true,
-})
-
 export interface MultitabEditorLogicProps {
     key: string
     monaco?: Monaco | null
@@ -85,7 +79,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries'], userLogic, ['user']],
         actions: [
             dataWarehouseViewsLogic,
@@ -98,7 +92,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             outputPaneLogic,
             ['setActiveTab'],
         ],
-    }),
+    })),
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
@@ -122,14 +116,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateTab: (tab: QueryTab) => ({ tab }),
         setLocalState: (key: string, value: any) => ({ key, value }),
         initialize: true,
-        saveAsView: true,
-        saveAsViewSubmit: (name: string) => ({ name }),
+        saveAsView: (materializeAfterSave = false) => ({ materializeAfterSave }),
+        saveAsViewSubmit: (name: string, materializeAfterSave = false) => ({ name, materializeAfterSave }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         updateInsight: true,
         setCacheLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
-        setIsValidView: (isValidView: boolean) => ({ isValidView }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
         setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
@@ -264,12 +257,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as string | null,
             {
                 setError: (_, { error }) => error,
-            },
-        ],
-        isValidView: [
-            false,
-            {
-                setIsValidView: (_, { isValidView }) => isValidView,
             },
         ],
         metadataLoading: [
@@ -650,7 +637,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
         },
-        saveAsView: async () => {
+        saveAsView: async ({ materializeAfterSave = false }) => {
             LemonDialog.openForm({
                 title: 'Save as view',
                 initialValues: { viewName: values.activeModelUri?.name || '' },
@@ -678,12 +665,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             : undefined,
                 },
                 onSubmit: async ({ viewName }) => {
-                    await asyncActions.saveAsViewSubmit(viewName)
+                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave)
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name }) => {
+        saveAsViewSubmit: async ({ name, materializeAfterSave = false }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = {
@@ -703,7 +690,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query: queryToSave,
                     types,
                 })
+
                 actions.updateState()
+
+                // Saved queries are unique by team,name
+                const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
+
+                if (materializeAfterSave && savedQuery) {
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                        id: savedQuery.id,
+                        sync_frequency: '24hour',
+                        types: [[]],
+                        lifecycle: 'create',
+                    })
+                }
             } catch (e) {
                 lemonToast.error('Failed to save view')
             }
@@ -906,7 +906,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     return `InsightViz.${editingInsight.short_id}`
                 }
 
-                return activeModelUri?.uri.path ?? dataNodeKey
+                return (
+                    activeModelUri?.uri.path ??
+                    insightVizDataNodeKey({
+                        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+                        cachedInsight: null,
+                        doNotLoad: true,
+                    })
+                )
             },
         ],
     }),

@@ -32,8 +32,17 @@ async fn it_gets_legacy_response_by_default_or_invalid_version(
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     // Insert a specific flag for the team
     let flag_json = json!([{
@@ -98,8 +107,17 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     // Insert a specific flag for the team
     let flag_json = json!([{
@@ -173,8 +191,17 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -204,8 +231,16 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 async fn it_rejects_empty_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
+    let distinct_id = "user_distinct_id".to_string();
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({
@@ -381,8 +416,16 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let flag_json = json!([{
         "id": 1,
@@ -463,9 +506,15 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
-
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
     let flag_json = json!([{
         "id": 1,
         "key": "property-flag",
@@ -755,6 +804,10 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         .await
         .unwrap();
 
+    // need this for the test to work, since we look up the dinstinct_id <-> person_id in from the DB at the beginning
+    // of the flag evaluation process
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None).await?;
+
     let token = team.api_token;
 
     // Create a group of type "organization" (group_type_index 1) with group_key "foo" and specific properties
@@ -915,8 +968,16 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let flag_json = json!([{
         "id": 1,
@@ -981,8 +1042,16 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let flag_json = json!([
         {
@@ -1122,6 +1191,9 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     let redis_client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_pg(pg_client.clone(), None).await?;
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
     let token = team.api_token;
 
     // Create a group with matching name

@@ -23,6 +23,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { API_KEY_SCOPE_PRESETS, APIScopes, MAX_API_KEYS_PER_USER, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
@@ -39,6 +40,7 @@ function EditKeyModal(): JSX.Element {
         allOrganizations,
     } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes } = useActions(personalAPIKeysLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
 
     const isNew = editingKeyId === 'new'
 
@@ -199,7 +201,7 @@ function EditKeyModal(): JSX.Element {
                             <LemonSelect
                                 size="small"
                                 placeholder="Select preset"
-                                options={API_KEY_SCOPE_PRESETS}
+                                options={API_KEY_SCOPE_PRESETS.filter((preset) => !preset.isCloudOnly || isCloudOrDev)}
                                 dropdownMatchSelectWidth={false}
                                 dropdownPlacement="bottom-end"
                             />

@@ -294,7 +294,10 @@ class TestOrganizationSerializer(APIBaseTest):
         self.assertEqual(teams1[0]["name"], self.team.name)
 
         self.assertEqual(len(teams2), 2)
-        self.assertEqual([teams2[0]["name"], teams2[1]["name"]], ["Default project", team2.name])
+        self.assertEqual(
+            sorted([team["name"] for team in teams2]),
+            sorted(["Default project", team2.name]),
+        )
 
 
 class TestOrganizationRbacMigrations(APIBaseTest):

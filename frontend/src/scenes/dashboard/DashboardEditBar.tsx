@@ -102,6 +102,7 @@ export function DashboardEditBar(): JSX.Element {
                         TaxonomicFilterGroupType.EventProperties,
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.EventFeatureFlags,
+                        TaxonomicFilterGroupType.EventMetadata,
                         ...groupsTaxonomicTypes,
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
