@@ -1583,6 +1583,7 @@
                 "type": {
                     "const": "tool_call",
                     "default": "tool_call",
+                    "description": "`type` needed to conform to the OpenAI shape, which is expected by LangChain",
                     "type": "string"
                 }
             },
