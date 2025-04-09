@@ -424,6 +424,9 @@ def create_hogql_database(
                     warehouse_tables[dot_name] = s3_table
 
     def define_mappings(warehouse: dict[str, Table], get_table: Callable):
+        if warehouse_modifier.table_name not in warehouse:
+            return warehouse
+
         if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
             warehouse[warehouse_modifier.table_name].fields["id"] = ExpressionField(
                 name="id",
@@ -493,6 +496,13 @@ def create_hogql_database(
             else:
                 warehouse_tables = define_mappings(
                     warehouse_tables,
+                    lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                    .select_related("credential", "external_data_source")
+                    .latest("created_at"),
+                )
+                self_managed_warehouse_tables = define_mappings(
+                    self_managed_warehouse_tables,
                     lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
                     .filter(team_id=team.pk, name=warehouse_modifier.table_name)
                     .select_related("credential", "external_data_source")

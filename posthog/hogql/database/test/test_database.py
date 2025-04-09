@@ -201,7 +201,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(
-            name="table_1",
+            name="stripe_table_1",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -224,7 +224,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
-        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("stripe.table_1"))
         assert table is not None
         assert len(table.fields.keys()) == 1
 
