@@ -82,6 +82,7 @@ export type SettingId =
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
     | 'error-tracking-alerting'
+    | 'error-tracking-integrations'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'

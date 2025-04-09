@@ -359,7 +359,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <UserGroups />,
             },
             {
-                id: 'integration-error-tracking',
+                id: 'error-tracking-integrations',
                 title: 'Integrations',
                 component: <ErrorTrackingIntegrations />,
                 flag: 'ERROR_TRACKING_INTEGRATIONS',
