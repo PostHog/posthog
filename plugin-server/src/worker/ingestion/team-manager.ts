@@ -220,7 +220,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
         `
             SELECT
                 id,
-                root_team_id,
+                parent_team_id,
                 uuid,
                 organization_id,
                 name,
