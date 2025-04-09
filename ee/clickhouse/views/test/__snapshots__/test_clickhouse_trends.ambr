@@ -12,8 +12,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
@@ -83,8 +82,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
@@ -217,8 +215,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
@@ -257,8 +254,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.10
@@ -419,8 +415,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
@@ -468,12 +463,12 @@
                       (SELECT person.id AS id,
                               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key
                        FROM person
-                       WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                                     (SELECT person.id AS id, max(person.version) AS version
-                                                                      FROM person
-                                                                      WHERE equals(person.team_id, 99999)
-                                                                      GROUP BY person.id
-                                                                      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                       WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
+                                                                            (SELECT person.id AS id, max(person.version) AS version
+                                                                             FROM person
+                                                                             WHERE equals(person.team_id, 99999)
+                                                                             GROUP BY person.id
+                                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), isNull(tuple(person.id, person.version)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                     WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), ifNull(equals(e__person.properties___key, 'some_val'), 0), ifNull(equals(e__person.properties___key, 'some_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))
                     GROUP BY timestamp, actor_id,
                                         breakdown_value) AS e
@@ -500,8 +495,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.4
@@ -555,8 +549,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.5
@@ -851,8 +844,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging.1
@@ -886,8 +878,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval
@@ -921,8 +912,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval.1
@@ -956,8 +946,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
@@ -984,8 +973,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
@@ -1035,8 +1023,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1
