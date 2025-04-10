@@ -197,7 +197,6 @@ export function ViewportChooser(): JSX.Element {
     return (
         <div className="flex justify-center mb-2">
             <LemonSegmentedButton
-                className="bg-white"
                 onChange={setIframeWidth}
                 value={widthOverride ? widthOverride : undefined}
                 options={[
