@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import cast
 
 from rest_framework.exceptions import ValidationError
@@ -1808,6 +1808,207 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(trend_results), 1)  # One day of data
         self.assertEqual(trend_results[0]["count"], 1)
         self.assertEqual(trend_results[0]["data"], [50.0])  # Only one user completes step 2
+
+    def test_unordered_trend(self):
+        # Test unordered trend with 5 users doing event 3 with different frequencies
+        # User 1: does event 3 all 8 days
+        # User 2: does event 3 4 of the 8 days
+        # User 3: does event 3 2 of the 8 days
+        # User 4: does event 3 1 of the 8 days
+        # User 5: never does event 3
+        # All users do events 1 and 2 once at the end of the funnel window
+
+        start_date = datetime(2024, 3, 1, 10, 0)
+
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_4"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_5"], team_id=self.team.pk)
+
+        # User 1: does event 3 all 8 days
+        for i in range(8):
+            _create_event(
+                team=self.team,
+                event="event 3",
+                distinct_id="user_1",
+                timestamp=start_date + timedelta(days=i),
+            )
+
+        # User 2: does event 3 4 of the 8 days (days 0, 2, 4, 6)
+        for i in range(0, 8, 2):
+            _create_event(
+                team=self.team,
+                event="event 3",
+                distinct_id="user_2",
+                timestamp=start_date + timedelta(days=i),
+            )
+
+        # User 3: does event 3 2 of the 8 days (days 0, 4)
+        for i in range(0, 8, 4):
+            _create_event(
+                team=self.team,
+                event="event 3",
+                distinct_id="user_3",
+                timestamp=start_date + timedelta(days=i),
+            )
+
+        # User 4: does event 3 1 of the 8 days (day 0)
+        _create_event(
+            team=self.team,
+            event="event 3",
+            distinct_id="user_4",
+            timestamp=start_date,
+        )
+
+        # All users do events 1 and 2 once at the end of the funnel window (day 7)
+        for user_id in ["user_1", "user_2", "user_3", "user_4", "user_5"]:
+            _create_event(
+                team=self.team,
+                event="event 1",
+                distinct_id=user_id,
+                timestamp=start_date + timedelta(days=7, hours=1),
+            )
+            _create_event(
+                team=self.team,
+                event="event 2",
+                distinct_id=user_id,
+                timestamp=start_date + timedelta(days=7, hours=2),
+            )
+
+        # Define a 3-step funnel with unordered events
+        filters = {
+            "events": [
+                {"id": "event 1", "type": "events", "order": 0},
+                {"id": "event 2", "type": "events", "order": 1},
+                {"id": "event 3", "type": "events", "order": 2},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "funnel_order_type": "unordered",
+            "funnel_window_days": 8,
+            "date_from": "2024-03-01",
+            "date_to": "2024-03-08",
+            "display": "ActionsLineGraph",
+        }
+
+        # Run the funnel trend query
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        trend_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        # We should get 8 days of results
+        self.assertEqual(len(trend_results), 8)
+
+        # Day 0 (2024-03-01): 4 users do event 3, all 5 users will do events 1 and 2
+        # So conversion is 4/5 = 80%
+        self.assertEqual(trend_results[0]["timestamp"].strftime("%Y-%m-%d"), "2024-03-01")
+        self.assertEqual(trend_results[0]["reached_from_step_count"], 4)
+        self.assertEqual(trend_results[0]["reached_to_step_count"], 4)
+        self.assertEqual(trend_results[0]["conversion_rate"], 100)
+
+        # Day 1 (2024-03-02): User 1 does event 3, all 5 users will do events 1 and 2
+        self.assertEqual(trend_results[1]["timestamp"].strftime("%Y-%m-%d"), "2024-03-02")
+        self.assertEqual(trend_results[1]["reached_from_step_count"], 1)
+        self.assertEqual(trend_results[1]["reached_to_step_count"], 1)
+        self.assertEqual(trend_results[1]["conversion_rate"], 100)
+
+        # Day 2 (2024-03-03): User 1 and User 2 do event 3, all 5 users will do events 1 and 2
+        self.assertEqual(trend_results[2]["timestamp"].strftime("%Y-%m-%d"), "2024-03-03")
+        self.assertEqual(trend_results[2]["reached_from_step_count"], 2)
+        self.assertEqual(trend_results[2]["reached_to_step_count"], 2)
+        self.assertEqual(trend_results[2]["conversion_rate"], 100)
+
+        # Day 3 (2024-03-04): User 1 does event 3, all 5 users will do events 1 and 2
+        self.assertEqual(trend_results[3]["timestamp"].strftime("%Y-%m-%d"), "2024-03-04")
+        self.assertEqual(trend_results[3]["reached_from_step_count"], 1)
+        self.assertEqual(trend_results[3]["reached_to_step_count"], 1)
+        self.assertEqual(trend_results[3]["conversion_rate"], 100)
+
+        # Day 4 (2024-03-05): Users 1, 2, and 3 do event 3, all 5 users will do events 1 and 2
+        self.assertEqual(trend_results[4]["timestamp"].strftime("%Y-%m-%d"), "2024-03-05")
+        self.assertEqual(trend_results[4]["reached_from_step_count"], 3)
+        self.assertEqual(trend_results[4]["reached_to_step_count"], 3)
+        self.assertEqual(trend_results[4]["conversion_rate"], 100)
+
+        # Day 5 (2024-03-06): User 1 does event 3, all 5 users will do events 1 and 2
+        self.assertEqual(trend_results[5]["timestamp"].strftime("%Y-%m-%d"), "2024-03-06")
+        self.assertEqual(trend_results[5]["reached_from_step_count"], 1)
+        self.assertEqual(trend_results[5]["reached_to_step_count"], 1)
+        self.assertEqual(trend_results[5]["conversion_rate"], 100)
+
+        # Day 6 (2024-03-07): Users 1 and 2 do event 3, all 5 users will do events 1 and 2
+        self.assertEqual(trend_results[6]["timestamp"].strftime("%Y-%m-%d"), "2024-03-07")
+        self.assertEqual(trend_results[6]["reached_from_step_count"], 2)
+        self.assertEqual(trend_results[6]["reached_to_step_count"], 2)
+        self.assertEqual(trend_results[6]["conversion_rate"], 100)
+
+        # Day 7 (2024-03-08): User 1 does event 3, all 5 users do events 1 and 2
+        self.assertEqual(trend_results[7]["timestamp"].strftime("%Y-%m-%d"), "2024-03-08")
+        self.assertEqual(trend_results[7]["reached_from_step_count"], 5)
+        self.assertEqual(trend_results[7]["reached_to_step_count"], 1)
+        self.assertEqual(trend_results[7]["conversion_rate"], 20)
+
+    def test_unordered_trend_second_step(self):
+        # Test unordered trend not starting at the first step
+
+        start_date = datetime(2024, 3, 1, 10, 0)
+
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+
+        # Both users do event 3 all 8 days
+        # Both users do events 1 once at the end of the funnel window (day 7)
+        for distinct_id in ("user_1", "user_2"):
+            for i in range(8):
+                _create_event(
+                    team=self.team,
+                    event="event 3",
+                    distinct_id=distinct_id,
+                    timestamp=start_date + timedelta(days=i),
+                )
+            _create_event(
+                team=self.team,
+                event="event 1",
+                distinct_id=distinct_id,
+                timestamp=start_date + timedelta(days=7, hours=1),
+            )
+        # User 2 does event 2 once on the last day
+        _create_event(
+            team=self.team,
+            event="event 2",
+            distinct_id="user_2",
+            timestamp=start_date + timedelta(days=7, hours=2),
+        )
+
+        # Define a 3-step funnel with unordered events
+        filters = {
+            "events": [
+                {"id": "event 1", "type": "events", "order": 0},
+                {"id": "event 2", "type": "events", "order": 1},
+                {"id": "event 3", "type": "events", "order": 2},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "funnel_order_type": "unordered",
+            "funnel_window_days": 8,
+            "funnel_from_step": 1,
+            "funnel_to_step": 2,
+            "date_from": "2024-03-01",
+            "date_to": "2024-03-08",
+            "display": "ActionsLineGraph",
+        }
+
+        # Run the funnel trend query
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        trend_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        # We should get 8 days of results
+        self.assertEqual(len(trend_results), 8)
+
+        for trend_result in trend_results:
+            self.assertEqual(trend_result["reached_from_step_count"], 2)
+            self.assertEqual(trend_result["reached_to_step_count"], 1)
+            self.assertEqual(trend_result["conversion_rate"], 50)
 
 
 class TestFunnelUnorderedStepsBreakdown(BaseTestFunnelUnorderedStepsBreakdown):

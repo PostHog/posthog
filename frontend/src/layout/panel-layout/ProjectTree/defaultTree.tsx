@@ -62,17 +62,17 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: () => urls.survey('new'),
         },
         {
-            path: `Data source`,
+            path: `Source`,
             type: 'hog_function/source',
             href: () => urls.pipelineNodeNew(PipelineStage.Source),
         },
         {
-            path: `Data destination`,
+            path: `Destination`,
             type: 'hog_function/destination',
             href: () => urls.pipelineNodeNew(PipelineStage.Destination),
         },
         {
-            path: `Data transformation`,
+            path: `Transformation`,
             type: 'hog_function/transformation',
             href: () => urls.pipelineNodeNew(PipelineStage.Transformation),
         },

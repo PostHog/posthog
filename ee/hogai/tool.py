@@ -51,6 +51,9 @@ class MaxTool(BaseTool):
     For example, "The current filters the user is seeing are: {current_filters}."
     """
 
+    _context: dict[str, Any]
+    _team_id: int
+
     @abstractmethod
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
         """Tool execution, which should return a tuple of (content, artifact)"""

@@ -845,6 +845,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Test cumulative data
         assert result["data"] == [3, 2, 1]  # Day 1: 3 users, Day 2: 2 users for 2+ days, Day 3: 1 user for 3 days
+        assert result["count"] == 3
         assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
 
     def test_cumulative_stickiness_with_intervals(self):
