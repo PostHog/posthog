@@ -100,7 +100,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
             ).result()
             for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
                 assert len(shard_mutations) == 3
-                for mutation in shard_mutations:
+                for mutation in shard_mutations.values():
                     # mutations should only be for the column
                     assert all("MATERIALIZE COLUMN" in command for command in mutation.commands)
 
@@ -121,7 +121,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
                 materialize_column_config.get_mutations_to_run
             ).result()
             for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
-                assert shard_mutations == []
+                assert shard_mutations == {}
 
             # XXX: if ee.* not importable, this text should have been xfailed by the materialize context manager
             from ee.clickhouse.materialized_columns.columns import get_minmax_index_name
@@ -138,7 +138,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
             ).result()
             for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
                 assert len(shard_mutations) == 3
-                for mutation in shard_mutations:
+                for mutation in shard_mutations.values():
                     # skip the column (as it has been materialized), but materialize the index
                     assert all("MATERIALIZE INDEX" in command for command in mutation.commands)
 
