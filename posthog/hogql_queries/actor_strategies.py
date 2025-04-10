@@ -56,8 +56,7 @@ class PersonStrategy(ActorStrategy):
         if order_by:
             persons_query += f" ORDER BY {order_by}"
 
-        # Use 'persons_db_writer' if it's configured, otherwise fallback to default connection
-        conn = connections["persons_db_writer"] if "persons_db_writer" in connections else connection
+        conn = connections["persons_db_reader"] if "persons_db_reader" in connections else connection
 
         with conn.cursor() as cursor:
             cursor.execute(

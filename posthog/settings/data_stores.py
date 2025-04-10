@@ -120,8 +120,12 @@ if read_host:
 if os.getenv("PERSONS_DB_WRITER_URL"):
     DATABASES["persons_db_writer"] = dj_database_url.config(default=os.getenv("PERSONS_DB_WRITER_URL"), conn_max_age=0)
 
+    # Fall back to the writer URL if no reader URL is set
+    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or os.getenv("PERSONS_DB_WRITER_URL")
+    DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
