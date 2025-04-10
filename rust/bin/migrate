@@ -26,7 +26,7 @@ popd
 # Extract the public.posthog_* table schemas from test_posthog DB that was
 # bootstrapped by the Python command above so SQLX can use them in the
 # Rust workspace 
-source "$SCRIPT_DIR/export_posthog_schemas"
+$SCRIPT_DIR/export_posthog_schemas
 
 # Allow for overriding DATABASE_URL set by `posthog/rust/.env` in this script
 DB_HOST="${DB_HOST:-postgres://posthog:posthog@localhost:5432}"

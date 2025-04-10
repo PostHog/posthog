@@ -39,7 +39,9 @@ done
 shift $((OPTIND - 1))
 
 # conditionally run the migrations (test schemas + django postgres models only!)
-if [[ -z "$SKIP_MIGRATIONS" ]]; then
+if [[ -n "$SKIP_MIGRATIONS" ]]; then
+  log "Skipping migrations..."
+else
   $SCRIPT_DIR/migrate
 fi
 

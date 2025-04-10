@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO posthog_project (id, organization_id, name, created_at) VALUES(1, '019621ef-58dd-745e-8998-16e2c2ee29f7', 'foobar', now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2f09deb48c8d5f1f451f6ab1595cb7b0a22a6d118d322c9802692e94ce8859ce"
+}

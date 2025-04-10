@@ -606,13 +606,17 @@ async fn query_with_illegal_group_type_index_fails() {
 }
 
 async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query!("INSERT INTO posthog_project (id, organization_id, name, created_at) VALUES(1, '019621ef-58dd-745e-8998-16e2c2ee29f7', 'foobar', now())")
+        .execute(&test_pool)
+        .await?;
+
     // posthog_propertydefinition: (id, name, project_id, team_id, is_numerical, type, property_type, group_type_index)
     let pd_rows = [
         // PropertyParentType::Event
-        (Uuid::now_v7(), "user_email", 1, 1, false, 1, "String", -1),
-        (Uuid::now_v7(), "utm_source", 1, 1, false, 1, "String", -1),
-        (Uuid::now_v7(), "$time", 1, 1, false, 1, "DateTime", -1),
-        (Uuid::now_v7(), "$sent_at", 1, 1, false, 1, "DateTime", -1),
+        (Uuid::now_v7(), "user_email", 1, 1, false, 1, "String", None),
+        (Uuid::now_v7(), "utm_source", 1, 1, false, 1, "String", None),
+        (Uuid::now_v7(), "$time", 1, 1, false, 1, "DateTime", None),
+        (Uuid::now_v7(), "$sent_at", 1, 1, false, 1, "DateTime", None),
         (
             Uuid::now_v7(),
             "attempted_event_type",
@@ -621,7 +625,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             true,
             1,
             "Numeric",
-            -1,
+            None,
         ),
         (
             Uuid::now_v7(),
@@ -631,7 +635,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             true,
             1,
             "Numeric",
-            -1,
+            None,
         ),
         (
             Uuid::now_v7(),
@@ -641,7 +645,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             1,
             "Duration",
-            -1,
+            None,
         ),
         (
             Uuid::now_v7(),
@@ -651,7 +655,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             1,
             "Boolean",
-            -1,
+            None,
         ),
         // feature flag (filterable w/query param)
         (
@@ -662,7 +666,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             1,
             "Boolean",
-            -1,
+            None,
         ),
         // PropertyParentType::Person
         (
@@ -673,7 +677,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             2,
             "Boolean",
-            -1,
+            None,
         ),
         (
             Uuid::now_v7(),
@@ -683,12 +687,48 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             2,
             "Boolean",
-            -1,
+            None,
         ),
-        (Uuid::now_v7(), "company_type", 1, 1, false, 2, "String", -1),
-        (Uuid::now_v7(), "$os_version", 1, 1, false, 2, "String", -1),
-        (Uuid::now_v7(), "created_at", 1, 1, false, 2, "DateTime", -1),
-        (Uuid::now_v7(), "hire_date", 1, 1, false, 2, "DateTime", -1),
+        (
+            Uuid::now_v7(),
+            "company_type",
+            1,
+            1,
+            false,
+            2,
+            "String",
+            None,
+        ),
+        (
+            Uuid::now_v7(),
+            "$os_version",
+            1,
+            1,
+            false,
+            2,
+            "String",
+            None,
+        ),
+        (
+            Uuid::now_v7(),
+            "created_at",
+            1,
+            1,
+            false,
+            2,
+            "DateTime",
+            None,
+        ),
+        (
+            Uuid::now_v7(),
+            "hire_date",
+            1,
+            1,
+            false,
+            2,
+            "DateTime",
+            None,
+        ),
         // query param "latest" filter will apply to these (eliminates "initial" props)
         (
             Uuid::now_v7(),
@@ -698,7 +738,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             true,
             2,
             "Numeric",
-            -1,
+            None,
         ),
         (
             Uuid::now_v7(),
@@ -708,13 +748,40 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             true,
             2,
             "Numeric",
-            -1,
+            None,
         ),
         // PropertyParentType::Group (1 for each valid property_type and group_type_index)
-        (Uuid::now_v7(), "instance_name", 1, 1, false, 3, "String", 0),
-        (Uuid::now_v7(), "project_name", 1, 1, false, 3, "String", 1),
-        (Uuid::now_v7(), "timezone", 1, 1, false, 3, "String", 2),
-        (Uuid::now_v7(), "city", 1, 1, false, 3, "String", 3),
+        (
+            Uuid::now_v7(),
+            "instance_name",
+            1,
+            1,
+            false,
+            3,
+            "String",
+            Some(0),
+        ),
+        (
+            Uuid::now_v7(),
+            "project_name",
+            1,
+            1,
+            false,
+            3,
+            "String",
+            Some(1),
+        ),
+        (
+            Uuid::now_v7(),
+            "timezone",
+            1,
+            1,
+            false,
+            3,
+            "String",
+            Some(2),
+        ),
+        (Uuid::now_v7(), "city", 1, 1, false, 3, "String", Some(3)),
         (
             Uuid::now_v7(),
             "integration_id",
@@ -723,7 +790,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "String",
-            4,
+            Some(4),
         ),
         (
             Uuid::now_v7(),
@@ -733,7 +800,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             true,
             3,
             "Numeric",
-            0,
+            Some(0),
         ),
         (
             Uuid::now_v7(),
@@ -743,7 +810,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             true,
             3,
             "Numeric",
-            1,
+            Some(1),
         ),
         (
             Uuid::now_v7(),
@@ -753,11 +820,29 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             true,
             3,
             "Numeric",
-            2,
+            Some(2),
         ),
-        (Uuid::now_v7(), "min_age", 1, 1, true, 3, "Numeric", 3),
-        (Uuid::now_v7(), "PlanValue", 1, 1, true, 3, "Numeric", 4),
-        (Uuid::now_v7(), "signup_date", 1, 1, false, 3, "DateTime", 0),
+        (Uuid::now_v7(), "min_age", 1, 1, true, 3, "Numeric", Some(3)),
+        (
+            Uuid::now_v7(),
+            "PlanValue",
+            1,
+            1,
+            true,
+            3,
+            "Numeric",
+            Some(4),
+        ),
+        (
+            Uuid::now_v7(),
+            "signup_date",
+            1,
+            1,
+            false,
+            3,
+            "DateTime",
+            Some(0),
+        ),
         (
             Uuid::now_v7(),
             "last_recorded_date",
@@ -766,7 +851,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "DateTime",
-            1,
+            Some(1),
         ),
         (
             Uuid::now_v7(),
@@ -776,7 +861,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "DateTime",
-            2,
+            Some(2),
         ),
         (
             Uuid::now_v7(),
@@ -786,7 +871,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "DateTime",
-            3,
+            Some(3),
         ),
         (
             Uuid::now_v7(),
@@ -796,7 +881,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "DateTime",
-            4,
+            Some(4),
         ),
         (
             Uuid::now_v7(),
@@ -806,7 +891,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "Boolean",
-            0,
+            Some(0),
         ),
         (
             Uuid::now_v7(),
@@ -816,7 +901,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "Boolean",
-            1,
+            Some(1),
         ),
         (
             Uuid::now_v7(),
@@ -826,7 +911,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "Boolean",
-            2,
+            Some(2),
         ),
         (
             Uuid::now_v7(),
@@ -836,7 +921,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "Boolean",
-            3,
+            Some(3),
         ),
         (
             Uuid::now_v7(),
@@ -846,7 +931,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             false,
             3,
             "Boolean",
-            4,
+            Some(4),
         ),
         // NOTE: some event flavors are not represented in the test seeds (yet!)
         // - no records of type PropertyParentType::Session in the prod DB

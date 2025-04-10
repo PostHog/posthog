@@ -5,6 +5,9 @@ set -euxo pipefail
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 source "$SCRIPT_DIR/util"
 
+log "Checking local Postgres DB for SQLX test tables..."
+check_psql_installed
+
 function list_sqlx_test_dbs {
   PGPASSWORD=posthog psql \
       -h localhost \
@@ -12,10 +15,6 @@ function list_sqlx_test_dbs {
       -U posthog \
       -c "copy (select datname from pg_database where datname like '_sqlx_test%') to stdout"
 }
-
-check_psql_installed
-
-log "Checking local Postgres DB for SQLX test tables..."
 
 for DBNAME in $(list_sqlx_test_dbs); do
     log "Dropping ${DBNAME}..."
