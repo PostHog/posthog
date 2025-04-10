@@ -125,16 +125,17 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
         if join is None:
             continue
 
-        if isinstance(join.table, ast.SelectQuery):
-            if join.table.view_name is not None:
-                parents.add(join.table.view_name)
-                continue
-
-            queries.append(join.table)
-        elif isinstance(join.table, ast.SelectSetQuery):
-            queries.extend(list(extract_select_queries(join.table)))
-
         while join is not None:
+            if isinstance(join.table, ast.SelectQuery):
+                if join.table.view_name is not None:
+                    parents.add(join.table.view_name)
+                    break
+
+                queries.append(join.table)
+                break
+            elif isinstance(join.table, ast.SelectSetQuery):
+                queries.extend(list(extract_select_queries(join.table)))
+
             parent_name = join.table.chain[0]  # type: ignore
 
             if parent_name not in ctes and isinstance(parent_name, str):
