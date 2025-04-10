@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Any
 
 import structlog
 from ee.session_recordings.ai.llm import get_raw_llm_session_summary
@@ -35,15 +34,15 @@ class ReplaySummarizer:
         session_id: str, session_metadata: RecordingMetadata, team: Team
     ) -> tuple[list[str], list[list[str | datetime]]]:
         session_events_columns, session_events = SessionReplayEvents().get_events(
-                session_id=str(session_id),
-                team=team,
-                metadata=session_metadata,
-                events_to_ignore=[
-                    "$feature_flag_called",
-                ],
-            )
+            session_id=str(session_id),
+            team=team,
+            metadata=session_metadata,
+            events_to_ignore=[
+                "$feature_flag_called",
+            ],
+        )
         if not session_events_columns or not session_events:
-                raise ValueError(f"no events found for session_id {session_id}")
+            raise ValueError(f"no events found for session_id {session_id}")
         return session_events_columns, session_events
 
     def _generate_prompt(
@@ -77,8 +76,10 @@ class ReplaySummarizer:
         # TODO Learn how to make data collection for prompt as async as possible to improve latency
         with timer("get_metadata"):
             session_metadata = self._get_session_metadata(self.recording.session_id, self.team)
-            
+
         with timer("get_events"):
+            # TODO: Add filter to skip some types of events that are not relevant for the summary, but increase the number of tokens
+            # Analyze more events one by one for better context, consult with the team
             session_events_columns, session_events = self._get_session_events(
                 self.recording.session_id, session_metadata, self.team
             )
