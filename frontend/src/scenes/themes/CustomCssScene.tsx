@@ -169,6 +169,14 @@ a div {
     box-shadow: none !important;
 }
 
+.LemonButton > span::after {
+    content: '';
+    display: none;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
 button svg,
 a svg,
 [class*="btn"] svg,
