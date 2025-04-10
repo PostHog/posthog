@@ -36,20 +36,18 @@ type KafkaConsumerInterface interface {
 	Close() error
 }
 
-type KafkaConsumer interface {
-	Consume()
-	Close()
-}
-
 type PostHogKafkaConsumer struct {
 	consumer     KafkaConsumerInterface
 	topic        string
 	geolocator   GeoLocator
 	outgoingChan chan PostHogEvent
-	statsChan    chan PostHogEvent
+	statsChan    chan CountEvent
 }
 
-func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*PostHogKafkaConsumer, error) {
+func NewPostHogKafkaConsumer(
+	brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator,
+	outgoingChan chan PostHogEvent, statsChan chan CountEvent) (*PostHogKafkaConsumer, error) {
+
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  brokers,
 		"group.id":           groupID,
@@ -99,7 +97,7 @@ func (c *PostHogKafkaConsumer) Consume() {
 		phEvent := parse(c.geolocator, msg.Value)
 
 		c.outgoingChan <- phEvent
-		c.statsChan <- phEvent
+		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
 	}
 }
 

@@ -20,7 +20,7 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 
 	// Create channels
 	outgoingChan := make(chan PostHogEvent, 1)
-	statsChan := make(chan PostHogEvent, 1)
+	statsChan := make(chan CountEvent, 1)
 
 	// Create PostHogKafkaConsumer
 	consumer := &PostHogKafkaConsumer{
