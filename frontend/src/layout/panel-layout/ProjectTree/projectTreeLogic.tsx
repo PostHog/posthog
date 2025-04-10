@@ -627,6 +627,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     checkedItems,
                     root: 'project',
                     searchTerm: searchResults.searchTerm,
+                    disableFolderSelect: true,
                 })
                 if (searchResults.hasMore) {
                     if (searchResultsLoading) {
