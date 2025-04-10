@@ -85,6 +85,7 @@ from posthog.schema import (
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
+    DatabaseSchemaManagedViewTable,
     DatabaseSchemaViewTable,
     DatabaseSerializedFieldType,
     HogQLQuery,
@@ -766,12 +767,22 @@ def serialize_database(
         if view is None:
             continue
 
+        fields = serialize_fields(view.fields, context, view_name, table_type="external")
+        fields_dict = {field.name: field for field in fields}
+
+        if isinstance(view, RevenueAnalyticsRevenueView):
+            tables[view_name] = DatabaseSchemaManagedViewTable(
+                fields=fields_dict,
+                id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
+                name=view.name,
+                query=HogQLQuery(query=view.query),
+            )
+
+            continue
+
         saved_query = views_dict.get(view_name)
         if not saved_query:
             continue
-
-        fields = serialize_fields(view.fields, context, view_name, table_type="external")
-        fields_dict = {field.name: field for field in fields}
 
         tables[view_name] = DatabaseSchemaViewTable(
             fields=fields_dict,
