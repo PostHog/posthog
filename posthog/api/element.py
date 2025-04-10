@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Literal
 
 from prometheus_client import Histogram
@@ -35,6 +36,11 @@ class ElementSerializer(serializers.ModelSerializer):
             "attributes",
             "order",
         ]
+
+
+@lru_cache(maxsize=5000)
+def serialise_elements_chain(elements_chain: str) -> list[dict]:
+    return [ElementSerializer(element).data for element in chain_to_elements(elements_chain)]
 
 
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -118,7 +124,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "count": elements[1],
                         "hash": None,
                         "type": elements[2],
-                        "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
+                        "elements": serialise_elements_chain(elements[0]),
                     }
                     for elements in result[:limit]
                 ]
@@ -135,6 +141,8 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
             elements_response.headers["Server-Timing"] = timer.to_header_string()
+            elements_response.headers["Cache-Control"] = "public, max-age=30"  # Cache for 30 seconds
+            elements_response.headers["Vary"] = "Accept, Accept-Encoding, Query-String"
             return elements_response
 
     def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick", "$dead_click"], ...]:
