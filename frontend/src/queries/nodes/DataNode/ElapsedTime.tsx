@@ -1,4 +1,4 @@
-import { IconInfo } from '@posthog/icons'
+import { IconDatabaseBolt } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -43,7 +43,7 @@ export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | n
 function MaterializationSuggestion(): JSX.Element {
     return (
         <Tooltip title="Consider materializing this long running query for better performance">
-            <IconInfo className="text-warning text-xs cursor-help" />
+            <IconDatabaseBolt className="text-warning text-xs cursor-help" />
         </Tooltip>
     )
 }

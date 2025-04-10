@@ -1,4 +1,4 @@
-import { IconDatabase, IconDocument } from '@posthog/icons'
+import { IconDatabase, IconDatabaseBolt } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
@@ -164,11 +164,11 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         url: '',
                         icon: savedQuery.last_run_at ? (
                             <Tooltip title="Materialized view">
-                                <IconDatabase />
+                                <IconDatabaseBolt />
                             </Tooltip>
                         ) : (
                             <Tooltip title="View">
-                                <IconDocument />
+                                <IconDatabase />
                             </Tooltip>
                         ),
                         searchMatch: matches
