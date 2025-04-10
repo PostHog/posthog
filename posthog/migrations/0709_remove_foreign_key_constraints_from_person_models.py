@@ -14,15 +14,16 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     """
-                    ALTER TABLE posthog_person DROP CONSTRAINT IF EXISTS posthog_person_team_id_fkey;
-                    ALTER TABLE posthog_person DROP CONSTRAINT IF EXISTS posthog_person_is_user_id_fkey;
-                    ALTER TABLE posthog_persondistinctid DROP CONSTRAINT IF EXISTS posthog_persondistinctid_team_id_fkey;
-                    ALTER TABLE posthog_personlessdistinctid DROP CONSTRAINT IF EXISTS posthog_personlessdistinctid_team_id_fkey;
-                    ALTER TABLE posthog_featureflaghashkeyoverride DROP CONSTRAINT IF EXISTS posthog_featureflaghashkeyoverride_team_id_fkey;
-                    ALTER TABLE posthog_cohortpeople DROP CONSTRAINT IF EXISTS posthog_cohortpeople_cohort_id_fkey;
+                    ALTER TABLE posthog_cohortpeople DROP CONSTRAINT IF EXISTS posthog_cohortpeople_cohort_id_1f371733_fk_posthog_cohort_id;
+                    ALTER TABLE posthog_person DROP CONSTRAINT IF EXISTS posthog_person_team_id_325c1b73_fk_posthog_team_id;
+                    ALTER TABLE posthog_person DROP CONSTRAINT IF EXISTS posthog_person_is_user_id_cfc91ae7_fk_posthog_user_id;
+                    ALTER TABLE posthog_persondistinctid DROP CONSTRAINT IF EXISTS posthog_persondistinctid_team_id_46330ec9_fk_posthog_team_id;
+                    ALTER TABLE posthog_personlessdistinctid DROP CONSTRAINT IF EXISTS posthog_personlessdi_team_id_99211fb1_fk_posthog_t;
+                    ALTER TABLE posthog_featureflaghashkeyoverride DROP CONSTRAINT IF EXISTS posthog_featureflagh_team_id_b626eed2_fk_posthog_t;
+                    ALTER TABLE posthog_personoverride DROP CONSTRAINT IF EXISTS posthog_personoverride_team_id_92291e67_fk_posthog_team_id;
                     """,
                     """
-                    -- No reverse SQL needed since we're dropping constraints that will be recreated in a different form
+                    -- No reverse SQL needed since we're dropping constraints that we don't want to recreate (would lock tables)
                     """,
                 )
             ],
