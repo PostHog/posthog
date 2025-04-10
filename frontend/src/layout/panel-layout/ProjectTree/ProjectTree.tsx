@@ -129,7 +129,7 @@ export function ProjectTree(): JSX.Element {
                 {item.record?.path ? (
                     <MenuItem
                         asChild
-                        onClick={(e: any) => {
+                        onClick={(e) => {
                             e.stopPropagation()
                             onItemChecked(item.id, !checkedItems[item.id])
                         }}
@@ -140,7 +140,7 @@ export function ProjectTree(): JSX.Element {
                 {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
-                        onClick={(e: any) => {
+                        onClick={(e) => {
                             e.stopPropagation()
                             linkCheckedItems(item?.record?.path)
                         }}
@@ -153,7 +153,7 @@ export function ProjectTree(): JSX.Element {
                 {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
-                        onClick={(e: any) => {
+                        onClick={(e) => {
                             e.stopPropagation()
                             moveCheckedItems(item?.record?.path)
                         }}
@@ -169,7 +169,7 @@ export function ProjectTree(): JSX.Element {
                 {item.record?.path ? (
                     <MenuItem
                         asChild
-                        onClick={(e: any) => {
+                        onClick={(e) => {
                             e.stopPropagation()
                             handleCopyPath(item.record?.path)
                         }}
@@ -180,7 +180,7 @@ export function ProjectTree(): JSX.Element {
                 {item.record?.path && item.record?.shortcut ? (
                     <MenuItem
                         asChild
-                        onClick={(e: any) => {
+                        onClick={(e) => {
                             e.stopPropagation()
                             assureVisibility({ type: item.record?.type, ref: item.record?.ref })
                         }}
@@ -191,7 +191,7 @@ export function ProjectTree(): JSX.Element {
                 {item.record?.path && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
-                        onClick={(e: any) => {
+                        onClick={(e) => {
                             e.stopPropagation()
                             rename(item.record as unknown as FileSystemEntry)
                         }}
@@ -202,7 +202,7 @@ export function ProjectTree(): JSX.Element {
                 {item.record?.created_at || item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
-                        onClick={(e: any) => {
+                        onClick={(e) => {
                             e.stopPropagation()
                             deleteItem(item.record as unknown as FileSystemEntry)
                         }}
@@ -217,7 +217,7 @@ export function ProjectTree(): JSX.Element {
                         {!item.id?.startsWith('project-folder-empty/') ? <MenuSeparator /> : null}
                         <MenuItem
                             asChild
-                            onClick={(e: any) => {
+                            onClick={(e) => {
                                 e.stopPropagation()
                                 createFolder(item.record?.path)
                             }}
@@ -225,7 +225,7 @@ export function ProjectTree(): JSX.Element {
                             <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                         </MenuItem>
                         <MenuSeparator />
-                        {newTreeItemsByProduct.map((treeItem: any): JSX.Element => {
+                        {newTreeItemsByProduct.map((treeItem): JSX.Element => {
                             if (treeItem.children) {
                                 return (
                                     <MenuSub key={treeItem.id}>
@@ -239,11 +239,11 @@ export function ProjectTree(): JSX.Element {
                                             </ButtonPrimitive>
                                         </MenuSubTrigger>
                                         <MenuSubContent>
-                                            {treeItem.children.map((child: any) => (
+                                            {treeItem.children.map((child) => (
                                                 <MenuItem
                                                     key={child.id}
                                                     asChild
-                                                    onClick={(e: any) => {
+                                                    onClick={(e) => {
                                                         e.stopPropagation()
                                                         const objectType: string | undefined = child.record?.type
                                                         const folder = item.record?.path
@@ -266,7 +266,7 @@ export function ProjectTree(): JSX.Element {
                                 <MenuItem
                                     key={treeItem.id}
                                     asChild
-                                    onClick={(e: any) => {
+                                    onClick={(e) => {
                                         e.stopPropagation()
                                         const objectType: string | undefined = treeItem.record?.type
                                         const folder = item.record?.path
@@ -416,7 +416,7 @@ export function ProjectTree(): JSX.Element {
                         <ContextMenuGroup>
                             <ContextMenuItem
                                 asChild
-                                onClick={(e: any) => {
+                                onClick={(e) => {
                                     e.stopPropagation()
                                     createFolder('')
                                 }}
