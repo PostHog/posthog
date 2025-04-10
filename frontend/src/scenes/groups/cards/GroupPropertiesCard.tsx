@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 import { Group, PropertyDefinitionType } from '~/types'
 
 import { groupLogic } from '../groupLogic'
-import { GroupCard } from './GroupCard'
 
 export function GroupPropertiesCard({ groupData }: { groupData: Group }): JSX.Element {
     const { editProperty } = useActions(groupLogic)
@@ -15,25 +14,23 @@ export function GroupPropertiesCard({ groupData }: { groupData: Group }): JSX.El
         return Object.fromEntries(
             Object.entries(groupData.group_properties || {})
                 .filter(([_, value]) => typeof value !== 'object' || value === null)
-                .slice(0, 6)
+                .slice(0, 5)
         )
     }, [groupData.group_properties])
 
     return (
         <div className="flex flex-col gap-2">
-            <GroupCard>
-                <PropertiesTable
-                    type={PropertyDefinitionType.Group}
-                    properties={propertySummary || {}}
-                    embedded={true}
-                    onEdit={editProperty}
-                />
-            </GroupCard>
-            <div className="flex justify-start">
+            <PropertiesTable
+                type={PropertyDefinitionType.Group}
+                properties={propertySummary || {}}
+                onEdit={editProperty}
+                embedded={false}
+            />
+            <div className="flex justify-end">
                 <LemonButton
                     type="secondary"
                     size="small"
-                    to={urls.group(groupData.group_type_index, groupData.group_key)}
+                    to={urls.group(groupData.group_type_index, groupData.group_key, true, 'properties')}
                 >
                     View properties
                 </LemonButton>
