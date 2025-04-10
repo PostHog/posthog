@@ -23,6 +23,8 @@ export function getDefaultConfig(): PluginsServerConfig {
             : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
+        PERSONS_DATABASE_URL: '',
+        PERSONS_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
