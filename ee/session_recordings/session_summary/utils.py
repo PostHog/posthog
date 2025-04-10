@@ -63,6 +63,12 @@ def prepare_datetime(raw_time: datetime | str) -> datetime:
     return raw_time
 
 
+def _split_url_part(part: str, divider: int) -> tuple[str, str]:
+    part_start = part[:divider]
+    part_end = part[-divider:]
+    return part_start, part_end
+
+
 def shorten_url(url: str, max_length: int = 256) -> str:
     """
     Shorten long URLs to a more readable length, trying to keep the context.
@@ -75,17 +81,27 @@ def shorten_url(url: str, max_length: int = 256) -> str:
         return url
     base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
     # Calculate how many chars we can keep from query
-    # Subtract "[...]" length that we'll add between parts
+    # Subtract "[...]" that we'll add between parts
     remaining_length = max_length - len(base_url) - 5
     # If query is the longer part
     if parsed.query and len(parsed.query) > len(parsed.fragment):
-        query_start = parsed.query[: remaining_length // 2]
-        query_end = parsed.query[-remaining_length // 2 :]
-        return f"{base_url}?{query_start}[...]{query_end}"
+        if len(parsed.fragment) > 0:
+            remaining_length = remaining_length - len(parsed.fragment) - 2
+            query_start, query_end = _split_url_part(parsed.query, remaining_length // 2)
+            return f"{base_url}?{query_start}[...]{query_end}#{parsed.fragment}"
+        else:
+            remaining_length = remaining_length - 1
+            query_start, query_end = _split_url_part(parsed.query, remaining_length // 2)
+            return f"{base_url}?{query_start}[...]{query_end}"
     # If fragment is the longer part
     if parsed.fragment and len(parsed.fragment) > len(parsed.query):
-        fragment_start = parsed.fragment[: remaining_length // 2]
-        fragment_end = parsed.fragment[-remaining_length // 2 :]
-        return f"{base_url}#{fragment_start}[...]{fragment_end}"
+        if len(parsed.query) > 0:
+            remaining_length = remaining_length - len(parsed.query) - 2
+            fragment_start, fragment_end = _split_url_part(parsed.fragment, remaining_length // 2)
+            return f"{base_url}?{parsed.query}#{fragment_start}[...]{fragment_end}"
+        else:
+            remaining_length = remaining_length - 1
+            fragment_start, fragment_end = _split_url_part(parsed.fragment, remaining_length // 2)
+            return f"{base_url}#{fragment_start}[...]{fragment_end}"
     # If unclear - return the base URL
     return f"{base_url}"
