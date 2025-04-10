@@ -244,7 +244,13 @@ export class IngestionConsumer {
                         logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
                     }
 
-                    void this.scheduleWork(this.emitToOverflow([message], shouldForceOverflow ? true : undefined))
+                    // NOTE: If we are forcing to overflow we typically want to keep the partition key
+                    // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
+                    // of random partitioning.
+                    const preserveLocality =
+                        shouldForceOverflow && !this.shouldSkipPerson(event.token, event.distinct_id) ? true : undefined
+
+                    void this.scheduleWork(this.emitToOverflow([message], preserveLocality))
                     continue
                 }
 
