@@ -39,6 +39,20 @@ export interface PageURLSearchResult {
     count: number
 }
 
+// Define interface for page stats
+export interface PageStats {
+    pageviews: number
+    visitors: number
+    recordings: number
+    clicks: number
+    rageClicks: number
+    deadClicks: number
+    errors: number
+    surveysShown: number
+    surveysAnswered: number
+    isLoading: boolean
+}
+
 /**
  * Creates a property filter for URL matching that handles query parameters consistently
  * @param url The URL to match
@@ -73,6 +87,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             tileId,
             visualization,
         }),
+        loadPageStats: (pageUrl: string | null) => ({ pageUrl }),
     }),
 
     reducers: () => ({
@@ -118,6 +133,36 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
             },
         ],
+        pageStats: [
+            {
+                pageviews: 0,
+                visitors: 0,
+                recordings: 0,
+                clicks: 0,
+                rageClicks: 0,
+                deadClicks: 0,
+                errors: 0,
+                surveysShown: 0,
+                surveysAnswered: 0,
+                isLoading: true,
+            } as PageStats,
+            {
+                loadPageStats: (state) => ({ ...state, isLoading: true }),
+                loadPageStatsSuccess: (_, { stats }) => ({ 
+                    pageviews: stats?.pageviews ?? 0,
+                    visitors: stats?.visitors ?? 0,
+                    recordings: stats?.recordings ?? 0,
+                    clicks: stats?.clicks ?? 0,
+                    rageClicks: stats?.rageClicks ?? 0,
+                    deadClicks: stats?.deadClicks ?? 0,
+                    errors: stats?.errors ?? 0,
+                    surveysShown: stats?.surveysShown ?? 0,
+                    surveysAnswered: stats?.surveysAnswered ?? 0,
+                    isLoading: false 
+                }),
+                loadPageStatsFailure: (state) => ({ ...state, isLoading: false }),
+            },
+        ],
     }),
 
     loaders: ({ values }) => ({
@@ -145,13 +190,89 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 },
             },
         ],
+        stats: [
+            null as PageStats | null,
+            {
+                loadPageStats: async ({ pageUrl }: { pageUrl: string | null }) => {
+                    try {
+                        if (!pageUrl) {
+                            return null
+                        }
+
+                        // Single optimized query to get all metrics at once
+                        const statsQuery = {
+                            kind: NodeKind.HogQLQuery,
+                            query: hogql`
+                                SELECT countIf(event = '$pageview') AS pageviews,
+                                    countDistinctIf(distinct_id, event = '$pageview') AS visitors,
+                                    countDistinctIf(properties.$session_id, properties.$session_id IS NOT NULL) AS recordings,
+                                    countIf(event = '$autocapture' AND properties.$event_type = 'click') AS clicks,
+                                    countIf(event = 'rage_click') AS rageClicks,
+                                    countIf(event = 'dead_click') AS deadClicks,
+                                    countIf(event = '$exception') AS errors,
+                                    countIf(event = 'survey shown') AS surveysShown,
+                                    countIf(event = 'survey sent') AS surveysAnswered
+                                FROM events
+                            `,
+                        }
+                        
+                        // Execute the single query
+                        type QueryResponse = { 
+                            results: Array<Array<number>>,
+                            columns: Array<string>
+                        }
+                        
+                        const response = await api.query(statsQuery) as QueryResponse
+                        
+                        // Extract results based on column order in the response
+                        // The API returns an array of arrays where each inner array contains values in the order of columns
+                        const columnIndices: Record<string, number> = {}
+                        response.columns?.forEach((column, index) => {
+                            columnIndices[column] = index
+                        })
+                        
+                        const resultRow = response.results?.[0] || []
+                        
+                        const result = {
+                            pageviews: Number(resultRow[columnIndices['pageviews']] || 0),
+                            visitors: Number(resultRow[columnIndices['visitors']] || 0),
+                            recordings: Number(resultRow[columnIndices['recordings']] || 0),
+                            clicks: Number(resultRow[columnIndices['clicks']] || 0),
+                            rageClicks: Number(resultRow[columnIndices['rageClicks']] || 0),
+                            deadClicks: Number(resultRow[columnIndices['deadClicks']] || 0),
+                            errors: Number(resultRow[columnIndices['errors']] || 0),
+                            surveysShown: Number(resultRow[columnIndices['surveysShown']] || 0),
+                            surveysAnswered: Number(resultRow[columnIndices['surveysAnswered']] || 0),
+                            isLoading: false,
+                        }
+                        
+                        return result
+                    } catch (error) {
+                        console.error('Error loading page stats:', error)
+                        return {
+                            pageviews: 0,
+                            visitors: 0,
+                            recordings: 0,
+                            clicks: 0,
+                            rageClicks: 0,
+                            deadClicks: 0,
+                            errors: 0,
+                            surveysShown: 0,
+                            surveysAnswered: 0,
+                            isLoading: false,
+                        }
+                    }
+                },
+            },
+        ],
     }),
 
     selectors: {
         hasPageUrl: [(selectors) => [selectors.pageUrl], (pageUrl: string | null) => !!pageUrl],
         isLoading: [
-            (selectors) => [selectors.pagesUrlsLoading, selectors.isInitialLoad],
-            (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
+            (selectors) => [selectors.pagesUrlsLoading, selectors.isInitialLoad, selectors.pageStats],
+            (pagesUrlsLoading: boolean, isInitialLoad: boolean, pageStats: PageStats) => 
+                pagesUrlsLoading || isInitialLoad || pageStats.isLoading,
         ],
         queries: [
             (s) => [s.webAnalyticsTiles, s.pageUrl, s.stripQueryParams],
@@ -472,17 +593,26 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         },
         setPageUrl: ({ url }) => {
             router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
+            if (url) {
+                actions.loadPageStats(url as string)
+            }
         },
         toggleStripQueryParams: () => {
             actions.loadPages(values.pageUrlSearchTerm)
+            if (values.pageUrl) {
+                actions.loadPageStats(values.pageUrl)
+            }
         },
         loadPages: ({ searchTerm }) => {
             actions.loadPagesUrls({ searchTerm })
         },
     }),
 
-    afterMount: ({ actions }: { actions: pageReportsLogicType['actions'] }) => {
+    afterMount: ({ actions, values }: { actions: pageReportsLogicType['actions'], values: pageReportsLogicType['values'] }) => {
         actions.loadPages('')
+        if (values.pageUrl) {
+            actions.loadPageStats(values.pageUrl)
+        }
     },
 
     urlToAction: ({ actions, values }) => ({
