@@ -101,7 +101,7 @@ class CodebaseSyncService:
             args.update(
                 {
                     f"artifact_id_{i}": artifact["id"],
-                    f"parent_artifact_id_{i}": artifact["parent_id"] if "parent_id" in artifact else None,
+                    f"parent_artifact_id_{i}": artifact["parent_id"] if "parent_id" in artifact else "",
                     f"is_deleted_{i}": is_deleted,
                     f"type_{i}": artifact["type"],
                 }

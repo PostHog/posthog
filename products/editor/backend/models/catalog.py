@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     codebase_id String,
     artifact_id String,
     branch String,
-    parent_artifact_id Nullable(String),
+    parent_artifact_id String,
     type LowCardinality(String),
     timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
     is_deleted UInt8,
@@ -40,7 +40,7 @@ def CODEBASE_CATALOG_TABLE_SQL(on_cluster=True):
         CODEBASE_CATALOG_TABLE_BASE_SQL
         + """
     -- artifact_id for uniqueness
-    ORDER BY (team_id, user_id, codebase_id, branch, artifact_id)
+    ORDER BY (team_id, user_id, codebase_id, branch, artifact_id, parent_artifact_id)
     """
     ).format(
         table_name=CODEBASE_CATALOG_TABLE_NAME(),

@@ -31,10 +31,14 @@ class CodebaseTreeQueryRunner(TaxonomyCacheMixin, QueryRunner):
         )
 
         results: list[CodebaseTreeResponseItem] = []
-        columns = ["id", "parentId", "type", "synced"]
-        for result in response.results:
+        for id, parent_id, artifact_type, synced in response.results:
             results.append(
-                CodebaseTreeResponseItem.model_validate({column: result[i] for i, column in enumerate(columns)})
+                CodebaseTreeResponseItem(
+                    id=id,
+                    parentId=parent_id if parent_id else None,
+                    type=artifact_type,
+                    synced=synced,
+                )
             )
 
         return CodebaseTreeQueryResponse(
@@ -49,19 +53,19 @@ class CodebaseTreeQueryRunner(TaxonomyCacheMixin, QueryRunner):
             """
             SELECT
                 artifact_id,
-                argMax(parent_artifact_id, timestamp) as parent_artifact_id,
-                argMax(type, timestamp) as artifact_type,
-                (artifact_type = 'dir' OR embeddings.synced_artifact_id is not null) as synced
+                argMax(parent_artifact_id, timestamp) AS parent_artifact_id,
+                argMax(type, timestamp) AS artifact_type,
+                (artifact_type = 'dir' OR any(embeddings.synced_artifact_id) != '') AS synced
             FROM
                 codebase_catalog
             LEFT JOIN (
                 SELECT
-                    argMax(DISTINCT artifact_id, version) as synced_artifact_id
+                    argMax(DISTINCT artifact_id, version) AS synced_artifact_id
                 FROM
                     codebase_embeddings
                 WHERE
                     is_deleted = 0 AND user_id = {user_id} AND codebase_id = {codebase_id}
-            ) as embeddings
+            ) AS embeddings
             ON
                 codebase_catalog.artifact_id = embeddings.synced_artifact_id
             PREWHERE
