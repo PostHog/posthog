@@ -56,6 +56,7 @@ export function ProjectTree(): JSX.Element {
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
+        deleteCheckedItems,
         setCheckedItems,
         assureVisibility,
     } = useActions(projectTreeLogic)
@@ -96,7 +97,7 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
+                {checkedItemCountNumeric > 0 && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
                         onClick={(e) => {
@@ -109,7 +110,7 @@ export function ProjectTree(): JSX.Element {
                         </ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {checkedItemsCount !== '0' && item.record?.type === 'folder' ? (
+                {checkedItemCountNumeric > 0 && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
                         onClick={(e) => {
@@ -158,7 +159,27 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {item.record?.created_at || item.record?.type === 'folder' ? (
+
+                {checkedItemCountNumeric > 1 && checkedItems[item.id] ? (
+                    <>
+                        <MenuItem asChild>
+                            <ButtonPrimitive menuItem disabled>
+                                Delete {checkedItemsCount} item{checkedItemCountNumeric === 1 ? '' : 's'}
+                            </ButtonPrimitive>
+                        </MenuItem>
+                        <MenuItem
+                            asChild
+                            onClick={(e: any) => {
+                                e.stopPropagation()
+                                deleteCheckedItems()
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>
+                                Move {checkedItemsCount} item{checkedItemCountNumeric === 1 ? '' : 's'} to 'Unfiled'
+                            </ButtonPrimitive>
+                        </MenuItem>
+                    </>
+                ) : item.record?.shortcut ? (
                     <MenuItem
                         asChild
                         onClick={(e) => {
@@ -166,11 +187,31 @@ export function ProjectTree(): JSX.Element {
                             deleteItem(item.record as unknown as FileSystemEntry)
                         }}
                     >
-                        <ButtonPrimitive menuItem>
-                            {item.record?.shortcut ? 'Remove shortcut' : "Delete and move back to 'Unfiled'"}
-                        </ButtonPrimitive>
+                        <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
                     </MenuItem>
-                ) : null}
+                ) : (
+                    <>
+                        <MenuItem asChild disabled>
+                            <ButtonPrimitive menuItem disabled={!item.record?.shortcut}>
+                                {item.record?.type === 'folder' ? 'Delete folder' : 'Delete'}
+                            </ButtonPrimitive>
+                        </MenuItem>
+                        {item.record?.type === 'folder' || !item.record?.path.startsWith('Unfiled/') ? (
+                            <MenuItem
+                                asChild
+                                onClick={(e: any) => {
+                                    e.stopPropagation()
+                                    deleteItem(item.record as unknown as FileSystemEntry)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>
+                                    {item.record?.type === 'folder' ? "Move folder to 'Unfiled'" : "Move to 'Unfiled'"}
+                                </ButtonPrimitive>
+                            </MenuItem>
+                        ) : null}
+                    </>
+                )}
+
                 {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
                     <>
                         {!item.id?.startsWith('project-folder-empty/') ? <MenuSeparator /> : null}
@@ -253,7 +294,7 @@ export function ProjectTree(): JSX.Element {
                     <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
                         <IconFolderPlus className="text-tertiary" />
                     </ButtonPrimitive>
-                    {checkedItemsCount !== '0' && checkedItemsCount !== '0+' ? (
+                    {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
                         <ButtonPrimitive onClick={() => setCheckedItems({})} tooltip="Clear">
                             <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                         </ButtonPrimitive>
@@ -273,7 +314,7 @@ export function ProjectTree(): JSX.Element {
                     }
                     return window.location.href.endsWith(item.record?.href)
                 }}
-                enableMultiSelection={checkedItemsCount !== '0'}
+                enableMultiSelection={checkedItemCountNumeric > 0}
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
@@ -285,7 +326,7 @@ export function ProjectTree(): JSX.Element {
                     if (node?.record?.path) {
                         setLastViewedId(node?.id || '')
                     }
-                    if (node?.id.startsWith('folder-load-more/')) {
+                    if (node?.id.startsWith('project-load-more/')) {
                         const path = node.id.split('/').slice(1).join('/')
                         if (path) {
                             loadFolder(path)

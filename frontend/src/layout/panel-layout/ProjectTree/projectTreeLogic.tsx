@@ -76,6 +76,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         expandProjectFolder: (path: string) => ({ path }),
         moveCheckedItems: (path: string) => ({ path }),
         linkCheckedItems: (path: string) => ({ path }),
+        deleteCheckedItems: true,
         checkSelectedFolders: true,
         syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
         updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
@@ -509,7 +510,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         sortedItems: [
             (s) => [s.viableItems],
-            (viableItems): FileSystemEntry[] => [...viableItems].sort((a, b) => a.path.localeCompare(b.path)),
+            (viableItems): FileSystemEntry[] =>
+                [...viableItems].sort((a, b) => (a.path > b.path ? 1 : a.path < b.path ? -1 : 0)),
         ],
         viableItemsById: [
             (s) => [s.viableItems],
@@ -598,10 +600,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         treeItemsNew: [
             (s) => [s.featureFlags, s.folderStates],
-            (_featureFlags, folderStates): TreeDataItem[] =>
-                // .filter(f => !f.flag || featureFlags[f.flag])
+            (featureFlags, folderStates): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeNew(),
+                    imports: getDefaultTreeNew().filter((f) => !f.flag || featureFlags[f.flag]),
                     checkedItems: {},
                     folderStates,
                     root: 'new',
@@ -645,10 +646,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         treeItemsExplore: [
             (s) => [s.featureFlags, s.groupNodes, s.folderStates],
-            (_featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
-                // .filter(f => !f.flag || featureFlags[f.flag])
+            (featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeExplore(groupNodes),
+                    imports: getDefaultTreeExplore(groupNodes).filter((f) => !f.flag || featureFlags[f.flag]),
                     checkedItems: {},
                     folderStates,
                     root: 'explore',
@@ -755,7 +755,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                 let files = response.results
                 let hasMore = false
-                if (offset + files.length > PAGINATION_LIMIT) {
+                if (files.length > PAGINATION_LIMIT) {
                     files = files.slice(0, PAGINATION_LIMIT)
                     hasMore = true
                 }
@@ -949,6 +949,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     path: item.path,
                     newPath: newPath + item.path.slice(oldPath.length),
                 })
+            }
+        },
+        deleteCheckedItems: () => {
+            const { checkedItems } = values
+            let skipInFolder: string | null = null
+            for (const item of values.sortedItems) {
+                if (skipInFolder !== null) {
+                    if (item.path.startsWith(skipInFolder + '/')) {
+                        continue
+                    } else {
+                        skipInFolder = null
+                    }
+                }
+                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                if (checkedItems[itemId]) {
+                    actions.deleteItem(item)
+                    if (item.type === 'folder') {
+                        skipInFolder = item.path
+                    }
+                }
             }
         },
         deleteItem: async ({ item }) => {

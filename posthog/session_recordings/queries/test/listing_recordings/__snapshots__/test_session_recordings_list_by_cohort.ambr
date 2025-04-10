@@ -66,7 +66,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_cohort_properties.3
@@ -116,7 +117,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_events_and_cohorts
@@ -191,7 +193,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_events_and_cohorts.3
@@ -246,7 +249,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties
@@ -321,7 +325,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.2
@@ -401,7 +406,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.6
@@ -451,7 +457,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.7
@@ -501,7 +508,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.8
@@ -551,7 +559,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.9
@@ -607,7 +616,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_internal_account_filter_with_cohort_properties
@@ -677,6 +687,7 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
