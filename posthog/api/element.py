@@ -65,7 +65,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             date_params.update(date_to_params)
 
             try:
-                limit = int(request.query_params.get("limit", 250))
+                limit = int(request.query_params.get("limit", 10_000))
             except ValueError:
                 raise ValidationError("Limit must be an integer")
 
