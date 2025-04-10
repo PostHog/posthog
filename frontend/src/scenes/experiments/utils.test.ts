@@ -681,7 +681,7 @@ describe('metricToFilter', () => {
                     math_property: undefined,
                     math_hogql: undefined,
                     properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
-                    kind: NodeKind.EventsNode,
+                    kind: NodeKind.ActionsNode,
                 },
             ],
             data_warehouse: [],
@@ -709,8 +709,8 @@ describe('metricToFilter', () => {
             actions: [],
             data_warehouse: [
                 {
-                    kind: NodeKind.EventsNode,
-                    id: 'mysql_payments',
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    id: undefined,
                     name: 'mysql_payments',
                     type: 'data_warehouse',
                     timestamp_field: 'timestamp',
@@ -719,6 +719,7 @@ describe('metricToFilter', () => {
                     math: ExperimentMetricMathType.TotalCount,
                     math_property: undefined,
                     math_hogql: undefined,
+                    properties: undefined,
                 },
             ],
         })
@@ -768,7 +769,7 @@ describe('filterToMetricConfig', () => {
         const action = {
             id: '8',
             name: 'jan-16-running payment action',
-            kind: 'EventsNode',
+            kind: NodeKind.ActionsNode,
             type: 'actions',
             math: 'total',
             properties: [
