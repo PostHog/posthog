@@ -65,33 +65,6 @@ def test_simplify_window_id() -> None:
     }
 
 
-@pytest.fixture
-def mock_raw_metadata() -> dict[str, Any]:
-    return {
-        "id": "00000000-0000-0000-0000-000000000000",
-        # Anonymized distinct_id for testing
-        "distinct_id": "EheLkWe3eZBtiru9xSJgq2SNWoD8YHQnKu0FWkMDZMU",
-        "viewed": True,
-        "viewers": [],
-        "recording_duration": 5323,
-        "active_seconds": 1947,
-        "inactive_seconds": 3375,
-        "start_time": "2025-04-01T11:13:33.315000Z",
-        "end_time": "2025-04-01T12:42:16.671000Z",
-        "click_count": 679,
-        "keypress_count": 668,
-        "mouse_activity_count": 6629,
-        "console_log_count": 4,
-        "console_warn_count": 144,
-        "console_error_count": 114,
-        "start_url": "https://us.example.com/project/11111/insights/aAaAAAaA",
-        "storage": "object_storage",
-        "snapshot_source": "web",
-        "ongoing": None,
-        "activity_score": None,
-    }
-
-
 def test_prepare_metadata(mock_raw_metadata: dict[str, Any]) -> None:
     prompt_data = SessionSummaryPromptData()
     metadata = prompt_data._prepare_metadata(mock_raw_metadata)
@@ -109,92 +82,6 @@ def test_prepare_metadata(mock_raw_metadata: dict[str, Any]) -> None:
     assert metadata.console_error_count == 114
     assert metadata.start_url == "https://us.example.com/project/11111/insights/aAaAAAaA"
     assert metadata.activity_score is None
-
-
-@pytest.fixture
-def mock_raw_events() -> list[list[Any]]:
-    return [
-        [
-            "client_request_failure",
-            datetime(2025, 3, 31, 18, 40, 39, 302000),
-            "",
-            [],
-            [],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
-            None,
-        ],
-        [
-            "$pageview",
-            datetime(2025, 3, 31, 18, 40, 39, 200000),
-            "",
-            [],
-            [],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
-            None,
-        ],
-        [
-            "$autocapture",
-            datetime(2025, 3, 31, 18, 40, 43, 645000),
-            "",
-            ["Log in"],
-            ["button", "form"],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
-            "click",
-        ],
-        [
-            "$autocapture",
-            datetime(2025, 3, 31, 18, 40, 43, 647000),
-            "",
-            [],
-            ["form"],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
-            "submit",
-        ],
-        [
-            "$web_vitals",
-            datetime(2025, 3, 31, 18, 40, 44, 251000),
-            "",
-            [],
-            [],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
-            None,
-        ],
-        [
-            "$autocapture",
-            datetime(2025, 3, 31, 18, 40, 58, 699000),
-            "/signup",
-            ["Create an account"],
-            ["a"],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
-            "click",
-        ],
-        [
-            "$pageview",
-            datetime(2025, 3, 31, 18, 40, 58, 710000),
-            "",
-            [],
-            [],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/signup",
-            None,
-        ],
-        [
-            "$autocapture",
-            datetime(2025, 3, 31, 18, 41, 5, 459000),
-            "",
-            ["Continue"],
-            ["button", "form"],
-            "0235ed82-1519-7595-9221-8bb8ddb1fdc4",
-            "http://localhost:8010/signup",
-            "click",
-        ],
-    ]
 
 
 def test_load_session_data(mock_raw_events: list[list[Any]], mock_raw_metadata: dict[str, Any]) -> None:

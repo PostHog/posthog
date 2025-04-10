@@ -1,49 +1,7 @@
 from datetime import UTC, datetime
 import pytest
-from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
+from openai.types.chat.chat_completion import ChatCompletion
 from ee.session_recordings.ai.output_data import calculate_time_since_start, load_raw_session_summary_from_llm_content
-
-
-@pytest.fixture
-def mock_valid_llm_yaml_response() -> str:
-    return """```yaml
-summary: User logged in and created a new project
-key_events:
-  - description: User clicked login button
-    error: false
-    tags:
-      where: ["login page"]
-      what: ["authentication"]
-    importance: 0.8
-    event_id: abc123
-  - description: User created new project
-    error: false
-    tags:
-      where: ["dashboard"]
-      what: ["project creation"]
-    importance: 0.9
-    event_id: def456
-```"""
-
-
-@pytest.fixture
-def mock_chat_completion(mock_valid_llm_yaml_response: str) -> ChatCompletion:
-    return ChatCompletion(
-        id="test_id",
-        model="test_model",
-        object="chat.completion",
-        created=int(datetime.now().timestamp()),
-        choices=[
-            Choice(
-                finish_reason="stop",
-                index=0,
-                message=ChatCompletionMessage(
-                    content=mock_valid_llm_yaml_response,
-                    role="assistant",
-                ),
-            )
-        ],
-    )
 
 
 class TestLoadRawSessionSummary:
