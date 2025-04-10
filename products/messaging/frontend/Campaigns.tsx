@@ -51,7 +51,7 @@ export function Campaigns(): JSX.Element {
         <>
             <MessagingTabs key="tabs" />
             <PageHeader
-                caption="Create automated messaging campaigns triggered by events"
+                caption="Create transactional messaging campaigns triggered by events"
                 buttons={
                     <LemonButton
                         data-attr="new-campaign"

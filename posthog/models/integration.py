@@ -764,7 +764,7 @@ class MailIntegration:
         self.integration = integration
 
     @classmethod
-    def integration_from_keys(
+    def integration_from_mailjet_keys(
         cls, api_key: str, secret_key: str, team_id: int, created_by: Optional[User] = None
     ) -> Integration:
         integration, created = Integration.objects.update_or_create(
@@ -774,8 +774,32 @@ class MailIntegration:
             defaults={
                 "config": {
                     "api_key": api_key,
-                    # TODO: Add support for other email vendors
                     "vendor": "mailjet",
+                },
+                "sensitive_config": {
+                    "secret_key": secret_key,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @classmethod
+    def integration_from_resend_key(
+        cls, secret_key: str, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="email",
+            integration_id=f"resend-{secret_key[:8]}",  # Use first 8 chars of key as ID
+            defaults={
+                "config": {
+                    "vendor": "resend",
                 },
                 "sensitive_config": {
                     "secret_key": secret_key,

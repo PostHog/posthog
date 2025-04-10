@@ -70,15 +70,14 @@ export function IntegrationChoice({
         input.click()
     }
 
-    function showIntegrationSetupModal(): void {
+    function showIntegrationSetupModal(vendor: 'Mailjet' | 'Resend'): void {
         if (!kind) {
             return
         }
 
         const modalProps = getIntegrationSetupModalProps({
-            integration: kind,
-            integrationName: kindName,
-            onComplete: onChange,
+            onComplete: (integrationId) => onChange?.(integrationId),
+            vendor,
         })
 
         if (modalProps) {
@@ -114,8 +113,12 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: showIntegrationSetupModal,
+                                  onClick: () => showIntegrationSetupModal('Mailjet'),
                                   label: 'Configure Mailjet API key',
+                              },
+                              {
+                                  onClick: () => showIntegrationSetupModal('Resend'),
+                                  label: 'Configure Resend API key',
                               },
                           ],
                       }

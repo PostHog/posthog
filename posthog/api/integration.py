@@ -51,14 +51,23 @@ class IntegrationSerializer(serializers.ModelSerializer):
 
         elif validated_data["kind"] == "email":
             config = validated_data.get("config", {})
-            if config.get("vendor") == "mailjet" and not (config.get("api_key") and config.get("secret_key")):
-                raise ValidationError("Both api_key and secret_key are required for Mail integration")
-            instance = MailIntegration.integration_from_keys(
-                config["api_key"],
-                config["secret_key"],
-                team_id,
-                request.user,
-            )
+            if config.get("vendor") == "mailjet":
+                if not (config.get("api_key") and config.get("secret_key")):
+                    raise ValidationError("Both api_key and secret_key are required for Mail integration")
+                instance = MailIntegration.integration_from_mailjet_keys(
+                    config["api_key"],
+                    config["secret_key"],
+                    team_id,
+                    request.user,
+                )
+            elif config.get("vendor") == "resend":
+                if not config.get("secret_key"):
+                    raise ValidationError("secret_key is required for Resend integration")
+                instance = MailIntegration.integration_from_resend_key(
+                    config["secret_key"],
+                    team_id,
+                    request.user,
+                )
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:

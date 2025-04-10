@@ -9,7 +9,11 @@ template_new_broadcast: HogFunctionTemplate = HogFunctionTemplate(
     description="Send an email to a list of people",
     icon_url="/static/hedgehog/explorer-hog.png",
     category=["Email Marketing"],
-    hog="""sendEmail(inputs)""".strip(),
+    hog="""
+print('Preparing to send email 📧...')
+return sendEmail(inputs)
+print('Email request delivered to the queue! 📦')
+""".strip(),
     inputs_schema=[
         {
             "key": "auth",

@@ -24,7 +24,7 @@ import {
 } from '../types'
 import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
-import { createMailjetRequest } from '../utils/hog-mailjet-request'
+import { createMailjetRequest, createSMTPRequest } from '../utils/hog-email-request'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -554,11 +554,27 @@ export class HogExecutorService {
                                 throw new Error('sendEmail: Must provide a mail integration')
                             }
 
-                            const fetchQueueParameters = this.enrichFetchRequest({
-                                // TODO: Add support for other providers
-                                ...createMailjetRequest(email, auth),
-                                return_queue: 'hog',
-                            })
+                            let fetchQueueParameters: HogFunctionQueueParametersFetchRequest | undefined
+
+                            switch (auth.vendor) {
+                                case 'SMTP':
+                                    fetchQueueParameters = this.enrichFetchRequest({
+                                        ...createSMTPRequest(email, auth),
+                                        return_queue: 'hog',
+                                    })
+                                    break
+                                case 'Mailjet':
+                                default:
+                                    fetchQueueParameters = this.enrichFetchRequest({
+                                        ...createMailjetRequest(email, auth),
+                                        return_queue: 'hog',
+                                    })
+                                    break
+                            }
+
+                            if (!fetchQueueParameters) {
+                                throw new Error('sendEmail: Invalid mail integration')
+                            }
 
                             result.invocation.queue = 'fetch'
                             result.invocation.queueParameters = fetchQueueParameters
