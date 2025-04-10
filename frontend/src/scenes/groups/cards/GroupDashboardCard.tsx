@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
@@ -7,6 +7,7 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 function GroupDetailDashboard({
@@ -37,7 +38,7 @@ function GroupDetailDashboard({
 }
 
 export function GroupDashboardCard(): JSX.Element {
-    const { groupTypeName, groupTypeNamePlural, groupData, groupTypeDetailDashboard } = useValues(groupLogic)
+    const { groupData, groupTypeDetailDashboard, groupTypeName } = useValues(groupLogic)
 
     const { createDetailDashboard } = useActions(groupLogic)
     const { reportGroupTypeDetailDashboardCreated } = useActions(eventUsageLogic)
@@ -52,33 +53,48 @@ export function GroupDashboardCard(): JSX.Element {
     }
 
     return (
-        <div className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4">
-            <div className="flex items-center gap-8 w-full justify-center">
-                <div>
-                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
-                        <BuilderHog3 className="w-full h-full" />
-                    </div>
-                </div>
-                <div className="flex-shrink max-w-140">
-                    <h2>No {groupTypeName} dashboard template yet</h2>
-                    <p className="ml-0">
-                        Create a standard dashboard template to be used across all {groupTypeNamePlural}. See weekly
-                        active users, most used features, and more.
-                    </p>
-                    <div className="flex items-center gap-x-4 gap-y-2 mt-6">
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                setCreatingDetailDashboard(true)
-                                reportGroupTypeDetailDashboardCreated()
-                                createDetailDashboard(groupData.group_type_index)
-                            }}
-                            disabled={creatingDetailDashboard}
-                        >
-                            Generate dashboard template
-                        </LemonButton>
-                    </div>
-                </div>
+        <div className="flex flex-col gap-4">
+            <QueryCard
+                title="Weekly active users"
+                description={`Shows the number of unique users from this ${groupTypeName} in the last 90 days`}
+                query={{
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        interval: 'week',
+                        dateRange: {
+                            date_from: '-90d',
+                        },
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                math: 'dau',
+                                event: null,
+                                properties: [
+                                    {
+                                        key: `$group_${groupData.group_type_index}`,
+                                        value: groupData.group_key,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                }}
+                context={{ refresh: 'force_blocking' }}
+            />
+            <div className="flex justify-end">
+                <LemonButton
+                    type="secondary"
+                    disabled={creatingDetailDashboard}
+                    onClick={() => {
+                        setCreatingDetailDashboard(true)
+                        reportGroupTypeDetailDashboardCreated()
+                        createDetailDashboard(groupData.group_type_index)
+                    }}
+                >
+                    Customize
+                </LemonButton>
             </div>
         </div>
     )
