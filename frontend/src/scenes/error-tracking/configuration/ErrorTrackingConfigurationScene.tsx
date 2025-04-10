@@ -11,7 +11,7 @@ import { ErrorTrackingSetupPrompt } from '../ErrorTrackingSetupPrompt'
 import { ERROR_TRACKING_LOGIC_KEY } from '../utils'
 import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingConfigurationSceneType'
 
-type ConfigurationSceneTabType =
+export type ConfigurationSceneTabType =
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
