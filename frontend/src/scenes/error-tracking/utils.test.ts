@@ -1,6 +1,13 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { generateDateRangeLabel, generateSparklineLabels, mergeIssues, resolveDate, resolveDateRange } from './utils'
+import {
+    generateDateRangeLabel,
+    generateSparklineLabels,
+    mergeIssues,
+    resolveDate,
+    resolveDateRange,
+    sourceDisplay,
+} from './utils'
 
 describe('mergeIssues', () => {
     it('arbitrary values', async () => {
@@ -20,6 +27,8 @@ describe('mergeIssues', () => {
             },
             status: 'active',
             earliest: '',
+            function: '<anonymous>',
+            source: 'path/file.py',
         }
 
         const mergingIssues: ErrorTrackingIssue[] = [
@@ -99,6 +108,8 @@ describe('mergeIssues', () => {
                 volumeDay: [26, 116, 214, 324, 757],
                 volumeRange: [0, 500, 1510, 1026, 1406],
             },
+            function: '<anonymous>',
+            source: 'path/file.py',
         })
     })
 })
@@ -188,5 +199,20 @@ describe('date range label generation', () => {
             date_from: 'mStart',
         })
         expect(rangeLabel).toEqual('Month')
+    })
+})
+
+describe('sourceDisplay', () => {
+    it('nicely formats paths', async () => {
+        expect(sourceDisplay('')).toEqual('')
+        expect(sourceDisplay('kea/lib/index.cjs.js')).toEqual('kea.lib.index')
+        expect(
+            sourceDisplay('../../node_modules/.pnpm/reselect@4.1.7/node_modules/reselect/lib/defaultMemoize.js')
+        ).toEqual('reselect.lib.defaultMemoize')
+        expect(
+            sourceDisplay(
+                '../../node_modules/.pnpm/kea-loaders@3.0.0_kea@3.1.5_react@18.2.0_/node_modules/kea-loaders/src/index.ts'
+            )
+        ).toEqual('kea-loaders.src.index')
     })
 })

@@ -7121,6 +7121,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "function": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -7130,6 +7133,9 @@
                 },
                 "name": {
                     "type": ["string", "null"]
+                },
+                "source": {
+                    "type": "string"
                 },
                 "status": {
                     "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],

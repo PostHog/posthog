@@ -36,6 +36,7 @@ import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { useSparklineData } from './hooks/use-sparkline-data'
 import { StatusIndicator } from './issue/Indicator'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
+import { sourceDisplay } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -172,6 +173,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 </Link>
                 <div className="line-clamp-1 text-secondary">{record.description}</div>
+                <div className="line-clamp-1 text-secondary italic">
+                    {record.function} in {sourceDisplay(record.source)}
+                </div>
                 <div className="flex gap-1 items-center text-secondary">
                     <StatusIndicator size="xsmall" status={record.status} />
                     <span>|</span>
