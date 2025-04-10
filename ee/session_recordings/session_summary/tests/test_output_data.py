@@ -1,13 +1,12 @@
-from datetime import datetime
+from datetime import UTC, datetime
 import pytest
 from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
-from ee.session_recordings.ai.output_data import load_raw_session_summary_from_llm_content
+from ee.session_recordings.ai.output_data import calculate_time_since_start, load_raw_session_summary_from_llm_content
 
 
-class TestLoadRawSessionSummary:
-    @pytest.fixture
-    def mock_valid_llm_yaml_response(self) -> str:
-        return """```yaml
+@pytest.fixture
+def mock_valid_llm_yaml_response() -> str:
+    return """```yaml
 summary: User logged in and created a new project
 key_events:
   - description: User clicked login button
@@ -26,25 +25,28 @@ key_events:
     event_id: def456
 ```"""
 
-    @pytest.fixture
-    def mock_chat_completion(self, mock_valid_llm_yaml_response: str) -> ChatCompletion:
-        return ChatCompletion(
-            id="test_id",
-            model="test_model",
-            object="chat.completion",
-            created=int(datetime.now().timestamp()),
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(
-                        content=mock_valid_llm_yaml_response,
-                        role="assistant",
-                    ),
-                )
-            ],
-        )
 
+@pytest.fixture
+def mock_chat_completion(mock_valid_llm_yaml_response: str) -> ChatCompletion:
+    return ChatCompletion(
+        id="test_id",
+        model="test_model",
+        object="chat.completion",
+        created=int(datetime.now().timestamp()),
+        choices=[
+            Choice(
+                finish_reason="stop",
+                index=0,
+                message=ChatCompletionMessage(
+                    content=mock_valid_llm_yaml_response,
+                    role="assistant",
+                ),
+            )
+        ],
+    )
+
+
+class TestLoadRawSessionSummary:
     def test_load_raw_session_summary_success(self, mock_chat_completion: ChatCompletion) -> None:
         allowed_event_ids = ["abc123", "def456"]
         session_id = "test_session"
@@ -96,3 +98,19 @@ key_events:
             ValueError, match=f"LLM hallucinated event_id def456 when summarizing session_id {session_id}"
         ):
             load_raw_session_summary_from_llm_content(mock_chat_completion, allowed_event_ids, session_id)
+
+
+@pytest.mark.parametrize(
+    "event_time,start_time,expected",
+    [
+        ("2024-03-01T12:00:02Z", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 2000),  # 2 seconds after
+        ("2024-03-01T12:00:00Z", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # same time
+        ("2024-03-01T11:59:59Z", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # 1 second before (clamped to 0)
+        (None, datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), None),  # no event time
+        ("2024-03-01T12:00:02Z", None, None),  # no start time
+        ("2024-03-01T13:00:00Z", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 3600000),  # 1 hour after
+    ],
+)
+def test_calculate_time_since_start(event_time: str, start_time: datetime, expected: int) -> None:
+    result = calculate_time_since_start(event_time, start_time)
+    assert result == expected

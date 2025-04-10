@@ -91,7 +91,8 @@ def load_raw_session_summary_from_llm_content(
     return raw_session_summary
 
 
-def _calculate_time_since_start(session_timestamp: str, session_start_time: datetime | None) -> int | None:
+# TODO Rework the logic, so events before the recording are marked as "LOAD", not 00:00
+def calculate_time_since_start(session_timestamp: str, session_start_time: datetime | None) -> int | None:
     if not session_start_time or not session_timestamp:
         return None
     timestamp_datetime = datetime.fromisoformat(session_timestamp)
@@ -126,7 +127,7 @@ def enrich_raw_session_summary_with_events_meta(
         # Calculate time to jump to the right place in the player
         timestamp = simplified_events_mapping[event_id][timestamp_index]
         enriched_key_event["timestamp"] = timestamp
-        ms_since_start = _calculate_time_since_start(timestamp, session_start_time)
+        ms_since_start = calculate_time_since_start(timestamp, session_start_time)
         if ms_since_start is not None:
             enriched_key_event["milliseconds_since_start"] = ms_since_start
         # Add full URL of the event page
