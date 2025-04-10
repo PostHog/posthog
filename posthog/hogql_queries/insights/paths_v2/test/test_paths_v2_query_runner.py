@@ -4,6 +4,7 @@ from uuid import UUID
 
 from freezegun.api import freeze_time
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.insights.paths_v2.paths_v2_query_runner import (
     POSTHOG_OTHER,
     POSTHOG_DROPOFF,
@@ -311,7 +312,22 @@ class TestPathsV2BaseEventsQuery(SharedSetup):
     maxDiff = None
 
     def test_event_base_query(self):
-        pass
+        query = PathsV2Query()
+        query_runner = self._get_query_runner(query=query)
+
+        event_base_query = query_runner._event_base_query()
+        self.assertEqual(
+            str(event_base_query),
+            "sql("
+            + "SELECT timestamp, person_id AS actor_id, event AS path_item "
+            + "FROM events "
+            + "WHERE and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2025-04-03 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-04-10 23:59:59')))) "
+            + "ORDER BY actor_id ASC, timestamp ASC"
+            ")",
+        )
+
+        response = execute_hogql_query(query=event_base_query, team=self.team)
+        self.assertEqual(response.columns, ["timestamp", "actor_id", "path_item"])
 
     def test_date_filters(self):
         _ = journeys_for(
@@ -427,4 +443,11 @@ class TestPathsV2PathsPerActorAsArrayQuery(SharedSetup):
 
     @pytest.mark.skip(reason="TODO: pending start and end event implementation")
     def test_start_and_end_event(self):
+        pass
+
+
+class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
+    maxDiff = None
+
+    def test_aggregates_items_into_tuples(self):
         pass
