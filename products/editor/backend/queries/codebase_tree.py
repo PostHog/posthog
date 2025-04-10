@@ -50,14 +50,14 @@ class CodebaseTreeQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 argMax(parent_artifact_id, timestamp) as parent_artifact_id
             FROM
                 codebase_catalog
-            GROUP BY
-                artifact_id
             WHERE
                 is_deleted = 0 AND user_id = {user_id} AND codebase_id = {codebase_id} AND branch = {branch}
+            GROUP BY
+                artifact_id
             """,
             placeholders={
-                "user_id": ast.Constant(value=self.query.user_id),
-                "codebase_id": ast.Constant(value=self.query.codebase_id),
+                "user_id": ast.Constant(value=self.query.userId),
+                "codebase_id": ast.Constant(value=self.query.codebaseId),
                 "branch": ast.Constant(value=self.query.branch),
             },
         )

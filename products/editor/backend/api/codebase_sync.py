@@ -47,11 +47,15 @@ class CodebaseArtifactSerializer(serializers.Serializer):
 
 class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "editor_artifacts"
+    scope_object_read_actions = ["sync"]
+    scope_object_write_actions = ["sync_artifact"]
+
+    queryset = Codebase.objects.all()
 
     authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
 
-    def safely_get_queryset(self):
-        return Codebase.objects.filter(user=self.request.user)
+    def safely_get_queryset(self, qs):
+        return qs.filter(user=cast(User, self.request.user))
 
     def get_serializer_class(self):
         if self.action == "sync":
@@ -61,9 +65,9 @@ class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, views
         return CodebaseSerializer
 
     @action(detail=True, methods=["PATCH"])
-    def sync(self, request: Request, pk: str):
+    def sync(self, request: Request, *args, **kwargs):
         codebase: Codebase = self.get_object()
-        serializer = self.get_serializer(None, data=request.data, partial=True)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
         service = CodebaseSyncService(self.team, cast(User, request.user), codebase, validated_data.get("branch"))
@@ -71,9 +75,9 @@ class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, views
         return Response(leaf_nodes_to_sync)
 
     @action(detail=True, methods=["POST"], url_path="artifact/sync")
-    def sync_artifact(self, request: Request, pk: str):
+    def sync_artifact(self, request: Request, *args, **kwargs):
         codebase: Codebase = self.get_object()
-        serializer = self.get_serializer(None, data=request.data, partial=True)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
 

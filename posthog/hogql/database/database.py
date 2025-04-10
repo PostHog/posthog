@@ -31,6 +31,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.codebase_catalog import CodebaseCatalogTable
+from posthog.hogql.database.schema.codebase_embeddings import CodebaseEmbeddingsTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
@@ -144,6 +146,8 @@ class Database(BaseModel):
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
     raw_query_log: RawQueryLogTable = RawQueryLogTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
+    codebase_catalog: CodebaseCatalogTable = CodebaseCatalogTable()
+    codebase_embeddings: CodebaseEmbeddingsTable = CodebaseEmbeddingsTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()

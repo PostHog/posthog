@@ -17,13 +17,14 @@ class CodebaseSyncService:
         self.team = team
         self.user = user
         self.codebase = codebase
-        self.branch = branch
+        # Empty string as the schema for this field is non-nullable.
+        self.branch = branch or ""
 
     def sync(self, tree: list[ArtifactNode]) -> list[str]:
         query_runner = CodebaseTreeQueryRunner(
             query=CodebaseTreeQuery(
                 userId=self.user.id,
-                codebaseId=self.codebase.id,
+                codebaseId=str(self.codebase.id),
                 branch=self.branch,
             ),
             team=self.team,
