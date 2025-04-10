@@ -1,4 +1,4 @@
-import { IconGear, IconLaptop, IconPhone, IconRevert } from '@posthog/icons'
+import { IconGear, IconLaptop, IconPhone, IconRevert, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -13,7 +13,7 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconOpenInNew, IconTablet } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import React, { useEffect, useRef } from 'react'
 import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/FixedReplayHeatmapBrowser'
@@ -232,7 +232,7 @@ export function ViewportChooser(): JSX.Element {
                         value: 768,
                         label: (
                             <div className="px-1">
-                                <IconTablet />
+                                <IconTabletPortrait />
                                 <div className="text-xs">768px</div>
                             </div>
                         ),
@@ -241,7 +241,7 @@ export function ViewportChooser(): JSX.Element {
                         value: 1024,
                         label: (
                             <div className="px-1">
-                                <IconLaptop />
+                                <IconTabletLandscape />
                                 <div className="text-xs">1024px</div>
                             </div>
                         ),
