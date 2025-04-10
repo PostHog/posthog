@@ -1,11 +1,13 @@
-import { IconFolderPlus } from '@posthog/icons'
+import { IconChevronRight, IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { RefObject, useEffect, useRef } from 'react'
+import { cn } from 'lib/utils/css-classes'
+import { RefObject, useEffect, useMemo, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -47,8 +49,9 @@ export function ProjectTree(): JSX.Element {
         assureVisibility,
     } = useActions(projectTreeLogic)
 
-    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
+        useActions(panelLayoutLogic)
+    const { mainContentRef, isLayoutPanelPinned, projectTreeMode } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
 
     const handleCopyPath = (path?: string): void => {
@@ -56,6 +59,27 @@ export function ProjectTree(): JSX.Element {
             void navigator.clipboard.writeText(path)
         }
     }
+
+    const getTableViewKeys = useMemo(
+        (): TreeTableViewKeys => ({
+            headers: [
+                {
+                    key: 'name',
+                    title: 'Name',
+                },
+                {
+                    key: 'record.created_at',
+                    title: 'Created',
+                    formatFunction: (value: string) => dayjs(value).format('MMM D, YYYY'),
+                },
+                {
+                    key: 'record.created_by.first_name',
+                    title: 'Created by',
+                },
+            ],
+        }),
+        [treeData]
+    )
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -246,11 +270,26 @@ export function ProjectTree(): JSX.Element {
                 </>
             }
         >
+            <ButtonPrimitive
+                tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+            >
+                <IconChevronRight
+                    className={cn('size-4', {
+                        'rotate-180': projectTreeMode === 'table',
+                        'rotate-0': projectTreeMode === 'tree',
+                    })}
+                />
+            </ButtonPrimitive>
+
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
                 data={treeData}
+                mode={projectTreeMode as TreeMode}
+                tableViewKeys={getTableViewKeys}
                 defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                 isItemActive={(item) => {
                     if (!item.record?.href) {

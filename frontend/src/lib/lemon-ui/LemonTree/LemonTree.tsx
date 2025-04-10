@@ -58,10 +58,27 @@ export type TreeDataItem = {
      */
     onClick?: (open?: boolean) => void
 }
+export type TreeMode = 'tree' | 'table'
+
+export type TreeTableViewKeys = {
+    /** The headers for the table view */
+    headers: Array<{
+        /** Unique key for the column */
+        key: string
+        /** Display title for the column */
+        title: string
+        /** Format function for the column */
+        formatFunction?: (value: any) => string
+    }>
+}
 
 type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
+    /** The mode of the tree. */
+    mode?: TreeMode
     /** The data to render in the tree. */
     data: TreeDataItem[]
+    /** The keys for the table view */
+    tableViewKeys?: TreeTableViewKeys
     /** The ID of the folder/node to select by default. Will expand the node if it has children. */
     defaultSelectedFolderOrNodeId?: string
     /** The IDs of the expanded items. */
@@ -142,6 +159,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         {
             className,
             data,
+            mode,
+            tableViewKeys,
             selectedId,
             handleClick,
             renderItem,
@@ -342,8 +361,51 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             )}
                                                         </>
                                                     ) : (
-                                                        <span className={cn('truncate', isFolder && 'font-semibold')}>
+                                                        <span
+                                                            className={cn('truncate', {
+                                                                'font-semibold': isFolder,
+                                                                'w-full': mode === 'table',
+                                                                'flex flex-row gap-2': mode === 'table',
+                                                            })}
+                                                            // eslint-disable-next-line react/forbid-dom-props
+                                                            style={{
+                                                                gridTemplateColumns:
+                                                                    mode === 'table'
+                                                                        ? `repeat(${tableViewKeys?.headers.length}, minmax(100px, 1fr))`
+                                                                        : undefined,
+                                                            }}
+                                                        >
                                                             {displayName}
+
+                                                            {mode === 'table' &&
+                                                                tableViewKeys?.headers.map((header) => {
+                                                                    return (
+                                                                        <span key={header.key} className="truncate">
+                                                                            {depth !== 0 && !isEmptyFolder && (
+                                                                                <div
+                                                                                    className="h-full bg-transparent pointer-events-none flex-shrink-0"
+                                                                                    // -6 is to offset button padding (to match folder lines)
+                                                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                                                    style={{
+                                                                                        width: `${DEPTH_OFFSET - 6}px`,
+                                                                                    }}
+                                                                                />
+                                                                            )}
+                                                                            {(() => {
+                                                                                const value = header.key
+                                                                                    .split('.')
+                                                                                    .reduce(
+                                                                                        (obj, key) =>
+                                                                                            (obj as any)?.[key],
+                                                                                        item
+                                                                                    )
+                                                                                return header.formatFunction
+                                                                                    ? header.formatFunction(value)
+                                                                                    : value
+                                                                            })()}
+                                                                        </span>
+                                                                    )
+                                                                })}
                                                         </span>
                                                     )}
                                                 </ButtonPrimitive>
@@ -386,6 +448,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     <AccordionPrimitive.Content className="relative">
                                         <LemonTreeNode
                                             data={item.children}
+                                            mode={mode}
+                                            tableViewKeys={tableViewKeys}
                                             selectedId={selectedId}
                                             handleClick={handleClick}
                                             expandedItemIds={expandedItemIds}
@@ -437,6 +501,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
     (
         {
             data,
+            mode,
             defaultSelectedFolderOrNodeId,
             onFolderClick,
             onNodeClick,
@@ -1073,6 +1138,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full">
                         <LemonTreeNode
                             data={data}
+                            mode={mode}
                             selectedId={selectedId}
                             handleClick={handleClick}
                             expandedItemIds={expandedItemIdsState}
