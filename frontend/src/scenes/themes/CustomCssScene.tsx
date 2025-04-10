@@ -84,7 +84,8 @@ const LUMON_THEME = `:root {
 
     --lumon-blue: #93C4FF;
     --lumon-bg: #000000;
-    --glow: 0 0 10px rgba(147, 196, 255, 0.3);
+    --glow: 0 0 10px rgba(147, 196, 255, 0.25);
+    --bloom: 0 0 25px rgba(147, 196, 255, 0.5);
 }
 
 /* === Base Body Styling === */
@@ -96,26 +97,82 @@ body[theme='dark'] {
     text-shadow: var(--glow);
     position: relative;
     overflow: hidden;
-    filter: contrast(1.6) brightness(1.3) saturate(1.6);
+    filter: contrast(1.8) brightness(1.4) saturate(1.3);
+    animation: flicker 0.2s infinite;
 }
 
-/* === CRT-style Border + Side Gradient === */
+@keyframes flicker {
+    0%, 100% { opacity: 0.98; }
+    50% { opacity: 1; }
+    25%, 75% { opacity: 0.96; }
+}
+
+/* === CRT Rounded Tube Shadow === */
 body::before {
     content: '';
     position: fixed;
     inset: 0;
     pointer-events: none;
+    z-index: 9996;
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQMAAAAl21bKAAAABlBMVEUAAAD///+l2Z/dAAAACklEQVQI12NgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==');
+    background-size: 1px 1px;
+    opacity: 0.4;
+    image-rendering: pixelated;
+    mix-blend-mode: overlay;
+}
+
+body::before.overlay {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
     z-index: 9998;
+    border-radius: 5% / 3%;
+    background:
+        radial-gradient(circle at center, rgba(147, 196, 255, 0.04), transparent 70%) no-repeat center,
+        linear-gradient(to right, rgba(255,255,255,0.04) 0%, transparent 20%, transparent 80%, rgba(255,255,255,0.04) 100%);
     box-shadow:
-        inset 0 0 240px rgba(0, 0, 0, 0.6),
-        inset 0 0 600px rgba(0, 0, 0, 0.4);
-    background: linear-gradient(
-        to right,
-        rgba(255, 255, 255, 0.04) 0%,
-        transparent 10%,
-        transparent 90%,
-        rgba(255, 255, 255, 0.04) 100%
+        inset 0 0 300px rgba(0, 0, 0, 0.75),
+        inset 0 0 800px rgba(0, 0, 0, 0.6);
+    mix-blend-mode: overlay;
+}
+
+/* === Scanlines Overlay === */
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.03) 0px,
+        rgba(255, 255, 255, 0.03) 2px,
+        transparent 2px,
+        transparent 4px
     );
+    mix-blend-mode: overlay;
+    animation: scanline-glide 0.75s linear infinite;
+    opacity: 0.25;
+}
+
+@keyframes scanline-glide {
+    0% { background-position: 0 0; }
+    100% { background-position: 0 100%; }
+}
+
+/* === Pixelation Overlay (separate layer) === */
+html::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9997;
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQMAAAAl21bKAAAABlBMVEUAAAD///+l2Z/dAAAACklEQVQI12NgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==');
+    background-size: 1px 1px;
+    opacity: 0.3;
+    image-rendering: pixelated;
+    mix-blend-mode: overlay;
 }
 
 /* === Global Font + Color Rules === */
@@ -129,7 +186,7 @@ body::before {
         0.25px 0 rgba(0, 0, 255, 0.3);
 }
 
-/* === Button Styling (Tron-style universal targeting) === */
+/* === Button Styling === */
 button,
 input[type="button"],
 input[type="submit"],
@@ -152,7 +209,6 @@ a,
     transition: all 0.2s ease;
 }
 
-/* === Button Hover === */
 button:hover,
 input[type="button"]:hover,
 input[type="submit"]:hover,
@@ -166,10 +222,9 @@ a:hover,
     background: var(--lumon-blue) !important;
     color: var(--lumon-bg) !important;
     border-color: var(--lumon-blue) !important;
-    box-shadow: 0 0 15px var(--lumon-blue) !important;
+    box-shadow: var(--bloom) !important;
 }
 
-/* === Button Hover: Invert nested text/icons === */
 button:hover *,
 a:hover *,
 [class*="btn"]:hover *,
@@ -181,7 +236,6 @@ a:hover *,
     fill: var(--lumon-bg) !important;
 }
 
-/* === Warnings, highlights, etc === */
 [class*="warning"],
 [class*="highlight"],
 [class*="yellow"] {
@@ -190,7 +244,6 @@ a:hover *,
     border-color: var(--lumon-blue) !important;
 }
 
-/* === Clean nested elements (spans, icons, etc.) === */
 [class*="__content"],
 [class*="__label"],
 [class*="__icon"],
@@ -205,7 +258,6 @@ a div,
     color: inherit !important;
 }
 
-/* === SVG Icons === */
 button svg,
 a svg,
 [class*="btn"] svg,
@@ -220,7 +272,6 @@ a svg,
     height: 16px;
 }
 
-/* === Inline Links === */
 a:not([class*="button"]):not([class*="btn"]) {
     color: var(--lumon-blue);
     border-bottom: 1px solid transparent;
