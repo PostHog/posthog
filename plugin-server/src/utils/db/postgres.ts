@@ -14,6 +14,8 @@ export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
     COMMON_WRITE, // Main PG master with common tables, we need to move as many queries away from it as possible
     PLUGIN_STORAGE_RW, // Plugin Storage table, no read replica for it
+    PERSONS_READ, // Person database, read replica
+    PERSONS_WRITE, // Person database, write
 }
 
 export class TransactionClient {

@@ -67,7 +67,7 @@ export async function resetTestDatabase(
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
-    await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables').catch((e) => {
+    await db.query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables').catch((e) => {
         console.error('Error deleting tables', e)
         throw e
     })
@@ -441,7 +441,7 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
 
 export async function fetchPostgresPersons(db: DB, teamId: number) {
     const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
-    return (await db.postgres.query(PostgresUse.COMMON_READ, query, undefined, 'persons')).rows.map(
+    return (await db.postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
         // compatibility with `hub.db.fetchPersons`.
         // TODO: remove unnecessary property translation operation.
