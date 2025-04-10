@@ -34,8 +34,16 @@ export interface ExtraDatabaseRows {
 }
 
 // Reset the tables with some truncated first if we have issues regarding foreign keys
-export const POSTGRES_DELETE_TABLES_QUERY = `
-DO $$ 
+export const POSTGRES_DELETE_PERSON_TABLES_QUERY = `
+DO $$
+BEGIN
+    DELETE FROM posthog_persondistinctid CASCADE;
+    DELETE FROM posthog_person CASCADE;
+END $$;
+`
+
+export const POSTGRES_DELETE_OTHER_TABLES_QUERY = `
+DO $$
 DECLARE
     r RECORD;
 BEGIN
@@ -44,13 +52,11 @@ BEGIN
     DELETE FROM posthog_cohortpeople CASCADE;
     DELETE FROM posthog_cohort CASCADE;
     DELETE FROM posthog_featureflag CASCADE;
-    DELETE FROM posthog_persondistinctid CASCADE;
-    DELETE FROM posthog_person CASCADE;
-    
+
     -- Then handle remaining tables
     FOR r IN (
-        SELECT tablename 
-        FROM pg_tables 
+        SELECT tablename
+        FROM pg_tables
         WHERE schemaname = current_schema()
         AND tablename NOT IN ('posthog_persondistinctid', 'posthog_person')
     ) LOOP
@@ -67,10 +73,22 @@ export async function resetTestDatabase(
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
-    await db.query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables').catch((e) => {
-        console.error('Error deleting tables', e)
-        throw e
-    })
+
+    // Delete person tables using PERSONS_WRITE
+    await db
+        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSON_TABLES_QUERY, undefined, 'delete-person-tables')
+        .catch((e) => {
+            console.error('Error deleting person tables', e)
+            throw e
+        })
+
+    // Delete other tables using COMMON_WRITE
+    await db
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
+        .catch((e) => {
+            console.error('Error deleting other tables', e)
+            throw e
+        })
 
     const mocks = makePluginObjects(code)
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
