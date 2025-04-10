@@ -201,10 +201,11 @@ impl FeatureFlagMatcher {
         hash_key_override: Option<String>,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = false;
-        if let Err(_) = self
+        if (self
             .group_type_mapping_cache
             .init(self.reader.clone())
-            .await
+            .await)
+            .is_err()
         {
             errors_while_computing_flags = true;
         }
