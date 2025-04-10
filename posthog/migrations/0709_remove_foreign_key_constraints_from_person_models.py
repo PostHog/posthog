@@ -6,7 +6,7 @@ from django.db.migrations.operations.special import SeparateDatabaseAndState
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0707_file_system_shortcut"),
+        ("posthog", "0708_add_trigger_match_type"),
     ]
 
     operations = [
