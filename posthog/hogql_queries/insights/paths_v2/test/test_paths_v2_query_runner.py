@@ -638,4 +638,36 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
             ],
         )
 
-        # - Keeps only the first `max_steps` steps of each session.
+    def test_keeps_only_max_steps_of_each_session(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {"event": "event1", "timestamp": "2023-02-11 08:00:00"},
+                    {"event": "event2", "timestamp": "2023-02-12 09:00:00"},
+                    {"event": "event3", "timestamp": "2023-02-12 10:00:00"},
+                    {"event": "event4", "timestamp": "2023-03-11 15:00:00"},
+                    {"event": "event6", "timestamp": "2023-03-12 16:00:00"},
+                    {"event": "event6", "timestamp": "2023-03-12 17:00:00"},
+                ],
+            },
+        )
+
+        # default step limit
+        query = PathsV2Query(dateRange=DateRange(date_from="-10w"))
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            paths_per_actor_and_session_as_tuple_query = query_runner._paths_per_actor_and_session_as_tuple_query()
+            response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
+            rows = rows_as_dicts(response)
+
+        self.assertEqual(len(rows[0]["limited_paths_array_per_session"]), 4)
+
+        # two item step limmit
+        query = PathsV2Query(dateRange=DateRange(date_from="-10w"), pathsV2Filter=PathsV2Filter(maxSteps=2))
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            paths_per_actor_and_session_as_tuple_query = query_runner._paths_per_actor_and_session_as_tuple_query()
+            response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
+            rows = rows_as_dicts(response)
+        self.assertEqual(len(rows[0]["limited_paths_array_per_session"]), 2)
