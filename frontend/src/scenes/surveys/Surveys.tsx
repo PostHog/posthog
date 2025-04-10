@@ -50,7 +50,6 @@ export function Surveys(): JSX.Element {
         searchTerm,
         filters,
         tab,
-        globalSurveyAppearanceConfigAvailable,
         hasNextPage,
         hasNextSearchPage,
     } = useValues(surveysLogic)
@@ -112,7 +111,7 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                     { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
-                    globalSurveyAppearanceConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
+                    { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
             />
             {tab === SurveysTabs.Settings && <SurveySettings />}
