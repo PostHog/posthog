@@ -661,8 +661,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
-    [urls.messagingLibraryMessage(':id')]: [Scene.MessagingLibrary, 'messagingLibraryMessage'],
-    [urls.messagingLibraryMessageNew()]: [Scene.MessagingLibrary, 'messagingLibraryMessageNew'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
     ...productRoutes,

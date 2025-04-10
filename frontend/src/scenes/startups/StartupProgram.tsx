@@ -363,7 +363,7 @@ export function StartupProgram(): JSX.Element {
                                                                         <div className="relative">
                                                                             <img
                                                                                 src={
-                                                                                    startupProgram.yc_proof_screenshot_url as string
+                                                                                    startupProgram.yc_proof_screenshot_url
                                                                                 }
                                                                                 alt="YC Profile"
                                                                                 className="h-10 w-10 rounded object-cover"
