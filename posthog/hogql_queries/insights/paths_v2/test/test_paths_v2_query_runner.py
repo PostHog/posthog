@@ -538,7 +538,7 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
         self.assertEqual(rows[0]["actor_id"], UUID("bee38d64-e96f-63b1-c81f-14a57652dd39"))
         self.assertEqual(rows[0]["session_index"], 1)
         self.assertEqual(
-            rows[0]["filtered_paths_array_per_session"],
+            rows[0]["paths_array_per_session"],
             [
                 (datetime(2023, 2, 11, 12, 0, tzinfo=pytz.UTC), "event1", None),
                 (
@@ -553,13 +553,9 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
         self.assertEqual(rows[1]["actor_id"], UUID("bee38d64-e96f-63b1-c81f-14a57652dd39"))
         self.assertEqual(rows[1]["session_index"], 2)
         self.assertEqual(
-            rows[1]["filtered_paths_array_per_session"],
+            rows[1]["paths_array_per_session"],
             [
-                (
-                    None,  # TODO: bug this should be `None`` as the session starts here. At the moment we get the timestamp from the event in February.
-                    "event3",
-                    datetime(2023, 2, 12, 13, 0, tzinfo=pytz.UTC),
-                ),
+                (datetime(2023, 3, 11, 12, 0, tzinfo=pytz.UTC), "event3", None),
                 (
                     datetime(2023, 3, 12, 13, 0, tzinfo=pytz.UTC),
                     "event4",
@@ -567,6 +563,7 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
                 ),
             ],
         )
+
         # - Combines the timestamp and path item arrays into an array of tuples, including the previous step's timestamp.
         # - Compares the two timestamps with the session interval to split the array into sessions.
         # - Keeps only the first `max_steps` steps of each session.
