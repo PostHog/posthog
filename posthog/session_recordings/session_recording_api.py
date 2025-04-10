@@ -27,14 +27,12 @@ from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
 
-from posthog.models.utils import ServerTimingsGathered
-
 from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, safe_clickhouse_string
+from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
