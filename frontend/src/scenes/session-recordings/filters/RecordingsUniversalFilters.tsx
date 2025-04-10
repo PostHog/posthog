@@ -126,16 +126,20 @@ export const RecordingsUniversalFilters = ({
     const ModalFooter = (): JSX.Element => {
         return (
             <div className="flex justify-between p-2 gap-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={resetFilters}
-                    icon={<IconRevert />}
-                    tooltip="Reset any changes you've made to the filters"
-                    disabledReason={!(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined}
-                >
-                    Reset filters
-                </LemonButton>
+                {activeFilterTab === 'filters' && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={resetFilters}
+                        icon={<IconRevert />}
+                        tooltip="Reset any changes you've made to the filters"
+                        disabledReason={
+                            !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
+                        }
+                    >
+                        Reset filters
+                    </LemonButton>
+                )}
                 <LemonButton type="primary" size="small" onClick={() => setIsFiltersExpanded(false)}>
                     Close
                 </LemonButton>
@@ -392,13 +396,13 @@ const RecordingsUniversalFilterGroup = ({
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <div className="w-full">
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <UniversalFilters.PureTaxonomicFilter />
-                            <div className="flex items-center gap-2 border-t pt-2">
+                            <div className="flex items-center gap-2 border-t py-4">
                                 {(totalFiltersCount ?? 0) > 0 && (
                                     <span className="font-semibold">Applied filters:</span>
                                 )}
                                 <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
                             </div>
+                            <UniversalFilters.PureTaxonomicFilter />
                         </UniversalFilters.Group>
                     </div>
                 ) : (
