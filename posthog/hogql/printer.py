@@ -936,6 +936,30 @@ class _Printer(Visitor):
             if not nullable_left or (isinstance(node.left, ast.Constant) and node.left.value is not None):
                 return op
 
+            # :TRICKY:
+            # The following query has unexpected behavior. Nullable(String) returns 0 for the IN, but we expect
+            """
+            SELECT
+                cast(nullIf('', ''), 'Nullable(String)') AS b,
+                cast(NULL, 'Nullable(Nothing)') AS c,
+                b IN ['other_value', 'yet_another_value'],
+                c IN ['other_value', 'yet_another_value']
+            SETTINGS transform_null_in = 1
+            
+               ┌─b────┬─c────┬─in(b, ['other_value', 'yet_another_value'])─┬─in(c, ['other_value', 'yet_another_value'])─┐
+            1. │ ᴺᵁᴸᴸ │ ᴺᵁᴸᴸ │                                           0 │                                           1 │
+               └──────┴──────┴─────────────────────────────────────────────┴─────────────────────────────────────────────┘
+
+            """
+
+            # New
+
+            # If the left is null, then true if the right is null or the right contains null
+            # The function only returns null if the left is null
+
+            # If the left is NOT null, then valid by the rules of the operator.
+            return f"ifNull({op}, or(isNull({right}), "
+
             # If the left is NULL, this is the only time that the clickhouse function can be NULL. Should always return 1
             # If the right is NULL, should always return 0. Clickhouse already handles this properly.
             return f"ifNull({op}, isNull({left}))"
