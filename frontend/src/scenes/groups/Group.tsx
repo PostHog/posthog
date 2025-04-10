@@ -25,6 +25,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
+import type { Group } from '~/types'
 import {
     ActionFilter,
     ActivityScope,
@@ -36,6 +37,9 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import { GroupPeople } from './GroupPeople'
+import { GroupProperties } from './GroupProperties'
 
 interface GroupSceneProps {
     groupTypeIndex?: string
@@ -70,6 +74,39 @@ export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; 
             <div>
                 <span className="text-secondary">First seen:</span>{' '}
                 {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
+            </div>
+        </div>
+    )
+}
+
+function GroupOverview({ groupData }: { groupData: Group }): JSX.Element {
+    const { groupEventsQuery } = useValues(groupLogic)
+    const { setGroupEventsQuery } = useActions(groupLogic)
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="col-span-1">
+                    <h4>Properties</h4>
+                    <GroupProperties groupData={groupData} />
+                </div>
+                <div className="col-span-1 md:col-span-2">
+                    <h4>People</h4>
+                    <GroupPeople groupData={groupData} />
+                </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+                <div className="col-span-1">
+                    <h4>Events</h4>
+                    {groupEventsQuery ? (
+                        <Query
+                            query={groupEventsQuery}
+                            setQuery={setGroupEventsQuery}
+                            context={{ refresh: 'force_blocking' }}
+                        />
+                    ) : (
+                        <Spinner />
+                    )}
+                </div>
             </div>
         </div>
     )
@@ -110,6 +147,11 @@ export function Group(): JSX.Element {
                 activeKey={groupTab ?? PersonsTabType.PROPERTIES}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
+                    {
+                        key: 'overview',
+                        label: <span data-attr="groups-overview-tab">Overview</span>,
+                        content: <GroupOverview groupData={groupData} />,
+                    },
                     {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="groups-properties-tab">Properties</span>,

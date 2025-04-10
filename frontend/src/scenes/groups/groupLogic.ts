@@ -67,6 +67,7 @@ export const groupLogic = kea<groupLogicType>([
         setGroupEventsQuery: (query: Node) => ({ query }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
+        setIsPropertiesModalOpen: (isPropertiesModalOpen: boolean) => ({ isPropertiesModalOpen }),
     })),
     loaders(({ values, props }) => ({
         groupData: [
@@ -159,6 +160,12 @@ export const groupLogic = kea<groupLogicType>([
             null as Group | null,
             {
                 setGroupData: (_, { group }) => group,
+            },
+        ],
+        isPropertiesModalOpen: [
+            false as boolean,
+            {
+                setIsPropertiesModalOpen: (_, { isPropertiesModalOpen }) => isPropertiesModalOpen,
             },
         ],
     }),
