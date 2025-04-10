@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
+import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { hogFunctionNewUrl, hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
@@ -18,6 +19,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
@@ -400,6 +402,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     })
 
                     lemonToast.success('Configuration saved')
+                    refreshTreeItem('hog_function/', res.id)
 
                     return res
                 },
@@ -720,7 +723,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     timestamp: dayjs().toISOString(),
                     elements_chain: '',
                     url: `${window.location.origin}/project/${currentProject?.id}/events/`,
-                    ...(logicProps.logicKey === 'errorTracking'
+                    ...(logicProps.logicKey === ERROR_TRACKING_LOGIC_KEY
                         ? {
                               event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
                               properties: {

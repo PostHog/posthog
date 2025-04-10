@@ -8,8 +8,6 @@ import { OnboardingStep } from '../OnboardingStep'
 export function OnboardingWebAnalyticsAuthorizedDomainsStep({
     stepKey = OnboardingStepKey.AUTHORIZED_DOMAINS,
 }: {
-    usersAction?: string
-    subtitle?: string
     stepKey?: OnboardingStepKey
 }): JSX.Element {
     const { authorizedUrls } = useValues(
