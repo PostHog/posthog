@@ -48,9 +48,6 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
                 """
         return ""
 
-    def udf_event_array_filter(self):
-        return self._udf_event_array_filter(1, 4, 5)
-
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):

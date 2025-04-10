@@ -1742,12 +1742,11 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         start_date = datetime(2024, 3, 1, 10, 0)
 
-        # Create all 5 users
-        person1 = _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-        person2 = _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
-        person3 = _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
-        person4 = _create_person(distinct_ids=["user_4"], team_id=self.team.pk)
-        person5 = _create_person(distinct_ids=["user_5"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_4"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_5"], team_id=self.team.pk)
 
         # User 1: does event 3 all 8 days
         for i in range(8):
@@ -1830,49 +1829,42 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(trend_results[0]["conversion_rate"], 100)
 
         # Day 1 (2024-03-02): User 1 does event 3, all 5 users will do events 1 and 2
-        # So conversion is 1/5 = 20%
         self.assertEqual(trend_results[1]["timestamp"].strftime("%Y-%m-%d"), "2024-03-02")
         self.assertEqual(trend_results[1]["reached_from_step_count"], 1)
         self.assertEqual(trend_results[1]["reached_to_step_count"], 1)
         self.assertEqual(trend_results[1]["conversion_rate"], 100)
 
         # Day 2 (2024-03-03): User 1 and User 2 do event 3, all 5 users will do events 1 and 2
-        # So conversion is 2/5 = 40%
         self.assertEqual(trend_results[2]["timestamp"].strftime("%Y-%m-%d"), "2024-03-03")
         self.assertEqual(trend_results[2]["reached_from_step_count"], 2)
         self.assertEqual(trend_results[2]["reached_to_step_count"], 2)
         self.assertEqual(trend_results[2]["conversion_rate"], 100)
 
         # Day 3 (2024-03-04): User 1 does event 3, all 5 users will do events 1 and 2
-        # So conversion is 1/5 = 20%
         self.assertEqual(trend_results[3]["timestamp"].strftime("%Y-%m-%d"), "2024-03-04")
         self.assertEqual(trend_results[3]["reached_from_step_count"], 1)
         self.assertEqual(trend_results[3]["reached_to_step_count"], 1)
         self.assertEqual(trend_results[3]["conversion_rate"], 100)
 
         # Day 4 (2024-03-05): Users 1, 2, and 3 do event 3, all 5 users will do events 1 and 2
-        # So conversion is 3/5 = 60%
         self.assertEqual(trend_results[4]["timestamp"].strftime("%Y-%m-%d"), "2024-03-05")
         self.assertEqual(trend_results[4]["reached_from_step_count"], 3)
         self.assertEqual(trend_results[4]["reached_to_step_count"], 3)
         self.assertEqual(trend_results[4]["conversion_rate"], 100)
 
         # Day 5 (2024-03-06): User 1 does event 3, all 5 users will do events 1 and 2
-        # So conversion is 1/5 = 20%
         self.assertEqual(trend_results[5]["timestamp"].strftime("%Y-%m-%d"), "2024-03-06")
         self.assertEqual(trend_results[5]["reached_from_step_count"], 1)
         self.assertEqual(trend_results[5]["reached_to_step_count"], 1)
         self.assertEqual(trend_results[5]["conversion_rate"], 100)
 
         # Day 6 (2024-03-07): Users 1 and 2 do event 3, all 5 users will do events 1 and 2
-        # So conversion is 2/5 = 40%
         self.assertEqual(trend_results[6]["timestamp"].strftime("%Y-%m-%d"), "2024-03-07")
         self.assertEqual(trend_results[6]["reached_from_step_count"], 2)
         self.assertEqual(trend_results[6]["reached_to_step_count"], 2)
         self.assertEqual(trend_results[6]["conversion_rate"], 100)
 
         # Day 7 (2024-03-08): User 1 does event 3, all 5 users do events 1 and 2
-        # So conversion is 1/5 = 20%
         self.assertEqual(trend_results[7]["timestamp"].strftime("%Y-%m-%d"), "2024-03-08")
         self.assertEqual(trend_results[7]["reached_from_step_count"], 5)
         self.assertEqual(trend_results[7]["reached_to_step_count"], 1)
