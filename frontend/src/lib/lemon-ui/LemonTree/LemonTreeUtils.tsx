@@ -106,9 +106,15 @@ export const TreeNodeDisplayCheckbox = ({
         >
             <div className={ICON_CLASSES}>
                 <LemonCheckbox
-                    className="size-5 ml-[2px]"
+                    className={cn('size-5 ml-[2px]', {
+                        'opacity-50': item.disableSelect,
+                    })}
                     checked={isChecked ?? false}
+                    disabledReason={item.disableSelect ? 'Selecting folders is disabled while searching' : undefined}
                     onChange={(checked) => {
+                        if (item.disableSelect) {
+                            return
+                        }
                         handleCheckedChange?.(checked)
                     }}
                 />
