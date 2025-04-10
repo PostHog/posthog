@@ -23,7 +23,7 @@ class PersonDBRouter:
         """
         Attempts to read person models go to persons_db_writer.
         """
-        if self.is_persons_table(model._meta.db_table or model._meta.model_name):
+        if self.is_persons_model(model._meta.model_name):
             return "persons_db_writer"
         return None  # Allow default db selection
 
@@ -31,7 +31,7 @@ class PersonDBRouter:
         """
         Attempts to write person models go to persons_db_writer.
         """
-        if self.is_persons_table(model._meta.db_table or model._meta.model_name):
+        if self.is_persons_model(model._meta.model_name):
             return "persons_db_writer"
         return None  # Allow default db selection
 
@@ -70,7 +70,11 @@ class PersonDBRouter:
         Make sure the person models only appear in the 'persons_db'
         database. All other models migrate normally on 'default'.
         """
-        is_person_model = self.is_persons_table(model_name or "")
+        if model_name is None:
+            # App-level migrations should only run on the default database
+            return db != "persons_db_writer"
+
+        is_person_model = self.is_persons_model(model_name)
 
         if db == "persons_db_writer":
             # If the target db is persons_db_writer, only allow migration if it's a person model
@@ -80,7 +84,6 @@ class PersonDBRouter:
             # if it's *not* a person model.
             return not is_person_model
 
-    def is_persons_table(self, table_name):
-        # Implement the logic to determine if a table belongs to the persons_db
-        # This is a placeholder and should be replaced with the actual implementation
-        return table_name in self.PERSONS_DB_MODELS
+    def is_persons_model(self, model_name):
+        # Check if the model name belongs to the persons_db models
+        return model_name in self.PERSONS_DB_MODELS

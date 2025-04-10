@@ -111,7 +111,6 @@ def run(options):
 
     for i in range(0, batches):
         logger.info(f"Deleting batch {i + 1} of {batches} ({batch_size} rows)")
-        conn = connections["persons_db_writer"] if "persons_db_writer" in connections else connection
         with conn.cursor() as cursor:
             cursor.execute(
                 delete_query_person_distinct_ids, {"team_id": team_id, "limit": batch_size, "person_ids": person_ids}
