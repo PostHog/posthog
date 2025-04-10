@@ -82,9 +82,6 @@ const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
         data.amount_off_expires_at = data.billing_period.current_period_end
     }
 
-    // TODO(pawel): Remove after testing
-    // data.has_active_subscription = false
-
     return data as BillingType
 }
 
