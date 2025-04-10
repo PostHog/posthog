@@ -141,27 +141,59 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {item.record?.id || item.record?.type === 'folder' ? (
+
+                {checkedItemCountNumeric > 1 && checkedItems[item.id] ? (
+                    <>
+                        <MenuItem asChild>
+                            <ButtonPrimitive menuItem disabled>
+                                Delete {checkedItemsCount} item{checkedItemCountNumeric === 1 ? '' : 's'}
+                            </ButtonPrimitive>
+                        </MenuItem>
+                        <MenuItem
+                            asChild
+                            onClick={(e: any) => {
+                                e.stopPropagation()
+                                deleteCheckedItems()
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>
+                                Move {checkedItemsCount} item{checkedItemCountNumeric === 1 ? '' : 's'} to 'Unfiled'
+                            </ButtonPrimitive>
+                        </MenuItem>
+                    </>
+                ) : item.record?.shortcut ? (
                     <MenuItem
                         asChild
                         onClick={(e: any) => {
                             e.stopPropagation()
-                            if (checkedItemCountNumeric > 1 && checkedItems[item.id]) {
-                                deleteCheckedItems()
-                            } else {
-                                deleteItem(item.record as unknown as FileSystemEntry)
-                            }
+                            deleteItem(item.record as unknown as FileSystemEntry)
                         }}
                     >
-                        <ButtonPrimitive menuItem>
-                            {checkedItemCountNumeric > 1 && checkedItems[item.id]
-                                ? `Delete ${checkedItemsCount} item${checkedItemCountNumeric === 1 ? '' : 's'}`
-                                : item.record?.shortcut
-                                ? 'Remove shortcut'
-                                : "Delete and move back to 'Unfiled'"}
-                        </ButtonPrimitive>
+                        <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
                     </MenuItem>
-                ) : null}
+                ) : (
+                    <>
+                        <MenuItem asChild disabled>
+                            <ButtonPrimitive menuItem disabled={!item.record?.shortcut}>
+                                {item.record?.type === 'folder' ? 'Delete folder' : 'Delete'}
+                            </ButtonPrimitive>
+                        </MenuItem>
+                        {item.record?.type === 'folder' || !item.record?.path.startsWith('Unfiled/') ? (
+                            <MenuItem
+                                asChild
+                                onClick={(e: any) => {
+                                    e.stopPropagation()
+                                    deleteItem(item.record as unknown as FileSystemEntry)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>
+                                    {item.record?.type === 'folder' ? "Move folder to 'Unfiled'" : "Move to 'Unfiled'"}
+                                </ButtonPrimitive>
+                            </MenuItem>
+                        ) : null}
+                    </>
+                )}
+
                 {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
                     <>
                         {!item.id?.startsWith('project-folder-empty/') ? <MenuSeparator /> : null}
