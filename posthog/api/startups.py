@@ -218,7 +218,6 @@ class StartupApplicationSerializer(serializers.Serializer):
                     )
 
                 data["yc_verified_automatically"] = str(verified)
-                data["yc_deal_type"] = get_yc_deal_type(data["yc_batch"])
 
             if "yc_batch" in data:
                 data["yc_deal_type"] = get_yc_deal_type(data["yc_batch"])
