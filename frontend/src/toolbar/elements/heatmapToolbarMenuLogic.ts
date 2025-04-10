@@ -74,7 +74,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         enableHeatmap: true,
         disableHeatmap: true,
         toggleClickmapsEnabled: (enabled: boolean) => ({ enabled }),
-
+        setSamplingFactor: (samplingFactor: number) => ({ samplingFactor }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         loadAllEnabled: true,
@@ -106,6 +106,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             false,
             {
                 toggleClickmapsEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        samplingFactor: [
+            1,
+            { persist: true },
+            {
+                setSamplingFactor: (_, { samplingFactor }) => samplingFactor,
             },
         ],
     }),
@@ -140,7 +147,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             date_to: values.commonFilters.date_to,
                         }
 
-                        defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
+                        defaultUrl = `/api/element/stats/${encodeParams(
+                            { ...params, paginate_response: true, sampling_factor: values.samplingFactor },
+                            '?'
+                        )}`
                     }
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -275,14 +285,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         const existing = normalisedElements.get(trimmedElement)
                         if (existing) {
                             existing.count += countedElement.count
-                            existing.clickCount += countedElement.type === '$rageclick' ? 0 : countedElement.count
+                            existing.clickCount += countedElement.type === '$autocapture' ? countedElement.count : 0
                             existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
+                            existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
                         }
                     } else {
                         normalisedElements.set(trimmedElement, {
                             ...countedElement,
-                            clickCount: countedElement.type === '$rageclick' ? 0 : countedElement.count,
+                            clickCount: countedElement.type === '$autocapture' ? countedElement.count : 0,
                             rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
+                            deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
                             element: trimmedElement,
                             actionStep: elementToActionStep(trimmedElement, dataAttributes),
                         })
@@ -381,6 +393,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
         setCommonFilters: () => {
             actions.loadAllEnabled()
+        },
+        setSamplingFactor: () => {
+            actions.maybeLoadClickmap()
         },
 
         // Only trigger element stats loading if clickmaps are enabled
