@@ -54,13 +54,18 @@ export const YC_BATCH_OPTIONS = [
     { label: 'Earlier batches', value: 'Earlier' },
 ]
 
+export enum StartupProgramType {
+    YC = 'YC',
+    Startup = 'startup',
+}
+
 export interface StartupProgramFormValues {
-    type: string
+    type: StartupProgramType
     startup_domain: string
     organization_name: string
     organization_id: string
-    raised: string | null
-    incorporation_date: Dayjs | null
+    raised?: string
+    incorporation_date?: Dayjs
     yc_batch?: string
     yc_proof_screenshot_url?: string
     yc_merch_count?: number
@@ -70,7 +75,7 @@ export interface StartupProgramLogicProps {
     isYC: boolean
 }
 
-function validateIncorporationDate(date: Dayjs | null, isYC: boolean): string | undefined {
+function validateIncorporationDate(date: Dayjs | undefined, isYC: boolean): string | undefined {
     if (isYC) {
         return undefined
     }
@@ -89,7 +94,7 @@ function validateIncorporationDate(date: Dayjs | null, isYC: boolean): string | 
     return undefined
 }
 
-function validateFunding(raised: string | null, isYC: boolean): string | undefined {
+function validateFunding(raised: string | undefined, isYC: boolean): string | undefined {
     if (isYC) {
         return undefined
     }
@@ -185,7 +190,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 if (foundCompany) {
                     actions.setYCValidationState('valid')
                     actions.setYCValidationError(null)
-                    // actions.setVerifiedCompanyName(foundCompany.name)
                 } else {
                     actions.setYCValidationState('invalid')
                     actions.setYCValidationError(
@@ -237,16 +241,16 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     forms(({ values, actions, props }) => ({
         startupProgram: {
             defaults: {
-                type: props.isYC ? 'YC' : 'startup',
+                type: props.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
                 startup_domain: values.domainFromEmail || '',
                 organization_name: values.currentOrganization?.name || '',
                 organization_id: values.currentOrganization?.id || '',
-                raised: null,
-                incorporation_date: null,
+                raised: undefined,
+                incorporation_date: undefined,
                 yc_batch: props.isYC ? '' : undefined,
                 yc_proof_screenshot_url: undefined,
                 yc_merch_count: props.isYC ? 1 : undefined,
-            },
+            } as StartupProgramFormValues,
             errors: ({ organization_id, raised, incorporation_date, yc_batch, yc_proof_screenshot_url }) => {
                 if (!values.billing?.has_active_subscription) {
                     return {
@@ -269,7 +273,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 // eslint-disable-next-line no-console
                 console.log('📝 Form values before submission:', formValues)
                 const valuesToSubmit: Record<string, any> = {
-                    program: props.isYC ? 'YC' : 'startup',
+                    program: props.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
                     organization_id: formValues.organization_id,
                     yc_merch_count: formValues.yc_merch_count,
                 }
