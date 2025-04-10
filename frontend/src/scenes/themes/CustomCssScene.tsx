@@ -78,6 +78,116 @@ body[theme=light] {
     --secondary-3000-button-border-hover: #d40b76;
 }`
 
+const LUMON_THEME = `:root {
+    --font-mono: 'Courier New', Courier, monospace;
+
+    /* Background & Text */
+    --bg: #000000;              /* black page background */
+    --text: #93C4FF;            /* Lumon blue general text */
+
+    /* Borders & Buttons */
+    --border: #93C4FF;          /* Lumon blue border */
+    --button-bg: #93C4FF;       /* Lumon blue button background */
+    --button-text: #000000;     /* black text on button by default */
+    --button-border: #93C4FF;   /* matches Lumon blue border */
+
+    /* Hover color – used for invert-to-blue text on black hover */
+    --hover-bg: #93C4FF;        
+}
+
+/* Basic page text */
+body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 16px;
+    line-height: 1.8;
+    margin: 0;
+    padding: 2rem;
+}
+
+/* UNIVERSAL BUTTON OVERRIDES — including PostHog / Ant Design classes */
+button,
+input[type="submit"],
+input[type="button"],
+.btn,
+.ant-btn,
+button.ant-btn,
+[class*="ant-btn"] {
+    background-color: var(--button-bg) !important; /* Blue background */
+    color: var(--button-text) !important;          /* Black text by default */
+    font-family: var(--font-mono) !important;
+    font-weight: bold !important;
+    font-size: 14px !important;
+    border: 1px solid var(--button-border) !important; 
+    border-radius: 0 !important;
+    cursor: pointer !important;
+    text-transform: uppercase;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    box-shadow: none !important;
+}
+
+/* HOVER: switch to black background, Lumon blue text */
+button:hover,
+input[type="submit"]:hover,
+input[type="button"]:hover,
+.btn:hover,
+.ant-btn:hover,
+button.ant-btn:hover,
+[class*="ant-btn"]:hover {
+    background-color: var(--bg) !important;   /* black */
+    color: var(--hover-bg) !important;        /* Lumon blue text */
+}
+
+/* DISABLED BUTTONS */
+button:disabled,
+input[type="submit"]:disabled,
+input[type="button"]:disabled,
+.btn:disabled,
+.ant-btn[disabled],
+button.ant-btn[disabled],
+[class*="ant-btn"][disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* LINKS – text is Lumon blue, invert to black on hover */
+a {
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--border);
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+a:hover {
+    background-color: var(--hover-bg);
+    color: #000000;
+    text-decoration: none;
+}
+
+/* LEMON BUTTON OVERRIDES (PostHog's newer button style) */
+[class*="LemonButton"] {
+    background-color: var(--button-bg) !important; /* Blue background */
+    color: var(--button-text) !important;          /* Black text */
+    font-family: var(--font-mono) !important;
+    font-weight: bold !important;
+    font-size: 14px !important;
+    border: 1px solid var(--button-border) !important;
+    border-radius: 0 !important;
+    cursor: pointer !important;
+    text-transform: uppercase;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    box-shadow: none !important;
+}
+[class*="LemonButton"]:hover {
+    background-color: var(--bg) !important;   /* black background */
+    color: var(--hover-bg) !important;        /* Lumon blue text */
+}
+[class*="LemonButton"][disabled],
+[class*="LemonButton"].disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}`
+
 export function CustomCssScene(): JSX.Element {
     const { persistedCustomCss, previewingCustomCss } = useValues(themeLogic)
     const { saveCustomCss, setPreviewingCustomCss } = useActions(themeLogic)
@@ -113,7 +223,8 @@ export function CustomCssScene(): JSX.Element {
             <p>
                 You can add custom CSS to change the style of your PostHog instance. If you need some inspiration try
                 our templates: <Link onClick={() => setPreviewingCustomCss(TRON_THEME)}>Tron</Link>,{' '}
-                <Link onClick={() => setPreviewingCustomCss(BARBIE_THEME)}>Barbie</Link>
+                <Link onClick={() => setPreviewingCustomCss(BARBIE_THEME)}>Barbie</Link>,{' '}
+                <Link onClick={() => setPreviewingCustomCss(LUMON_THEME)}>Lumon</Link>
             </p>
             <CodeEditor
                 className="border"
