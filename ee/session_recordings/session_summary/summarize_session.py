@@ -97,6 +97,10 @@ class ReplaySummarizer:
                 raw_session_columns=session_events_columns,
                 session_id=self.recording.session_id,
             )
+            if not prompt_data.metadata.start_time:
+                raise ValueError(
+                    f"No start time found for session_id {self.recording.session_id} when generating the prompt"
+                )
             # Reverse mappings for easier reference in the prompt.
             url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
             window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}

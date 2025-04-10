@@ -106,7 +106,7 @@ def enrich_raw_session_summary_with_events_meta(
     simplified_events_columns: list[str],
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
-    session_start_time: datetime | None,
+    session_start_time: datetime,
     session_id: str,
 ) -> SessionSummarySerializer:
     timestamp_index = get_column_index(simplified_events_columns, "timestamp")
@@ -123,25 +123,30 @@ def enrich_raw_session_summary_with_events_meta(
                 f"LLM returned event without event_id when summarizing session_id {session_id}: {raw_session_summary}"
             )
         enriched_key_event = dict(key_event)
-        enriched_key_event["event"] = simplified_events_mapping[event_id][event_index]
+        event_mapping_data = simplified_events_mapping.get(event_id)
+        if not event_mapping_data:
+            raise ValueError(
+                f"Mapping data for event_id {event_id} not found when summarizing session_id {session_id}: {raw_session_summary}"
+            )
+        enriched_key_event["event"] = event_mapping_data[event_index]
         # Calculate time to jump to the right place in the player
-        timestamp = simplified_events_mapping[event_id][timestamp_index]
+        timestamp = event_mapping_data[timestamp_index]
         enriched_key_event["timestamp"] = timestamp
         ms_since_start = calculate_time_since_start(timestamp, session_start_time)
         if ms_since_start is not None:
             enriched_key_event["milliseconds_since_start"] = ms_since_start
         # Add full URL of the event page
-        current_url = simplified_events_mapping[event_id][current_url_index]
+        current_url = event_mapping_data[current_url_index]
         full_current_url = current_url and url_mapping_reversed.get(current_url)
         if full_current_url:
             enriched_key_event["current_url"] = full_current_url
         # Add window ID of the event
-        window_id = simplified_events_mapping[event_id][window_id_index]
+        window_id = event_mapping_data[window_id_index]
         full_window_id = window_id and window_mapping_reversed.get(window_id)
         if full_window_id:
             enriched_key_event["window_id"] = full_window_id
         # Add event type (if applicable)
-        event_type = simplified_events_mapping[event_id][event_type_index]
+        event_type = event_mapping_data[event_type_index]
         if event_type:
             enriched_key_event["event_type"] = event_type
         enriched_key_events.append(enriched_key_event)
