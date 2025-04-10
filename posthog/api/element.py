@@ -1,7 +1,6 @@
-from functools import lru_cache
 from typing import Literal
 
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 from rest_framework import request, response, serializers, viewsets
 from posthog.api.utils import ServerTimingsGathered, action
 from rest_framework.exceptions import ValidationError
@@ -21,6 +20,21 @@ ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "How long does it take to get element stats?",
 )
 
+ELEMENT_STATS_PARSING_TIME_HISTOGRAM = Histogram(
+    "element_stats_parsing_time_seconds",
+    "How long does it take to parse element stats?",
+)
+
+ELEMENT_STATS_SERIALIZE_TIME_HISTOGRAM = Histogram(
+    "element_stats_serialize_time_seconds",
+    "How long does it take to serialize element stats?",
+)
+
+DISTINCT_CHAIN_IN_RESPONSE_COUNTER = Counter(
+    "element_stats_distinct_chain_in_response",
+    "How many distinct chains are in the response?",
+)
+
 
 class ElementSerializer(serializers.ModelSerializer):
     class Meta:
@@ -36,11 +50,6 @@ class ElementSerializer(serializers.ModelSerializer):
             "attributes",
             "order",
         ]
-
-
-@lru_cache(maxsize=5000)
-def serialise_elements_chain(elements_chain: str) -> list[dict]:
-    return [ElementSerializer(element).data for element in chain_to_elements(elements_chain)]
 
 
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -119,15 +128,28 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             with timer("serialize_elements"):
-                serialized_elements = [
-                    {
+                distinct_chains = set()
+                serialized_elements = []
+                for elements in result[:limit]:
+                    distinct_chains.add(elements[0])  # Add the chain to our set
+                    with ELEMENT_STATS_PARSING_TIME_HISTOGRAM.time():
+                        parsed_chain = chain_to_elements(elements[0])
+
+                    parsed_elements = []
+                    with ELEMENT_STATS_SERIALIZE_TIME_HISTOGRAM.time():
+                        for element in parsed_chain:
+                            serialized = ElementSerializer(element).data
+                            parsed_elements.append(serialized)
+
+                    element_data = {
                         "count": elements[1],
                         "hash": None,
                         "type": elements[2],
-                        "elements": serialise_elements_chain(elements[0]),
+                        "elements": parsed_elements,
                     }
-                    for elements in result[:limit]
-                ]
+                    serialized_elements.append(element_data)
+
+            DISTINCT_CHAIN_IN_RESPONSE_COUNTER.set(len(distinct_chains))
 
             has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
