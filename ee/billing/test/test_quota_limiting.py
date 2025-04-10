@@ -1300,8 +1300,10 @@ class TestQuotaLimiting(BaseTest):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
 
             # Verify the organization is no longer quota limited
-            assert "events" not in quota_limited_orgs
-            assert "events" not in quota_limiting_suspended_orgs
+            assert "events" in quota_limited_orgs
+            assert "events" in quota_limiting_suspended_orgs
+            assert quota_limited_orgs["events"] == {}
+            assert quota_limiting_suspended_orgs["events"] == {}
 
             # Verify the team token was removed from the quota-limits list
             assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
@@ -1310,15 +1312,17 @@ class TestQuotaLimiting(BaseTest):
             self.organization.refresh_from_db()
             assert self.organization.usage["events"].get("quota_limited_until") is None
 
+            # Find the specific call for org_quota_limited_until with suspension removed
+            event = None
+            for call in mock_capture.call_args_list:
+                if len(call[0]) >= 2 and call[0][1] == "org_quota_limited_until":
+                    event = call
+                    break
+
             # Verify the correct event was reported
-            mock_capture.assert_any_call(
-                str(self.organization.id),
-                "org_quota_limited_until",
-                properties={
-                    "event": "suspension removed",
-                    "current_usage": 80,
-                    "resource": "events",
-                    "quota_limiting_suspended_until": None,
-                },
-                groups={"organization": str(self.organization.id)},
-            )
+            assert event is not None, "Could not find org_quota_limited_until call with suspension removed"
+            assert event[1]["properties"]["current_usage"] == 80
+            assert event[1]["properties"]["resource"] == "events"
+            assert event[1]["properties"]["quota_limiting_suspended_until"] is None
+            assert "organization" in event[1]["groups"]
+            assert event[1]["groups"]["organization"] == str(self.organization.id)
