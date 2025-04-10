@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers } from 'kea'
+import { actions, connect, kea, key, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
@@ -12,8 +12,14 @@ export enum EditorSidebarTab {
     QueryInfo = 'query_info',
 }
 
+export interface EditorSidebarLogicProps {
+    key: string
+}
+
 export const editorSidebarLogic = kea<editorSidebarLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'sidebar', 'editorSidebarLogic']),
+    props({ key: '' } as EditorSidebarLogicProps),
+    key((props) => props.key),
     connect({
         values: [variablesLogic, ['variablesForInsight']],
     }),
