@@ -685,20 +685,21 @@ class FeatureFlagMatcher:
                             if len(person_query) > 0:
                                 all_conditions = {**all_conditions, **person_query[0]}
 
-                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
-                    for (
-                        group_query,
-                        group_fields,
-                    ) in group_query_per_group_type_mapping.values():
-                        # Only query the group if there's a field to query
-                        if len(group_fields) > 0:
-                            with start_span(op="execute_group_query"):
-                                group_query = group_query.values(*group_fields)
-                                if len(group_query) > 0:
-                                    assert (
-                                        len(group_query) == 1
-                                    ), f"Expected 1 group query result, got {len(group_query)}"
-                                    all_conditions = {**all_conditions, **group_query[0]}
+                if len(group_query_per_group_type_mapping) > 0:
+                    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
+                        for (
+                            group_query,
+                            group_fields,
+                        ) in group_query_per_group_type_mapping.values():
+                            # Only query the group if there's a field to query
+                            if len(group_fields) > 0:
+                                with start_span(op="execute_group_query"):
+                                    group_query = group_query.values(*group_fields)
+                                    if len(group_query) > 0:
+                                        assert (
+                                            len(group_query) == 1
+                                        ), f"Expected 1 group query result, got {len(group_query)}"
+                                        all_conditions = {**all_conditions, **group_query[0]}
                 return all_conditions
         except DatabaseError as e:
             logger.exception("query_conditions database error", error=str(e), exc_info=True)
