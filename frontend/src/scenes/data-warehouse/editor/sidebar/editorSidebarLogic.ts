@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 
-import { editorSidebarLogicType } from './editorSidebarLogicType'
+import type { editorSidebarLogicType } from './editorSidebarLogicType'
 
 export enum EditorSidebarTab {
     QueryDatabase = 'query_database',
