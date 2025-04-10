@@ -139,7 +139,7 @@ class Assistant:
         config = self._get_config()
 
         generator: Iterator[Any] = self._graph.stream(
-            state, config=config, stream_mode=["messages", "values", "updates", "debug"], subgraphs=True
+            state, config=config, stream_mode=["messages", "values", "updates", "debug"]
         )
 
         with self._lock_conversation():

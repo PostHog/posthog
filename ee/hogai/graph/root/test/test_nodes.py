@@ -181,8 +181,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                         }
                     ],
                 ),
-                LangchainAIMessage(content="Follow-up"),
                 LangchainToolMessage(content="Answer", tool_call_id="xyz"),
+                LangchainAIMessage(content="Follow-up"),
                 LangchainHumanMessage(content="Answer"),
             ],
         )
