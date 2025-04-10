@@ -14,6 +14,8 @@ export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
     COMMON_WRITE, // Main PG master with common tables, we need to move as many queries away from it as possible
     PLUGIN_STORAGE_RW, // Plugin Storage table, no read replica for it
+    PERSONS_WRITE, // Main PG master with persons tables
+    PERSONS_READ, // Read replica on the persons tables
 }
 
 export class TransactionClient {
@@ -28,6 +30,7 @@ export class TransactionClient {
 
 export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
+    public readonly isPersonsDbConfigured: boolean
 
     constructor(serverConfig: PluginsServerConfig) {
         const app_name = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
@@ -44,6 +47,8 @@ export class PostgresRouter {
             [PostgresUse.COMMON_WRITE, commonClient],
             [PostgresUse.COMMON_READ, commonClient],
             [PostgresUse.PLUGIN_STORAGE_RW, commonClient],
+            [PostgresUse.PERSONS_WRITE, commonClient],
+            [PostgresUse.PERSONS_READ, commonClient],
         ])
 
         if (serverConfig.DATABASE_READONLY_URL) {
@@ -70,6 +75,33 @@ export class PostgresRouter {
             )
             logger.info('👍', `Plugin-storage Postgresql ready`)
         }
+        if (serverConfig.PERSONS_DB_WRITER_URL) {
+            logger.info('🤔', `Connecting to persons write Postgresql...`)
+            this.pools.set(
+                PostgresUse.PERSONS_WRITE,
+                createPostgresPool(
+                    serverConfig.PERSONS_DB_WRITER_URL,
+                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                    app_name
+                )
+            )
+            logger.info('👍', `Persons write Postgresql ready`)
+        }
+        if (serverConfig.PERSONS_DB_READER_URL) {
+            logger.info('🤔', `Connecting to persons read Postgresql...`)
+            this.pools.set(
+                PostgresUse.PERSONS_READ,
+                createPostgresPool(
+                    serverConfig.PERSONS_DB_READER_URL,
+                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                    app_name
+                )
+            )
+            logger.info('👍', `Persons read Postgresql ready`)
+        }
+
+        // Set the flag based on whether the writer URL was provided
+        this.isPersonsDbConfigured = !!serverConfig.PERSONS_DB_WRITER_URL
     }
 
     public async query<R extends QueryResultRow = any, I extends any[] = any[]>(
