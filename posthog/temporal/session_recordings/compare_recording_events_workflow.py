@@ -169,7 +169,7 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                         v1_snapshots.extend(transform_v1_snapshots(raw_snapshots))
 
         # Get v2 snapshots
-        v2_snapshots = []
+        v2_snapshots: list[dict[str, Any]] = []
         blocks = list_blocks(recording)
         if blocks:
             for block in blocks:
@@ -350,20 +350,20 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
         def sample_events(events: dict[str, int], size: int) -> list[tuple[str, dict, list[dict]]]:
             """Sample events and include their differences."""
             samples = []
-            for event_json in list(events.items())[:size]:
+            for event_json, _ in list(events.items())[:size]:
                 window_id, data = json.loads(event_json)
                 # Try to find matching event in other version by window_id
                 matching_event = None
                 if event_json in only_in_v1:
                     # Look for matching window_id in v2
-                    for v2_json in v2_events.items():
+                    for v2_json, _ in v2_events.items():
                         v2_window_id, v2_data = json.loads(v2_json)
                         if v2_window_id == window_id:
                             matching_event = v2_data
                             break
                 else:
                     # Look for matching window_id in v1
-                    for v1_json in v1_events.items():
+                    for v1_json, _ in v1_events.items():
                         v1_window_id, v1_data = json.loads(v1_json)
                         if v1_window_id == window_id:
                             matching_event = v1_data
