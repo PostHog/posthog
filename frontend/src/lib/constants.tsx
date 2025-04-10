@@ -240,6 +240,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN: 'session-recordings-playlist-count-column', // owner: @pauldambra #team-replay
     ONBOARDING_NEW_INSTALLATION_STEP: 'onboarding-new-installation-step', // owner: @joshsny #team-growth
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
+    REVENUE_ANALYTICS: 'revenue-analytics', // owner: @rafaeelaudibert #team-revenue-analytics
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
     AI_SETUP_WIZARD: 'ai-setup-wizard', // owner: @joshsny #team-growth
     CRM_BLOCKING_QUERIES: 'crm-blocking-queries', // owner: @danielbachhuber #team-crm
@@ -247,9 +248,8 @@ export const FEATURE_FLAGS = {
     RECORDINGS_SIMILAR_RECORDINGS: 'recordings-similar-recordings', // owner: @veryayskiy #team-replay
     RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-cdp
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
-    WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS: 'web-analytics-data-warehouse-revenue-settings', // owner: @rafaeelaudibert #team-web-analytics
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
-    B2B_ANALYTICS: 'b2b-analytics', // owner: @danielbachhuber #team-crm
+    B2B_ANALYTICS: 'b2b-analytics-alpha', // owner: @danielbachhuber #team-crm
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

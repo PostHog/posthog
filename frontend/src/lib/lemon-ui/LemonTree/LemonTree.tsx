@@ -1,4 +1,4 @@
-import { DndContext, DragEndEvent, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { IconEllipsis, IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -19,12 +19,7 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
-import {
-    renderTreeNodeDisplayCheckbox,
-    renderTreeNodeDisplayIcon,
-    TreeNodeDraggable,
-    TreeNodeDroppable,
-} from './LemonTreeUtils'
+import { TreeNodeDisplayIcon, TreeNodeDisplayIconWrapper, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -96,6 +91,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemUnapplied?: (item: TreeDataItem) => boolean
     /** The function to call when the item is checked. */
     onItemChecked?: (id: string, checked: boolean) => void
+    /** Count of checked items */
+    checkedItemCount?: number
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     /** Set the IDs of the expanded items. */
@@ -163,6 +160,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             enableMultiSelection = false,
             onItemChecked,
             isDragging,
+            checkedItemCount,
             ...props
         },
         ref
@@ -240,22 +238,18 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className="group/lemon-tree-button-group relative"
                                                 groupVariant="side-action-group"
                                             >
-                                                {enableMultiSelection && (
-                                                    <div
-                                                        className="absolute size-5"
-                                                        // eslint-disable-next-line react/forbid-dom-props
-                                                        style={{ left: `${DEPTH_OFFSET + 5}px` }}
-                                                    >
-                                                        {/* Checkbox left */}
-                                                        {renderTreeNodeDisplayCheckbox({
-                                                            item,
-                                                            expandedItemIds: expandedItemIds ?? [],
-                                                            enableMultiSelection,
-                                                            handleCheckedChange: (checked) => {
-                                                                onItemChecked?.(item.id, checked)
-                                                            },
-                                                        })}
-                                                    </div>
+                                                {/* The contents of this <TreeNodeDisplayIconWrapper> are positioned absolutely, so to give the effect it's inside the button */}
+                                                {!isEmptyFolder && (
+                                                    <TreeNodeDisplayIconWrapper
+                                                        item={item}
+                                                        expandedItemIds={expandedItemIds}
+                                                        defaultNodeIcon={defaultNodeIcon}
+                                                        handleClick={handleClick}
+                                                        enableMultiSelection={enableMultiSelection}
+                                                        depthOffset={DEPTH_OFFSET}
+                                                        checkedItemCount={checkedItemCount}
+                                                        onItemChecked={onItemChecked}
+                                                    />
                                                 )}
 
                                                 <ButtonPrimitive
@@ -267,15 +261,17 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         handleClick(item)
                                                     }}
                                                     className={cn(
-                                                        'group/lemon-tree-button cursor-pointer z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] transition-[padding] duration-50 group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover',
+                                                        'group/lemon-tree-button',
+                                                        'pl-8 z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] transition-[padding] duration-50',
                                                         {
                                                             'bg-fill-button-tertiary-hover':
                                                                 selectedId === item.id ||
                                                                 isContextMenuOpenForItem === item.id,
                                                             'bg-fill-button-tertiary-active': getItemActiveState(item),
-                                                            'pl-1': !enableMultiSelection,
-                                                            'pl-8': enableMultiSelection,
-                                                            'pointer-events-none': isEmptyFolder,
+                                                            'pl-13': enableMultiSelection,
+                                                            'pl-10 pointer-events-none cursor-default': isEmptyFolder,
+                                                            'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
+                                                                !isEmptyFolder,
                                                         }
                                                     )}
                                                     role="treeitem"
@@ -287,12 +283,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     disabled={isEmptyFolder}
                                                     tabIndex={isEmptyFolder ? -1 : 0}
                                                     buttonWrapper={
-                                                        enableDragAndDrop &&
-                                                        isItemDraggable?.(item) &&
-                                                        item.record?.path
+                                                        enableDragAndDrop && isItemDraggable?.(item) && item.id
                                                             ? (button) => (
                                                                   <TreeNodeDraggable
-                                                                      id={item.record?.path}
+                                                                      id={item.id}
                                                                       enableDragging
                                                                       className="h-[var(--button-height-base)]"
                                                                   >
@@ -303,10 +297,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     }
                                                 >
                                                     {/* This is a hack to make the button have a left padding since we use important on all tailwind classes */}
-                                                    {depth !== 0 && (
+                                                    {depth !== 0 && !isEmptyFolder && (
                                                         <div
                                                             className="h-full bg-transparent pointer-events-none flex-shrink-0"
-                                                            // -10 is to offset button padding (to match folder lines)
+                                                            // -6 is to offset button padding (to match folder lines)
                                                             // eslint-disable-next-line react/forbid-dom-props
                                                             style={{
                                                                 width: `${DEPTH_OFFSET - 6}px`,
@@ -315,13 +309,13 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     )}
 
                                                     {!isEmptyFolder && (
-                                                        <div className="flex items-center justify-center bg-transparent pointer-events-none flex-shrink-0 h-[var(--button-height-base)]">
-                                                            {renderTreeNodeDisplayIcon({
-                                                                item,
-                                                                expandedItemIds: expandedItemIds ?? [],
-                                                                defaultNodeIcon,
-                                                            })}
-                                                        </div>
+                                                        <div
+                                                            className="absolute size-5 pointer-events-none h-[var(--button-height-base)] flex-shrink-0"
+                                                            // eslint-disable-next-line react/forbid-dom-props
+                                                            style={{
+                                                                width: `${DEPTH_OFFSET + 5}px`,
+                                                            }}
+                                                        />
                                                     )}
 
                                                     {/* Render contents */}
@@ -411,6 +405,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             enableMultiSelection={enableMultiSelection}
                                             onItemChecked={onItemChecked}
                                             isDragging={isDragging}
+                                            checkedItemCount={checkedItemCount}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -421,11 +416,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     // Wrap content in Draggable/Droppable if needed
                     let wrappedContent = content
-                    const path = item.record?.path || ''
 
                     if (isItemDroppable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={path} isDroppable={!!item.record?.path}>
+                            <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )
@@ -462,6 +456,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isFinishedBuildingTreeData,
             enableMultiSelection = false,
             onItemChecked,
+            checkedItemCount,
             emptySpaceContextMenu,
             ...props
         },
@@ -490,6 +485,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
         const [isDragging, setIsDragging] = useState(false)
+        const [activeDragItem, setActiveDragItem] = useState<TreeDataItem | null>(null)
 
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
@@ -1028,11 +1024,29 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             }
         }, [expandedItemIds, expandedItemIdsState])
 
+        const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
+            for (const item of items) {
+                if (item.id === itemId) {
+                    return item
+                } else if (item.children) {
+                    const found = findItem(item.children, itemId)
+                    if (found) {
+                        return found
+                    }
+                }
+            }
+            return undefined
+        }
+
         return (
             <DndContext
                 sensors={sensors}
-                onDragStart={() => {
+                onDragStart={(event) => {
                     setIsDragging(true)
+                    const item = findItem(data, String(event.active?.id))
+                    if (item) {
+                        setActiveDragItem(item)
+                    }
                 }}
                 onDragEnd={(dragEvent) => {
                     const active = dragEvent.active?.id
@@ -1082,6 +1096,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             enableMultiSelection={enableMultiSelection}
                             onItemChecked={onItemChecked}
                             isDragging={isDragging}
+                            checkedItemCount={checkedItemCount}
                             {...props}
                         />
 
@@ -1094,6 +1109,30 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         </ContextMenu>
                     </TreeNodeDroppable>
                 </ScrollableShadows>
+
+                {/* Custom drag overlay */}
+                <DragOverlay dropAnimation={null}>
+                    {activeDragItem && (
+                        <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)]">
+                            <div className="shrink-0">
+                                <TreeNodeDisplayIcon
+                                    item={activeDragItem}
+                                    expandedItemIds={expandedItemIdsState}
+                                    defaultNodeIcon={defaultNodeIcon}
+                                />
+                            </div>
+                            <span className="truncate font-medium">
+                                {activeDragItem.displayName || activeDragItem.name}
+                            </span>
+                            {activeDragItem.checked && checkedItemCount && checkedItemCount > 1 && (
+                                <span className="ml-1 text-xs rounded-full bg-primary-highlight px-2 py-0.5 whitespace-nowrap">
+                                    +<span>{checkedItemCount - 1}</span>{' '}
+                                    <span>other{checkedItemCount - 1 === 1 ? '' : 's'}</span>
+                                </span>
+                            )}
+                        </ButtonPrimitive>
+                    )}
+                </DragOverlay>
             </DndContext>
         )
     }
