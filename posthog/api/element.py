@@ -3,7 +3,6 @@ from typing import Literal
 from rest_framework import request, response, serializers, viewsets
 from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
-from statshog.defaults.django import statsd
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import TemporaryTokenAuthentication
@@ -73,14 +72,6 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         events_filter = self._events_filter(request)
 
-        paginate_response = request.query_params.get("paginate_response", "false") == "true"
-        if not paginate_response:
-            # once we are getting no hits on this counter we can default to paginated responses
-            statsd.incr(
-                "toolbar_element_stats_unpaginated_api_request_tombstone",
-                tags={"team_id": self.team_id},
-            )
-
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
@@ -114,19 +105,16 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for elements in result[:limit]
         ]
 
-        if paginate_response:
-            has_next = len(result) == limit + 1
-            next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
-            previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
-            return response.Response(
-                {
-                    "results": serialized_elements,
-                    "next": next_url,
-                    "previous": previous_url,
-                }
-            )
-        else:
-            return response.Response(serialized_elements)
+        has_next = len(result) == limit + 1
+        next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
+        previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
+        return response.Response(
+            {
+                "results": serialized_elements,
+                "next": next_url,
+                "previous": previous_url,
+            }
+        )
 
     def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick", "$dead_click"], ...]:
         SUPPORTED_EVENTS = {"$autocapture", "$rageclick", "$dead_click"}
