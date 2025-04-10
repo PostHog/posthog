@@ -439,7 +439,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         response = JsonResponse(data={"results": results})
 
-        response.headers["Server-Timing"] = ServerTimingsGathered.to_header_string(timings)
+        response.headers["Server-Timing"] = ServerTimingsGathered().to_header_string(timings)
         return response
 
     @extend_schema(
