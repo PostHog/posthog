@@ -69,7 +69,7 @@ const typeSizes = {
     number: () => 8,
     string: (item: string) => 2 * item.length,
     object: (item: Record<any, any>) =>
-        !item ? 0 : Object.keys(item).reduce((total, key) => sizeOfInBytes(key) + sizeOfInBytes(item[key]) + total, 0),
+        !item ? 0 : Array.isArray(item) ? item.reduce((total, element) => sizeOfInBytes(element) + total, 0) : Object.keys(item).reduce((total, key) => sizeOfInBytes(key) + sizeOfInBytes(item[key]) + total, 0),
     function: () => 0,
     symbol: () => 0,
     bigint: () => 0,
