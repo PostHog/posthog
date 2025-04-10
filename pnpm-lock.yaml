@@ -960,6 +960,9 @@ importers:
       '@sentry/types':
         specifier: 7.112.1
         version: 7.112.1
+      '@storybook/addon-actions':
+        specifier: ^7.6.4
+        version: 7.6.4
       '@storybook/react':
         specifier: ^7.6.4
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
