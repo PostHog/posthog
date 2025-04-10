@@ -19,6 +19,7 @@ use crate::properties::property_models::PropertyFilter;
 use anyhow::Result;
 use common_metrics::inc;
 use common_types::{PersonId, ProjectId, TeamId};
+use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -393,7 +394,7 @@ impl FeatureFlagMatcher {
     /// evaluates dynamic cohorts based on the provided properties
     /// (converts dynamic cohorts into property filters and then evaluates them)
     pub fn evaluate_cohort_filters(
-        &mut self,
+        &self,
         cohort_property_filters: &[PropertyFilter],
         target_properties: &HashMap<String, Value>,
         cohorts: Vec<Cohort>,
@@ -509,18 +510,37 @@ impl FeatureFlagMatcher {
 
             // Step 3: Evaluate remaining flags with cached properties
             let flag_get_match_timer = common_metrics::timing_guard(FLAG_GET_MATCH_TIME, &[]);
-            for flag in flags_needing_db_properties {
-                match self.get_match(&flag, None, hash_key_overrides.clone()) {
+
+            // Create a HashMap for quick flag lookups
+            let flags_map: HashMap<_, _> = flags_needing_db_properties
+                .iter()
+                .map(|flag| (flag.key.clone(), flag))
+                .collect();
+
+            let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> =
+                flags_needing_db_properties
+                    .par_iter()
+                    .map(|flag| {
+                        (
+                            flag.key.clone(),
+                            self.get_match(flag, None, hash_key_overrides.clone()),
+                        )
+                    })
+                    .collect();
+
+            for (flag_key, result) in results {
+                let flag = flags_map.get(&flag_key).unwrap();
+
+                match result {
                     Ok(flag_match) => {
-                        flag_details_map
-                            .insert(flag.key.clone(), FlagDetails::create(&flag, &flag_match));
+                        flag_details_map.insert(flag_key, FlagDetails::create(flag, &flag_match));
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
                         // TODO add posthog error tracking
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
-                            flag.key, self.distinct_id, e
+                            flag_key, self.distinct_id, e
                         );
                         let reason = parse_exception_for_prometheus_label(&e);
                         inc(
@@ -528,8 +548,7 @@ impl FeatureFlagMatcher {
                             &[("reason".to_string(), reason.to_string())],
                             1,
                         );
-                        flag_details_map
-                            .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
+                        flag_details_map.insert(flag_key, FlagDetails::create_error(flag, reason));
                     }
                 }
             }
@@ -648,7 +667,7 @@ impl FeatureFlagMatcher {
     /// The method also keeps track of the highest priority match reason and index,
     /// which are used even if no conditions ultimately match.
     pub fn get_match(
-        &mut self,
+        &self,
         flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
@@ -815,7 +834,7 @@ impl FeatureFlagMatcher {
     /// Otherwise, it fetches the relevant properties and checks if they match the condition's filters.
     /// The function returns a tuple indicating whether the condition matched and the reason for the match.
     fn is_condition_match(
-        &mut self,
+        &self,
         feature_flag: &FeatureFlag,
         condition: &FlagGroupType,
         property_overrides: Option<HashMap<String, Value>>,
@@ -872,7 +891,7 @@ impl FeatureFlagMatcher {
     /// This function determines which properties to check based on the feature flag's group type index.
     /// If the flag is group-based, it fetches group properties; otherwise, it fetches person properties.
     fn get_properties_to_check(
-        &mut self,
+        &self,
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
@@ -890,7 +909,7 @@ impl FeatureFlagMatcher {
     /// It first checks if there are any locally computable property overrides. If so, it returns those.
     /// Otherwise, it fetches the properties from the cache or database and returns them.
     fn get_group_properties(
-        &mut self,
+        &self,
         group_type_index: GroupTypeIndex,
         property_overrides: Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
@@ -910,7 +929,7 @@ impl FeatureFlagMatcher {
     /// It first checks if there are any locally computable property overrides. If so, it returns those.
     /// Otherwise, it fetches the properties from the cache or database and returns them.
     fn get_person_properties(
-        &mut self,
+        &self,
         property_overrides: Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
@@ -929,7 +948,7 @@ impl FeatureFlagMatcher {
     }
 
     fn is_holdout_condition_match(
-        &mut self,
+        &self,
         flag: &FeatureFlag,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
         // TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
@@ -982,7 +1001,7 @@ impl FeatureFlagMatcher {
     /// The function returns a struct indicating whether a super condition should be evaluated,
     /// whether it matches if evaluated, and the reason for the match.
     fn is_super_condition_match(
-        &mut self,
+        &self,
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
@@ -1038,7 +1057,7 @@ impl FeatureFlagMatcher {
     /// This function generates a hashed identifier for a feature flag based on the feature flag's group type index.
     /// If the feature flag is group-based, it fetches the group key; otherwise, it uses the distinct ID.
     fn hashed_identifier(
-        &mut self,
+        &self,
         feature_flag: &FeatureFlag,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<String, FlagError> {
@@ -1075,7 +1094,7 @@ impl FeatureFlagMatcher {
     /// uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     /// we can do _hash(key, identifier) < 0.2
     fn get_hash(
-        &mut self,
+        &self,
         feature_flag: &FeatureFlag,
         salt: &str,
         hash_key_overrides: Option<HashMap<String, String>>,
@@ -1091,7 +1110,7 @@ impl FeatureFlagMatcher {
     }
 
     fn get_holdout_hash(
-        &mut self,
+        &self,
         feature_flag: &FeatureFlag,
         salt: Option<&str>,
     ) -> Result<f64, FlagError> {
@@ -1107,7 +1126,7 @@ impl FeatureFlagMatcher {
     /// If the hash value is less than or equal to the rollout percentage, the flag is shown; otherwise, it is not.
     /// The function returns a tuple indicating whether the flag matched and the reason for the match.
     fn check_rollout(
-        &mut self,
+        &self,
         feature_flag: &FeatureFlag,
         rollout_percentage: f64,
         hash_key_overrides: Option<HashMap<String, String>>,
@@ -1122,7 +1141,7 @@ impl FeatureFlagMatcher {
 
     /// This function takes a feature flag and returns the key of the variant that should be shown to the user.
     fn get_matching_variant(
-        &mut self,
+        &self,
         feature_flag: &FeatureFlag,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<String>, FlagError> {
@@ -1594,7 +1613,7 @@ mod tests {
 
         let groups = HashMap::from([("group_type_1".to_string(), json!("group_key_1"))]);
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
             1,
@@ -1624,7 +1643,7 @@ mod tests {
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
         group_type_mapping_cache.init(reader.clone()).await.unwrap();
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
@@ -1673,7 +1692,7 @@ mod tests {
             rollout_percentage: Some(100.0),
         };
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
             1,
@@ -1840,7 +1859,7 @@ mod tests {
             let writer_clone = writer.clone();
             let cohort_cache_clone = cohort_cache.clone();
             handles.push(tokio::spawn(async move {
-                let mut matcher = FeatureFlagMatcher::new(
+                let matcher = FeatureFlagMatcher::new(
                     format!("test_user_{}", i),
                     team.id,
                     team.project_id,
@@ -1967,7 +1986,7 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "".to_string(),
             1,
             1,
@@ -2010,7 +2029,7 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
             1,
@@ -2137,7 +2156,7 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
@@ -2199,7 +2218,7 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
@@ -2243,7 +2262,7 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
             1,
@@ -3234,7 +3253,7 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
@@ -3441,7 +3460,7 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
@@ -3612,7 +3631,7 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
@@ -3785,7 +3804,7 @@ mod tests {
             None,
         );
 
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
@@ -4530,7 +4549,7 @@ mod tests {
         };
 
         // Test user "11" - should get first-variant
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "11".to_string(),
             team.id,
             team.project_id,
@@ -4553,7 +4572,7 @@ mod tests {
         );
 
         // Test user "example_id" - should get second-variant
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "example_id".to_string(),
             team.id,
             team.project_id,
@@ -4576,7 +4595,7 @@ mod tests {
         );
 
         // Test user "3" - should get third-variant
-        let mut matcher = FeatureFlagMatcher::new(
+        let matcher = FeatureFlagMatcher::new(
             "3".to_string(),
             team.id,
             team.project_id,
