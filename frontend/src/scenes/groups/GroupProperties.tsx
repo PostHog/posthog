@@ -49,7 +49,7 @@ export function GroupProperties({ groupData }: { groupData: Group }): JSX.Elemen
             <PropertiesTable
                 type={PropertyDefinitionType.Group}
                 properties={propertySummary || {}}
-                embedded={false}
+                embedded={true}
                 onEdit={editProperty}
                 tableProps={{
                     footer: (

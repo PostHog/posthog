@@ -4,7 +4,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
@@ -20,6 +19,7 @@ import { Group as IGroup, NotebookNodeType } from '~/types'
 
 import { GroupPeople } from './GroupPeople'
 import { GroupProperties } from './GroupProperties'
+import { GroupOverviewCard } from './overview/GroupOverviewCard'
 
 interface GroupSceneProps {
     groupTypeIndex?: string
@@ -63,68 +63,68 @@ function GroupOverview({ groupData }: { groupData: Group }): JSX.Element {
     const { groupEventsQuery } = useValues(groupLogic)
     const { setGroupEventsQuery } = useActions(groupLogic)
     return (
-        <div className="flex flex-col gap-x-4 gap-y-12">
+        <div className="flex flex-col gap-4">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="col-span-1">
-                    <h2>Properties</h2>
-                    <GroupProperties groupData={groupData} />
+                    <GroupOverviewCard title="Properties">
+                        <GroupProperties groupData={groupData} />
+                    </GroupOverviewCard>
                 </div>
                 <div className="col-span-1 md:col-span-2">
-                    <h2>People</h2>
-                    <GroupPeople groupData={groupData} />
+                    <GroupOverviewCard title="People">
+                        <GroupPeople groupData={groupData} />
+                    </GroupOverviewCard>
                 </div>
             </div>
             <div>
-                <div className="flex items-center justify-between">
-                    <h2>Engagement</h2>
-                    <LemonButton type="secondary" size="small">
-                        View all events
-                    </LemonButton>
-                </div>
-                <div className="h-64 border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-                    <Query
-                        query={{
-                            kind: NodeKind.InsightVizNode,
-                            source: {
-                                kind: NodeKind.TrendsQuery,
-                                dateRange: {
-                                    date_from: '-180d',
+                <GroupOverviewCard title="Engagement">
+                    <div className="h-64">
+                        <Query
+                            query={{
+                                kind: NodeKind.InsightVizNode,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    dateRange: {
+                                        date_from: '-180d',
+                                    },
+                                    series: [
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            math: 'total',
+                                            event: null,
+                                        },
+                                        {
+                                            kind: NodeKind.EventsNode,
+                                            math: 'dau',
+                                            event: null,
+                                        },
+                                    ],
                                 },
-                                series: [
-                                    {
-                                        kind: NodeKind.EventsNode,
-                                        math: 'total',
-                                        event: null,
-                                    },
-                                    {
-                                        kind: NodeKind.EventsNode,
-                                        math: 'dau',
-                                        event: null,
-                                    },
-                                ],
-                            },
-                            embedded: true,
-                        }}
-                        context={{ refresh: 'force_blocking' }}
-                    />
-                </div>
+                                embedded: true,
+                            }}
+                            context={{ refresh: 'force_blocking' }}
+                        />
+                    </div>
+                </GroupOverviewCard>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="col-span-2">
-                    <h2>Session recordings</h2>
-                    <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-                        <h5 className="text-center text-sm text-secondary">There are no recordings yet</h5>
-                    </div>
+                    <GroupOverviewCard title="Session recordings">
+                        <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+                            <h5 className="text-center text-sm text-secondary">There are no recordings yet</h5>
+                        </div>
+                    </GroupOverviewCard>
                 </div>
                 <div className="col-span-2">
-                    <h2>Feature flags</h2>
-                    <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-                        <RelatedFeatureFlags
-                            distinctId={groupData.group_key}
-                            groupTypeIndex={groupData.group_type_index}
-                            groups={{ ['organization']: groupData.group_key }}
-                        />
-                    </div>
+                    <GroupOverviewCard title="Feature flags">
+                        <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+                            <RelatedFeatureFlags
+                                distinctId={groupData.group_key}
+                                groupTypeIndex={groupData.group_type_index}
+                                groups={{ ['organization']: groupData.group_key }}
+                            />
+                        </div>
+                    </GroupOverviewCard>
                 </div>
             </div>
         </div>

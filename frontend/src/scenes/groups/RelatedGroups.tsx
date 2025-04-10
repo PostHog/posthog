@@ -54,6 +54,7 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             loading={relatedActorsLoading}
             nouns={['related group', 'related groups']}
             emptyState="No related groups found"
+            embedded={true}
         />
     )
 }
