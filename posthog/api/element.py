@@ -33,6 +33,8 @@ ELEMENT_STATS_SERIALIZE_TIME_HISTOGRAM = Histogram(
 DISTINCT_CHAIN_IN_RESPONSE_HISTOGRAM = Histogram(
     "element_stats_distinct_chain_in_response",
     "How many distinct chains are in the response?",
+    # default page is 10_000
+    buckets=(1, 10, 100, 1000, 2000, 4000, 6000, 8000, 10000),
 )
 
 
@@ -149,7 +151,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     }
                     serialized_elements.append(element_data)
 
-            DISTINCT_CHAIN_IN_RESPONSE_HISTOGRAM.set(len(distinct_chains))
+            DISTINCT_CHAIN_IN_RESPONSE_HISTOGRAM.observe(len(distinct_chains))
 
             has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
