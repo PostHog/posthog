@@ -1,10 +1,24 @@
-import { IconFolderPlus } from '@posthog/icons'
+import { IconChevronRight, IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
-import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import {
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuSeparator,
+    ContextMenuSub,
+    ContextMenuSubContent,
+    ContextMenuSubTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
+import {
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -60,10 +74,55 @@ export function ProjectTree(): JSX.Element {
         setPanelTreeRef(treeRef)
     }, [treeRef, setPanelTreeRef])
 
+    const createByProductTreeViewItems = (items: TreeDataItem[]): TreeDataItem[] => {
+        // Create arrays for each category
+        const dataItems = items
+            .filter((item) => item.name?.startsWith('Data '))
+            .map((item) => ({
+                ...item,
+                name: item.name.replace('Data ', ''), // Remove 'Data ' prefix from name
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+
+        const insightItems = items
+            .filter((item) => item.name?.startsWith('Insight - '))
+            .map((item) => ({
+                ...item,
+                name: item.name.replace('Insight - ', ''), // Remove 'Insight - ' prefix from name
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+
+        // Get other items (not data or insight)
+        const otherItems = items
+            .filter((item) => !item.name?.startsWith('Data ') && !item.name?.startsWith('Insight - '))
+            .sort((a, b) => a.name.localeCompare(b.name))
+
+        // Create the final hierarchical structure with explicit names for grouped items
+        const result = [
+            ...otherItems,
+            { id: 'data', name: 'Data', children: dataItems },
+            { id: 'insight', name: 'Insight', children: insightItems },
+        ]
+
+        // Sort the top level alphabetically (keeping the structure)
+        return result.sort((a, b) => {
+            // Always use name for sorting (with fallback to id)
+            const nameA = a.name || a.id.charAt(0).toUpperCase() + a.id.slice(1)
+            const nameB = b.name || b.id.charAt(0).toUpperCase() + b.id.slice(1)
+            return nameA.localeCompare(nameB)
+        })
+    }
+
+    const newTreeItemsByProduct = createByProductTreeViewItems(treeItemsNew)
+
     // Merge duplicate menu code for both context and dropdown menus
-    const renderMenuItems = (item: any, MenuItem: typeof ContextMenuItem | typeof DropdownMenuItem): JSX.Element => {
+    const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
         // Determine the separator component based on MenuItem type
-        const MenuSeparator = MenuItem === ContextMenuItem ? ContextMenuSeparator : DropdownMenuSeparator
+        const MenuItem = type === 'context' ? ContextMenuItem : DropdownMenuItem
+        const MenuSeparator = type === 'context' ? ContextMenuSeparator : DropdownMenuSeparator
+        const MenuSub = type === 'context' ? ContextMenuSub : DropdownMenuSub
+        const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
+        const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
         return (
             <>
@@ -83,7 +142,7 @@ export function ProjectTree(): JSX.Element {
                         asChild
                         onClick={(e: any) => {
                             e.stopPropagation()
-                            linkCheckedItems(item.record.path)
+                            linkCheckedItems(item?.record?.path)
                         }}
                     >
                         <ButtonPrimitive menuItem>
@@ -96,7 +155,7 @@ export function ProjectTree(): JSX.Element {
                         asChild
                         onClick={(e: any) => {
                             e.stopPropagation()
-                            moveCheckedItems(item.record.path)
+                            moveCheckedItems(item?.record?.path)
                         }}
                     >
                         <ButtonPrimitive menuItem>
@@ -166,23 +225,61 @@ export function ProjectTree(): JSX.Element {
                             <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                         </MenuItem>
                         <MenuSeparator />
-                        {treeItemsNew.map((treeItem: any) => (
-                            <MenuItem
-                                key={treeItem.id}
-                                asChild
-                                onClick={(e: any) => {
-                                    e.stopPropagation()
-                                    const objectType: string | undefined = treeItem.record?.type
-                                    const folder = item.record?.path
-                                    if (objectType && folder) {
-                                        setLastNewOperation(objectType, folder)
-                                    }
-                                    treeItem.onClick?.()
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>New {treeItem.name}</ButtonPrimitive>
-                            </MenuItem>
-                        ))}
+                        {newTreeItemsByProduct.map((treeItem: any): JSX.Element => {
+                            if (treeItem.children) {
+                                return (
+                                    <MenuSub key={treeItem.id}>
+                                        <MenuSubTrigger asChild>
+                                            <ButtonPrimitive menuItem>
+                                                New{' '}
+                                                {treeItem.name ||
+                                                    treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
+                                                ...
+                                                <IconChevronRight className="ml-auto h-4 w-4" />
+                                            </ButtonPrimitive>
+                                        </MenuSubTrigger>
+                                        <MenuSubContent collisionPadding={50}>
+                                            {treeItem.children.map((child: any) => (
+                                                <MenuItem
+                                                    key={child.id}
+                                                    asChild
+                                                    onClick={(e: any) => {
+                                                        e.stopPropagation()
+                                                        const objectType: string | undefined = child.record?.type
+                                                        const folder = item.record?.path
+                                                        if (objectType && folder) {
+                                                            setLastNewOperation(objectType, folder)
+                                                        }
+                                                        child.onClick?.()
+                                                    }}
+                                                >
+                                                    <ButtonPrimitive menuItem className="capitalize">
+                                                        {child.name}
+                                                    </ButtonPrimitive>
+                                                </MenuItem>
+                                            ))}
+                                        </MenuSubContent>
+                                    </MenuSub>
+                                )
+                            }
+                            return (
+                                <MenuItem
+                                    key={treeItem.id}
+                                    asChild
+                                    onClick={(e: any) => {
+                                        e.stopPropagation()
+                                        const objectType: string | undefined = treeItem.record?.type
+                                        const folder = item.record?.path
+                                        if (objectType && folder) {
+                                            setLastNewOperation(objectType, folder)
+                                        }
+                                        treeItem.onClick?.()
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>New {treeItem.name}</ButtonPrimitive>
+                                </MenuItem>
+                            )
+                        })}
                     </>
                 ) : null}
             </>
@@ -306,13 +403,13 @@ export function ProjectTree(): JSX.Element {
                     if (item.id.startsWith('project-folder-empty/')) {
                         return undefined
                     }
-                    return <ContextMenuGroup>{renderMenuItems(item, ContextMenuItem)}</ContextMenuGroup>
+                    return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
                 }}
                 itemSideAction={(item) => {
                     if (item.id.startsWith('project-folder-empty/')) {
                         return undefined
                     }
-                    return <DropdownMenuGroup>{renderMenuItems(item, DropdownMenuItem)}</DropdownMenuGroup>
+                    return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
                 }}
                 emptySpaceContextMenu={() => {
                     return (
