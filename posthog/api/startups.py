@@ -29,6 +29,7 @@ class YCDealType(str, Enum):
 
 STARTUP_ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/8898847/20d1fd1/"
 YC_ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/8898847/20dlxpo/"
+SALESFORCE_ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/8898847/222z130/"
 
 # Match the same list used in frontend/src/scenes/startups/startupProgramLogic.ts
 PUBLIC_EMAIL_DOMAINS = [
@@ -259,24 +260,31 @@ class StartupApplicationSerializer(serializers.Serializer):
         webhook_url = YC_ZAPIER_WEBHOOK_URL if validated_data.get("program") == "YC" else STARTUP_ZAPIER_WEBHOOK_URL
         requests.post(webhook_url, json=zapier_table_data, timeout=10).raise_for_status()
 
-        # Add a Salesforce contact via webhook
-        # Type: 'contact'
-        # Source: program
-        # Company: organization_name
-        # First Name: first_name
-        # Last Name: last_name
-        # Email: email
-        # Startup Domain: domain
+        salesforce_data = {
+            "Type": "contact",
+            "Source": validated_data.get("program"),
+            # Duplicates - we ask for both in the existing posthog.com form - should converge to using one in the Zap and modify accordingly
+            "Company": organization.name,
+            "Posthog Organization Name": organization.name,
+            "First Name": user.first_name,
+            "Last Name": user.last_name,
+            "Email": user.email,
+            "Startup Domain": extract_domain_from_email(user.email),
+        }
 
-        # Non-YC only
-        # Incorpation Date: incorporation_date (to be formatted as YYYY-MM-DD) - field name mispelled in Zapier
-        # Raised: raised
-        # Referrer: referrer
+        if validated_data.get("program") == "YC":
+            salesforce_data["yc_batch"] = validated_data["yc_batch"]
+        else:
+            salesforce_data["Incorporation Date"] = zapier_table_data["incorporation_date"]
+            salesforce_data["Raised"] = validated_data["raised"]
+            if zapier_table_data.get("referrer"):
+                salesforce_data["Referrer"] = zapier_table_data["referrer"]
 
-        # YC only
-        # YC Batch: yc_batch
+        # Excluded for now but can be sent if helpful: organization_id, customer_id (Stripe), submitted_at?
 
-        # Excluded for now but can be sent: organization_id, customer_id (Stripe), submitted_at,
+        # Create a contact in Salesforce via webhook
+        # TODO: Uncomment before merging - we don't want to pollute Salesforce when testing locally
+        # requests.post(SALESFORCE_ZAPIER_WEBHOOK_URL, json=salesforce_data, timeout=10).raise_for_status()
 
         return zapier_table_data
 
