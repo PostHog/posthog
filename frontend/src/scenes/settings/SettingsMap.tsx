@@ -38,7 +38,6 @@ import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
-import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -304,11 +303,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-triggers',
                 title: 'Replay triggers',
                 component: <ReplayTriggers />,
-            },
-            {
-                id: 'replay-ingestion',
-                title: 'Ingestion controls',
-                component: <SessionRecordingIngestionSettings />,
             },
             {
                 id: 'replay-ai-config',
