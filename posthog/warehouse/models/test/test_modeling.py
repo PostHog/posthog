@@ -22,6 +22,24 @@ from posthog.warehouse.models.modeling import (
         ),
         ("select 1", set()),
         ("select * from numbers(10)", {"numbers"}),
+        (
+            """
+            select *
+            from (
+              select 1 as id, *
+              from events
+              inner join (
+                select * from
+                (
+                  select number
+                  from numbers(10)
+                )
+              ) num on events.id = num.number
+            )
+            """,
+            {"events", "numbers"},
+        ),
+        ("select * from (select * from (select * from (select * from events)))", {"events"}),
     ],
 )
 def test_get_parents_from_model_query(query: str, parents: set[str]):
