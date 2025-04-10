@@ -1,5 +1,6 @@
 from typing import Literal
 
+from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
 from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
@@ -14,6 +15,11 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.utils import ServerTimingsGathered
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
+
+ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
+    "element_stats_time_seconds",
+    "How long does it take to get element stats?",
+)
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -49,87 +55,88 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Currently only $autocapture and $rageclick and $dead_clicks are supported
         """
 
-        timer = ServerTimingsGathered()
+        with ELEMENT_STATS_TIME_HISTOGRAM.time():
+            timer = ServerTimingsGathered()
 
-        with timer("prepare_for_query"):
-            filter = Filter(request=request, team=self.team)
-            date_params = {}
-            query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=True)
-            date_from, date_from_params = query_date_range.date_from
-            date_to, date_to_params = query_date_range.date_to
-            date_params.update(date_from_params)
-            date_params.update(date_to_params)
+            with timer("prepare_for_query"):
+                filter = Filter(request=request, team=self.team)
+                date_params = {}
+                query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=True)
+                date_from, date_from_params = query_date_range.date_from
+                date_to, date_to_params = query_date_range.date_to
+                date_params.update(date_from_params)
+                date_params.update(date_to_params)
 
-            try:
-                limit = int(request.query_params.get("limit", 10_000))
-            except ValueError:
-                raise ValidationError("Limit must be an integer")
+                try:
+                    limit = int(request.query_params.get("limit", 10_000))
+                except ValueError:
+                    raise ValidationError("Limit must be an integer")
 
-            try:
-                offset = int(request.query_params.get("offset", 0))
-            except ValueError:
-                raise ValidationError("offset must be an integer")
+                try:
+                    offset = int(request.query_params.get("offset", 0))
+                except ValueError:
+                    raise ValidationError("offset must be an integer")
 
-            try:
-                sampling_factor = float(request.query_params.get("sampling_factor", 1))
-            except ValueError:
-                raise ValidationError("sampling_factor must be a float")
+                try:
+                    sampling_factor = float(request.query_params.get("sampling_factor", 1))
+                except ValueError:
+                    raise ValidationError("sampling_factor must be a float")
 
-            events_filter = self._events_filter(request)
+                events_filter = self._events_filter(request)
 
-            # unless someone is using this as an API client, this is only for the toolbar,
-            # which only ever queries date range, event type, and URL
-            prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-                team_id=self.team.pk,
-                property_group=filter.property_groups,
-                hogql_context=filter.hogql_context,
-            )
+                # unless someone is using this as an API client, this is only for the toolbar,
+                # which only ever queries date range, event type, and URL
+                prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+                    team_id=self.team.pk,
+                    property_group=filter.property_groups,
+                    hogql_context=filter.hogql_context,
+                )
 
-        with timer("execute_query"):
-            result = sync_execute(
-                GET_ELEMENTS.format(
-                    date_from=date_from,
-                    date_to=date_to,
-                    query=prop_filters,
-                    sampling_factor=sampling_factor,
-                    limit=limit + 1,
-                    offset=offset,
-                ),
+            with timer("execute_query"):
+                result = sync_execute(
+                    GET_ELEMENTS.format(
+                        date_from=date_from,
+                        date_to=date_to,
+                        query=prop_filters,
+                        sampling_factor=sampling_factor,
+                        limit=limit + 1,
+                        offset=offset,
+                    ),
+                    {
+                        "team_id": self.team.pk,
+                        "timezone": self.team.timezone,
+                        "sampling_factor": sampling_factor,
+                        **prop_filter_params,
+                        **date_params,
+                        "filter_event_types": events_filter,
+                        **filter.hogql_context.values,
+                    },
+                )
+
+            with timer("serialize_elements"):
+                serialized_elements = [
+                    {
+                        "count": elements[1],
+                        "hash": None,
+                        "type": elements[2],
+                        "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
+                    }
+                    for elements in result[:limit]
+                ]
+
+            has_next = len(result) == limit + 1
+            next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
+            previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
+            elements_response = response.Response(
                 {
-                    "team_id": self.team.pk,
-                    "timezone": self.team.timezone,
-                    "sampling_factor": sampling_factor,
-                    **prop_filter_params,
-                    **date_params,
-                    "filter_event_types": events_filter,
-                    **filter.hogql_context.values,
-                },
-            )
-
-        with timer("serialize_elements"):
-            serialized_elements = [
-                {
-                    "count": elements[1],
-                    "hash": None,
-                    "type": elements[2],
-                    "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
+                    "results": serialized_elements,
+                    "next": next_url,
+                    "previous": previous_url,
                 }
-                for elements in result[:limit]
-            ]
+            )
 
-        has_next = len(result) == limit + 1
-        next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
-        previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
-        elements_response = response.Response(
-            {
-                "results": serialized_elements,
-                "next": next_url,
-                "previous": previous_url,
-            }
-        )
-
-        elements_response.headers["Server-Timing"] = timer.to_header_string()
-        return elements_response
+            elements_response.headers["Server-Timing"] = timer.to_header_string()
+            return elements_response
 
     def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick", "$dead_click"], ...]:
         SUPPORTED_EVENTS = {"$autocapture", "$rageclick", "$dead_click"}
