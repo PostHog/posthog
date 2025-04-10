@@ -238,7 +238,7 @@ export function ProjectTree(): JSX.Element {
                                                 <IconChevronRight className="ml-auto h-4 w-4" />
                                             </ButtonPrimitive>
                                         </MenuSubTrigger>
-                                        <MenuSubContent collisionPadding={50}>
+                                        <MenuSubContent>
                                             {treeItem.children.map((child: any) => (
                                                 <MenuItem
                                                     key={child.id}
