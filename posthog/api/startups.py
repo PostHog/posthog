@@ -217,8 +217,11 @@ class StartupApplicationSerializer(serializers.Serializer):
                         "Screenshot proof is required for YC applications that cannot be automatically verified"
                     )
 
-            data["yc_verified_automatically"] = str(verified)
-            data["yc_deal_type"] = get_yc_deal_type(data["yc_batch"])
+                data["yc_verified_automatically"] = str(verified)
+                data["yc_deal_type"] = get_yc_deal_type(data["yc_batch"])
+
+            if "yc_batch" in data:
+                data["yc_deal_type"] = get_yc_deal_type(data["yc_batch"])
 
             # Remove startup fields for YC program
             data.pop("raised", None)
