@@ -131,7 +131,7 @@ func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 		if tokenValue, ok := phEvent.Properties["token"].(string); ok {
 			phEvent.Token = tokenValue
 		} else {
-			log.Printf("No valid token found in event %s", string(kafkaMessage))
+			log.Printf("No valid token found in event with UUID: %s", wrapperMessage.Uuid)
 		}
 	}
 
