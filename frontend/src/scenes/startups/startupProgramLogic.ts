@@ -4,6 +4,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -298,6 +299,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     actions.setFormSubmitted(true)
                     // eslint-disable-next-line no-console
                     console.log('✅ Application submitted successfully with response:', response)
+                    posthog.capture('startup program application submitted', valuesToSubmit)
                 } catch (error: any) {
                     // eslint-disable-next-line no-console
                     console.log('🚨 Error submitting application:', JSON.stringify(error, null, 2))
