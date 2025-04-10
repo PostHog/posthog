@@ -138,13 +138,17 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return elements_response
 
     def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick", "$dead_click"], ...]:
-        SUPPORTED_EVENTS = {"$autocapture", "$rageclick", "$dead_click"}
+        supported_events: set[Literal["$autocapture", "$rageclick", "$dead_click"]] = {
+            "$autocapture",
+            "$rageclick",
+            "$dead_click",
+        }
         events_to_include = set(request.query_params.getlist("include", []))
 
         if not events_to_include:
-            return tuple(SUPPORTED_EVENTS)
+            return tuple(supported_events)
 
-        if not events_to_include.issubset(SUPPORTED_EVENTS):
+        if not events_to_include.issubset(supported_events):
             raise ValidationError("Only $autocapture, $rageclick, and $dead_click are supported.")
 
         return tuple(events_to_include)
