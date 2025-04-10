@@ -141,6 +141,8 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
             elements_response.headers["Server-Timing"] = timer.to_header_string()
+            elements_response.headers["Cache-Control"] = "public, max-age=30"  # Cache for 30 seconds
+
             return elements_response
 
     def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick", "$dead_click"], ...]:
