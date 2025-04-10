@@ -114,7 +114,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {self._prop_vals()},
-                    {self.udf_event_array_filter()}
+                    events_array
                 )) as af_tuple,
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
