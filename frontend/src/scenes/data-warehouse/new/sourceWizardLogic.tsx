@@ -27,23 +27,25 @@ import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLog
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
-const Caption = (): JSX.Element => (
+const StripeCaption = (): JSX.Element => (
     <>
         Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
         <br />
         You can find your account ID{' '}
-        <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
+        <Link to="https://dashboard.stripe.com/settings/account" target="_blank">
             in your Stripe dashboard
         </Link>
         , and create a secret key{' '}
-        <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
+        <Link to="https://dashboard.stripe.com/apikeys/create" target="_blank">
             here
         </Link>
         .
         <br />
-        Currently, read permissions are required for the following resources:
         <br />
-        Account, Invoice, Customer, Subscription, Product, Price, BalanceTransaction, Charge.
+        Currently, <strong>read permissions are required</strong> for the following resources:
+        <br />
+        <code>Account</code>, <code>Invoice</code>, <code>Customer</code>, <code>Subscription</code>,{' '}
+        <code>Product</code>, <code>Price</code>, <code>BalanceTransaction</code>, and <code>Charge</code>.
     </>
 )
 
@@ -53,7 +55,7 @@ export const getHubspotRedirectUri = (): string =>
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
         name: 'Stripe',
-        caption: <Caption />,
+        caption: <StripeCaption />,
         fields: [
             {
                 name: 'stripe_account_id',
