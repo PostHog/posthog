@@ -23,7 +23,7 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
+import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import {
     NPS_DETRACTOR_LABEL,
@@ -157,7 +157,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         type="primary"
                                         data-attr="launch-survey"
                                         disabledReason={
-                                            showSurveysDisabledBanner
+                                            showSurveysDisabledBanner && survey.type !== SurveyType.API
                                                 ? 'Please enable surveys in the banner below before launching'
                                                 : undefined
                                         }
