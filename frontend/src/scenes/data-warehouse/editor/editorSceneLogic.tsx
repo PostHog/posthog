@@ -60,8 +60,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             ['selectSourceTable', 'toggleJoinTableModal'],
             teamLogic,
             ['addProductIntent'],
-            queryDatabaseLogic,
-            ['selectSchema'],
         ],
     })),
     actions({
