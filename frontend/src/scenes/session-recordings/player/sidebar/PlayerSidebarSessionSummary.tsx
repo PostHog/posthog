@@ -63,8 +63,6 @@ function SessionSummary(): JSX.Element {
         <div className="flex flex-col" style={{ maxWidth: '24rem' }}>
             {sessionSummary ? (
                 <>
-
-
                     <LemonBanner
                         className="mb-3"
                         type='info'
