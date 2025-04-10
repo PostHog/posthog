@@ -399,6 +399,9 @@ class ApiRequest {
     public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
     }
+    public fileSystemCountByPath(path: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent('count_by_path').withQueryString({ path })
+    }
 
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
@@ -1257,6 +1260,7 @@ const api = {
     fileSystem: {
         async list({
             parent,
+            path,
             depth,
             limit,
             offset,
@@ -1266,6 +1270,7 @@ const api = {
             type__startswith,
         }: {
             parent?: string
+            path?: string
             depth?: number
             limit?: number
             offset?: number
@@ -1276,7 +1281,7 @@ const api = {
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
-                .withQueryString({ parent, depth, limit, offset, search, ref, type, type__startswith })
+                .withQueryString({ parent, path, depth, limit, offset, search, ref, type, type__startswith })
                 .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
@@ -1299,6 +1304,9 @@ const api = {
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
+        },
+        async countByPath(path: string): Promise<FileSystemCount> {
+            return await new ApiRequest().fileSystemCountByPath(path).create()
         },
     },
 

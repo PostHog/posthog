@@ -579,6 +579,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
+    session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -590,6 +591,7 @@ export interface TeamType extends TeamBasicType {
     data_attributes: string[]
     person_display_name_properties: string[]
     has_group_types: boolean
+    group_types: GroupType[]
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
