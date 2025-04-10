@@ -104,8 +104,7 @@ func (c *PostHogKafkaConsumer) Consume() {
 func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
-		log.Printf("Error decoding JSON: %v", err)
-		log.Printf("Data: %s", string(kafkaMessage))
+		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
 	}
 
 	phEvent := PostHogEvent{
@@ -116,10 +115,8 @@ func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 	}
 
 	data := []byte(wrapperMessage.Data)
-
 	if err := json.Unmarshal(data, &phEvent); err != nil {
-		log.Printf("Error decoding JSON: %v", err)
-		log.Printf("Data: %s", string(data))
+		log.Printf("Error decoding JSON %s: %v", err, string(data))
 	}
 
 	phEvent.Uuid = wrapperMessage.Uuid
