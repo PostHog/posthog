@@ -9,6 +9,7 @@ from django.db import connection, models, transaction
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
@@ -312,8 +313,9 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         Returns:
             A tuple with the model path and a `bool` indicating whether it was created or not.
         """
-        posthog_tables = self.get_hogql_database(team).get_posthog_tables()
-        if posthog_source_name not in posthog_tables:
+        try:
+            self.get_hogql_database(team).get_table(posthog_source_name)
+        except QueryError:
             raise ValueError(f"Provided source {posthog_source_name} is not a PostHog table")
 
         return self.get_or_create(path=[posthog_source_name], team=team, defaults={"saved_query": None})
@@ -354,14 +356,6 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         parent_paths = []
         for parent in get_parents_from_model_query(query):
             try:
-                parent_path, _ = self.get_or_create_root_path_for_posthog_source(parent, team)
-            except ValueError:
-                pass
-            else:
-                parent_paths.append(parent_path)
-                continue
-
-            try:
                 parent_query = (
                     DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=parent).get()
                 )
@@ -381,6 +375,14 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 pass
             else:
                 parent_path, _ = self.get_or_create_root_path_for_data_warehouse_table(parent_table)
+                parent_paths.append(parent_path)
+                continue
+
+            try:
+                parent_path, _ = self.get_or_create_root_path_for_posthog_source(parent, team)
+            except ValueError:
+                pass
+            else:
                 parent_paths.append(parent_path)
                 continue
 

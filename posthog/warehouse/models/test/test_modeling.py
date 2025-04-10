@@ -21,6 +21,7 @@ from posthog.warehouse.models.modeling import (
             {"events"},
         ),
         ("select 1", set()),
+        ("select * from numbers(10)", {"numbers"}),
     ],
 )
 def test_get_parents_from_model_query(query: str, parents: set[str]):
