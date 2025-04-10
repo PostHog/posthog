@@ -121,7 +121,6 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
         let feature_flag_match =
             FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None, None)
                 .get_match(&flags[0], None, None)
-                .await
                 .unwrap();
 
         if *result {
@@ -1213,7 +1212,6 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
         let feature_flag_match =
             FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None, None)
                 .get_match(&flags[0], None, None)
-                .await
                 .unwrap();
 
         if let Some(variant) = &result {

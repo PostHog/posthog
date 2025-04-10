@@ -39,11 +39,7 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 ///
 /// ## Returns
 /// * `f64` - A number between 0 and 1
-pub async fn calculate_hash(
-    prefix: &str,
-    hashed_identifier: &str,
-    salt: &str,
-) -> Result<f64, FlagError> {
+pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Result<f64, FlagError> {
     let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
     let mut hasher = Sha1::new();
     hasher.update(hash_key.as_bytes());
@@ -103,40 +99,46 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
         // If we have cohort IDs to check and a valid person_id, do the cohort query
         if let Some(cohort_ids) = cohort_ids {
-            let cohort_query = r#"
-                WITH cohort_membership AS (
-                    SELECT c.cohort_id, 
-                           CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
-                    FROM unnest($1::integer[]) AS c(cohort_id)
-                    LEFT JOIN posthog_cohortpeople AS pc
-                      ON pc.person_id = $2
-                      AND pc.cohort_id = c.cohort_id
-                )
-                SELECT cohort_id, is_member
-                FROM cohort_membership
-            "#;
+            // Only run the query if we actually have cohort IDs to check
+            if !cohort_ids.is_empty() {
+                let cohort_query = r#"
+                    WITH cohort_membership AS (
+                        SELECT c.cohort_id, 
+                               CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
+                        FROM unnest($1::integer[]) AS c(cohort_id)
+                        LEFT JOIN posthog_cohortpeople AS pc
+                          ON pc.person_id = $2
+                          AND pc.cohort_id = c.cohort_id
+                    )
+                    SELECT cohort_id, is_member
+                    FROM cohort_membership
+                "#;
 
-            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
-            let cohort_rows = sqlx::query(cohort_query)
-                .bind(&cohort_ids)
-                .bind(person_id)
-                .fetch_all(&mut *conn)
-                .await?;
-            cohort_timer.fin();
+                let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
+                let cohort_rows = sqlx::query(cohort_query)
+                    .bind(&cohort_ids)
+                    .bind(person_id)
+                    .fetch_all(&mut *conn)
+                    .await?;
+                cohort_timer.fin();
 
-            let cohort_processing_timer =
-                common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
-            let cohort_results: HashMap<CohortId, bool> = cohort_rows
-                .into_iter()
-                .map(|row| {
-                    let cohort_id: CohortId = row.get("cohort_id");
-                    let is_member: bool = row.get("is_member");
-                    (cohort_id, is_member)
-                })
-                .collect();
+                let cohort_processing_timer =
+                    common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
+                let cohort_results: HashMap<CohortId, bool> = cohort_rows
+                    .into_iter()
+                    .map(|row| {
+                        let cohort_id: CohortId = row.get("cohort_id");
+                        let is_member: bool = row.get("is_member");
+                        (cohort_id, is_member)
+                    })
+                    .collect();
 
-            flag_evaluation_state.set_static_cohort_matches(cohort_results);
-            cohort_processing_timer.fin();
+                flag_evaluation_state.set_static_cohort_matches(cohort_results);
+                cohort_processing_timer.fin();
+            } else {
+                // If we have no cohort IDs, just set an empty map
+                flag_evaluation_state.set_static_cohort_matches(HashMap::new());
+            }
         }
     }
 
@@ -153,10 +155,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     person_processing_timer.fin();
 
     // Only fetch group data if we have group types to look up
-    if !group_type_indexes.is_empty() && !group_keys.is_empty() {
+    if !group_type_indexes.is_empty() {
         let group_query = r#"
             SELECT 
                 group_type_index,
+                group_key,
                 group_properties
             FROM posthog_group
             WHERE team_id = $1
@@ -164,11 +167,15 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 AND group_key = ANY($3)
         "#;
 
+        let group_type_indexes_vec: Vec<GroupTypeIndex> =
+            group_type_indexes.iter().cloned().collect();
+        let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
+
         let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
         let groups = sqlx::query(group_query)
             .bind(team_id)
-            .bind(group_type_indexes.iter().collect::<Vec<_>>())
-            .bind(group_keys.iter().collect::<Vec<_>>())
+            .bind(&group_type_indexes_vec)
+            .bind(&group_keys_vec)
             .fetch_all(&mut *conn)
             .await?;
         group_query_timer.fin();
@@ -179,7 +186,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             let properties: Value = row.get("group_properties");
 
             if let Value::Object(props) = properties {
-                let properties = props.into_iter().map(|(k, v)| (k, v)).collect();
+                let properties = props.into_iter().collect();
                 flag_evaluation_state.set_group_properties(group_type_index, properties);
             }
         }
@@ -187,83 +194,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
 
     Ok(())
-}
-
-/// Fetch person properties and person ID from the database for a given distinct ID and team ID.
-///
-/// This function constructs and executes a SQL query to fetch the person properties for a specified distinct ID and team ID.
-/// It returns the fetched properties as a HashMap.
-pub async fn fetch_person_properties_from_db(
-    reader: PostgresReader,
-    distinct_id: String,
-    team_id: TeamId,
-) -> Result<(HashMap<String, Value>, PersonId), FlagError> {
-    let mut conn = reader.as_ref().get_connection().await?;
-
-    let query = r#"
-           SELECT "posthog_person"."id" as person_id, "posthog_person"."properties" as person_properties
-           FROM "posthog_person"
-           INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-           WHERE ("posthog_persondistinctid"."distinct_id" = $1
-                   AND "posthog_persondistinctid"."team_id" = $2
-                   AND "posthog_person"."team_id" = $2)
-           LIMIT 1
-       "#;
-
-    let row: Option<(PersonId, Value)> = sqlx::query_as(query)
-        .bind(&distinct_id)
-        .bind(team_id)
-        .fetch_optional(&mut *conn)
-        .await?;
-
-    match row {
-        Some((person_id, person_props)) => {
-            let properties_map = person_props
-                .as_object()
-                .unwrap_or(&serde_json::Map::new())
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            Ok((properties_map, person_id))
-        }
-        None => Err(FlagError::PersonNotFound),
-    }
-}
-
-/// Fetch group properties from the database for a given team ID and group type index.
-///
-/// This function constructs and executes a SQL query to fetch the group properties for a specified team ID and group type index.
-/// It returns the fetched properties as a HashMap.
-pub async fn fetch_group_properties_from_db(
-    reader: PostgresReader,
-    team_id: TeamId,
-    group_type_index: GroupTypeIndex,
-    group_key: String,
-) -> Result<HashMap<String, Value>, FlagError> {
-    let mut conn = reader.as_ref().get_connection().await?;
-
-    let query = r#"
-        SELECT "posthog_group"."group_properties"
-        FROM "posthog_group"
-        WHERE ("posthog_group"."team_id" = $1
-                AND "posthog_group"."group_type_index" = $2
-                AND "posthog_group"."group_key" = $3)
-        LIMIT 1
-    "#;
-
-    let row: Option<Value> = sqlx::query_scalar(query)
-        .bind(team_id)
-        .bind(group_type_index)
-        .bind(group_key)
-        .fetch_optional(&mut *conn)
-        .await?;
-
-    Ok(row
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(k, v)| (k, v.clone()))
-        .collect())
 }
 
 /// Check if all required properties are present in the overrides
@@ -627,9 +557,7 @@ mod tests {
     #[case("example_id2", 0.6292740389966519)]
     #[tokio::test]
     async fn test_calculate_hash(#[case] hashed_identifier: &str, #[case] expected_hash: f64) {
-        let hash = calculate_hash("holdout-", hashed_identifier, "")
-            .await
-            .unwrap();
+        let hash = calculate_hash("holdout-", hashed_identifier, "").unwrap();
         assert!(
             (hash - expected_hash).abs() < f64::EPSILON,
             "Hash {} should equal expected value {} within floating point precision",

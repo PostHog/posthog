@@ -29,6 +29,7 @@ use std::{
     net::IpAddr,
     sync::Arc,
 };
+use tracing::error;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -128,6 +129,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let team = flag_service
         .get_team_from_cache_or_pg(&verified_token)
         .await?;
+
     let team_id = team.id;
     let project_id = team.project_id;
 
@@ -300,8 +302,15 @@ pub fn decode_request(
 
 /// Evaluates all requested feature flags in the provided context, returning a [`FlagsResponse`].
 pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {
-    let group_type_mapping_cache =
-        GroupTypeMappingCache::new(context.project_id, context.reader.clone());
+    let mut group_type_mapping_cache = GroupTypeMappingCache::new(context.project_id);
+
+    // TODO time this
+    group_type_mapping_cache
+        .init(context.reader.clone())
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to initialize group type mapping cache: {:?}", e);
+        });
 
     let mut matcher = FeatureFlagMatcher::new(
         context.distinct_id,
@@ -686,6 +695,10 @@ mod tests {
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
+
         // Create a feature flag with conditions that will cause an error
         let flags = vec![FeatureFlag {
             name: Some("Error Flag".to_string()),
@@ -693,7 +706,7 @@ mod tests {
             key: "error-flag".to_string(),
             active: true,
             deleted: false,
-            team_id: 1,
+            team_id: team.id,
             filters: FlagFilters {
                 groups: vec![FlagGroupType {
                     // Reference a non-existent cohort
@@ -722,8 +735,8 @@ mod tests {
 
         // Set up evaluation context
         let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: 1,
-            project_id: 1,
+            team_id: team.id,
+            project_id: team.project_id,
             distinct_id: "user123".to_string(),
             feature_flags: feature_flag_list,
             reader,
