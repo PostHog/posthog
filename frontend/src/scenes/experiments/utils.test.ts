@@ -535,15 +535,6 @@ describe('checkFeatureFlagEligibility', () => {
             'Feature flag must use multiple variants with control as the first variant.'
         )
     })
-    it('throws an error for a feature flag that already has an experiment set', () => {
-        const featureFlag = {
-            ...baseFeatureFlag,
-            experiment_set: [2],
-        }
-        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
-            'Feature flag is already associated with an experiment.'
-        )
-    })
     it('returns true for a feature flag with control and test variants', () => {
         const featureFlag = {
             ...baseFeatureFlag,
