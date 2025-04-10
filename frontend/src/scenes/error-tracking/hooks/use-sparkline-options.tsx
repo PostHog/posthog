@@ -5,9 +5,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { SparklineOptions } from '../components/SparklineChart/SparklineChart'
 
-const GRAY_700 = 'primitive-neutral-700'
-const GRAY_200 = 'primitive-neutral-200'
-
 export function useSparklineOptions(overrides: Partial<SparklineOptions> = {}, deps: any[] = []): SparklineOptions {
     const colorVars = useDefaultSparklineColorVars()
     return useMemo(() => {
@@ -26,8 +23,10 @@ export function useSparklineOptions(overrides: Partial<SparklineOptions> = {}, d
     }, [colorVars, ...deps])
 }
 
+const DARK_MODE_COLORS = ['color-zinc-400', 'color-zinc-200']
+const LIGHT_MODE_COLORS = ['color-zinc-400', 'color-zinc-600']
+
 export function useDefaultSparklineColorVars(): [string, string] {
     const { isDarkModeOn } = useValues(themeLogic)
-    const colors = useMemo(() => [GRAY_200, GRAY_700], [])
-    return useMemo(() => (isDarkModeOn ? [...colors].reverse() : colors), [isDarkModeOn, colors]) as [string, string]
+    return useMemo(() => (isDarkModeOn ? DARK_MODE_COLORS : LIGHT_MODE_COLORS), [isDarkModeOn]) as [string, string]
 }
