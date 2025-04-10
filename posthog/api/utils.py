@@ -520,10 +520,9 @@ class ServerTimingsGathered:
         timings_dict = self.get_all_timings()
         hogql_timings_dict = {}
         for timing in hogql_timings or []:
-            key, time = timing
-            new_key = f"hogql_{key.lstrip('./').replace('/', '_')}"
+            new_key = f"hogql_{timing.k.lstrip('./').replace('/', '_')}"
             # HogQL query timings are in seconds, convert to milliseconds
-            hogql_timings_dict[new_key] = time * 1000
+            hogql_timings_dict[new_key] = timing.t * 1000
         all_timings = {**timings_dict, **hogql_timings_dict}
         return all_timings
 
