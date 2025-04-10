@@ -56,6 +56,11 @@ function getValidationError(operator: PropertyOperator, value: any, property?: s
         }
     }
     if (isOperatorRange(operator) && isNaN(value)) {
+        // Skip validation for version properties - they can use range operators even if they're not numeric
+        if (property && isVersionProperty(property)) {
+            return null
+        }
+
         let message = `Range operators only work with numeric values`
         if (dayjs(value).isValid()) {
             const propertyReference = property ? `property ${property}` : 'this property'
