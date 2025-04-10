@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -27,6 +26,8 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
+
+from posthog.models.utils import ServerTimingsGathered
 
 from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
@@ -144,31 +145,6 @@ class SurrogatePairSafeJSONRenderer(JSONRenderer):
     """
 
     encoder_class = SurrogatePairSafeJSONEncoder
-
-
-# context manager for gathering a sequence of server timings
-class ServerTimingsGathered:
-    def __init__(self):
-        # Instance level dictionary to store timings
-        self.timings_dict = {}
-
-    def __call__(self, name):
-        self.name = name
-        return self
-
-    def __enter__(self):
-        # timings are assumed to be in milliseconds when reported
-        # but are gathered by time.perf_counter which is fractional seconds 🫠
-        # so each value is multiplied by 1000 at collection
-        self.start_time = time.perf_counter() * 1000
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        end_time = time.perf_counter() * 1000
-        elapsed_time = end_time - self.start_time
-        self.timings_dict[self.name] = elapsed_time
-
-    def get_all_timings(self):
-        return self.timings_dict
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
@@ -465,10 +441,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         response = JsonResponse(data={"results": results})
 
-        response.headers["Server-Timing"] = ", ".join(
-            f"{key};dur={round(duration, ndigits=2)}"
-            for key, duration in _generate_timings(timings, ServerTimingsGathered()).items()
-        )
+        response.headers["Server-Timing"] = ServerTimingsGathered.to_header_string(timings, timings)
         return response
 
     @extend_schema(
@@ -1072,9 +1045,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         response = Response(
             {"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]}
         )
-        response.headers["Server-Timing"] = ", ".join(
-            f"{key};dur={round(duration, ndigits=2)}" for key, duration in _generate_timings(None, timer).items()
-        )
+        response.headers["Server-Timing"] = timer.to_header_string()
         return response
 
 
@@ -1171,7 +1142,7 @@ def list_recordings_from_query(
             if person:
                 recording.person = person
 
-    return recordings, more_recordings_available, _generate_timings(hogql_timings, timer)
+    return recordings, more_recordings_available, timer.generate_timings(hogql_timings)
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:
@@ -1229,17 +1200,6 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         pass
 
     return modifiers
-
-
-def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimingsGathered) -> dict[str, float]:
-    timings_dict = timer.get_all_timings()
-    hogql_timings_dict = {}
-    for key, value in hogql_timings or {}:
-        new_key = f"hogql_{key[1].lstrip('./').replace('/', '_')}"
-        # HogQL query timings are in seconds, convert to milliseconds
-        hogql_timings_dict[new_key] = value[1] * 1000
-    all_timings = {**timings_dict, **hogql_timings_dict}
-    return all_timings
 
 
 def _get_openai_client() -> OpenAI:
