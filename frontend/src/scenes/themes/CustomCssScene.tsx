@@ -111,6 +111,7 @@ a,
 [class*="button-primitive"],
 [class*="LemonButton"],
 [class*="ant-btn"],
+.LemonButton > span::after,
 [class*="group/button-primitive"] {
     background: var(--lumon-bg) !important;
     color: var(--lumon-blue) !important;
@@ -169,14 +170,6 @@ a div {
     box-shadow: none !important;
 }
 
-.LemonButton > span::after {
-    content: '';
-    display: none;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-}
-
 button svg,
 a svg,
 [class*="btn"] svg,
@@ -202,6 +195,47 @@ a:not([class*="button"]):not([class*="btn"]):hover {
     color: var(--lumon-bg);
     box-shadow: var(--glow);
     border-bottom: none;
+}
+
+/* === CRT EFFECTS (Reduced) === */
+body {
+    filter: contrast(1.3) brightness(1.15) saturate(1.3);
+    position: relative;
+    overflow: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    mix-blend-mode: screen;
+    background: repeating-linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.04) 0px,
+        rgba(255, 255, 255, 0.04) 1px,
+        transparent 1px,
+        transparent 2px
+    );
+    opacity: 0.18;
+    animation: flicker 1.2s infinite steps(2);
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9998;
+    box-shadow:
+        inset 0 0 60px rgba(0, 0, 0, 0.5),
+        inset 0 0 150px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes flicker {
+    0%, 100% { opacity: 0.85; }
+    50% { opacity: 0.95; }
 }`
 
 export function CustomCssScene(): JSX.Element {
