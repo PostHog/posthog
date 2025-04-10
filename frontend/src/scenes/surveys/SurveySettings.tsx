@@ -203,7 +203,7 @@ export function SurveysDisabledBanner(): JSX.Element | null {
             will not be rendered in your app (either automatically or{' '}
             <Link to="https://posthog.com/docs/surveys/implementing-custom-surveys#rendering-surveys-programmatically">
                 using the <code>renderSurvey</code> function
-            </Link>{' '}
+            </Link>
             ). Surveys API is enabled if you are{' '}
             <Link
                 to="https://posthog.com/docs/surveys/implementing-custom-surveys#fetching-surveys-manually"
