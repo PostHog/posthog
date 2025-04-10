@@ -1,12 +1,10 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     client::database::Client,
-    cohort::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
-        flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
-        flag_models::FeatureFlagList,
-        flag_request::FlagRequest,
-        flag_service::FlagService,
+        flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher,
+        flag_models::FeatureFlagList, flag_request::FlagRequest, flag_service::FlagService,
     },
     router,
     team::team_models::Team,
@@ -511,7 +509,8 @@ mod tests {
         flags::flag_models::{FeatureFlag, FlagFilters, FlagGroupType},
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
-            insert_new_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+            insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_reader_client,
+            setup_pg_writer_client,
         },
     };
 
@@ -744,7 +743,7 @@ mod tests {
             &FlagDetails {
                 key: "error-flag".to_string(),
                 enabled: false,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "unknown".to_string(),
                     condition_index: None,
@@ -885,6 +884,16 @@ mod tests {
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let distinct_id = "user_distinct_id".to_string();
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .expect("Failed to insert person");
+
         let flags = vec![
             FeatureFlag {
                 name: Some("Flag 1".to_string()),
@@ -892,7 +901,7 @@ mod tests {
                 key: "flag_1".to_string(),
                 active: true,
                 deleted: false,
-                team_id: 1,
+                team_id: team.id,
                 filters: FlagFilters {
                     groups: vec![FlagGroupType {
                         properties: Some(vec![]),
@@ -914,7 +923,7 @@ mod tests {
                 key: "flag_2".to_string(),
                 active: true,
                 deleted: false,
-                team_id: 1,
+                team_id: team.id,
                 filters: FlagFilters {
                     groups: vec![FlagGroupType {
                         properties: Some(vec![]),
@@ -935,9 +944,9 @@ mod tests {
         let feature_flag_list = FeatureFlagList { flags };
 
         let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: 1,
-            project_id: 1,
-            distinct_id: "user123".to_string(),
+            team_id: team.id,
+            project_id: team.project_id,
+            distinct_id: distinct_id.clone(),
             feature_flags: feature_flag_list,
             reader,
             writer,
@@ -970,6 +979,12 @@ mod tests {
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let distinct_id = "user123".to_string();
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .unwrap();
+
         let flags = vec![
             FeatureFlag {
                 name: Some("Flag 1".to_string()),
@@ -977,7 +992,7 @@ mod tests {
                 key: "flag_1".to_string(),
                 active: true,
                 deleted: false,
-                team_id: 1,
+                team_id: team.id,
                 filters: FlagFilters {
                     groups: vec![FlagGroupType {
                         properties: Some(vec![]),
@@ -999,7 +1014,7 @@ mod tests {
                 key: "flag_2".to_string(),
                 active: true,
                 deleted: false,
-                team_id: 1,
+                team_id: team.id,
                 filters: FlagFilters {
                     groups: vec![FlagGroupType {
                         properties: Some(vec![]),
@@ -1020,9 +1035,9 @@ mod tests {
         let feature_flag_list = FeatureFlagList { flags };
 
         let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: 1,
-            project_id: 1,
-            distinct_id: "user123".to_string(),
+            team_id: team.id,
+            project_id: team.project_id,
+            distinct_id: distinct_id.clone(),
             feature_flags: feature_flag_list,
             reader,
             writer,
@@ -1042,7 +1057,7 @@ mod tests {
             FlagDetails {
                 key: "flag_1".to_string(),
                 enabled: true,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -1061,7 +1076,7 @@ mod tests {
             FlagDetails {
                 key: "flag_2".to_string(),
                 enabled: false,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "out_of_rollout_bound".to_string(),
                     condition_index: Some(0),
@@ -1178,8 +1193,6 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        println!("result: {:?}", result);
-
         assert!(
             result.flags.contains_key("test_flag"),
             "test_flag not found in result flags"
@@ -1208,17 +1221,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_long_distinct_id() {
-        let long_id = "a".repeat(1000);
+        // distinct_id is CHAR(400)
+        let long_id = "a".repeat(400);
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let distinct_id = long_id.to_string();
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .expect("Failed to insert person");
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
             key: "test_flag".to_string(),
             active: true,
             deleted: false,
-            team_id: 1,
+            team_id: team.id,
             filters: FlagFilters {
                 groups: vec![FlagGroupType {
                     properties: Some(vec![]),
@@ -1238,8 +1257,8 @@ mod tests {
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
         let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: 1,
-            project_id: 1,
+            team_id: team.id,
+            project_id: team.project_id,
             distinct_id: long_id,
             feature_flags: feature_flag_list,
             reader,

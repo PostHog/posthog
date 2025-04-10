@@ -72,8 +72,8 @@ function useSparklineColors(): { color: string; hoverColor: string } {
 
     return useMemo(() => {
         return {
-            color: isDarkModeOn ? 'primitive-neutral-800' : 'primitive-neutral-200',
-            hoverColor: isDarkModeOn ? 'primitive-neutral-200' : 'primitive-neutral-800',
+            color: isDarkModeOn ? 'primitive-neutral-600' : 'primitive-neutral-200',
+            hoverColor: isDarkModeOn ? 'primitive-neutral-200' : 'primitive-neutral-700',
         }
     }, [isDarkModeOn])
 }

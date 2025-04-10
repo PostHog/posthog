@@ -288,6 +288,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         instance.save()
         return Response(status=status.HTTP_200_OK)
 
+    @action(methods=["DELETE"], detail=True)
+    def delete_data(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSchema = self.get_object()
+        instance.delete_table()
+
+        return Response(status=status.HTTP_200_OK)
+
     @action(methods=["POST"], detail=True)
     def incremental_fields(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()

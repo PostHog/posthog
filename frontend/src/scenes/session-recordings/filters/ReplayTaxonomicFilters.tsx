@@ -5,9 +5,9 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { getFilterLabel } from 'lib/taxonomy'
 import { useState } from 'react'
 
+import { getFilterLabel } from '~/taxonomy/helpers'
 import { PropertyFilterType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'

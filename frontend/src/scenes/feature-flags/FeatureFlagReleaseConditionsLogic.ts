@@ -32,9 +32,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
     key(({ id }) => id ?? 'unknown'),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
-    }),
+    })),
     actions({
         setFilters: (filters: FeatureFlagFilters) => ({ filters }),
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
