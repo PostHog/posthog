@@ -125,22 +125,16 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
         if join is None:
             continue
 
-        if isinstance(join.table, ast.SelectQuery):
-            if join.table.view_name is not None:
-                parents.add(join.table.view_name)
-                continue
-
-            queries.append(join.table)
-            continue
-        elif isinstance(join.table, ast.SelectSetQuery):
-            queries.extend(list(extract_select_queries(join.table)))
-
         while join is not None:
             if isinstance(join.table, ast.SelectQuery):
-                # Joining with a subquery.
-                # We should traverse the subquery down to the last one.
-                join = join.table.select_from
-                continue
+                if join.table.view_name is not None:
+                    parents.add(join.table.view_name)
+                    break
+
+                queries.append(join.table)
+                break
+            elif isinstance(join.table, ast.SelectSetQuery):
+                queries.extend(list(extract_select_queries(join.table)))
 
             parent_name = join.table.chain[0]  # type: ignore
 
