@@ -96,7 +96,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
@@ -186,7 +187,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
@@ -235,7 +237,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
@@ -299,7 +302,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
@@ -314,7 +318,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
@@ -363,7 +368,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
