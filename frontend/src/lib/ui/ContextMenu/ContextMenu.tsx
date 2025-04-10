@@ -34,7 +34,7 @@ const ContextMenuSubContent = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.SubContent>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
 >(
-    ({ className, collisionPadding = 100, children, ...props }, ref): JSX.Element => (
+    ({ className, collisionPadding = { top: 50, bottom: 50 }, children, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.SubContent
             ref={ref}
             collisionPadding={collisionPadding}
@@ -53,7 +53,7 @@ const ContextMenuContent = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
 >(
-    ({ className, children, collisionPadding = 100, ...props }, ref): JSX.Element => (
+    ({ className, children, collisionPadding = { top: 50, bottom: 50 }, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.Content
                 ref={ref}
