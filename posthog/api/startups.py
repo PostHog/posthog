@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.viewsets import ViewSet
 from datetime import timedelta
+from enum import Enum
 from posthog.cache_utils import cache_for
 
 from posthog.models import Organization
@@ -18,6 +19,13 @@ from ee.billing.billing_manager import BillingManager
 
 
 logger = structlog.get_logger(__name__)
+
+
+class YCDealType(str, Enum):
+    CURRENT = "current"  # Two most recent batches - $50K for 12 months, merch, slack
+    OLD = "old"  # Next 4 batches - $50K for 12 months
+    OLDER = "older"  # Everyone else - $25K for 12 months
+
 
 STARTUP_ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/8898847/20d1fd1/"
 YC_ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/8898847/20dlxpo/"
@@ -333,7 +341,7 @@ def get_sorted_yc_batches() -> list[str]:
         return []
 
 
-def get_yc_deal_type(batch: str) -> str:
+def get_yc_deal_type(batch: str) -> YCDealType:
     """Return the deal type for a YC batch.
     - current: Two most recent batches (current and upcoming) - $50K for 12 months,
     - old: Next 4 batches
@@ -342,12 +350,12 @@ def get_yc_deal_type(batch: str) -> str:
     sorted_batches = get_sorted_yc_batches()
 
     if not sorted_batches or batch.upper() not in sorted_batches:
-        return "older"
+        return YCDealType.OLDER
 
     batch_index = sorted_batches.index(batch.upper())
 
     if batch_index < 2:  # First two batches
-        return "current"
+        return YCDealType.CURRENT
     elif batch_index < 6:  # Next four batches
-        return "old"
-    return "older"
+        return YCDealType.OLD
+    return YCDealType.OLDER  # Everyone else
