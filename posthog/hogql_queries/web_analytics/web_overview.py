@@ -58,6 +58,19 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             ]
             if self.query.includeRevenue:
                 results.append(to_data("revenue", "currency", row[10], row[11]))
+            
+            # Add extended stats if requested
+            if self.query.includeExtendedStats:
+                extended_offset = 12 if self.query.includeRevenue else 10
+                results.extend([
+                    to_data("recordings", "unit", self._unsample(row[extended_offset]), self._unsample(row[extended_offset + 1])),
+                    to_data("clicks", "unit", self._unsample(row[extended_offset + 2]), self._unsample(row[extended_offset + 3])),
+                    to_data("rage clicks", "unit", self._unsample(row[extended_offset + 4]), self._unsample(row[extended_offset + 5])),
+                    to_data("dead clicks", "unit", self._unsample(row[extended_offset + 6]), self._unsample(row[extended_offset + 7])),
+                    to_data("errors", "unit", self._unsample(row[extended_offset + 8]), self._unsample(row[extended_offset + 9])),
+                    to_data("surveys shown", "unit", self._unsample(row[extended_offset + 10]), self._unsample(row[extended_offset + 11])),
+                    to_data("surveys answered", "unit", self._unsample(row[extended_offset + 12]), self._unsample(row[extended_offset + 13])),
+                ])
 
         return WebOverviewQueryResponse(
             results=results,
@@ -147,6 +160,130 @@ HAVING {inside_start_timestamp_period}
                     ast.Alias(
                         alias="session_revenue",
                         expr=revenue_sum_expression_for_events(self.team.revenue_config),
+                    )
+                )
+            
+            # Add extended stats if requested
+            if self.query.includeExtendedStats:
+                # Count unique session_ids where the session has a recording
+                parsed_select.select.append(
+                    ast.Alias(
+                        alias="has_recording",
+                        expr=ast.Call(
+                            name="countIf", 
+                            args=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["events", "properties", "$session_id"]),
+                                    op=ast.CompareOperationOp.IsNotNull,
+                                    right=ast.Constant(value=None)
+                                )
+                            ]
+                        )
+                    )
+                )
+                # Count normal clicks
+                parsed_select.select.append(
+                    ast.Alias(
+                        alias="click_count",
+                        expr=ast.Call(
+                            name="countIf",
+                            args=[
+                                ast.And(
+                                    exprs=[
+                                        ast.CompareOperation(
+                                            left=ast.Field(chain=["event"]),
+                                            op=ast.CompareOperationOp.Eq,
+                                            right=ast.Constant(value="$autocapture")
+                                        ),
+                                        ast.CompareOperation(
+                                            left=ast.Field(chain=["properties", "$event_type"]),
+                                            op=ast.CompareOperationOp.Eq,
+                                            right=ast.Constant(value="click")
+                                        )
+                                    ]
+                                )
+                            ]
+                        )
+                    )
+                )
+                # Count rage clicks
+                parsed_select.select.append(
+                    ast.Alias(
+                        alias="rage_click_count",
+                        expr=ast.Call(
+                            name="countIf",
+                            args=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["event"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value="rage_click")
+                                )
+                            ]
+                        )
+                    )
+                )
+                # Count dead clicks
+                parsed_select.select.append(
+                    ast.Alias(
+                        alias="dead_click_count",
+                        expr=ast.Call(
+                            name="countIf",
+                            args=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["event"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value="dead_click")
+                                )
+                            ]
+                        )
+                    )
+                )
+                # Count errors
+                parsed_select.select.append(
+                    ast.Alias(
+                        alias="error_count",
+                        expr=ast.Call(
+                            name="countIf",
+                            args=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["event"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value="$exception")
+                                )
+                            ]
+                        )
+                    )
+                )
+                # Count surveys shown
+                parsed_select.select.append(
+                    ast.Alias(
+                        alias="surveys_shown_count",
+                        expr=ast.Call(
+                            name="countIf",
+                            args=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["event"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value="survey shown")
+                                )
+                            ]
+                        )
+                    )
+                )
+                # Count surveys answered
+                parsed_select.select.append(
+                    ast.Alias(
+                        alias="surveys_answered_count",
+                        expr=ast.Call(
+                            name="countIf",
+                            args=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["event"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value="survey sent")
+                                )
+                            ]
+                        )
                     )
                 )
 
@@ -244,6 +381,25 @@ HAVING {inside_start_timestamp_period}
                         previous_period_aggregate("sum", "session_revenue", "previous_revenue"),
                     ]
                 )
+                
+            # Add extended stats if requested
+            if self.query.includeExtendedStats:
+                select.extend([
+                    current_period_aggregate("sum", "has_recording", "recordings_count"),
+                    previous_period_aggregate("sum", "has_recording", "previous_recordings_count"),
+                    current_period_aggregate("sum", "click_count", "clicks_count"),
+                    previous_period_aggregate("sum", "click_count", "previous_clicks_count"),
+                    current_period_aggregate("sum", "rage_click_count", "rage_clicks_count"),
+                    previous_period_aggregate("sum", "rage_click_count", "previous_rage_clicks_count"),
+                    current_period_aggregate("sum", "dead_click_count", "dead_clicks_count"),
+                    previous_period_aggregate("sum", "dead_click_count", "previous_dead_clicks_count"),
+                    current_period_aggregate("sum", "error_count", "errors_count"),
+                    previous_period_aggregate("sum", "error_count", "previous_errors_count"),
+                    current_period_aggregate("sum", "surveys_shown_count", "surveys_shown_count"),
+                    previous_period_aggregate("sum", "surveys_shown_count", "previous_surveys_shown_count"),
+                    current_period_aggregate("sum", "surveys_answered_count", "surveys_answered_count"),
+                    previous_period_aggregate("sum", "surveys_answered_count", "previous_surveys_answered_count"),
+                ])
 
         return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
 

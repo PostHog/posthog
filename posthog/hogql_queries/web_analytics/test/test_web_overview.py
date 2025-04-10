@@ -97,6 +97,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         custom_event: Optional[str] = None,
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
         include_revenue: Optional[bool] = False,
+        include_extended_stats: bool = False,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
             modifiers = HogQLQueryModifiers(
@@ -109,6 +110,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 modifiers=modifiers,
                 filterTestAccounts=filter_test_accounts,
                 includeRevenue=include_revenue,
+                includeExtendedStats=include_extended_stats,
                 conversionGoal=ActionConversionGoal(actionId=action.id)
                 if action
                 else CustomEventConversionGoal(customEventName=custom_event)
@@ -886,3 +888,116 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+
+    def test_extended_stats(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-02"))
+        
+        # Create pageviews
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ]
+        )
+        
+        # Create clicks
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, [Element(nth_of_type=1, nth_child=0, tag_name="button", text="Click me")])]),
+            ],
+            event="$autocapture",
+        )
+        
+        # Create rage clicks
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="rage_click",
+        )
+        
+        # Create dead clicks
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="dead_click",
+        )
+        
+        # Create errors
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="$exception",
+        )
+        
+        # Create surveys shown
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="survey shown",
+        )
+        
+        # Create surveys answered
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="survey sent",
+        )
+
+        # First test without extended stats - should return basic stats only
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03").results
+        assert len(results) == 5  # visitors, views, sessions, duration, bounce rate
+        assert [item.key for item in results] == [
+            "visitors",
+            "views",
+            "sessions",
+            "session duration",
+            "bounce rate",
+        ]
+
+        # Update the _run_web_overview_query method to add includeExtendedStats
+        with freeze_time(self.QUERY_TIMESTAMP):
+            modifiers = HogQLQueryModifiers(
+                sessionTableVersion=SessionTableVersion.V2, 
+                bounceRatePageViewMode=BounceRatePageViewMode.COUNT_PAGEVIEWS
+            )
+            query = WebOverviewQuery(
+                dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-03"),
+                properties=[],
+                compareFilter=CompareFilter(compare=True),
+                modifiers=modifiers,
+                filterTestAccounts=False,
+                includeRevenue=False,
+                includeExtendedStats=True,
+            )
+            runner = WebOverviewQueryRunner(team=self.team, query=query)
+            response = runner.calculate()
+            WebOverviewQueryResponse.model_validate(response)
+            
+            # Verify extended stats are included
+            extended_results = response.results
+            assert len(extended_results) > 5  # Should have more than standard metrics
+            
+            # Check if all expected extended metrics are present
+            expected_metrics = [
+                "visitors", 
+                "views", 
+                "sessions", 
+                "session duration", 
+                "bounce rate",
+                "recordings", 
+                "clicks", 
+                "rage clicks", 
+                "dead clicks", 
+                "errors", 
+                "surveys shown", 
+                "surveys answered"
+            ]
+            
+            result_keys = [item.key for item in extended_results]
+            for metric in expected_metrics:
+                assert metric in result_keys, f"Missing expected metric: {metric}"
