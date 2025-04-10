@@ -182,7 +182,7 @@ export function Group(): JSX.Element {
                 }
             />
             <LemonTabs
-                activeKey={groupTab ?? PersonsTabType.PROPERTIES}
+                activeKey={groupTab ?? 'overview'}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
                     {
