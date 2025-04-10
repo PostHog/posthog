@@ -1,5 +1,6 @@
 from abc import ABC
 from datetime import datetime
+from unittest.mock import ANY
 from uuid import UUID
 
 from freezegun.api import freeze_time
@@ -443,7 +444,7 @@ class TestPathsV2PathsPerActorAsArrayQuery(SharedSetup):
 
         self.assertEqual(
             response.results,
-            [(datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC), UUID("c6d7a3d6-6307-9297-248b-3569c2ae4c93"), "event1")],
+            [(datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC), UUID("0283115f-14dc-31f8-ab01-c2a9c0e179ec"), "event1")],
         )
 
     @pytest.mark.skip(reason="TODO: pending start and end event implementation")
@@ -468,6 +469,7 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
                 "session_index",
                 "paths_array",
                 "paths_array_session_split",
+                "paths_array_per_session",
                 "filtered_paths_array_per_session",
                 "paths_array_per_session_with_dropoffs",
                 "limited_paths_array_per_session",
@@ -540,12 +542,8 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
         self.assertEqual(
             rows[0]["paths_array_per_session"],
             [
-                (datetime(2023, 2, 11, 12, 0, tzinfo=pytz.UTC), "event1", None),
-                (
-                    datetime(2023, 2, 12, 13, 0, tzinfo=pytz.UTC),
-                    "event2",
-                    datetime(2023, 2, 11, 12, 0, tzinfo=pytz.UTC),
-                ),
+                (datetime(2023, 2, 11, 12, 0, tzinfo=pytz.UTC), "event1"),
+                (datetime(2023, 2, 12, 13, 0, tzinfo=pytz.UTC), "event2"),
             ],
         )
 
@@ -555,12 +553,8 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
         self.assertEqual(
             rows[1]["paths_array_per_session"],
             [
-                (datetime(2023, 3, 11, 12, 0, tzinfo=pytz.UTC), "event3", None),
-                (
-                    datetime(2023, 3, 12, 13, 0, tzinfo=pytz.UTC),
-                    "event4",
-                    datetime(2023, 3, 11, 12, 0, tzinfo=pytz.UTC),
-                ),
+                (datetime(2023, 3, 11, 12, 0, tzinfo=pytz.UTC), "event3"),
+                (datetime(2023, 3, 12, 13, 0, tzinfo=pytz.UTC), "event4"),
             ],
         )
 
@@ -586,15 +580,62 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
             response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
             rows = rows_as_dicts(response)
 
-        query = PathsV2Query()
-
         self.assertEqual(
             rows[0]["filtered_paths_array_per_session"],
             [
-                (datetime(2023, 2, 10, 8, 0, tzinfo=pytz.UTC), "event1", None),
-                (datetime(2023, 2, 12, 10, 0, tzinfo=pytz.UTC), "event2", datetime(2023, 2, 11, 9, 0, tzinfo=pytz.UTC)),
+                (datetime(2023, 2, 10, 8, 0, tzinfo=pytz.UTC), "event1"),
+                (datetime(2023, 2, 12, 10, 0, tzinfo=pytz.UTC), "event2"),
+            ],
+        )
+        self.assertEqual(
+            rows[1]["filtered_paths_array_per_session"],
+            [
+                (datetime(2023, 3, 10, 15, 0, tzinfo=pytz.UTC), "event3"),
+                (datetime(2023, 3, 12, 17, 0, tzinfo=pytz.UTC), "event4"),
             ],
         )
 
-        # - Adds dropoffs
+    def test_adds_dropoffs(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {"event": "event1", "timestamp": "2023-02-11 12:00:00"},
+                    {"event": "event2", "timestamp": "2023-02-12 13:00:00"},
+                    {"event": "event3", "timestamp": "2023-03-11 12:00:00"},
+                    {"event": "event4", "timestamp": "2023-03-12 13:00:00"},
+                ],
+            },
+        )
+        query = PathsV2Query(dateRange=DateRange(date_from="-10w"))
+
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            paths_per_actor_and_session_as_tuple_query = query_runner._paths_per_actor_and_session_as_tuple_query()
+            response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
+            rows = rows_as_dicts(response)
+
+        # two sessions
+        self.assertEqual(len(rows), 2)
+
+        # session for february
+        self.assertEqual(
+            rows[0]["paths_array_per_session_with_dropoffs"],
+            [
+                (datetime(2023, 2, 11, 12, 0, tzinfo=pytz.UTC), "event1"),
+                (datetime(2023, 2, 12, 13, 0, tzinfo=pytz.UTC), "event2"),
+                (ANY, "$$__posthog_dropoff__$$"),
+            ],
+        )
+
+        # session for march
+        self.assertEqual(
+            rows[1]["paths_array_per_session_with_dropoffs"],
+            [
+                (datetime(2023, 3, 11, 12, 0, tzinfo=pytz.UTC), "event3"),
+                (datetime(2023, 3, 12, 13, 0, tzinfo=pytz.UTC), "event4"),
+                (ANY, "$$__posthog_dropoff__$$"),
+            ],
+        )
+
         # - Keeps only the first `max_steps` steps of each session.

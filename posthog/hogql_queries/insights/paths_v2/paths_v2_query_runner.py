@@ -255,12 +255,8 @@ class PathsV2QueryRunner(QueryRunner):
                 previous timestamp is greater than the session window. */
                 arraySplit(x->if(x.1 < x.3 + {session_interval}, 0, 1), paths_array) as paths_array_session_split,
 
-                /* Make the first step's previous timestamp null for each session. */
-                arrayMap(
-                    (x, i) -> if(i = 1, (x.1, x.2, NULL), x),
-                    paths_array_per_session_joined,
-                    arrayEnumerate(paths_array_per_session_joined)
-                ) as paths_array_per_session,
+                /* Remove the previous timestamp column from the array. */
+                arrayMap((x) -> (x.1, x.2), paths_array_per_session_joined) as paths_array_per_session,
 
                 /* Filters out the steps that are the same as the previous step. */
                 arrayFilter(
@@ -270,7 +266,7 @@ class PathsV2QueryRunner(QueryRunner):
                 ) as filtered_paths_array_per_session,
 
                 /* Adds dropoffs. */
-                arrayPushBack({collapsed_path_array_alias}, (now(), {POSTHOG_DROPOFF}, now())) as paths_array_per_session_with_dropoffs,
+                arrayPushBack({collapsed_path_array_alias}, (now(), {POSTHOG_DROPOFF})) as paths_array_per_session_with_dropoffs,
 
                 /* Returns the first n events per session. */
                 arraySlice(paths_array_per_session_with_dropoffs, 1, {max_steps}) as limited_paths_array_per_session
