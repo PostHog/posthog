@@ -58,18 +58,27 @@ class CodebaseSyncService:
         client_tree = ArtifactNode.build_tree(client_tree_nodes)
         server_tree = ArtifactNode.build_tree(server_tree_nodes)
 
-        result = ArtifactNode.compare(server_tree, client_tree)
-        added, deleted = result["added"], result["deleted"]
+        added, deleted = ArtifactNode.compare(server_tree, client_tree)
 
-        nodes: dict[str, SerializedArtifact] = {}
-        for node in client_tree_nodes:
-            nodes[node["id"]] = node
-        for node in server_tree_nodes:
-            nodes[node["id"]] = node
+        client_nodes_mapping: dict[str, SerializedArtifact] = {node["id"]: node for node in client_tree_nodes}
+        server_nodes_mapping: dict[str, SerializedArtifact] = {node["id"]: node for node in server_tree_nodes}
 
-        self._insert_catalog_nodes(added, deleted, nodes)
+        self._insert_catalog_nodes(added, deleted, {**client_nodes_mapping, **server_nodes_mapping})
 
-        return added
+        # Find files to sync and check integrity
+        files_to_sync = []
+
+        # Tree comparison only finds new files.
+        for client_node_id in added:
+            if client_nodes_mapping[client_node_id]["type"] == "file":
+                files_to_sync.append(client_node_id)
+
+        # Find files we haven't synced yet.
+        for server_node in server_nodes:
+            if server_node.id not in deleted and not server_node.synced:
+                files_to_sync.append(server_node.id)
+
+        return files_to_sync
 
     def _sync_new_tree(self, client_tree_nodes: list[SerializedArtifact]) -> list[str]:
         client_nodes: dict[str, SerializedArtifact] = {node["id"]: node for node in client_tree_nodes}

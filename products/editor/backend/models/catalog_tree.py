@@ -10,11 +10,6 @@ class SerializedArtifact(TypedDict):
     parent_id: str | None
 
 
-class CompareResult(TypedDict):
-    added: list[str]
-    deleted: list[str]
-
-
 class ArtifactNode:
     def __init__(self, hash: str, type: Literal["file", "dir"], children: list["ArtifactNode"]):
         self.hash = hash
@@ -44,45 +39,46 @@ class ArtifactNode:
         return root
 
     @staticmethod
-    def compare(server: "ArtifactNode", client: "ArtifactNode") -> CompareResult:
+    def compare(server: "ArtifactNode", client: "ArtifactNode") -> tuple[set[str], set[str]]:
         """
         Compare server and client nodes recursively and return added/deleted nodes.
 
         Returns:
-            Dictionary with keys 'added' and 'deleted', each containing a list of
-            (hash, type) tuples representing nodes that were added or deleted.
+            Tuple of two sets: first set containing hashes of nodes that were added,
+            second set containing hashes of nodes that were deleted.
         """
-        result = {"added": [], "deleted": []}
+        added_set: set[str] = set()
+        deleted_set: set[str] = set()
 
         # Base case: hashes are the same, no changes
         if server.hash == client.hash:
-            return result
+            return added_set, deleted_set
 
         # Hashes don't match, update the state
-        result["added"].append(client.hash)
-        result["deleted"].append(server.hash)
+        added_set.add(client.hash)
+        deleted_set.add(server.hash)
 
         server_children_map = {child.hash: child for child in server.children}
         client_children_map = {child.hash: child for child in client.children}
 
+        server_hashes = set(server_children_map.keys())
+        client_hashes = set(client_children_map.keys())
+
         # Find deleted nodes (in server but not in client)
-        for hash in server_children_map.keys():
-            if hash not in client_children_map:
-                result["deleted"].extend(server_children_map[hash].traverse())
+        for hash in server_hashes - client_hashes:
+            deleted_set.update(server_children_map[hash].traverse())
 
         # Find added nodes (in client but not in server)
-        for hash in client_children_map.keys():
-            if hash not in server_children_map:
-                result["added"].extend(client_children_map[hash].traverse())
+        for hash in client_hashes - server_hashes:
+            added_set.update(client_children_map[hash].traverse())
 
         # For nodes that exist in both, compare recursively
-        for hash in set(server_children_map.keys()) & set(client_children_map.keys()):
-            if hash in server_children_map and hash in client_children_map:
-                child_result = ArtifactNode.compare(server_children_map[hash], client_children_map[hash])
-                result["added"].extend(child_result["added"])
-                result["deleted"].extend(child_result["deleted"])
+        for hash in server_hashes & client_hashes:
+            child_result = ArtifactNode.compare(server_children_map[hash], client_children_map[hash])
+            added_set.update(child_result["added"])
+            deleted_set.update(child_result["deleted"])
 
-        return result
+        return added_set, deleted_set
 
     def traverse(self) -> Generator[str, None, None]:
         """Get all nested hashes."""
