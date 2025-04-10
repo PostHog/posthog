@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0706_alter_hogfunction_kind"),
+        ("posthog", "0707_file_system_shortcut"),
     ]
 
     operations = [
