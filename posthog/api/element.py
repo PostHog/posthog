@@ -1,6 +1,6 @@
 from typing import Literal
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
 from posthog.api.utils import ServerTimingsGathered, action
 from rest_framework.exceptions import ValidationError
@@ -30,7 +30,7 @@ ELEMENT_STATS_SERIALIZE_TIME_HISTOGRAM = Histogram(
     "How long does it take to serialize element stats?",
 )
 
-DISTINCT_CHAIN_IN_RESPONSE_COUNTER = Counter(
+DISTINCT_CHAIN_IN_RESPONSE_HISTOGRAM = Histogram(
     "element_stats_distinct_chain_in_response",
     "How many distinct chains are in the response?",
 )
@@ -149,7 +149,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     }
                     serialized_elements.append(element_data)
 
-            DISTINCT_CHAIN_IN_RESPONSE_COUNTER.set(len(distinct_chains))
+            DISTINCT_CHAIN_IN_RESPONSE_HISTOGRAM.set(len(distinct_chains))
 
             has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
