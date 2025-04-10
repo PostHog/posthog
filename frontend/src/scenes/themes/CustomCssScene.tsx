@@ -138,6 +138,17 @@ a:hover,
     box-shadow: 0 0 15px var(--lumon-blue) !important;
 }
 
+button:hover *,
+a:hover *,
+[class*="btn"]:hover *,
+[class*="Button"]:hover *,
+[class*="button-primitive"]:hover *,
+[class*="LemonButton"]:hover *,
+[class*="ant-btn"]:hover * {
+    color: var(--lumon-bg) !important;
+    fill: var(--lumon-bg) !important;
+}
+
 [class*="warning"],
 [class*="highlight"],
 [class*="yellow"] {
