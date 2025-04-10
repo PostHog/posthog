@@ -88,6 +88,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 'deleteDataWarehouseSavedQuerySuccess',
                 'createDataWarehouseSavedQuerySuccess',
                 'runDataWarehouseSavedQuery',
+                'resetDataModelingJobs',
+                'loadDataModelingJobs',
             ],
             outputPaneLogic,
             ['setActiveTab'],
@@ -807,6 +809,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const activeTab = values.allTabs.find((tab) => tab.uri.path === values.activeModelUri?.uri.path)
             if (activeTab && activeTab.uri.path != values.activeModelUri?.uri.path) {
                 actions.selectTab(activeTab)
+            }
+        },
+        editingView: (editingView) => {
+            if (editingView) {
+                actions.resetDataModelingJobs()
+                actions.loadDataModelingJobs(editingView.id)
             }
         },
     })),
