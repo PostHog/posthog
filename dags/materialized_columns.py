@@ -173,9 +173,11 @@ def run_materialize_mutations(
     )
 
     shard_mutations_to_run_by_partition = join_mappings(mutations_to_run_by_shard)
-    for _partition, shard_mutations in shard_mutations_to_run_by_partition.items():  # TODO: sort
+    for partition_id, shard_mutations in sorted(shard_mutations_to_run_by_partition.items(), reverse=True):
+        context.log.info("Starting %s materializations for partition %r...", len(shard_mutations), partition_id)
         shard_waiters = _convert_hostinfo_keys_to_shard_num(cluster.map_any_host_in_shards(shard_mutations).result())
         cluster.map_all_hosts_in_shards(shard_waiters).result()
+        context.log.info("Completed materializations for partition %r!", partition_id)
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
