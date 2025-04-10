@@ -36,9 +36,10 @@ while getopts "sp:" opt; do
       ;;
   esac
 done
+shift $((OPTIND - 1))
 
 # conditionally run the migrations (test schemas + django postgres models only!)
-if [[ -n "$SKIP_MIGRATIONS" ]]; then
+if [[ -z "$SKIP_MIGRATIONS" ]]; then
   $SCRIPT_DIR/migrate
 fi
 
