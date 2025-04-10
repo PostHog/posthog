@@ -71,7 +71,7 @@ export function FilterPanel({
             {debouncedLoading && (
                 <LoadingBar
                     wrapperClassName="absolute top-0 left-0 w-full overflow-hidden rounded-none my-0"
-                    className="h-1.5 rounded-none"
+                    className="h-1 rounded-none"
                 />
             )}
             {filterPanelCollapsed ? (
