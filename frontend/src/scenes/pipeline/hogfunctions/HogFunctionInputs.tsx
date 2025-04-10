@@ -78,7 +78,7 @@ function JsonConfigField(props: {
     const formattedValue = useMemo(() => formatJsonValue(props.value), [props.value])
 
     return (
-        <div className="flex flex-col gap-1 w-full">
+        <LemonField.Pure error={error}>
             <CodeEditorResizeable
                 language={props.templating ? 'hogJson' : 'json'}
                 value={formattedValue}
@@ -95,8 +95,7 @@ function JsonConfigField(props: {
                 }}
                 globals={props.templating ? globalsWithInputs : undefined}
             />
-            {error && <LemonField.Pure error={error} />}
-        </div>
+        </LemonField.Pure>
     )
 }
 
