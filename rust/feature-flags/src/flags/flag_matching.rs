@@ -200,6 +200,15 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_override: Option<String>,
     ) -> FlagsResponse {
+        let mut errors_while_computing_flags = false;
+        if let Err(_) = self
+            .group_type_mapping_cache
+            .init(self.reader.clone())
+            .await
+        {
+            errors_while_computing_flags = true;
+        }
+
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
         let flags_have_experience_continuity_enabled = feature_flags
@@ -209,27 +218,35 @@ impl FeatureFlagMatcher {
 
         // Process any hash key overrides
         let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
-        let (hash_key_overrides, initial_error) = if flags_have_experience_continuity_enabled {
-            match hash_key_override {
-                Some(hash_key) => {
-                    let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
-                    self.process_hash_key_override(hash_key, target_distinct_ids)
-                        .await
+        let (hash_key_overrides, flag_hash_key_override_error) =
+            if flags_have_experience_continuity_enabled {
+                match hash_key_override {
+                    Some(hash_key) => {
+                        let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
+                        self.process_hash_key_override(hash_key, target_distinct_ids)
+                            .await
+                    }
+                    // if a flag has experience continuity enabled but no hash key override is provided,
+                    // we don't need to write an override, we can just use the distinct_id
+                    None => (None, false),
                 }
-                // if a flag has experience continuity enabled but no hash key override is provided,
-                // we don't need to write an override, we can just use the distinct_id
-                None => (None, false),
-            }
-        } else {
-            // if experience continuity is not enabled, we don't need to worry about hash key overrides
-            (None, false)
-        };
+            } else {
+                // if experience continuity is not enabled, we don't need to worry about hash key overrides
+                (None, false)
+            };
         hash_key_timer
-            .label("outcome", if initial_error { "error" } else { "success" })
+            .label(
+                "outcome",
+                if flag_hash_key_override_error {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
             .fin();
 
         // If there was an initial error in processing hash key overrides, increment the error counter
-        if initial_error {
+        if flag_hash_key_override_error {
             let reason = "hash_key_override_error";
             common_metrics::inc(
                 FLAG_EVALUATION_ERROR_COUNTER,
@@ -250,7 +267,10 @@ impl FeatureFlagMatcher {
         eval_timer
             .label(
                 "outcome",
-                if flags_response.errors_while_computing_flags || initial_error {
+                if flags_response.errors_while_computing_flags
+                    || flag_hash_key_override_error
+                    || errors_while_computing_flags
+                {
                     "error"
                 } else {
                     "success"
@@ -259,7 +279,9 @@ impl FeatureFlagMatcher {
             .fin();
 
         FlagsResponse::new(
-            initial_error || flags_response.errors_while_computing_flags,
+            flag_hash_key_override_error
+                || flags_response.errors_while_computing_flags
+                || errors_while_computing_flags,
             flags_response.flags,
             None,
         )
