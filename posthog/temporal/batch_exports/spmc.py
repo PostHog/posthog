@@ -443,6 +443,9 @@ async def run_consumer(
         nonlocal consumer_tasks_done
         nonlocal consumer_tasks_pending
 
+        if task.cancelled():
+            consumer.logger.debug("Record batch consumer task cancelled")
+
         try:
             records_completed += task.result()
         except:
