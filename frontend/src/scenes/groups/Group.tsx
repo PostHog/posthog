@@ -37,8 +37,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { GroupOverview } from './GroupOverview'
-
 interface GroupSceneProps {
     groupTypeIndex?: string
     groupKey?: string
@@ -112,11 +110,6 @@ export function Group(): JSX.Element {
                 activeKey={groupTab ?? PersonsTabType.PROPERTIES}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
-                    {
-                        key: 'overview',
-                        label: 'Overview',
-                        content: <GroupOverview />,
-                    },
                     {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="groups-properties-tab">Properties</span>,
