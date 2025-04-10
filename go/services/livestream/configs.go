@@ -31,6 +31,10 @@ func loadConfigs() {
 	viper.SetEnvPrefix("livestream") // will be uppercased automatically
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
-	viper.BindEnv("jwt.secret")   // read from LIVESTREAM_JWT_SECRET
-	viper.BindEnv("postgres.url") // read from LIVESTREAM_POSTGRES_URL
+	if err := viper.BindEnv("jwt.secret"); err != nil {
+		log.Fatalf("failed to bind jwt.secret env var: %v", err)
+	}
+	if err := viper.BindEnv("postgres.url"); err != nil {
+		log.Fatalf("failed to bind postgres.url env var: %v", err)
+	}
 }

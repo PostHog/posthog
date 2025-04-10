@@ -1,0 +1,13 @@
+prod: true
+sentry:
+    dsn: ''
+kafka:
+    brokers: 'localhost:9092'
+    topic: 'events_plugin_ingestion'
+    group_id: 'livestream-dev'
+mmdb:
+    path: '../share/GeoLite2-City.mmdb'
+jwt:
+    token: '<randomly generated secret key>'
+postgres:
+    url: 'postgres://postgres:postgres@localhost:5432/postgres'
