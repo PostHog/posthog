@@ -59,6 +59,50 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
             )
         )
 
+    def test_profile_merging(self):
+        # Test that profile merging works correctly when enabled
+        self.run_function(
+            inputs=create_inputs(identifier_key="id", identifier_value="user123", enable_profile_merging=True),
+            globals={
+                "event": {
+                    "event": "$identify",
+                    "distinct_id": "user123",
+                    "properties": {"$anon_distinct_id": "anon_user_abc"},
+                },
+            },
+        )
+
+        # First fetch call should be for the identify event
+        assert len(self.get_mock_fetch_calls()) == 2
+        # Second fetch call should be for the merge action
+        merge_call = self.get_mock_fetch_calls()[1]
+        assert merge_call[1]["body"]["action"] == "merge"
+        assert merge_call[1]["body"]["primary"] == {"id": "user123"}
+        assert merge_call[1]["body"]["secondary"] == {"id": "anon_user_abc"}
+
+    def test_profile_merging_with_email_identifier(self):
+        # This test verifies that profile merging throws an error when using email identifiers
+        # The code should detect this incorrect configuration and explain the issue to the user
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(
+                inputs=create_inputs(
+                    identifier_key="email",  # Using email identifier
+                    identifier_value="user@example.com",
+                    enable_profile_merging=True,  # Enabled but incompatible with email
+                ),
+                globals={
+                    "event": {
+                        "event": "$identify",
+                        "distinct_id": "user123",
+                        "properties": {"$anon_distinct_id": "anon_user_abc"},
+                    },
+                },
+            )
+
+        # Verify that we get a helpful error message
+        assert 'Profile merging is only supported when using "ID" as the identifier type' in e.value.message
+        assert 'Current identifier type is "email"' in e.value.message
+
     def test_body_includes_all_properties_if_set(self):
         self.run_function(inputs=create_inputs(include_all_properties=False))
 
@@ -152,6 +196,7 @@ class TestTemplateMigration(BaseTest):
                 "identifier_value": {"value": "{event.distinct_id}"},
                 "include_all_properties": {"value": True},
                 "attributes": {"value": {}},
+                "enable_profile_merging": {"value": False},
             }
         )
         assert template["filters"] == snapshot({})

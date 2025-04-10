@@ -75,6 +75,10 @@ if (res.status >= 400) {
 
 // Handle profile merging for identify events
 if (inputs.enable_profile_merging and action == 'identify' and not empty(event.properties.$anon_distinct_id)) {
+    // Check if using the correct identifier type and value
+    if (inputs.identifier_key != 'id') {
+        throw Error(f'Profile merging is only supported when using "ID" as the identifier type. Current identifier type is "{inputs.identifier_key}". Either change your identifier type to "ID" or disable profile merging.')
+    }
     let primaryId := event.distinct_id
     let secondaryId := event.properties.$anon_distinct_id
 
@@ -216,7 +220,7 @@ if (inputs.enable_profile_merging and action == 'identify' and not empty(event.p
             "key": "enable_profile_merging",
             "type": "boolean",
             "label": "Enable profile merging",
-            "description": "Only useful when using 'ID' as your identifier type with distinct_id as the value. When enabled, merges anonymous profiles into identified profiles in Customer.io during identify events.",
+            "description": "Only useful when using 'ID' as your identifier type with event.distinct_id as the identifier value. When enabled, merges anonymous profiles into identified profiles in Customer.io during identify events.",
             "default": False,
             "secret": False,
             "required": False,
