@@ -31,9 +31,11 @@ class CodebaseTreeQueryRunner(TaxonomyCacheMixin, QueryRunner):
         )
 
         results: list[CodebaseTreeResponseItem] = []
-        columns = ["artifact_id", "distance", "obfuscatedPath", "lineStart", "lineEnd"]
+        columns = ["id", "parent_id", "type"]
         for result in response.results:
-            results.append(CodebaseTreeResponseItem(**{column: result[i] for i, column in enumerate(columns)}))
+            results.append(
+                CodebaseTreeResponseItem.model_validate({column: result[i] for i, column in enumerate(columns)})
+            )
 
         return CodebaseTreeQueryResponse(
             results=results,
@@ -46,8 +48,9 @@ class CodebaseTreeQueryRunner(TaxonomyCacheMixin, QueryRunner):
         return parse_select(
             """
              SELECT
-                argMax(artifact_id, timestamp) as artifact_id,
-                argMax(parent_artifact_id, timestamp) as parent_artifact_id
+                artifact_id,
+                argMax(parent_artifact_id, timestamp) as parent_artifact_id,
+                argMax(type, timestamp) as artifact_type,
             FROM
                 codebase_catalog
             WHERE

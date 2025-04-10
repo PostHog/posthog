@@ -5496,7 +5496,7 @@
                     "type": "string"
                 },
                 "parentId": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "type": {
                     "type": "string"
