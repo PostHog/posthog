@@ -82,52 +82,24 @@ const LUMON_THEME = `:root {
     --radius: 0px;
     --font-mono: 'Courier New', Courier, monospace;
 
-    --border: rgba(147, 196, 255, 0.5);
-    --border-bold: #93C4FF;
-    --link: #93C4FF;
-    --text-3000: #93C4FF;
-    --bg-3000: #000000;
-    --bg-light: #1B2B3F;
-    --bg-table: #1B2B3F;
-    --muted-3000: #93C4FF;
-    --primary-3000: #93C4FF;
-    --primary-3000-hover: #93C4FF;
-    --primary-alt-highlight: rgba(147, 196, 255, 0.1);
-    --accent-3000: #1B2B3F;
-    --glass-border-3000: rgba(0, 0, 0, 0.3);
-
-    --primary-3000-frame-bg-light: #93C4FF;
-    --primary-3000-button-bg: #93C4FF;
-    --primary-3000-button-border: #93C4FF;
-    --text-tertiary: #93C4FF;
-    
-    /* Override yellow warning colors */
-    --warning: #93C4FF;
-    --warning-highlight: #93C4FF;
-    --warning-light: rgba(147, 196, 255, 0.1);
-    --primary-light: rgba(147, 196, 255, 0.1);
-    --primary-highlight: #93C4FF;
-    --danger-highlight: #93C4FF;
-
-    --terminal-glow: 0 0 10px rgba(147, 196, 255, 0.3);
+    --lumon-blue: #93C4FF;
+    --lumon-bg: #000000;
+    --glow: 0 0 10px rgba(147, 196, 255, 0.3);
 }
 
 body,
 body[theme='dark'] {
-    background-color: var(--bg-3000);
-    color: var(--text-3000);
+    background: var(--lumon-bg);
+    color: var(--lumon-blue);
     font-family: var(--font-mono);
+    text-shadow: var(--glow);
 }
 
 * {
-    color: var(--text-3000) !important;
-    border-color: var(--border-bold) !important;
-    text-shadow: var(--terminal-glow);
     font-family: var(--font-mono) !important;
-}
-
-.TopBar3000__content {
-    border-bottom: solid 1px var(--border-bold);
+    color: var(--lumon-blue) !important;
+    border-color: var(--lumon-blue) !important;
+    text-shadow: var(--glow);
 }
 
 button,
@@ -140,27 +112,15 @@ a,
 [class*="LemonButton"],
 [class*="ant-btn"],
 [class*="group/button-primitive"] {
-    background-color: var(--bg-3000) !important;
-    color: var(--text-3000) !important;
-    border: 1px solid var(--border-bold) !important;
-    border-radius: var(--radius) !important;
-    font-weight: bold !important;
+    background: var(--lumon-bg) !important;
+    color: var(--lumon-blue) !important;
+    border: 1px solid var(--lumon-blue) !important;
+    border-radius: var(--radius);
+    font-weight: bold;
     text-transform: uppercase;
-    cursor: pointer !important;
-    box-shadow: var(--terminal-glow) !important;
-    transition: all 0.2s ease;
-}
-
-/* Override any warning/highlight button states */
-[class*="warning"],
-[class*="Warning"],
-[class*="highlight"],
-[class*="Highlight"],
-[class*="yellow"],
-[class*="Yellow"] {
-    background-color: var(--bg-3000) !important;
-    color: var(--text-3000) !important;
-    border-color: var(--border-bold) !important;
+    cursor: pointer;
+    box-shadow: var(--glow);
+    transition: 0.2s ease;
 }
 
 button:hover,
@@ -173,13 +133,19 @@ a:hover,
 [class*="LemonButton"]:hover,
 [class*="ant-btn"]:hover,
 [class*="group/button-primitive"]:hover {
-    background-color: var(--primary-3000) !important;
-    color: var(--bg-3000) !important;
-    border-color: var(--primary-3000) !important;
-    box-shadow: 0 0 15px var(--primary-3000) !important;
+    background: var(--lumon-blue) !important;
+    color: var(--lumon-bg) !important;
+    box-shadow: 0 0 15px var(--lumon-blue) !important;
 }
 
-.LemonButton__content,
+[class*="warning"],
+[class*="highlight"],
+[class*="yellow"] {
+    background: var(--lumon-bg) !important;
+    color: var(--lumon-blue) !important;
+    border-color: var(--lumon-blue) !important;
+}
+
 [class*="__content"],
 [class*="__label"],
 [class*="__icon"],
@@ -187,10 +153,10 @@ button span,
 button div,
 a span,
 a div {
-    border: none !important;
     background: transparent !important;
+    border: none !important;
     box-shadow: none !important;
-} 
+}
 
 button svg,
 a svg,
@@ -199,24 +165,24 @@ a svg,
 [class*="button-primitive"] svg,
 [class*="LemonButton"] svg,
 [class*="ant-btn"] svg {
-    color: inherit !important;
     fill: currentColor !important;
-    filter: drop-shadow(var(--terminal-glow));
+    color: inherit !important;
+    filter: drop-shadow(var(--glow));
     width: 16px;
     height: 16px;
 }
 
 a:not([class*="button"]):not([class*="btn"]) {
-    color: var(--link);
+    color: var(--lumon-blue);
     border-bottom: 1px solid transparent;
-    transition: all 0.2s ease;
+    transition: 0.2s ease;
 }
 
 a:not([class*="button"]):not([class*="btn"]):hover {
-    background-color: var(--primary-3000);
-    color: var(--bg-3000);
-    border-bottom-color: transparent;
-    box-shadow: var(--terminal-glow);
+    background: var(--lumon-blue);
+    color: var(--lumon-bg);
+    box-shadow: var(--glow);
+    border-bottom: none;
 }`
 
 export function CustomCssScene(): JSX.Element {
