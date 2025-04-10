@@ -519,10 +519,11 @@ class ServerTimingsGathered:
     def generate_timings(self, hogql_timings: list[QueryTiming] | None = None) -> dict[str, float]:
         timings_dict = self.get_all_timings()
         hogql_timings_dict = {}
-        for key, value in hogql_timings or {}:
-            new_key = f"hogql_{key[1].lstrip('./').replace('/', '_')}"
+        for timing in hogql_timings or []:
+            key, time = timing
+            new_key = f"hogql_{key.lstrip('./').replace('/', '_')}"
             # HogQL query timings are in seconds, convert to milliseconds
-            hogql_timings_dict[new_key] = value[1] * 1000
+            hogql_timings_dict[new_key] = time * 1000
         all_timings = {**timings_dict, **hogql_timings_dict}
         return all_timings
 
