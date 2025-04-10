@@ -7,7 +7,7 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 function GroupDetailDashboard({
@@ -57,30 +57,32 @@ export function GroupDashboardCard(): JSX.Element {
             <QueryCard
                 title="Weekly active users"
                 description={`Shows the number of unique users from this ${groupTypeName} in the last 90 days`}
-                query={{
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        interval: 'week',
-                        dateRange: {
-                            date_from: '-90d',
-                        },
-                        series: [
-                            {
-                                kind: NodeKind.EventsNode,
-                                math: 'dau',
-                                event: null,
-                                properties: [
-                                    {
-                                        key: `$group_${groupData.group_type_index}`,
-                                        value: groupData.group_key,
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
+                query={
+                    {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            interval: 'week',
+                            dateRange: {
+                                date_from: '-90d',
                             },
-                        ],
-                    },
-                }}
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    math: 'dau',
+                                    event: null,
+                                    properties: [
+                                        {
+                                            key: `$group_${groupData.group_type_index}`,
+                                            value: groupData.group_key,
+                                            operator: PropertyOperator.Exact,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    } as Node
+                }
                 context={{ refresh: 'force_blocking' }}
             />
             <div className="flex justify-end">
