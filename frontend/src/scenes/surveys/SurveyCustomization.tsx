@@ -91,7 +91,7 @@ export function Customization({
                         label="Position"
                         info={
                             isWidgetSurveyWithSelectorWidgetType
-                                ? 'The "next to trigger" option requires posthog.js version TODO_BEFORE_MERGE or higher.'
+                                ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
                                 : undefined
                         }
                     >
@@ -108,7 +108,7 @@ export function Customization({
                                         key={position}
                                         tooltip={
                                             position === SurveyPosition.NextToTrigger
-                                                ? 'This option is only available for widget surveys. The survey will be displayed next to the trigger button.'
+                                                ? 'This option is only available for feedback button surveys. The survey will be displayed next to the chosen feedback button, based on the CSS selector you provided.'
                                                 : undefined
                                         }
                                         type="tertiary"
@@ -120,7 +120,9 @@ export function Customization({
                                                 : 'Upgrade your plan to customize survey position.'
                                         }
                                     >
-                                        {position}
+                                        {position === SurveyPosition.NextToTrigger
+                                            ? 'next to feedback button'
+                                            : position}
                                     </LemonButton>
                                 )
                             })}

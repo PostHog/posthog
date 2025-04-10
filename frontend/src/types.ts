@@ -2967,7 +2967,7 @@ export enum SurveyMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Widget = 'widget',
+    Widget = 'widget', // feedback button survey
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
@@ -2977,7 +2977,7 @@ export enum SurveyPosition {
     Left = 'left',
     Center = 'center',
     Right = 'right',
-    NextToTrigger = 'next to trigger',
+    NextToTrigger = 'next_to_trigger',
 }
 
 export enum SurveyWidgetType {
