@@ -20,6 +20,7 @@ from posthog.models.utils import (
     UUIDModel,
     uuid7,
 )
+from posthog.warehouse.models import S3Table
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
 
@@ -371,8 +372,12 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 continue
 
             try:
-                parent_table = DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=parent).get()
-            except ObjectDoesNotExist:
+                table = self.get_hogql_database(team).get_table(parent)
+                if not isinstance(table, S3Table):
+                    raise ObjectDoesNotExist()
+
+                parent_table = DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
+            except (ObjectDoesNotExist, QueryError):
                 pass
             else:
                 parent_path, _ = self.get_or_create_root_path_for_data_warehouse_table(parent_table)
