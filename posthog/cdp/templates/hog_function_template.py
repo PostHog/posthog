@@ -37,6 +37,15 @@ HogFunctionTemplateKind = Literal["messaging_campaign"]
 
 
 @dataclasses.dataclass(frozen=True)
+class HogFunctionMappingTemplate:
+    name: str
+    include_by_default: Optional[bool] = None
+    filters: Optional[dict] = None
+    inputs: Optional[dict] = None
+    inputs_schema: Optional[list[dict]] = None
+
+
+@dataclasses.dataclass(frozen=True)
 class HogFunctionSubTemplate:
     id: SubTemplateId
     name: str
@@ -46,19 +55,11 @@ class HogFunctionSubTemplate:
     masking: Optional[dict] = None
     input_schema_overrides: Optional[dict[str, dict]] = None
     type: Optional[HogFunctionTemplateType] = None
+    mapping_templates: Optional[list[HogFunctionMappingTemplate]] = None
 
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionMapping:
-    filters: Optional[dict] = None
-    inputs: Optional[dict] = None
-    inputs_schema: Optional[list[dict]] = None
-
-
-@dataclasses.dataclass(frozen=True)
-class HogFunctionMappingTemplate:
-    name: str
-    include_by_default: Optional[bool] = None
     filters: Optional[dict] = None
     inputs: Optional[dict] = None
     inputs_schema: Optional[list[dict]] = None
@@ -120,7 +121,8 @@ def derive_sub_templates(templates: list[HogFunctionTemplate]) -> list[HogFuncti
             template_params.pop("sub_templates")
             # Update with the sub template params if not none
             for key, value in sub_template_params.items():
-                if value is not None:
+                # some sub_templates do not have mappings
+                if value is not None or key == "mapping_templates":
                     template_params[key] = value
 
             template_params["id"] = merged_id
