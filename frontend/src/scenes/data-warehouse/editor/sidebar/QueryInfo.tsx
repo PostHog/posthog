@@ -1,4 +1,4 @@
-import { LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -140,7 +140,15 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                             <div>
                                 <p>
                                     Materialized views are a way to pre-compute data in your data warehouse. This allows
-                                    you to run queries faster and more efficiently.
+                                    you to run queries faster and more efficiently. Learn more about materialization{' '}
+                                    <Link
+                                        data-attr="materializing-help"
+                                        to="https://posthog.com/docs/data-warehouse/views#materializing-and-scheduling-a-view"
+                                        target="_blank"
+                                    >
+                                        here
+                                    </Link>
+                                    .
                                 </p>
                                 <LemonButton
                                     onClick={() => {

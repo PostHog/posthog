@@ -115,7 +115,7 @@ describe('generate sparkline labels', () => {
                 date_to: '2025-01-02',
             },
             4
-        )
+        ).map((label) => label.toISOString())
         expect(labels).toEqual([
             '2025-01-01T00:00:00.000Z',
             '2025-01-01T06:00:00.000Z',
