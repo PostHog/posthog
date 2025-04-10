@@ -1,4 +1,4 @@
-import { IconBolt, IconBrackets, IconDatabaseBolt, IconServer } from '@posthog/icons'
+import { IconBrackets, IconDatabaseBolt, IconInfo, IconServer } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -10,7 +10,7 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
 import { editorSceneLogic } from '../editorSceneLogic'
 import { editorSizingLogic } from '../editorSizingLogic'
-import { editorSidebarLogic, EditorSidebarTab } from './editorSidebarLogic'
+import { editorSidebarLogic } from './editorSidebarLogic'
 import { Materialization } from './Materialization'
 import { QueryDatabase } from './QueryDatabase'
 import { QueryInfo } from './QueryInfo'
@@ -40,7 +40,7 @@ export const EditorSidebar = ({
 
     useEffect(() => {
         setSidebarWidth(sidebarWidth)
-    }, [sidebarWidth])
+    }, [sidebarWidth, setSidebarWidth])
 
     const tabs = useMemo(
         () => [
@@ -84,7 +84,7 @@ export const EditorSidebar = ({
                 label: (
                     <Tooltip title="Query properties">
                         <div className="flex justify-center px-2">
-                            <IconBolt className="text-xl" />
+                            <IconInfo className="text-xl" />
                         </div>
                     </Tooltip>
                 ),
