@@ -359,6 +359,7 @@ class TestPathsV2BaseEventsQuery(SharedSetup):
                     datetime(2023, 3, 2, 12, 0, tzinfo=pytz.UTC),
                     UUID("19817248-b1a1-f231-a0f6-a530155cbd20"),
                     "event2",
+                    [],
                 ),
             ],
         )
@@ -426,12 +427,12 @@ class TestPathsV2PathsPerActorAsArrayQuery(SharedSetup):
             team=self.team,
             events_by_person={
                 "person1": [
-                    {"event": "event1", "timestamp": "2023-03-12 12:00:00"},
-                    {"event": "event2", "timestamp": "2023-03-12 12:00:00"},
+                    {"event": "event1", "timestamp": "2023-03-12 08:00:00"},
+                    {"event": "event2", "timestamp": "2023-03-12 09:00:00"},
                 ],
                 "person2": [
-                    {"event": "event3", "timestamp": "2023-03-12 12:00:00"},
-                    {"event": "event4", "timestamp": "2023-03-12 12:00:00"},
+                    {"event": "event3", "timestamp": "2023-03-12 10:00:00"},
+                    {"event": "event4", "timestamp": "2023-03-12 11:00:00"},
                 ],
             },
         )
@@ -441,11 +442,10 @@ class TestPathsV2PathsPerActorAsArrayQuery(SharedSetup):
             query_runner = self._get_query_runner(query=query)
             paths_per_actor_as_array_query = query_runner._paths_per_actor_as_array_query()
             response = execute_hogql_query(query=paths_per_actor_as_array_query, team=self.team)
+            rows = rows_as_dicts(response)
 
-        self.assertEqual(
-            response.results,
-            [(datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC), UUID("0283115f-14dc-31f8-ab01-c2a9c0e179ec"), "event1")],
-        )
+        self.assertEqual(rows[0]["path_item_array"], ["event3", "event4"])
+        self.assertEqual(rows[1]["path_item_array"], ["event1", "event2"])
 
     @pytest.mark.skip(reason="TODO: pending start and end event implementation")
     def test_start_and_end_event(self):

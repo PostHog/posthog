@@ -181,6 +181,8 @@ class PathsV2QueryRunner(QueryRunner):
                 series_entities_flags.append(entity_to_expr(entity, self.team))
 
             query.select.append(ast.Alias(alias="series_entities_flags", expr=ast.Tuple(exprs=series_entities_flags)))
+        else:
+            query.select.append(ast.Alias(alias="series_entities_flags", expr=ast.Call(name="array", args=[])))
 
         return query
 
@@ -201,7 +203,8 @@ class PathsV2QueryRunner(QueryRunner):
             SELECT
                 actor_id,
                 groupArray(timestamp) as timestamp_array,
-                groupArray(path_item) as path_item_array
+                groupArray(path_item) as path_item_array,
+                groupArray(series_entities_flags) as series_entities_flags_array
             FROM {event_base_query}
             GROUP BY actor_id
         """,
@@ -210,13 +213,13 @@ class PathsV2QueryRunner(QueryRunner):
             },
         )
 
-        if self.query.series is not None and len(self.query.series) > 0:
-            query.select.append(
-                ast.Alias(
-                    alias="series_entities_flags_array",
-                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=["series_entities_flags"])]),
-                )
-            )
+        # if self.query.series is not None and len(self.query.series) > 0:
+        #     query.select.append(
+        #         ast.Alias(
+        #             alias="series_entities_flags_array",
+        #             expr=ast.Call(name="groupArray", args=[ast.Field(chain=["series_entities_flags"])]),
+        #         )
+        #     )
 
         return query
 
@@ -248,7 +251,8 @@ class PathsV2QueryRunner(QueryRunner):
                 arrayZip(
                     timestamp_array,
                     path_item_array,
-                    arrayPopBack(arrayPushFront(timestamp_array, NULL))
+                    arrayPopBack(arrayPushFront(timestamp_array, NULL)),
+                    series_entities_flags_array
                 ) as paths_array,
 
                 /* Splits the tuple array if the difference between the current and the
