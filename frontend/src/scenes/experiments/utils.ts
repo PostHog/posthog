@@ -6,6 +6,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
+    ActionsNode,
     AnyEntityNode,
     EventsNode,
     ExperimentEventExposureConfig,
@@ -565,17 +566,38 @@ export function filterToMetricConfig(
             return undefined
         }
 
+        // Combine events and actions and sort by order
+        const eventSteps =
+            events?.map(
+                (event) =>
+                    ({
+                        kind: NodeKind.EventsNode,
+                        event: event.id,
+                        properties: event.properties,
+                        order: event.order,
+                    } as EventsNode & { order: number })
+            ) || []
+
+        const actionSteps =
+            actions?.map(
+                (action) =>
+                    ({
+                        kind: NodeKind.ActionsNode,
+                        id: action.id,
+                        name: action.name,
+                        properties: action.properties,
+                        order: action.order,
+                    } as ActionsNode & { order: number })
+            ) || []
+
+        const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
+
+        // Remove the temporary order field
+        const series = combinedSteps.map(({ order, ...step }) => step as ExperimentFunnelMetricStep)
+
         return {
             metric_type: ExperimentMetricType.FUNNEL,
-            series:
-                events?.map(
-                    (event) =>
-                        ({
-                            kind: NodeKind.EventsNode,
-                            event: event.id,
-                            properties: event.properties,
-                        } as ExperimentFunnelMetricStep)
-                ) || [],
+            series,
         }
     }
 
