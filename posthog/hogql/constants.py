@@ -122,4 +122,4 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # which can cause an error like `Not found column if(in(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8) in block.
     # There are only columns: if(nullIn(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8)
     # https://github.com/ClickHouse/ClickHouse/issues/64487
-    optimize_min_equality_disjunction_chain_length = 4294967295
+    optimize_min_equality_disjunction_chain_length: Optional[int] = 4294967295
