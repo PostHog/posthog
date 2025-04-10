@@ -73,6 +73,16 @@ const teamActionsMapping: Record<
             description: [<>Changed session replay event triggers</>],
         }
     },
+    session_recording_trigger_match_type_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+        return {
+            description: [<>Changed session replay trigger match type to {after}</>],
+        }
+    },
     capture_console_log_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} console log capture in session replay</>] }
     },
@@ -482,6 +492,7 @@ const teamActionsMapping: Record<
     data_attributes: () => null,
     effective_membership_level: () => null,
     has_group_types: () => null,
+    group_types: () => null,
     ingested_event: () => null,
     is_demo: () => null,
     live_events_columns: () => null,
@@ -493,7 +504,15 @@ const teamActionsMapping: Record<
     primary_dashboard: () => null,
     slack_incoming_webhook: () => null,
     timezone: () => null,
-    surveys_opt_in: () => null,
+    surveys_opt_in: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [<>{change?.after ? 'enabled' : 'disabled'} surveys</>],
+        }
+    },
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,

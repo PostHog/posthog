@@ -36,7 +36,6 @@ def get_session_replay_events(
             sum(console_log_count) as console_log_count,
             sum(console_warn_count) as console_warn_count,
             sum(console_error_count) as console_error_count,
-            sum(size) as size,
             sum(message_count) as message_count,
             sum(event_count) as event_count,
             argMinMerge(snapshot_source) as snapshot_source,
@@ -50,6 +49,7 @@ def get_session_replay_events(
         HAVING
             min_first_timestamp_agg >= toDateTime(%(started_after)s)
             AND min_first_timestamp_agg <= toDateTime(%(started_before)s)
+            AND max_last_timestamp_agg <= min_first_timestamp_agg + INTERVAL {session_length_limit_seconds} SECOND
     """
 
     # Add block-related fields only for v2 table
@@ -87,7 +87,6 @@ FIELD_NAMES = [
     "console_log_count",
     "console_warn_count",
     "console_error_count",
-    "size",
     "message_count",
     "event_count",
     "snapshot_source",

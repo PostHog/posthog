@@ -579,6 +579,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
+    session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -590,6 +591,7 @@ export interface TeamType extends TeamBasicType {
     data_attributes: string[]
     person_display_name_properties: string[]
     has_group_types: boolean
+    group_types: GroupType[]
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
@@ -2967,10 +2969,23 @@ export enum SurveyMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Widget = 'widget',
+    Widget = 'widget', // feedback button survey
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
+}
+
+export enum SurveyPosition {
+    Left = 'left',
+    Center = 'center',
+    Right = 'right',
+    NextToTrigger = 'next_to_trigger',
+}
+
+export enum SurveyWidgetType {
+    Button = 'button',
+    Tab = 'tab',
+    Selector = 'selector',
 }
 
 export type SurveyQuestionDescriptionContentType = 'html' | 'text'
@@ -2992,12 +3007,12 @@ export interface SurveyAppearance {
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
-    position?: string
+    position?: SurveyPosition
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     // widget only
-    widgetType?: 'button' | 'tab' | 'selector'
+    widgetType?: SurveyWidgetType
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string

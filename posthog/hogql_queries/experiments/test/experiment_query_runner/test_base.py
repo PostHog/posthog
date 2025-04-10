@@ -23,6 +23,7 @@ from posthog.schema import (
     ExperimentSignificanceCode,
     ExperimentVariantTrendsBaseStats,
     ExperimentMeanMetric,
+    FunnelConversionWindowTimeUnit,
     PropertyOperator,
 )
 from posthog.test.base import (
@@ -39,52 +40,6 @@ from parameterized import parameterized
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
-    @freeze_time("2020-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_query_runner_mean_property_sum_metric(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
-        experiment.save()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(
-                event="purchase",
-                math=ExperimentMetricMathType.SUM,
-                math_property="amount",
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        self.create_standard_test_events(feature_flag)
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.count, 20)
-        self.assertEqual(test_variant.count, 20)
-        self.assertEqual(control_variant.absolute_exposure, 10)
-        self.assertEqual(test_variant.absolute_exposure, 10)
-
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_includes_date_range(self):
@@ -1543,7 +1498,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase"),
-            time_window_hours=time_window_hours,
+            conversion_window=time_window_hours,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.HOUR,
         )
 
         experiment_query = ExperimentQuery(

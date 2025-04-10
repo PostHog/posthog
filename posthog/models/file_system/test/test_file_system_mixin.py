@@ -31,6 +31,7 @@ class TestFileSystemSyncMixin(TestCase):
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/My Feature")
         self.assertEqual(fs_entry.created_by, self.user)
+        self.assertEqual(fs_entry.shortcut, False)
 
     def test_feature_flag_delete_field_triggers_file_removal_on_save(self):
         """
@@ -91,6 +92,7 @@ class TestFileSystemSyncMixin(TestCase):
         fs_entry = FileSystem.objects.filter(team=self.team, type="experiment", ref=str(exp.id)).first()
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Experiments/Exp #1")
+        self.assertEqual(fs_entry.shortcut, False)
 
         # If we manually add a field `deleted=True` (if it existed),
         # the DSL says ignore. We'll simulate that:

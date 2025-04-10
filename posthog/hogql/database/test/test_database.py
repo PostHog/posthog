@@ -201,7 +201,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(
-            name="table_1",
+            name="stripe_table_1",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -224,7 +224,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
-        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("stripe.table_1"))
         assert table is not None
         assert len(table.fields.keys()) == 1
 
@@ -338,7 +338,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295",
         )
 
     def test_database_group_type_mappings(self):
