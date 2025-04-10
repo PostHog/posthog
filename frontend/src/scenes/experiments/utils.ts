@@ -714,7 +714,7 @@ export function metricToQuery(
             }
         case ExperimentMetricType.FUNNEL: {
             const filter = metricToFilter(metric)
-            const { events } = filter
+            const { events, actions } = filter
             // NOTE: hack for now
             // insert a pageview event at the beginning of the funnel to simulate the exposure criteria
             events?.unshift({
@@ -737,7 +737,7 @@ export function metricToQuery(
                     layout: FunnelLayout.horizontal,
                 },
                 series: actionsAndEventsToSeries(
-                    { actions: [], events, data_warehouse: [] } as any,
+                    { actions: actions, events, data_warehouse: [] } as any,
                     true,
                     MathAvailability.None
                 ),
