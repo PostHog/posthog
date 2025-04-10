@@ -75,8 +75,8 @@ if (res.status >= 400) {
 
 // Handle profile merging for identify events
 if (inputs.enable_profile_merging and action == 'identify' and not empty(event.properties.$anon_distinct_id)) {
-    let primaryId := inputs.primaryId
-    let secondaryId := inputs.secondaryId
+    let primaryId := event.distinct_id
+    let secondaryId := event.properties.$anon_distinct_id
 
     if (not empty(primaryId) and not empty(secondaryId)) {
         let mergeRes := fetch(f'https://{inputs.host}/api/v2/entity', {
@@ -216,26 +216,8 @@ if (inputs.enable_profile_merging and action == 'identify' and not empty(event.p
             "key": "enable_profile_merging",
             "type": "boolean",
             "label": "Enable profile merging",
-            "description": "When enabled, will merge profiles in Customer.io on identify events. This is particularly useful when using distinct_id as the identifier, as it can create many duplicate profiles in Customer.io that need to be merged.",
+            "description": "Only useful when using 'ID' as your identifier type with distinct_id as the value. When enabled, merges anonymous profiles into identified profiles in Customer.io during identify events.",
             "default": False,
-            "secret": False,
-            "required": False,
-        },
-        {
-            "key": "primaryId",
-            "type": "string",
-            "label": "Primary ID",
-            "description": "The primary ID to use when merging profiles. This is typically the new/permanent ID after identification.",
-            "default": "{event.distinct_id}",
-            "secret": False,
-            "required": False,
-        },
-        {
-            "key": "secondaryId",
-            "type": "string",
-            "label": "Secondary ID",
-            "description": "The secondary ID to merge into the primary ID. This is typically the old anonymous ID before identification.",
-            "default": "{event.properties.$anon_distinct_id}",
             "secret": False,
             "required": False,
         },
@@ -318,8 +300,6 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
             "include_all_properties": {"value": True},
             "attributes": {"value": {}},
             "enable_profile_merging": {"value": False},
-            "primaryId": {"value": "{event.distinct_id}"},
-            "secondaryId": {"value": "{event.properties.$anon_distinct_id}"},
         }
 
         return hf
