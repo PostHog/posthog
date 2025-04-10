@@ -52,7 +52,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         The original version of this API always and only returned $autocapture elements
         If no include query parameter is sent this remains true.
         Now, you can pass a combination of include query parameters to get different types of elements
-        Currently only $autocapture and $rageclick and $dead_clicks are supported
+        Currently only $autocapture and $rageclick and $dead_click are supported
         """
 
         with ELEMENT_STATS_TIME_HISTOGRAM.time():
