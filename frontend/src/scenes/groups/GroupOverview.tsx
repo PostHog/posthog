@@ -2,6 +2,7 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { Group } from '~/types'
 
+import { GroupDashboardCard } from './cards/GroupDashboardCard'
 import { GroupPeopleCard } from './cards/GroupPeopleCard'
 import { GroupPropertiesCard } from './cards/GroupPropertiesCard'
 
@@ -47,6 +48,10 @@ export function GroupOverview({ groupData }: { groupData: Group }): JSX.Element 
                         context={{ refresh: 'force_blocking' }}
                     />
                 </div>
+            </div>
+            <div>
+                <h2>Engagement</h2>
+                <GroupDashboardCard />
             </div>
         </div>
     )

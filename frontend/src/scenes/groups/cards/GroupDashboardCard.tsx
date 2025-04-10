@@ -9,7 +9,7 @@ import { groupLogic } from 'scenes/groups/groupLogic'
 
 import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
 
-function GroupOverviewDashboard({
+function GroupDetailDashboard({
     groupTypeDetailDashboard,
     groupData,
 }: {
@@ -36,7 +36,7 @@ function GroupOverviewDashboard({
     return <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
 }
 
-export function GroupOverview(): JSX.Element {
+export function GroupDashboardCard(): JSX.Element {
     const { groupTypeName, groupTypeNamePlural, groupData, groupTypeDetailDashboard } = useValues(groupLogic)
 
     const { createDetailDashboard } = useActions(groupLogic)
@@ -48,7 +48,7 @@ export function GroupOverview(): JSX.Element {
     }
 
     if (groupTypeDetailDashboard) {
-        return <GroupOverviewDashboard groupTypeDetailDashboard={groupTypeDetailDashboard} groupData={groupData} />
+        return <GroupDetailDashboard groupTypeDetailDashboard={groupTypeDetailDashboard} groupData={groupData} />
     }
 
     return (
