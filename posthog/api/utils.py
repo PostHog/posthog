@@ -516,7 +516,7 @@ class ServerTimingsGathered:
     def get_all_timings(self):
         return self.timings_dict
 
-    def generate_timings(self, hogql_timings: list[QueryTiming] | None) -> dict[str, float]:
+    def generate_timings(self, hogql_timings: list[QueryTiming] | None = None) -> dict[str, float]:
         timings_dict = self.get_all_timings()
         hogql_timings_dict = {}
         for key, value in hogql_timings or {}:
@@ -526,7 +526,7 @@ class ServerTimingsGathered:
         all_timings = {**timings_dict, **hogql_timings_dict}
         return all_timings
 
-    def to_header_string(self, hogql_timings: list[QueryTiming] | None):
+    def to_header_string(self, hogql_timings: list[QueryTiming] | None = None):
         return ", ".join(
             f"{key};dur={round(duration, ndigits=2)}" for key, duration in self.generate_timings(hogql_timings).items()
         )

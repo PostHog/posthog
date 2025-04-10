@@ -74,7 +74,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         enableHeatmap: true,
         disableHeatmap: true,
         toggleClickmapsEnabled: (enabled?: boolean) => ({ enabled }),
-
+        setSamplingFactor: (samplingFactor: number) => ({ samplingFactor }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         loadAllEnabled: true,
@@ -107,6 +107,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             { persist: true },
             {
                 toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),
+            },
+        ],
+        samplingFactor: [
+            1,
+            { persist: true },
+            {
+                setSamplingFactor: (_, { samplingFactor }) => samplingFactor,
             },
         ],
     }),
@@ -142,7 +149,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         }
 
                         defaultUrl = `/api/element/stats/${encodeParams(
-                            { ...params, paginate_response: true, sampling_factor: 0.1 },
+                            { ...params, paginate_response: true, sampling_factor: values.samplingFactor },
                             '?'
                         )}`
                     }
@@ -381,6 +388,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
         setCommonFilters: () => {
             actions.loadAllEnabled()
+        },
+        setSamplingFactor: () => {
+            actions.maybeLoadClickmap()
         },
 
         // Only trigger element stats loading if clickmaps are enabled
