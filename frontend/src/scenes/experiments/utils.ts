@@ -445,26 +445,34 @@ export function filterToExposureConfig(
 }
 
 export function metricToFilter(metric: ExperimentMetric): FilterType {
-    const getFunnelEvents = (metric: ExperimentMetric): EventsNode[] => {
+    const getFunnelSteps = (metric: ExperimentMetric): (EventsNode & { type: string; order: number })[] => {
         if (metric.metric_type !== ExperimentMetricType.FUNNEL) {
             return []
         }
 
         return (
             metric.series.map((step, index: number) => {
-                if (step.kind !== NodeKind.EventsNode) {
-                    throw new Error('Funnel metric must only contain events')
+                if (step.kind === NodeKind.EventsNode) {
+                    return {
+                        id: step.event,
+                        name: step.event ?? undefined,
+                        event: step.event,
+                        order: index,
+                        type: 'events',
+                        kind: NodeKind.EventsNode,
+                        properties: step.properties,
+                    }
+                } else if (step.kind === NodeKind.ActionsNode) {
+                    return {
+                        id: step.id,
+                        name: step.name,
+                        order: index,
+                        type: 'actions',
+                        kind: NodeKind.EventsNode,
+                        properties: step.properties,
+                    } as EventsNode & { type: string; order: number }
                 }
-
-                return {
-                    id: step.event,
-                    name: step.event ?? undefined,
-                    event: step.event,
-                    order: index,
-                    type: 'events',
-                    kind: NodeKind.EventsNode,
-                    properties: step.properties,
-                }
+                throw new Error('Funnel metric must only contain events or actions')
             }) || []
         )
     }
@@ -531,10 +539,17 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
         ]
     }
 
+    const funnelSteps = metric.metric_type === ExperimentMetricType.FUNNEL ? getFunnelSteps(metric) : []
+
     return {
         events:
-            metric.metric_type === ExperimentMetricType.FUNNEL ? getFunnelEvents(metric) : getEventMetricFilter(metric),
-        actions: getActionMetricFilter(metric),
+            metric.metric_type === ExperimentMetricType.FUNNEL
+                ? funnelSteps.filter((step) => step.type === 'events')
+                : getEventMetricFilter(metric),
+        actions:
+            metric.metric_type === ExperimentMetricType.FUNNEL
+                ? funnelSteps.filter((step) => step.type === 'actions')
+                : getActionMetricFilter(metric),
         data_warehouse: getDataWarehouseMetricFilter(metric),
     }
 }
