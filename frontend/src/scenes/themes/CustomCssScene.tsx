@@ -79,113 +79,144 @@ body[theme=light] {
 }`
 
 const LUMON_THEME = `:root {
+    --radius: 0px;
     --font-mono: 'Courier New', Courier, monospace;
 
-    /* Background & Text */
-    --bg: #000000;              /* black page background */
-    --text: #93C4FF;            /* Lumon blue general text */
+    --border: rgba(147, 196, 255, 0.5);
+    --border-bold: #93C4FF;
+    --link: #93C4FF;
+    --text-3000: #93C4FF;
+    --bg-3000: #000000;
+    --bg-light: #1B2B3F;
+    --bg-table: #1B2B3F;
+    --muted-3000: #93C4FF;
+    --primary-3000: #93C4FF;
+    --primary-3000-hover: #93C4FF;
+    --primary-alt-highlight: rgba(147, 196, 255, 0.1);
+    --accent-3000: #1B2B3F;
+    --glass-border-3000: rgba(0, 0, 0, 0.3);
 
-    /* Borders & Buttons */
-    --border: #93C4FF;          /* Lumon blue border */
-    --button-bg: #93C4FF;       /* Lumon blue button background */
-    --button-text: #000000;     /* black text on button by default */
-    --button-border: #93C4FF;   /* matches Lumon blue border */
+    --primary-3000-frame-bg-light: #93C4FF;
+    --primary-3000-button-bg: #93C4FF;
+    --primary-3000-button-border: #93C4FF;
+    --text-tertiary: #93C4FF;
+    
+    /* Override yellow warning colors */
+    --warning: #93C4FF;
+    --warning-highlight: #93C4FF;
+    --warning-light: rgba(147, 196, 255, 0.1);
+    --primary-light: rgba(147, 196, 255, 0.1);
+    --primary-highlight: #93C4FF;
+    --danger-highlight: #93C4FF;
 
-    /* Hover color – used for invert-to-blue text on black hover */
-    --hover-bg: #93C4FF;        
+    --terminal-glow: 0 0 10px rgba(147, 196, 255, 0.3);
 }
 
-/* Basic page text */
-body {
-    background-color: var(--bg);
-    color: var(--text);
+body,
+body[theme='dark'] {
+    background-color: var(--bg-3000);
+    color: var(--text-3000);
     font-family: var(--font-mono);
-    font-size: 16px;
-    line-height: 1.8;
-    margin: 0;
-    padding: 2rem;
 }
 
-/* UNIVERSAL BUTTON OVERRIDES — including PostHog / Ant Design classes */
+* {
+    color: var(--text-3000) !important;
+    border-color: var(--border-bold) !important;
+    text-shadow: var(--terminal-glow);
+    font-family: var(--font-mono) !important;
+}
+
+.TopBar3000__content {
+    border-bottom: solid 1px var(--border-bold);
+}
+
 button,
-input[type="submit"],
 input[type="button"],
-.btn,
-.ant-btn,
-button.ant-btn,
-[class*="ant-btn"] {
-    background-color: var(--button-bg) !important; /* Blue background */
-    color: var(--button-text) !important;          /* Black text by default */
-    font-family: var(--font-mono) !important;
+input[type="submit"],
+a,
+[class*="btn"],
+[class*="Button"],
+[class*="button-primitive"],
+[class*="LemonButton"],
+[class*="ant-btn"],
+[class*="group/button-primitive"] {
+    background-color: var(--bg-3000) !important;
+    color: var(--text-3000) !important;
+    border: 1px solid var(--border-bold) !important;
+    border-radius: var(--radius) !important;
     font-weight: bold !important;
-    font-size: 14px !important;
-    border: 1px solid var(--button-border) !important; 
-    border-radius: 0 !important;
-    cursor: pointer !important;
     text-transform: uppercase;
-    transition: background-color 0.2s ease, color 0.2s ease;
-    box-shadow: none !important;
+    cursor: pointer !important;
+    box-shadow: var(--terminal-glow) !important;
+    transition: all 0.2s ease;
 }
 
-/* HOVER: switch to black background, Lumon blue text */
+/* Override any warning/highlight button states */
+[class*="warning"],
+[class*="Warning"],
+[class*="highlight"],
+[class*="Highlight"],
+[class*="yellow"],
+[class*="Yellow"] {
+    background-color: var(--bg-3000) !important;
+    color: var(--text-3000) !important;
+    border-color: var(--border-bold) !important;
+}
+
 button:hover,
-input[type="submit"]:hover,
 input[type="button"]:hover,
-.btn:hover,
-.ant-btn:hover,
-button.ant-btn:hover,
-[class*="ant-btn"]:hover {
-    background-color: var(--bg) !important;   /* black */
-    color: var(--hover-bg) !important;        /* Lumon blue text */
+input[type="submit"]:hover,
+a:hover,
+[class*="btn"]:hover,
+[class*="Button"]:hover,
+[class*="button-primitive"]:hover,
+[class*="LemonButton"]:hover,
+[class*="ant-btn"]:hover,
+[class*="group/button-primitive"]:hover {
+    background-color: var(--primary-3000) !important;
+    color: var(--bg-3000) !important;
+    border-color: var(--primary-3000) !important;
+    box-shadow: 0 0 15px var(--primary-3000) !important;
 }
 
-/* DISABLED BUTTONS */
-button:disabled,
-input[type="submit"]:disabled,
-input[type="button"]:disabled,
-.btn:disabled,
-.ant-btn[disabled],
-button.ant-btn[disabled],
-[class*="ant-btn"][disabled] {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-/* LINKS – text is Lumon blue, invert to black on hover */
-a {
-    color: var(--text);
-    text-decoration: none;
-    border-bottom: 1px dotted var(--border);
-    transition: background-color 0.2s ease, color 0.2s ease;
-}
-a:hover {
-    background-color: var(--hover-bg);
-    color: #000000;
-    text-decoration: none;
-}
-
-/* LEMON BUTTON OVERRIDES (PostHog's newer button style) */
-[class*="LemonButton"] {
-    background-color: var(--button-bg) !important; /* Blue background */
-    color: var(--button-text) !important;          /* Black text */
-    font-family: var(--font-mono) !important;
-    font-weight: bold !important;
-    font-size: 14px !important;
-    border: 1px solid var(--button-border) !important;
-    border-radius: 0 !important;
-    cursor: pointer !important;
-    text-transform: uppercase;
-    transition: background-color 0.2s ease, color 0.2s ease;
+.LemonButton__content,
+[class*="__content"],
+[class*="__label"],
+[class*="__icon"],
+button span,
+button div,
+a span,
+a div {
+    border: none !important;
+    background: transparent !important;
     box-shadow: none !important;
+} 
+
+button svg,
+a svg,
+[class*="btn"] svg,
+[class*="Button"] svg,
+[class*="button-primitive"] svg,
+[class*="LemonButton"] svg,
+[class*="ant-btn"] svg {
+    color: inherit !important;
+    fill: currentColor !important;
+    filter: drop-shadow(var(--terminal-glow));
+    width: 16px;
+    height: 16px;
 }
-[class*="LemonButton"]:hover {
-    background-color: var(--bg) !important;   /* black background */
-    color: var(--hover-bg) !important;        /* Lumon blue text */
+
+a:not([class*="button"]):not([class*="btn"]) {
+    color: var(--link);
+    border-bottom: 1px solid transparent;
+    transition: all 0.2s ease;
 }
-[class*="LemonButton"][disabled],
-[class*="LemonButton"].disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+
+a:not([class*="button"]):not([class*="btn"]):hover {
+    background-color: var(--primary-3000);
+    color: var(--bg-3000);
+    border-bottom-color: transparent;
+    box-shadow: var(--terminal-glow);
 }`
 
 export function CustomCssScene(): JSX.Element {
