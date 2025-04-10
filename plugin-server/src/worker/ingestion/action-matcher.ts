@@ -3,6 +3,7 @@ import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { Summary } from 'prom-client'
 import RE2 from 're2'
+import { coerce, gt, gte, lt, lte } from 'semver'
 
 import {
     Action,
@@ -49,55 +50,63 @@ const actionMatchMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
+function isVersionString(value: any): boolean {
+    if (typeof value !== 'string') {
+        return false
+    }
+    // Simple version string detection - matches strings like "1.2.3", "1.2", "v1.2.3"
+    return /^v?\d+(\.\d+)*(-.*)?$/.test(value)
+}
+
 /** Return whether two values compare to each other according to the specified operator.
  * This simulates the behavior of ClickHouse (or other DBMSs) which like to cast values in SELECTs to the column's type.
  */
 export function castingCompare(
     a: any,
     b: any,
-    operator: PropertyOperator.Exact | PropertyOperator.IsNot | PropertyOperator.LessThan | PropertyOperator.GreaterThan
+    operator:
+        | PropertyOperator.Exact
+        | PropertyOperator.IsNot
+        | PropertyOperator.LessThan
+        | PropertyOperator.GreaterThan
+        | PropertyOperator.GreaterThanOrEqual
+        | PropertyOperator.LessThanOrEqual
 ): boolean {
     // Do null transformation first
-    // Clickhouse treats the string "null" as null, while here we treat them as different values
-    // Thus, this check special cases the string "null" to be equal to the null value
-    // See more: https://github.com/PostHog/posthog/issues/12893
-    if (a === null) {
-        a = 'null'
+    if (a === null || a === undefined) {
+        a = ''
     }
-    if (b === null) {
-        b = 'null'
+    if (b === null || b === undefined) {
+        b = ''
     }
 
-    // Check basic case first
-    switch (operator) {
-        case PropertyOperator.Exact:
-            if (a == b) {
-                return true
+    // Handle version string comparisons
+    if (isVersionString(a) && isVersionString(b)) {
+        const aVersion = coerce(a)
+        const bVersion = coerce(b)
+        if (aVersion && bVersion) {
+            switch (operator) {
+                case PropertyOperator.Exact:
+                    return aVersion.version === bVersion.version
+                case PropertyOperator.IsNot:
+                    return aVersion.version !== bVersion.version
+                case PropertyOperator.LessThan:
+                    return lt(aVersion, bVersion)
+                case PropertyOperator.LessThanOrEqual:
+                    return lte(aVersion, bVersion)
+                case PropertyOperator.GreaterThan:
+                    return gt(aVersion, bVersion)
+                case PropertyOperator.GreaterThanOrEqual:
+                    return gte(aVersion, bVersion)
             }
-            break
-        case PropertyOperator.IsNot:
-            if (a != b) {
-                return true
-            }
-            break
-        case PropertyOperator.LessThan:
-            if (typeof a !== 'string' && typeof b !== 'string' && a < b) {
-                return true
-            }
-            break
-        case PropertyOperator.GreaterThan:
-            if (typeof a !== 'string' && typeof b !== 'string' && a > b) {
-                return true
-            }
-            break
-        default:
-            throw new Error(`Operator ${operator} is not supported in castingCompare!`)
+            return false
+        }
     }
+
+    // Original numeric comparison logic
     if (typeof a !== typeof b) {
-        // Try to cast to number, first via stringToBoolean, and then from raw value if that fails
         const aCast = Number(stringToBoolean(a, true) ?? a)
         const bCast = Number(stringToBoolean(b, true) ?? b)
-        // Compare finally (if either cast value is NaN, it will be rejected here too)
         switch (operator) {
             case PropertyOperator.Exact:
                 return aCast == bCast
@@ -105,9 +114,29 @@ export function castingCompare(
                 return aCast != bCast
             case PropertyOperator.LessThan:
                 return aCast < bCast
+            case PropertyOperator.LessThanOrEqual:
+                return aCast <= bCast
             case PropertyOperator.GreaterThan:
                 return aCast > bCast
+            case PropertyOperator.GreaterThanOrEqual:
+                return aCast >= bCast
         }
+    }
+
+    // Original string comparison
+    switch (operator) {
+        case PropertyOperator.Exact:
+            return a === b
+        case PropertyOperator.IsNot:
+            return a !== b
+        case PropertyOperator.LessThan:
+            return a < b
+        case PropertyOperator.LessThanOrEqual:
+            return a <= b
+        case PropertyOperator.GreaterThan:
+            return a > b
+        case PropertyOperator.GreaterThanOrEqual:
+            return a >= b
     }
     return false
 }
