@@ -1731,6 +1731,84 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
         self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
 
+    def test_unordered_trend_with_partial_steps_and_exclusion(self):
+        # Test unordered_trend with partial steps (up to step 2) in a 3-step funnel with exclusion
+
+        # Person 1: step 1 -> step 2 -> exclusion -> step 3
+        # Person 2: step 1 -> step 2 -> step 3
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "step 1",
+                    "timestamp": datetime(2024, 3, 1, 10, 0),
+                },
+                {
+                    "event": "step 2",
+                    "timestamp": datetime(2024, 3, 1, 11, 0),
+                },
+                {
+                    "event": "exclusion event",
+                    "timestamp": datetime(2024, 3, 1, 12, 0),
+                },
+                {
+                    "event": "step 3",
+                    "timestamp": datetime(2024, 3, 1, 13, 0),
+                },
+            ],
+            "user_2": [
+                {
+                    "event": "step 1",
+                    "timestamp": datetime(2024, 3, 1, 10, 0),
+                },
+                {
+                    "event": "step 2",
+                    "timestamp": datetime(2024, 3, 1, 11, 0),
+                },
+                {
+                    "event": "step 3",
+                    "timestamp": datetime(2024, 3, 1, 12, 0),
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        # Define a 3-step funnel with exclusion
+        filters = {
+            "events": [
+                {"id": "step 1", "type": "events", "order": 0},
+                {"id": "step 2", "type": "events", "order": 1},
+                {"id": "step 3", "type": "events", "order": 2},
+            ],
+            "exclusions": [{"id": "exclusion event", "type": "events", "funnel_from_step": 0, "funnel_to_step": 2}],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
+            "funnel_window_interval": 6,
+            "funnel_window_interval_unit": "hour",
+            "date_from": "2024-03-01",
+            "date_to": "2024-03-01",
+        }
+
+        # Run the full funnel query
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        full_results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # User 1 should be excluded, only user 2 completes all steps
+        self.assertEqual(full_results[0]["count"], 2)  # Step 1: both users
+        self.assertEqual(full_results[1]["count"], 1)  # Step 2: only user 2 (user 1 excluded)
+        self.assertEqual(full_results[2]["count"], 1)  # Step 3: only user 2 (user 1 excluded)
+
+        # Now run with unordered_trend requesting only up to step 2
+        filters["funnel_to_step"] = 1  # Up to step 1
+        filters["funnel_viz_type"] = "trends"
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        trend_results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # Only the second user gets to step 2, after the exclusion
+        self.assertEqual(len(trend_results), 1)  # One day of data
+        self.assertEqual(trend_results[0]["count"], 1)
+        self.assertEqual(trend_results[0]["data"], [50.0])  # Only one user completes step 2
+
     def test_unordered_trend(self):
         # Test unordered trend with 5 users doing event 3 with different frequencies
         # User 1: does event 3 all 8 days
