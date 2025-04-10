@@ -76,5 +76,5 @@ const typeSizes = {
 }
 
 export const sizeOfInBytes = (value: any): number => {
-    return typeSizes[typeof value](value)
+    return (typeSizes[typeof value] || (() => 0))(value)
 }
