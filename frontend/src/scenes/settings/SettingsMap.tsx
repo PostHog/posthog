@@ -607,6 +607,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         to: urls.startups(),
         settings: [],
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        flag: 'STARTUP_PROGRAM_INTENT',
     },
 
     // USER
