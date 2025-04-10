@@ -87,21 +87,49 @@ const LUMON_THEME = `:root {
     --glow: 0 0 10px rgba(147, 196, 255, 0.3);
 }
 
+/* === Base Body Styling === */
 body,
 body[theme='dark'] {
     background: var(--lumon-bg);
     color: var(--lumon-blue);
     font-family: var(--font-mono);
     text-shadow: var(--glow);
+    position: relative;
+    overflow: hidden;
+    filter: contrast(1.6) brightness(1.3) saturate(1.6);
 }
 
+/* === CRT-style Border + Side Gradient === */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9998;
+    box-shadow:
+        inset 0 0 240px rgba(0, 0, 0, 0.6),
+        inset 0 0 600px rgba(0, 0, 0, 0.4);
+    background: linear-gradient(
+        to right,
+        rgba(255, 255, 255, 0.04) 0%,
+        transparent 10%,
+        transparent 90%,
+        rgba(255, 255, 255, 0.04) 100%
+    );
+}
+
+/* === Global Font + Color Rules === */
 * {
     font-family: var(--font-mono) !important;
     color: var(--lumon-blue) !important;
     border-color: var(--lumon-blue) !important;
-    text-shadow: var(--glow);
+    text-shadow:
+        var(--glow),
+        -0.25px 0 rgba(255, 0, 0, 0.3),
+        0.25px 0 rgba(0, 0, 255, 0.3);
 }
 
+/* === Button Styling (Tron-style universal targeting) === */
 button,
 input[type="button"],
 input[type="submit"],
@@ -111,8 +139,8 @@ a,
 [class*="button-primitive"],
 [class*="LemonButton"],
 [class*="ant-btn"],
-.LemonButton > span::after,
-[class*="group/button-primitive"] {
+[class*="group/button-primitive"],
+.LemonButton > span::after {
     background: var(--lumon-bg) !important;
     color: var(--lumon-blue) !important;
     border: 1px solid var(--lumon-blue) !important;
@@ -121,9 +149,10 @@ a,
     text-transform: uppercase;
     cursor: pointer;
     box-shadow: var(--glow);
-    transition: 0.2s ease;
+    transition: all 0.2s ease;
 }
 
+/* === Button Hover === */
 button:hover,
 input[type="button"]:hover,
 input[type="submit"]:hover,
@@ -136,9 +165,11 @@ a:hover,
 [class*="group/button-primitive"]:hover {
     background: var(--lumon-blue) !important;
     color: var(--lumon-bg) !important;
+    border-color: var(--lumon-blue) !important;
     box-shadow: 0 0 15px var(--lumon-blue) !important;
 }
 
+/* === Button Hover: Invert nested text/icons === */
 button:hover *,
 a:hover *,
 [class*="btn"]:hover *,
@@ -150,6 +181,7 @@ a:hover *,
     fill: var(--lumon-bg) !important;
 }
 
+/* === Warnings, highlights, etc === */
 [class*="warning"],
 [class*="highlight"],
 [class*="yellow"] {
@@ -158,18 +190,22 @@ a:hover *,
     border-color: var(--lumon-blue) !important;
 }
 
+/* === Clean nested elements (spans, icons, etc.) === */
 [class*="__content"],
 [class*="__label"],
 [class*="__icon"],
 button span,
 button div,
 a span,
-a div {
+a div,
+.LemonButton > span::after {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
+    color: inherit !important;
 }
 
+/* === SVG Icons === */
 button svg,
 a svg,
 [class*="btn"] svg,
@@ -184,6 +220,7 @@ a svg,
     height: 16px;
 }
 
+/* === Inline Links === */
 a:not([class*="button"]):not([class*="btn"]) {
     color: var(--lumon-blue);
     border-bottom: 1px solid transparent;
@@ -195,47 +232,6 @@ a:not([class*="button"]):not([class*="btn"]):hover {
     color: var(--lumon-bg);
     box-shadow: var(--glow);
     border-bottom: none;
-}
-
-/* === CRT EFFECTS (Reduced) === */
-body {
-    filter: contrast(1.3) brightness(1.15) saturate(1.3);
-    position: relative;
-    overflow: hidden;
-}
-
-body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 9999;
-    mix-blend-mode: screen;
-    background: repeating-linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.04) 0px,
-        rgba(255, 255, 255, 0.04) 1px,
-        transparent 1px,
-        transparent 2px
-    );
-    opacity: 0.18;
-    animation: flicker 1.2s infinite steps(2);
-}
-
-body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 9998;
-    box-shadow:
-        inset 0 0 60px rgba(0, 0, 0, 0.5),
-        inset 0 0 150px rgba(0, 0, 0, 0.3);
-}
-
-@keyframes flicker {
-    0%, 100% { opacity: 0.85; }
-    50% { opacity: 0.95; }
 }`
 
 export function CustomCssScene(): JSX.Element {
