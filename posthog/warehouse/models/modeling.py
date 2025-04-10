@@ -134,9 +134,14 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
             continue
         elif isinstance(join.table, ast.SelectSetQuery):
             queries.extend(list(extract_select_queries(join.table)))
-            continue
 
         while join is not None:
+            if isinstance(join.table, ast.SelectQuery):
+                # Joining with a subquery.
+                # We should traverse the subquery down to the last one.
+                join = join.table.select_from
+                continue
+
             parent_name = join.table.chain[0]  # type: ignore
 
             if parent_name not in ctes and isinstance(parent_name, str):
