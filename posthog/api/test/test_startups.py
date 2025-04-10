@@ -15,6 +15,13 @@ from posthog.api.startups import (
 )
 
 
+def get_error_message(error: ValidationError) -> str:
+    """Helper to get error message from ValidationError, ensuring it's a list type error."""
+    if not isinstance(error.detail, list):
+        raise AssertionError(f"Expected ValidationError detail to be a list, got {type(error.detail)}")
+    return str(error.detail[0])
+
+
 class TestYCBatchVerification(APIBaseTest):
     def test_extract_domain(self):
         """Test the domain extraction function."""
@@ -110,14 +117,14 @@ class TestOrganizationEligibility(APIBaseTest):
         with self.assertRaises(ValidationError) as context:
             check_organization_eligibility("00000000-0000-0000-0000-000000000000", self.user)
 
-        self.assertEqual(str(context.exception.detail[0]), "Organization not found")
+        self.assertEqual(get_error_message(context.exception), "Organization not found")
 
     def test_non_admin_user(self):
         """Test that a non-admin user cannot apply for the startup program."""
         with self.assertRaises(ValidationError) as context:
             check_organization_eligibility(str(self.non_admin_org.id), self.user)
 
-        self.assertEqual(str(context.exception.detail[0]), "You must be an organization admin or owner to apply")
+        self.assertEqual(get_error_message(context.exception), "You must be an organization admin or owner to apply")
 
     @patch("posthog.api.startups.get_cached_instance_license")
     def test_no_license(self, mock_get_license):
@@ -127,7 +134,7 @@ class TestOrganizationEligibility(APIBaseTest):
         with self.assertRaises(ValidationError) as context:
             check_organization_eligibility(str(self.organization.id), self.user)
 
-        self.assertEqual(str(context.exception.detail[0]), "No license found")
+        self.assertEqual(get_error_message(context.exception), "No license found")
 
     @patch("posthog.api.startups.get_cached_instance_license")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
@@ -140,7 +147,7 @@ class TestOrganizationEligibility(APIBaseTest):
             check_organization_eligibility(str(self.organization.id), self.user)
 
         self.assertEqual(
-            str(context.exception.detail[0]), "You need an active subscription to apply for the startup program"
+            get_error_message(context.exception), "You need an active subscription to apply for the startup program"
         )
 
     @patch("posthog.api.startups.get_cached_instance_license")
@@ -153,7 +160,7 @@ class TestOrganizationEligibility(APIBaseTest):
         with self.assertRaises(ValidationError) as context:
             check_organization_eligibility(str(self.organization.id), self.user)
 
-        self.assertEqual(str(context.exception.detail[0]), "Your organization is already in the startup program")
+        self.assertEqual(get_error_message(context.exception), "Your organization is already in the startup program")
 
     @patch("posthog.api.startups.get_cached_instance_license")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
