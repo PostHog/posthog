@@ -1913,6 +1913,8 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             "funnel_viz_type": "trends",
             "funnel_order_type": "unordered",
             "funnel_window_days": 8,
+            "funnel_from_step": 1,
+            "funnel_to_step": 2,
             "date_from": "2024-03-01",
             "date_to": "2024-03-08",
             "display": "ActionsLineGraph",
@@ -1920,8 +1922,6 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         # Run the funnel trend query
         query = cast(FunnelsQuery, filter_to_query(filters))
-        query.funnelsFilter.funnelFromStep = 1
-        query.funnelsFilter.funnelToStep = 2
         trend_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         # We should get 8 days of results
