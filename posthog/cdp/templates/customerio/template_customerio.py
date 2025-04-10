@@ -23,7 +23,7 @@ if (empty(inputs.identifier_value) or empty(inputs.identifier_key)) {
     return
 }
 
-let identifiers := {
+let identifiers := {
     inputs.identifier_key: inputs.identifier_value
 }
 
@@ -71,6 +71,33 @@ let res := fetch(f'https://{inputs.host}/api/v2/entity', {
 
 if (res.status >= 400) {
     throw Error(f'Error from customer.io api: {res.status}: {res.body}');
+}
+
+// Handle profile merging for identify events
+if (inputs.enable_profile_merging and action == 'identify' and not empty(event.properties.$anon_distinct_id)) {
+    let primaryId := inputs.primaryId
+    let secondaryId := inputs.secondaryId
+
+    if (not empty(primaryId) and not empty(secondaryId)) {
+        let mergeRes := fetch(f'https://{inputs.host}/api/v2/entity', {
+            'method': 'POST',
+            'headers': {
+                'User-Agent': 'PostHog Customer.io App',
+                'Authorization': f'Basic {base64Encode(f'{inputs.site_id}:{inputs.token}')}',
+                'Content-Type': 'application/json'
+            },
+            'body': {
+                'type': 'person',
+                'action': 'merge',
+                'primary': { 'id': primaryId },
+                'secondary': { 'id': secondaryId }
+            }
+        })
+
+        if (mergeRes.status >= 400) {
+            throw Error(f'Error from customer.io merge api: {mergeRes.status}: {mergeRes.body}');
+        }
+    }
 }
 
 """.strip(),
@@ -186,6 +213,33 @@ if (res.status >= 400) {
             "required": True,
         },
         {
+            "key": "enable_profile_merging",
+            "type": "boolean",
+            "label": "Enable profile merging",
+            "description": "When enabled, will merge profiles in Customer.io on identify events. This is particularly useful when using distinct_id as the identifier, as it can create many duplicate profiles in Customer.io that need to be merged.",
+            "default": False,
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "primaryId",
+            "type": "string",
+            "label": "Primary ID",
+            "description": "The primary ID to use when merging profiles. This is typically the new/permanent ID after identification.",
+            "default": "{event.distinct_id}",
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "secondaryId",
+            "type": "string",
+            "label": "Secondary ID",
+            "description": "The secondary ID to merge into the primary ID. This is typically the old anonymous ID before identification.",
+            "default": "{event.properties.$anon_distinct_id}",
+            "secret": False,
+            "required": False,
+        },
+        {
             "key": "attributes",
             "type": "dictionary",
             "label": "Attribute mapping",
@@ -263,6 +317,9 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
             "identifier_value": {"value": "{person.properties.email}" if identify_by_email else "{event.distinct_id}"},
             "include_all_properties": {"value": True},
             "attributes": {"value": {}},
+            "enable_profile_merging": {"value": False},
+            "primaryId": {"value": "{event.distinct_id}"},
+            "secondaryId": {"value": "{event.properties.$anon_distinct_id}"},
         }
 
         return hf
