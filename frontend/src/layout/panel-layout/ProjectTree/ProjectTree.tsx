@@ -36,7 +36,7 @@ export function ProjectTree(): JSX.Element {
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
-        treeItemsNew,
+        treeItemsNewByNestedProduct,
         checkedItems,
         checkedItemsCount,
         checkedItemCountNumeric,
@@ -73,47 +73,6 @@ export function ProjectTree(): JSX.Element {
     useEffect(() => {
         setPanelTreeRef(treeRef)
     }, [treeRef, setPanelTreeRef])
-
-    const createByProductTreeViewItems = (items: TreeDataItem[]): TreeDataItem[] => {
-        // Create arrays for each category
-        const dataItems = items
-            .filter((item) => item.name?.startsWith('Data '))
-            .map((item) => ({
-                ...item,
-                name: item.name.replace('Data ', ''), // Remove 'Data ' prefix from name
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name))
-
-        const insightItems = items
-            .filter((item) => item.name?.startsWith('Insight - '))
-            .map((item) => ({
-                ...item,
-                name: item.name.replace('Insight - ', ''), // Remove 'Insight - ' prefix from name
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name))
-
-        // Get other items (not data or insight)
-        const otherItems = items
-            .filter((item) => !item.name?.startsWith('Data ') && !item.name?.startsWith('Insight - '))
-            .sort((a, b) => a.name.localeCompare(b.name))
-
-        // Create the final hierarchical structure with explicit names for grouped items
-        const result = [
-            ...otherItems,
-            { id: 'data', name: 'Data', children: dataItems },
-            { id: 'insight', name: 'Insight', children: insightItems },
-        ]
-
-        // Sort the top level alphabetically (keeping the structure)
-        return result.sort((a, b) => {
-            // Always use name for sorting (with fallback to id)
-            const nameA = a.name || a.id.charAt(0).toUpperCase() + a.id.slice(1)
-            const nameB = b.name || b.id.charAt(0).toUpperCase() + b.id.slice(1)
-            return nameA.localeCompare(nameB)
-        })
-    }
-
-    const newTreeItemsByProduct = createByProductTreeViewItems(treeItemsNew)
 
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
@@ -225,7 +184,7 @@ export function ProjectTree(): JSX.Element {
                             <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                         </MenuItem>
                         <MenuSeparator />
-                        {newTreeItemsByProduct.map((treeItem): JSX.Element => {
+                        {treeItemsNewByNestedProduct.map((treeItem): JSX.Element => {
                             if (treeItem.children) {
                                 return (
                                     <MenuSub key={treeItem.id}>
