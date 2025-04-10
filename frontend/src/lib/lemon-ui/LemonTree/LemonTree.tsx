@@ -381,7 +381,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         </ContextMenuTrigger>
 
                                         {isContextMenuOpenForItem === item.id && itemContextMenu?.(item) ? (
-                                            <ContextMenuContent loop className="max-w-[250px]" collisionPadding={100}>
+                                            <ContextMenuContent loop className="max-w-[250px]">
                                                 {itemContextMenu(item)}
                                             </ContextMenuContent>
                                         ) : null}
@@ -1109,7 +1109,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             <ContextMenuTrigger className="flex-1 w-full">
                                 <div className="h-full w-full" />
                             </ContextMenuTrigger>
-                            <ContextMenuContent collisionPadding={100}>{emptySpaceContextMenu?.()}</ContextMenuContent>
+                            <ContextMenuContent>{emptySpaceContextMenu?.()}</ContextMenuContent>
                         </ContextMenu>
                     </TreeNodeDroppable>
                 </ScrollableShadows>

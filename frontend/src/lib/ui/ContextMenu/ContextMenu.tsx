@@ -34,8 +34,13 @@ const ContextMenuSubContent = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.SubContent>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
 >(
-    ({ className, children, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.SubContent ref={ref} className={cn('primitive-menu-content', className)} {...props}>
+    ({ className, collisionPadding = 100, children, ...props }, ref): JSX.Element => (
+        <ContextMenuPrimitive.SubContent
+            ref={ref}
+            collisionPadding={collisionPadding}
+            className={cn('primitive-menu-content', className)}
+            {...props}
+        >
             <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
                 {children}
             </ScrollableShadows>
@@ -48,9 +53,14 @@ const ContextMenuContent = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
 >(
-    ({ className, children, ...props }, ref): JSX.Element => (
+    ({ className, children, collisionPadding = 100, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Portal>
-            <ContextMenuPrimitive.Content ref={ref} className={cn(`primitive-menu-content`, className)} {...props}>
+            <ContextMenuPrimitive.Content
+                ref={ref}
+                collisionPadding={collisionPadding}
+                className={cn(`primitive-menu-content`, className)}
+                {...props}
+            >
                 <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
                     {children}
                 </ScrollableShadows>

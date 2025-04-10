@@ -57,8 +57,16 @@ const DropdownMenuSubContent = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
 >(
-    ({ className, children, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.SubContent ref={ref} className={cn('primitive-menu-content', className)} {...props}>
+    ({ className, children, collisionPadding = 50, ...props }, ref): JSX.Element => (
+        <DropdownMenuPrimitive.SubContent
+            ref={ref}
+            collisionPadding={collisionPadding}
+            className={cn(
+                'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
+                className
+            )}
+            {...props}
+        >
             <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
                 {children}
             </ScrollableShadows>
@@ -72,14 +80,15 @@ const DropdownMenuContent = React.forwardRef<
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
         matchTriggerWidth?: boolean
     }
->(({ className, children, sideOffset = 4, matchTriggerWidth, ...props }, ref): JSX.Element => {
+>(({ className, children, sideOffset = 4, collisionPadding = 50, matchTriggerWidth, ...props }, ref): JSX.Element => {
     return (
         <DropdownMenuPrimitive.Portal>
             <DropdownMenuPrimitive.Content
                 ref={ref}
                 sideOffset={sideOffset}
+                collisionPadding={collisionPadding}
                 className={cn(
-                    'primitive-menu-content',
+                    'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
                     matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
                     className
                 )}
