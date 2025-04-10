@@ -66,7 +66,7 @@ def test_simplify_window_id() -> None:
 
 
 @pytest.fixture
-def _raw_metadata() -> dict[str, Any]:
+def mock_raw_metadata() -> dict[str, Any]:
     return {
         "id": "00000000-0000-0000-0000-000000000000",
         # Anonymized distinct_id for testing
@@ -92,9 +92,9 @@ def _raw_metadata() -> dict[str, Any]:
     }
 
 
-def test_prepare_metadata(_raw_metadata: dict[str, Any]) -> None:
+def test_prepare_metadata(mock_raw_metadata: dict[str, Any]) -> None:
     prompt_data = SessionSummaryPromptData()
-    metadata = prompt_data._prepare_metadata(_raw_metadata)
+    metadata = prompt_data._prepare_metadata(mock_raw_metadata)
     assert isinstance(metadata, SessionSummaryMetadata)
     # Check all fields are preserved correctly
     assert metadata.start_time == prepare_datetime("2025-04-01T11:13:33.315000Z")
@@ -112,7 +112,7 @@ def test_prepare_metadata(_raw_metadata: dict[str, Any]) -> None:
 
 
 @pytest.fixture
-def _raw_events() -> list[list[Any]]:
+def mock_raw_events() -> list[list[Any]]:
     return [
         [
             "client_request_failure",
@@ -197,7 +197,7 @@ def _raw_events() -> list[list[Any]]:
     ]
 
 
-def test_load_session_data(_raw_events: list[list[Any]], _raw_metadata: dict[str, Any]) -> None:
+def test_load_session_data(mock_raw_events: list[list[Any]], mock_raw_metadata: dict[str, Any]) -> None:
     prompt_data = SessionSummaryPromptData()
     raw_columns = [
         "event",
@@ -210,7 +210,7 @@ def test_load_session_data(_raw_events: list[list[Any]], _raw_metadata: dict[str
         "$event_type",
     ]
     session_id = "test_session_id"
-    events_mapping = prompt_data.load_session_data(_raw_events, _raw_metadata, raw_columns, session_id)
+    events_mapping = prompt_data.load_session_data(mock_raw_events, mock_raw_metadata, raw_columns, session_id)
     # Verify columns are set correctly with event_id added
     assert prompt_data.columns == [*raw_columns, "event_id"]
     # Verify window_id mapping
@@ -228,8 +228,8 @@ def test_load_session_data(_raw_events: list[list[Any]], _raw_metadata: dict[str
     ]
     assert list(prompt_data.url_mapping.values()) == ["url_1", "url_2"]
     # Verify events are processed correctly and not filtered out (yet)
-    assert len(prompt_data.results) == len(_raw_events)  # No duplicate events in sample
-    assert len(events_mapping) == len(_raw_events)
+    assert len(prompt_data.results) == len(mock_raw_events)
+    assert len(events_mapping) == len(mock_raw_events)
     # Verify event structure
     first_event = prompt_data.results[0]
     assert len(first_event) == len(raw_columns) + 1  # +1 for event_id
