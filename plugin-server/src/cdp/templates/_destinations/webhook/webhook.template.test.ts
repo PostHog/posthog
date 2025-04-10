@@ -69,7 +69,6 @@ describe('webhook template', () => {
             ]
         `)
 
-        response = responses[0]
         response = tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"message": "Hello, world!"}',
