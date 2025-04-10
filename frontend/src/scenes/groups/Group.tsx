@@ -1,42 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
-import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import type { Group } from '~/types'
-import {
-    ActionFilter,
-    ActivityScope,
-    FilterLogicalOperator,
-    Group as IGroup,
-    NotebookNodeType,
-    PersonsTabType,
-    PropertyDefinitionType,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { Group as IGroup, NotebookNodeType } from '~/types'
 
 import { GroupPeople } from './GroupPeople'
 import { GroupProperties } from './GroupProperties'
@@ -143,7 +120,8 @@ export function Group(): JSX.Element {
                     />
                 }
             />
-            <LemonTabs
+            <GroupOverview groupData={groupData} />
+            {/* <LemonTabs
                 activeKey={groupTab ?? PersonsTabType.PROPERTIES}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
@@ -289,7 +267,7 @@ export function Group(): JSX.Element {
                         ),
                     },
                 ]}
-            />
+            /> */}
         </>
     )
 }
