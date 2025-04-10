@@ -224,6 +224,7 @@ class PathsV2QueryRunner(QueryRunner):
         """
         - Combines the timestamp and path item arrays into an array of tuples, including the previous step's timestamp.
         - Compares the two timestamps with the session interval to split the array into sessions.
+        - Filters out duplicated steps within a session.
         - Keeps only the first `max_steps` steps of each session.
         - Flattens the sessions, annotated by a session index.
 

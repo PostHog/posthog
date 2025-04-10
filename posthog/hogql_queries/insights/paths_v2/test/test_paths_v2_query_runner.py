@@ -4,7 +4,6 @@ from uuid import UUID
 
 from freezegun.api import freeze_time
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.insights.paths_v2.paths_v2_query_runner import (
     POSTHOG_OTHER,
     POSTHOG_DROPOFF,
@@ -12,6 +11,7 @@ from posthog.hogql_queries.insights.paths_v2.paths_v2_query_runner import (
 )
 from posthog.schema import (
     DateRange,
+    HogQLQueryResponse,
     PathsV2Filter,
     PathsV2Item,
     PathsV2Query,
@@ -22,10 +22,15 @@ from posthog.schema import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
 import pytz
 import pytest
+
+
+def rows_as_dicts(response: HogQLQueryResponse) -> list[dict]:
+    return [dict(zip(response.columns, row)) for row in response.results]
 
 
 class SharedSetup(ClickhouseTestMixin, APIBaseTest, ABC):
@@ -449,5 +454,120 @@ class TestPathsV2PathsPerActorAsArrayQuery(SharedSetup):
 class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
     maxDiff = None
 
+    @snapshot_clickhouse_queries
+    def test_paths_per_actor_and_session_as_tuple_query(self):
+        query = PathsV2Query()
+        query_runner = self._get_query_runner(query=query)
+
+        paths_per_actor_and_session_as_tuple_query = query_runner._paths_per_actor_and_session_as_tuple_query()
+        response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
+        self.assertEqual(
+            response.columns,
+            [
+                "actor_id",
+                "session_index",
+                "paths_array",
+                "paths_array_session_split",
+                "filtered_paths_array_per_session",
+                "paths_array_per_session_with_dropoffs",
+                "limited_paths_array_per_session",
+            ],
+        )
+
     def test_aggregates_items_into_tuples(self):
-        pass
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {"event": "event1", "timestamp": "2023-03-12 12:00:00"},
+                    {"event": "event2", "timestamp": "2023-03-12 13:00:00"},
+                ],
+            },
+        )
+        query = PathsV2Query()
+
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            paths_per_actor_and_session_as_tuple_query = query_runner._paths_per_actor_and_session_as_tuple_query()
+            response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
+            rows = rows_as_dicts(response)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["actor_id"], UUID("85753641-b885-9f31-a4d8-e59dee54ec76"))
+        self.assertEqual(rows[0]["session_index"], 1)
+        self.assertEqual(
+            rows[0]["paths_array"],
+            [
+                (
+                    datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC),  # timestamp
+                    "event1",  # path_item
+                    None,  # previous_step_timestamp
+                ),
+                (
+                    datetime(2023, 3, 12, 13, 0, tzinfo=pytz.UTC),  # timestamp
+                    "event2",  # path_item
+                    datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC),  # previous_step_timestamp
+                ),
+            ],
+        )
+
+    def test_adds_session_split_array(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {"event": "event1", "timestamp": "2023-02-11 12:00:00"},
+                    {"event": "event2", "timestamp": "2023-02-12 13:00:00"},
+                    {"event": "event3", "timestamp": "2023-03-11 12:00:00"},
+                    {"event": "event4", "timestamp": "2023-03-12 13:00:00"},
+                ],
+            },
+        )
+        query = PathsV2Query(dateRange=DateRange(date_from="-10w"))
+
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            paths_per_actor_and_session_as_tuple_query = query_runner._paths_per_actor_and_session_as_tuple_query()
+            response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
+            rows = rows_as_dicts(response)
+
+        # two sessions
+        self.assertEqual(len(rows), 2)
+
+        # session for february
+        self.assertEqual(rows[0]["actor_id"], UUID("bee38d64-e96f-63b1-c81f-14a57652dd39"))
+        self.assertEqual(rows[0]["session_index"], 1)
+        self.assertEqual(
+            rows[0]["filtered_paths_array_per_session"],
+            [
+                (datetime(2023, 2, 11, 12, 0, tzinfo=pytz.UTC), "event1", None),
+                (
+                    datetime(2023, 2, 12, 13, 0, tzinfo=pytz.UTC),
+                    "event2",
+                    datetime(2023, 2, 11, 12, 0, tzinfo=pytz.UTC),
+                ),
+            ],
+        )
+
+        # session for march
+        self.assertEqual(rows[1]["actor_id"], UUID("bee38d64-e96f-63b1-c81f-14a57652dd39"))
+        self.assertEqual(rows[1]["session_index"], 2)
+        self.assertEqual(
+            rows[1]["filtered_paths_array_per_session"],
+            [
+                (
+                    None,  # TODO: bug this should be `None`` as the session starts here. At the moment we get the timestamp from the event in February.
+                    "event3",
+                    datetime(2023, 2, 12, 13, 0, tzinfo=pytz.UTC),
+                ),
+                (
+                    datetime(2023, 3, 12, 13, 0, tzinfo=pytz.UTC),
+                    "event4",
+                    datetime(2023, 3, 11, 12, 0, tzinfo=pytz.UTC),
+                ),
+            ],
+        )
+        # - Combines the timestamp and path item arrays into an array of tuples, including the previous step's timestamp.
+        # - Compares the two timestamps with the session interval to split the array into sessions.
+        # - Keeps only the first `max_steps` steps of each session.
+        # - Flattens the sessions, annotated by a session index.
