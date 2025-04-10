@@ -1,4 +1,4 @@
-import { IconBrackets, IconInfo, IconServer } from '@posthog/icons'
+import { IconBolt, IconBrackets, IconInfo, IconServer } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -10,6 +10,7 @@ import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Var
 
 import { editorSceneLogic } from '../editorSceneLogic'
 import { editorSizingLogic } from '../editorSizingLogic'
+import { Materialization } from './Materialization'
 import { QueryDatabase } from './QueryDatabase'
 import { QueryInfo } from './QueryInfo'
 import { QueryVariables } from './QueryVariables'
@@ -18,6 +19,7 @@ enum EditorSidebarTab {
     QueryDatabase = 'query_database',
     QueryVariables = 'query_variables',
     QueryInfo = 'query_info',
+    Materialization = 'materialization',
 }
 
 export const EditorSidebar = ({
@@ -76,9 +78,19 @@ export const EditorSidebar = ({
             ),
         },
         {
+            key: EditorSidebarTab.Materialization,
+            label: (
+                <Tooltip title="Materialization">
+                    <div className="flex justify-center px-2">
+                        <IconBolt className="text-xl" />
+                    </div>
+                </Tooltip>
+            ),
+        },
+        {
             key: EditorSidebarTab.QueryInfo,
             label: (
-                <Tooltip title="Materialization and query properties">
+                <Tooltip title="Query properties">
                     <div className="flex justify-center px-2">
                         <IconInfo className="text-xl" />
                     </div>
@@ -94,6 +106,8 @@ export const EditorSidebar = ({
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
             case EditorSidebarTab.QueryVariables:
                 return <QueryVariables />
+            case EditorSidebarTab.Materialization:
+                return <Materialization />
             case EditorSidebarTab.QueryInfo:
                 return <QueryInfo codeEditorKey={codeEditorKey} />
             default:
