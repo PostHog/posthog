@@ -38,7 +38,7 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-@lru_cache(maxsize=10000)
+@lru_cache(maxsize=5000)
 def serialise_elements_chain(elements_chain: str) -> list[dict]:
     return [ElementSerializer(element).data for element in chain_to_elements(elements_chain)]
 

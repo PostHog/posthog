@@ -58,7 +58,7 @@ def elements_to_string(elements: list[Element]) -> str:
     return ";".join(ret)
 
 
-@lru_cache(maxsize=10000)
+@lru_cache(maxsize=5000)
 def chain_to_elements(chain: str) -> list[Element]:
     """
     Converts an elements chain string into a list of Element objects.
