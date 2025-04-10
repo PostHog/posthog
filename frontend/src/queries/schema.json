@@ -7974,6 +7974,12 @@
         "ExperimentFunnelMetric": {
             "additionalProperties": false,
             "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -7990,9 +7996,6 @@
                         "$ref": "#/definitions/ExperimentFunnelMetricStep"
                     },
                     "type": "array"
-                },
-                "time_window_hours": {
-                    "type": "number"
                 }
             },
             "required": ["kind", "metric_type", "series"],
@@ -8122,9 +8125,18 @@
         "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
+                },
+                "lower_bound_percentile": {
+                    "type": "number"
                 },
                 "metric_type": {
                     "const": "mean",
@@ -8136,7 +8148,7 @@
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
-                "time_window_hours": {
+                "upper_bound_percentile": {
                     "type": "number"
                 }
             },
@@ -8146,12 +8158,18 @@
         "ExperimentMeanMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "lower_bound_percentile": {
+                    "type": "number"
+                },
                 "metric_type": {
                     "const": "mean",
                     "type": "string"
                 },
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "upper_bound_percentile": {
+                    "type": "number"
                 }
             },
             "required": ["metric_type", "source"],
@@ -8170,15 +8188,18 @@
         "ExperimentMetricBaseProperties": {
             "additionalProperties": false,
             "properties": {
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
                 },
                 "name": {
                     "type": "string"
-                },
-                "time_window_hours": {
-                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -8187,6 +8208,18 @@
         "ExperimentMetricMathType": {
             "enum": ["total", "sum"],
             "type": "string"
+        },
+        "ExperimentMetricOutlierHandling": {
+            "additionalProperties": false,
+            "properties": {
+                "lower_bound_percentile": {
+                    "type": "number"
+                },
+                "upper_bound_percentile": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
         },
         "ExperimentMetricSource": {
             "anyOf": [
@@ -8535,6 +8568,10 @@
                     "description": "Object's ID or other unique reference",
                     "type": "string"
                 },
+                "shortcut": {
+                    "description": "Whether this is a shortcut or the actual item",
+                    "type": "boolean"
+                },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
@@ -8587,6 +8624,10 @@
                 "ref": {
                     "description": "Object's ID or other unique reference",
                     "type": "string"
+                },
+                "shortcut": {
+                    "description": "Whether this is a shortcut or the actual item",
+                    "type": "boolean"
                 },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
@@ -15140,12 +15181,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleDataWarehouseTablesQueryResponse": {
@@ -15215,12 +15253,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
                 }
             },
-            "required": ["kind", "revenueTrackingConfig"],
+            "required": ["kind"],
             "type": "object"
         },
         "RevenueExampleEventsQueryResponse": {
@@ -15278,13 +15313,6 @@
                     "$ref": "#/definitions/CurrencyCode",
                     "default": "USD"
                 },
-                "dataWarehouseTables": {
-                    "default": [],
-                    "items": {
-                        "$ref": "#/definitions/RevenueTrackingDataWarehouseTable"
-                    },
-                    "type": "array"
-                },
                 "events": {
                     "default": [],
                     "items": {
@@ -15293,32 +15321,7 @@
                     "type": "array"
                 }
             },
-            "required": ["baseCurrency", "events", "dataWarehouseTables"],
-            "type": "object"
-        },
-        "RevenueTrackingDataWarehouseTable": {
-            "additionalProperties": false,
-            "properties": {
-                "distinctIdColumn": {
-                    "type": "string"
-                },
-                "revenueColumn": {
-                    "type": "string"
-                },
-                "revenueCurrencyColumn": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
-                    "default": {
-                        "static": "USD"
-                    }
-                },
-                "tableName": {
-                    "type": "string"
-                },
-                "timestampColumn": {
-                    "type": "string"
-                }
-            },
-            "required": ["tableName", "distinctIdColumn", "timestampColumn", "revenueColumn", "revenueCurrencyColumn"],
+            "required": ["baseCurrency", "events"],
             "type": "object"
         },
         "RevenueTrackingEventItem": {
@@ -17910,6 +17913,38 @@
         },
         "integer": {
             "type": "integer"
+        },
+        "isExperimentFunnelMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentFunnelMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentMeanMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
         }
     }
 }
