@@ -9,6 +9,7 @@ import {
     isOperatorMulti,
     isOperatorRange,
     isOperatorRegex,
+    versionOperatorMap,
 } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
@@ -65,6 +66,32 @@ function getValidationError(operator: PropertyOperator, value: any, property?: s
     return null
 }
 
+function isVersionProperty(propertyKey: string | undefined): boolean {
+    if (!propertyKey) {
+        return false
+    }
+
+    const key = propertyKey.toLowerCase()
+
+    // Common version-related keys
+    if (key.includes('version')) {
+        return true
+    }
+
+    // Specific version properties in PostHog
+    const versionPropertyKeys = [
+        '$app_version',
+        '$browser_version',
+        '$os_version',
+        'app_version',
+        'browser_version',
+        'os_version',
+        'posthog_version',
+    ]
+
+    return versionPropertyKeys.some((versionKey) => key === versionKey)
+}
+
 export function OperatorValueSelect({
     type,
     propertyKey,
@@ -109,7 +136,16 @@ export function OperatorValueSelect({
         } else if (propertyKey === 'id' && type === PropertyFilterType.Cohort) {
             propertyType = PropertyType.Cohort
         }
-        const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
+
+        // For version properties, use numericOperatorMap to enable gt/lt operators
+        const isVersion = isVersionProperty(propertyKey)
+        let operatorMapping: Record<string, string>
+
+        if (isVersion) {
+            operatorMapping = versionOperatorMap
+        } else {
+            operatorMapping = chooseOperatorMap(propertyType)
+        }
 
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
         setOperators(operators)
