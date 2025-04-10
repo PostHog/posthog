@@ -510,6 +510,13 @@ impl FeatureFlagMatcher {
 
             // Step 3: Evaluate remaining flags with cached properties
             let flag_get_match_timer = common_metrics::timing_guard(FLAG_GET_MATCH_TIME, &[]);
+
+            // Create a HashMap for quick flag lookups
+            let flags_map: HashMap<_, _> = flags_needing_db_properties
+                .iter()
+                .map(|flag| (flag.key.clone(), flag))
+                .collect();
+
             let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> =
                 flags_needing_db_properties
                     .par_iter()
@@ -522,10 +529,7 @@ impl FeatureFlagMatcher {
                     .collect();
 
             for (flag_key, result) in results {
-                let flag = flags_needing_db_properties
-                    .iter()
-                    .find(|f| f.key == flag_key)
-                    .unwrap();
+                let flag = flags_map.get(&flag_key).unwrap();
 
                 match result {
                     Ok(flag_match) => {
