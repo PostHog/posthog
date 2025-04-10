@@ -1,6 +1,7 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { INSIGHT_ALERT_DESTINATION_LOGIC_KEY } from 'scenes/insights/InsightAlertDestinationScene'
 
 import { HogFunctionFiltersType } from '~/types'
@@ -13,7 +14,7 @@ type FilterOption = { value: string; label: string }
 // TODO: Make this more advanced with sub type filtering etc.
 // TODO: Make it possible for the renderer to limit the options based on the type
 const getFilterOptions = (logicKey?: HogFunctionConfigurationLogicProps['logicKey']): FilterOption[] => {
-    if (logicKey && logicKey === 'errorTracking') {
+    if (logicKey && logicKey === ERROR_TRACKING_LOGIC_KEY) {
         return [
             {
                 label: 'Error tracking issue created',

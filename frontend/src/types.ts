@@ -203,6 +203,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
+    REVENUE_ANALYTICS = 'revenue_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -578,6 +579,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
+    session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -589,6 +591,7 @@ export interface TeamType extends TeamBasicType {
     data_attributes: string[]
     person_display_name_properties: string[]
     has_group_types: boolean
+    group_types: GroupType[]
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
@@ -2890,6 +2893,37 @@ export interface SurveyDisplayConditions {
     } | null
 }
 
+export interface SurveyStats {
+    stats: {
+        'survey shown': {
+            total_count: number
+            total_count_only_seen: number
+            unique_persons: number
+            unique_persons_only_seen: number
+            first_seen: string | null
+            last_seen: string | null
+        }
+        'survey dismissed': {
+            total_count: number
+            unique_persons: number
+            first_seen: string | null
+            last_seen: string | null
+        }
+        'survey sent': {
+            total_count: number
+            unique_persons: number
+            first_seen: string | null
+            last_seen: string | null
+        }
+    }
+    rates: {
+        response_rate: number
+        dismissal_rate: number
+        unique_users_response_rate: number
+        unique_users_dismissal_rate: number
+    }
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -3467,6 +3501,10 @@ export interface Experiment {
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
+        exposure_estimate_config?: {
+            event: string
+            properties: AnyPropertyFilter[]
+        } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number
         recommended_sample_size?: number
@@ -4815,7 +4853,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
-    | ProductKey.WEB_ANALYTICS,
+    | ProductKey.WEB_ANALYTICS
+    | ProductKey.ERROR_TRACKING,
     OnboardingProduct
 >
 
@@ -4916,11 +4955,13 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
-    | 'automation'
+
+export type HogFunctionKind = 'messaging_campaign' | null
 
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
+    kind?: HogFunctionKind
     icon_url?: string
     name: string
     description: string
@@ -4963,7 +5004,17 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    | 'id'
+    | 'type'
+    | 'kind'
+    | 'name'
+    | 'description'
+    | 'hog'
+    | 'inputs_schema'
+    | 'filters'
+    | 'icon_url'
+    | 'masking'
+    | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean

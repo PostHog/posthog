@@ -18,7 +18,7 @@ export const sessionReplayLinkedFlagLogic = kea<sessionReplayLinkedFlagLogicType
     actions({
         selectFeatureFlag: (flag: FeatureFlagBasicType) => ({ flag }),
     }),
-    connect({ values: [teamLogic, ['currentTeam']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeam']] })),
     reducers({
         selectedFlag: [
             null as FeatureFlagBasicType | null,

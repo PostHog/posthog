@@ -2,8 +2,8 @@
 # name: TestSessionRecordingsListFromQuery.test_action_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -37,14 +37,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_action_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -78,14 +79,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_action_filter.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -119,14 +121,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_action_filter.3
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -160,14 +163,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_all_filters_at_once
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -210,14 +214,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -251,14 +256,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -292,14 +298,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -333,14 +340,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -374,14 +382,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -415,14 +424,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties_materialized.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -456,14 +466,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -492,14 +503,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_active_sessions
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -528,14 +540,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_active_sessions.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -564,14 +577,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_active_sessions.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -600,14 +614,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_ordering
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -636,14 +651,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_ordering.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -672,14 +688,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_ordering.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -708,14 +725,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_paging
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -744,14 +762,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_paging.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -780,14 +799,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_paging.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -816,14 +836,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_does_not_contain_event_properties
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -857,14 +878,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_does_not_match_regex_event_properties
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -898,14 +920,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -939,14 +962,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -980,14 +1004,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1021,14 +1046,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1062,14 +1088,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_two_is_not_event_properties
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1103,14 +1130,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1139,14 +1167,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1175,14 +1204,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1211,14 +1241,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1247,14 +1278,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1283,14 +1315,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_to_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1319,14 +1352,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_to_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1355,14 +1389,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_duration_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1391,14 +1426,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_duration_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1427,14 +1463,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1468,14 +1505,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1509,14 +1547,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_has_ttl_applied_too
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1550,14 +1589,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_has_ttl_applied_too.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1586,14 +1626,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_active_sessions
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1627,14 +1668,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_active_sessions.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1668,14 +1710,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_group_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1714,14 +1757,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_group_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1760,14 +1804,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_group_filter.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1806,14 +1851,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1847,14 +1893,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1888,7 +1935,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), and(ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING hasAll(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
@@ -1903,14 +1950,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1944,7 +1992,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)), and(ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1)))
   GROUP BY s.session_id
@@ -1959,14 +2007,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2000,14 +2049,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2041,7 +2091,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), and(ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING hasAll(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
@@ -2056,14 +2106,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2097,7 +2148,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0)), and(ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1)))
   GROUP BY s.session_id
@@ -2112,14 +2163,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_person_properties
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2168,14 +2220,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_person_properties.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2224,14 +2277,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2265,14 +2319,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2306,14 +2361,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2347,14 +2403,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2388,14 +2445,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_matching_on_session_id
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2429,14 +2487,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_matching_on_session_id.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2470,14 +2529,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2511,14 +2571,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2552,14 +2613,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2593,14 +2655,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties.3
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2634,14 +2697,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2675,14 +2739,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2716,14 +2781,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2757,14 +2823,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized.3
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2798,14 +2865,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2839,7 +2907,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)), and(ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING hasAll(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
@@ -2854,14 +2922,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2895,14 +2964,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2936,7 +3006,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), and(ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)), and(ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), and(ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING hasAll(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
@@ -2951,14 +3021,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -2992,14 +3063,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_two_events_and_multiple_teams
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3033,14 +3105,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_by_distinct_ids_0_single_distinct_id
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3069,14 +3142,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_by_distinct_ids_1_multiple_distinct_ids
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3105,14 +3179,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_by_distinct_ids_2_non_existent_distinct_id
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3141,14 +3216,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_by_distinct_ids_3_empty_distinct_ids
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3177,14 +3253,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3219,14 +3296,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3261,14 +3339,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_2__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3303,14 +3382,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_3__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3345,14 +3425,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_snapshot_source
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3381,14 +3462,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_snapshot_source.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3417,14 +3499,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_errors
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3459,14 +3542,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_errors.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3501,14 +3585,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_logs
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3543,14 +3628,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_logs.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3585,14 +3671,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_warns
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3627,14 +3714,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_warns.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3669,14 +3757,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_mixed_console_counts
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3711,14 +3800,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_mixed_console_counts.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3753,14 +3843,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_on_session_ids
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3794,14 +3885,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_on_session_ids.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3835,14 +3927,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_person_properties_exact
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3891,14 +3984,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_person_properties_not_contains
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3947,14 +4041,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_listing_ignores_future_replays
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -3983,14 +4078,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4024,14 +4120,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4065,14 +4162,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4106,14 +4204,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.3
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4147,14 +4246,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.4
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4188,14 +4288,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.5
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4229,14 +4330,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_event_filters
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4270,14 +4372,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_event_filters.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4311,14 +4414,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4353,14 +4457,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4395,14 +4500,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4437,14 +4543,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4479,14 +4586,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4521,14 +4629,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4571,14 +4680,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4621,14 +4731,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters.2
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4662,14 +4773,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters.3
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4703,14 +4815,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_person_filters
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4759,14 +4872,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_person_filters.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4815,14 +4929,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_ordering
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4851,14 +4966,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_ordering.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4887,14 +5003,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_person_id_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4932,14 +5049,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_sessions_with_current_data
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -4968,14 +5086,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5009,14 +5128,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5037,7 +5157,7 @@
                                                                                                                                                                                                                                                                                                                                                                              FROM events
                                                                                                                                                                                                                                                                                                                                                                              WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'), 1)
                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                             HAVING and(hasAll(groupUniqArray(events.event), ['$pageview']), ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0), ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0), ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                             HAVING and(hasAll(groupUniqArray(events.event), ['$pageview']), ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -5050,14 +5170,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5091,14 +5212,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5119,7 +5241,7 @@
                                                                                                                                                                                                                                                                                                                                                                              FROM events
                                                                                                                                                                                                                                                                                                                                                                              WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'), 1)
                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                             HAVING and(hasAll(groupUniqArray(events.event), ['$pageview']), ifNull(equals(countIf(ifNull(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0), ifNull(equals(countIf(ifNull(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0), ifNull(equals(countIf(ifNull(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                             HAVING and(hasAll(groupUniqArray(events.event), ['$pageview']), ifNull(equals(countIf(ifNull(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -5132,14 +5254,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5173,14 +5296,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5199,7 +5323,7 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                                                                                                              FROM events
-                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0))
                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                              HAVING 1)))
   GROUP BY s.session_id
@@ -5214,14 +5338,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5255,14 +5380,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5281,7 +5407,7 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                                                                                                              FROM events
-                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'false'), 0))
                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                              HAVING 1)))
   GROUP BY s.session_id
@@ -5296,14 +5422,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5337,14 +5464,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5363,7 +5491,7 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                                                                                                              FROM events
-                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), and(ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0))
                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                              HAVING 1)))
   GROUP BY s.session_id
@@ -5378,14 +5506,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5419,14 +5548,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5445,7 +5575,7 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                                                                                                              FROM events
-                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), and(ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'false'), 0))
                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                              HAVING 1)))
   GROUP BY s.session_id
@@ -5460,14 +5590,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5501,14 +5632,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5527,7 +5659,7 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                                                                                                              FROM events
-                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'true'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'true'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'true'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'true'), 0))
                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                              HAVING 1)))
   GROUP BY s.session_id
@@ -5542,14 +5674,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5583,14 +5716,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5609,7 +5743,7 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                                                                                                              FROM events
-                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), and(ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'true'), 0), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'true'), 0), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'true'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'true'), 0))
                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                              HAVING 1)))
   GROUP BY s.session_id
@@ -5624,14 +5758,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5665,14 +5800,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5706,7 +5842,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1)))
   GROUP BY s.session_id
@@ -5721,14 +5857,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5762,14 +5899,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5803,7 +5941,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1)))
   GROUP BY s.session_id
@@ -5818,14 +5956,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5859,14 +5998,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5900,7 +6040,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1)))
   GROUP BY s.session_id
@@ -5915,14 +6055,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter_materialized
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5956,14 +6097,15 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter_materialized.1
   '''
   SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -5997,7 +6139,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0), ifNull(equals(events__person.properties___email, 'bla'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1)))
   GROUP BY s.session_id
@@ -6012,6 +6154,7 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
