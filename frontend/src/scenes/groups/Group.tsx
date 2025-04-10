@@ -24,7 +24,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
 import type { ActionFilter, Group } from '~/types'
 import {
     ActivityScope,
@@ -37,9 +36,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { GroupPeople } from './GroupPeople'
-import { GroupProperties } from './GroupProperties'
-import { GroupOverviewCard } from './overview/GroupOverviewCard'
+import { GroupOverview } from './GroupOverview'
 import { RelatedGroups } from './RelatedGroups'
 
 interface GroupSceneProps {
@@ -75,76 +72,6 @@ export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; 
             <div>
                 <span className="text-secondary">First seen:</span>{' '}
                 {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
-            </div>
-        </div>
-    )
-}
-
-function GroupOverview({ groupData }: { groupData: Group }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="col-span-1">
-                    <GroupOverviewCard title="Properties">
-                        <GroupProperties groupData={groupData} />
-                    </GroupOverviewCard>
-                </div>
-                <div className="col-span-1 md:col-span-2">
-                    <GroupOverviewCard title="People">
-                        <GroupPeople groupData={groupData} />
-                    </GroupOverviewCard>
-                </div>
-            </div>
-            <div>
-                <GroupOverviewCard title="Engagement">
-                    <div className="h-64">
-                        <Query
-                            query={{
-                                kind: NodeKind.InsightVizNode,
-                                source: {
-                                    kind: NodeKind.TrendsQuery,
-                                    dateRange: {
-                                        date_from: '-90d',
-                                    },
-                                    series: [
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            math: 'total',
-                                            event: null,
-                                        },
-                                        {
-                                            kind: NodeKind.EventsNode,
-                                            math: 'dau',
-                                            event: null,
-                                        },
-                                    ],
-                                },
-                                embedded: true,
-                            }}
-                            context={{ refresh: 'force_blocking' }}
-                        />
-                    </div>
-                </GroupOverviewCard>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="col-span-2">
-                    <GroupOverviewCard title="Session recordings">
-                        <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-                            <h5 className="text-center text-sm text-secondary">There are no recordings yet</h5>
-                        </div>
-                    </GroupOverviewCard>
-                </div>
-                <div className="col-span-2">
-                    <GroupOverviewCard title="Feature flags">
-                        <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-                            <RelatedFeatureFlags
-                                distinctId={groupData.group_key}
-                                groupTypeIndex={groupData.group_type_index}
-                                groups={{ ['organization']: groupData.group_key }}
-                            />
-                        </div>
-                    </GroupOverviewCard>
-                </div>
             </div>
         </div>
     )
