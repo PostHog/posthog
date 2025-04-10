@@ -1,5 +1,12 @@
+from enum import StrEnum
+
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+
+
+class CodebaseCatalogStatus(StrEnum):
+    SYNCED = "synced"
+    PENDING = "pending"
 
 
 def CODEBASE_CATALOG_TABLE_NAME():

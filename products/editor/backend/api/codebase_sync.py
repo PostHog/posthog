@@ -28,7 +28,7 @@ class CodebaseSerializer(serializers.ModelSerializer):
 class ArtifactSerializer(serializers.Serializer):
     id = serializers.CharField()
     type = serializers.ChoiceField(choices=["file", "dir"])
-    parent_id = serializers.CharField(required=False)
+    parent_id = serializers.CharField(required=False, default=None)
 
 
 class CodebaseSyncSerializer(serializers.Serializer):

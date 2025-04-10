@@ -475,6 +475,7 @@ class CodebaseTreeResponseItem(BaseModel):
     )
     id: str
     parentId: Optional[str] = None
+    synced: bool
     type: str
 
 

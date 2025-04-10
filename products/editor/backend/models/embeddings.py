@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     user_id Int64,
     codebase_id String,
     artifact_id String,
+    chunk_id String,
     vector Array(Float32),
     properties VARCHAR CODEC(ZSTD(3)),
     version UInt32,
@@ -32,7 +33,7 @@ def CODEBASE_EMBEDDINGS_TABLE_SQL(on_cluster=True):
         CODEBASE_EMBEDDINGS_TABLE_BASE_SQL
         + """
     -- artifact_id for uniqueness
-    ORDER BY (team_id, user_id, codebase_id, artifact_id)
+    ORDER BY (team_id, user_id, codebase_id, artifact_id, chunk_id)
     """
     ).format(
         table_name=CODEBASE_EMBEDDINGS_TABLE_NAME(),

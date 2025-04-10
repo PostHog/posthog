@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from typing import Literal, TypedDict
 
 ArtifactType = Literal["file", "dir"]
@@ -10,6 +9,11 @@ class SerializedArtifact(TypedDict):
     parent_id: str | None
 
 
+class CompareResult(TypedDict):
+    added: list[str]
+    deleted: list[str]
+
+
 class ArtifactNode:
     def __init__(self, hash: str, type: Literal["file", "dir"], children: list["ArtifactNode"]):
         self.hash = hash
@@ -17,20 +21,29 @@ class ArtifactNode:
         self.children = children
 
     @staticmethod
-    def build_tree(files: Sequence[SerializedArtifact]) -> "ArtifactNode":
-        nodes = {}
-        for file in files:
-            nodes[file["id"]] = ArtifactNode(file["id"], file["type"], [])
+    def build_tree(nodes: list[SerializedArtifact]) -> "ArtifactNode":
+        if not nodes:
+            raise ValueError("Tree must have at least one node.")
+        try:
+            tree: dict[str, ArtifactNode] = {}
+            for node in nodes:
+                tree[node["id"]] = ArtifactNode(node["id"], node["type"], [])
 
-        # Build parent-child relationships
-        for file in files:
-            if file["parent_id"] is not None:
-                nodes[file["parent_id"]].children.append(nodes[file["id"]])
-
-        return nodes[files[0]["id"]]
+            # Build parent-child relationships and find the root node
+            root = None
+            for node in nodes:
+                if node["parent_id"] is not None:
+                    tree[node["parent_id"]].children.append(tree[node["id"]])
+                elif root is None:
+                    root = tree[node["id"]]
+        except KeyError:
+            raise ValueError("Tree is corrupt.")
+        if not root:
+            raise ValueError("Tree must have a root node.")
+        return root
 
     @staticmethod
-    def compare(server: "ArtifactNode", client: "ArtifactNode") -> tuple[list[str], list[str]]:
+    def compare(server: "ArtifactNode", client: "ArtifactNode") -> CompareResult:
         """
         Compare server and client nodes recursively and return added/deleted nodes.
 
@@ -51,10 +64,12 @@ class ArtifactNode:
             return result
 
         # For files, if hashes differ, it's a deletion and addition
-        if server.type == "file" and server.hash != client.hash:
+        if server.hash != client.hash:
             result["deleted"].append(server.hash)
             result["added"].append(client.hash)
-            return result
+            # We want to traverse all children if it's a directory
+            if server.type == "file":
+                return result
 
         # For directories, recursively compare children
         if server.type == "dir":
@@ -78,4 +93,4 @@ class ArtifactNode:
                     result["added"].extend(child_result["added"])
                     result["deleted"].extend(child_result["deleted"])
 
-        return result["added"], result["deleted"]
+        return result

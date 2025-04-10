@@ -5498,11 +5498,14 @@
                 "parentId": {
                     "type": ["string", "null"]
                 },
+                "synced": {
+                    "type": "boolean"
+                },
                 "type": {
                     "type": "string"
                 }
             },
-            "required": ["id", "parentId", "type"],
+            "required": ["id", "parentId", "type", "synced"],
             "type": "object"
         },
         "CohortPropertyFilter": {
