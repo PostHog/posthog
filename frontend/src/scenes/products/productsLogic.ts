@@ -11,9 +11,9 @@ import type { productsLogicType } from './productsLogicType'
 
 export const productsLogic = kea<productsLogicType>([
     path(['scenes', 'products', 'productsLogic']),
-    connect({
+    connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
-    }),
+    })),
     actions(() => ({
         toggleSelectedProduct: (productKey: ProductKey) => ({ productKey }),
         setFirstProductOnboarding: (productKey: ProductKey) => ({ productKey }),

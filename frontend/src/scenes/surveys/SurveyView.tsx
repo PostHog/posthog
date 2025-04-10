@@ -10,7 +10,6 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -20,6 +19,7 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -41,7 +41,6 @@ import {
     OpenTextViz,
     RatingQuestionBarChart,
     SingleChoiceQuestionPieChart,
-    Summary,
 } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
@@ -51,7 +50,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     useEffect(() => {
         if (survey.start_date) {
@@ -280,39 +278,37 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 key: 'overview',
                                 label: 'Overview',
                             },
-                            showLinkedHogFunctions
-                                ? {
-                                      key: 'notifications',
-                                      label: 'Notifications',
-                                      content: (
-                                          <div>
-                                              <p>Get notified whenever a survey result is submitted</p>
-                                              <LinkedHogFunctions
-                                                  logicKey="survey"
-                                                  type="destination"
-                                                  subTemplateId="survey-response"
-                                                  filters={{
-                                                      events: [
-                                                          {
-                                                              id: 'survey sent',
-                                                              type: 'events',
-                                                              order: 0,
-                                                              properties: [
-                                                                  {
-                                                                      key: '$survey_id',
-                                                                      type: PropertyFilterType.Event,
-                                                                      value: id,
-                                                                      operator: PropertyOperator.Exact,
-                                                                  },
-                                                              ],
-                                                          },
-                                                      ],
-                                                  }}
-                                              />
-                                          </div>
-                                      ),
-                                  }
-                                : null,
+                            {
+                                key: 'notifications',
+                                label: 'Notifications',
+                                content: (
+                                    <div>
+                                        <p>Get notified whenever a survey result is submitted</p>
+                                        <LinkedHogFunctions
+                                            logicKey="survey"
+                                            type="destination"
+                                            subTemplateId="survey-response"
+                                            filters={{
+                                                events: [
+                                                    {
+                                                        id: 'survey sent',
+                                                        type: 'events',
+                                                        order: 0,
+                                                        properties: [
+                                                            {
+                                                                key: '$survey_id',
+                                                                type: PropertyFilterType.Event,
+                                                                value: id,
+                                                                operator: PropertyOperator.Exact,
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            }}
+                                        />
+                                    </div>
+                                ),
+                            },
                             {
                                 label: 'History',
                                 key: 'History',
@@ -331,8 +327,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         survey,
         dataTableQuery,
         surveyLoading,
-        surveyUserStats,
-        surveyUserStatsLoading,
         surveyRatingResults,
         surveyRatingResultsReady,
         surveyRecurringNPSResults,
@@ -357,7 +351,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     <Spinner />
                 </div>
             )}
-            <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            <SurveyStatsSummary />
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
@@ -498,13 +492,13 @@ function SurveyNPSResults({
                         Latest NPS Score
                     </div>
                     {npsBreakdown && (
-                        <div className="deprecated-space-y-2 mt-2 mb-4">
+                        <div className="mt-2 mb-4 deprecated-space-y-2">
                             <NPSStackedBar npsBreakdown={npsBreakdown} />
                         </div>
                     )}
                 </>
             )}
-            <div className="deprecated-space-y-2 bg-surface-primary p-2 rounded">
+            <div className="p-2 rounded deprecated-space-y-2 bg-surface-primary">
                 <div className="flex items-center justify-between gap-2">
                     <h4 className="text-lg font-semibold">NPS Trend</h4>
                     <div className="flex items-center gap-2">

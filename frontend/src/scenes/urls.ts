@@ -39,7 +39,7 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    revenue: (): string => '/data-management/revenue',
+    revenueSettings: (): string => '/data-management/revenue',
 
     pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
         return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
@@ -155,9 +155,9 @@ export const urls = {
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
     messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
-    messagingAutomations: (): string => '/messaging/automations',
-    messagingAutomationNew: (): string => '/messaging/automations/new',
-    messagingAutomation: (id: string): string => `/messaging/automations/${id}`,
+    messagingCampaigns: (): string => '/messaging/campaigns',
+    messagingCampaignNew: (): string => '/messaging/campaigns/new',
+    messagingCampaign: (id: string): string => `/messaging/campaigns/${id}`,
     messagingLibrary: (): string => '/messaging/library',
     messagingLibraryTemplate: (id: string): string => `/messaging/library/template/${id}`,
     messagingLibraryTemplateNew: (): string => '/messaging/library/template/new',

@@ -82,9 +82,9 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                 }
 
                 if (isTrends) {
-                    return getTrendsColorToken(dataset as IndexedTrendResult)
+                    return getTrendsColorToken(dataset as IndexedTrendResult)[1]
                 } else if (isFunnels) {
-                    return getFunnelsColorToken(dataset as FlattenedFunnelStepByBreakdown)
+                    return getFunnelsColorToken(dataset as FlattenedFunnelStepByBreakdown)[1]
                 }
 
                 return null

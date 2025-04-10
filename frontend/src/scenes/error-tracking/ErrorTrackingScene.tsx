@@ -10,7 +10,6 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber } from 'lib/utils'
@@ -71,11 +70,7 @@ export function ErrorTrackingScene(): JSX.Element {
         <ErrorTrackingSetupPrompt>
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
-                {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
-                    <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-                ) : (
-                    <IngestionStatusCheck />
-                )}
+                {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                 <ErrorTrackingFilters />
                 <LemonDivider className="mt-2" />
                 <ErrorTrackingListOptions />
@@ -104,12 +99,14 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
     return (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            <LemonSegmentedButton
-                size="xsmall"
-                value={sparklineSelectedPeriod}
-                options={sparklineOptions}
-                onChange={setSparklineSelectedPeriod}
-            />
+            {sparklineOptions.length > 0 && (
+                <LemonSegmentedButton
+                    size="xsmall"
+                    value={sparklineSelectedPeriod}
+                    options={sparklineOptions}
+                    onChange={setSparklineSelectedPeriod}
+                />
+            )}
         </div>
     )
 }

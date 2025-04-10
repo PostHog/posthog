@@ -68,7 +68,7 @@ describe('tiktok template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"ViewContent","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","phone":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","first_name":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","last_name":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566"},"properties":{"content_ids":["43431-18"],"contents":[{"price":30,"content_id":"43431-18","content_category":"merch","content_name":"Tactical black t-shirt","brand":"PostHog"}],"content_type":"product","currency":"usd","value":30,"num_items":1},"page":{"url":"https://posthog.com/merch?product=tactical-black-t-shirt"}}]}",
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"ViewContent","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","last_name":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","phone":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"content_ids":["43431-18"],"contents":[{"price":30,"content_id":"43431-18","content_category":"merch","content_name":"Tactical black t-shirt","brand":"PostHog"}],"content_type":"product","currency":"usd","value":30,"num_items":1},"page":{"url":"https://posthog.com/merch?product=tactical-black-t-shirt"}}]}",
               "headers": {
                 "Access-Token": "access-token",
                 "Content-Type": "application/json",
@@ -162,7 +162,7 @@ describe('tiktok template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"properties":{"content_ids":["18499-12","94839-23"],"contents":[{"price":30,"content_id":"18499-12","content_category":"merch","content_name":"Data warehouse t-shirt","brand":"PostHog"},{"price":30,"content_id":"94839-23","content_category":"merch","content_name":"Danger t-shirt","brand":"PostHog"}],"content_type":"product","currency":"USD","value":90,"num_items":2,"order_id":"3e94e72c0a7443e9b51155a3"},"page":{}}]}",
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"","last_name":"","phone":"","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"content_ids":["18499-12","94839-23"],"contents":[{"price":30,"content_id":"18499-12","content_category":"merch","content_name":"Data warehouse t-shirt","brand":"PostHog"},{"price":30,"content_id":"94839-23","content_category":"merch","content_name":"Danger t-shirt","brand":"PostHog"}],"content_type":"product","currency":"USD","value":90,"num_items":2,"order_id":"3e94e72c0a7443e9b51155a3"},"page":{}}]}",
               "headers": {
                 "Access-Token": "access-token",
                 "Content-Type": "application/json",
@@ -240,7 +240,7 @@ describe('tiktok template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}]}",
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"","last_name":"","phone":"","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}]}",
               "headers": {
                 "Access-Token": "access-token",
                 "Content-Type": "application/json",
@@ -292,7 +292,7 @@ describe('tiktok template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}]}",
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"","last_name":"","phone":"","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}]}",
               "headers": {
                 "Access-Token": "access-token",
                 "Content-Type": "application/json",
@@ -347,7 +347,7 @@ describe('tiktok template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}],"test_event_code":"test-event-code"}",
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"","last_name":"","phone":"","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}],"test_event_code":"test-event-code"}",
               "headers": {
                 "Access-Token": "access-token",
                 "Content-Type": "application/json",
@@ -406,7 +406,7 @@ describe('tiktok template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","phone":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ip":"123.123.123.123","user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36","first_name":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","last_name":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}]}",
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","last_name":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","phone":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id","ip":"123.123.123.123","user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}]}",
               "headers": {
                 "Access-Token": "access-token",
                 "Content-Type": "application/json",
