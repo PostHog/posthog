@@ -141,7 +141,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             date_to: values.commonFilters.date_to,
                         }
 
-                        defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
+                        defaultUrl = `/api/element/stats/${encodeParams(
+                            { ...params, paginate_response: true, sampling_factor: 0.1 },
+                            '?'
+                        )}`
                     }
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name

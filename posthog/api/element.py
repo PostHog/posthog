@@ -10,7 +10,6 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.utils import ServerTimingsGathered
 from posthog.queries.query_date_range import QueryDateRange
@@ -47,16 +46,13 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         The original version of this API always and only returned $autocapture elements
         If no include query parameter is sent this remains true.
         Now, you can pass a combination of include query parameters to get different types of elements
-        Currently only $autocapture and $rageclick are supported
+        Currently only $autocapture and $rageclick and $dead_clicks are supported
         """
 
         timer = ServerTimingsGathered()
 
         with timer("prepare_for_query"):
-            sample_rows_count = get_instance_setting("HEATMAP_SAMPLE_N") or 2_000_000
-
             filter = Filter(request=request, team=self.team)
-
             date_params = {}
             query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=True)
             date_from, date_from_params = query_date_range.date_from
@@ -74,6 +70,11 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except ValueError:
                 raise ValidationError("offset must be an integer")
 
+            try:
+                sampling_factor = float(request.query_params.get("sampling_factor", 1))
+            except ValueError:
+                raise ValidationError("sampling_factor must be a float")
+
             events_filter = self._events_filter(request)
 
             # unless someone is using this as an API client, this is only for the toolbar,
@@ -90,13 +91,14 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     date_from=date_from,
                     date_to=date_to,
                     query=prop_filters,
+                    sampling_factor=sampling_factor,
                     limit=limit + 1,
                     offset=offset,
                 ),
                 {
                     "team_id": self.team.pk,
                     "timezone": self.team.timezone,
-                    "sample_rows_count": sample_rows_count,
+                    "sampling_factor": sampling_factor,
                     **prop_filter_params,
                     **date_params,
                     "filter_event_types": events_filter,
