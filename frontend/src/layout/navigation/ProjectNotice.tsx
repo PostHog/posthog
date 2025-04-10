@@ -54,8 +54,7 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
 }
 
 export function ProjectNotice(): JSX.Element | null {
-    const projectNoticeVariant = null
-    // const { projectNoticeVariant } = useValues(navigationLogic)
+    const { projectNoticeVariant } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { logout, loadUser } = useActions(userLogic)
     const { user, userLoading } = useValues(userLogic)

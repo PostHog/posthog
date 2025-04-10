@@ -204,11 +204,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 )
             }
         },
-        [billingLogic.actionTypes.loadBillingSuccess]: () => {
-            if (values.billing?.customer_id) {
-                actions.setStartupProgramValue('customer_id', values.billing.customer_id)
-            }
-        },
     })),
     selectors({
         isAlreadyOnStartupPlan: [
