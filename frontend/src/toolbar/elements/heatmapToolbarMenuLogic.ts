@@ -286,14 +286,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         const existing = normalisedElements.get(trimmedElement)
                         if (existing) {
                             existing.count += countedElement.count
-                            existing.clickCount += countedElement.type === '$rageclick' ? 0 : countedElement.count
+                            existing.clickCount += countedElement.type === '$autocapture' ? countedElement.count : 0
                             existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
+                            existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
                         }
                     } else {
                         normalisedElements.set(trimmedElement, {
                             ...countedElement,
-                            clickCount: countedElement.type === '$rageclick' ? 0 : countedElement.count,
+                            clickCount: countedElement.type === '$autocapture' ? countedElement.count : 0,
                             rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
+                            deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
                             element: trimmedElement,
                             actionStep: elementToActionStep(trimmedElement, dataAttributes),
                         })
