@@ -131,8 +131,10 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
                 continue
 
             queries.append(join.table)
+            continue
         elif isinstance(join.table, ast.SelectSetQuery):
             queries.extend(list(extract_select_queries(join.table)))
+            continue
 
         while join is not None:
             parent_name = join.table.chain[0]  # type: ignore
