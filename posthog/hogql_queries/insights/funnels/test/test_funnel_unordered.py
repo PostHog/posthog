@@ -1871,21 +1871,12 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(trend_results[7]["conversion_rate"], 20)
 
     def test_unordered_trend_second_step(self):
-        # Test unordered trend with 5 users doing event 3 with different frequencies
-        # User 1: does event 3 all 8 days
-        # User 2: does event 3 4 of the 8 days
-        # User 3: does event 3 2 of the 8 days
-        # User 4: does event 3 1 of the 8 days
-        # User 5: never does event 3
-        # All users do events 1 and 2 once at the end of the funnel window
+        # Test unordered trend not starting at the first step
 
         start_date = datetime(2024, 3, 1, 10, 0)
 
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
         _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
-        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
-        _create_person(distinct_ids=["user_4"], team_id=self.team.pk)
-        _create_person(distinct_ids=["user_5"], team_id=self.team.pk)
 
         # Both users do event 3 all 8 days
         # Both users do events 1 once at the end of the funnel window (day 7)
