@@ -1,7 +1,7 @@
 import { IconDatabase, IconDocument } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { connect, kea, path, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -22,9 +22,9 @@ import { DataWarehouseSavedQuery, PipelineStage, ProductKey } from '~/types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from '../settings/DataWarehouseSourceIcon'
 import { viewLinkLogic } from '../viewLinkLogic'
-import { editorSceneLogic } from './editorSceneLogic'
-import type { editorSidebarLogicType } from './editorSidebarLogicType'
+import type { editorSceneLogicType } from './editorSceneLogicType'
 import { multitabEditorLogic } from './multitabEditorLogic'
+import { queryDatabaseLogic } from './sidebar/queryDatabaseLogic'
 
 const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable>([], {
     keys: [{ name: 'name', weight: 2 }],
@@ -40,8 +40,8 @@ const savedQueriesfuse = new Fuse<DataWarehouseSavedQuery>([], {
     includeMatches: true,
 })
 
-export const editorSidebarLogic = kea<editorSidebarLogicType>([
-    path(['data-warehouse', 'editor', 'editorSidebarLogic']),
+export const editorSceneLogic = kea<editorSceneLogicType>([
+    path(['data-warehouse', 'editor', 'editorSceneLogic']),
     connect(() => ({
         values: [
             sceneLogic,
@@ -52,7 +52,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             ['posthogTables', 'dataWarehouseTables', 'allTables', 'databaseLoading', 'views', 'viewsMapById'],
         ],
         actions: [
-            editorSceneLogic,
+            queryDatabaseLogic,
             ['selectSchema'],
             dataWarehouseViewsLogic,
             ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery'],
@@ -62,6 +62,18 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             ['addProductIntent'],
         ],
     })),
+    actions({
+        setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
+    }),
+    reducers({
+        sidebarOverlayOpen: [
+            false,
+            {
+                setSidebarOverlayOpen: (_, { isOpen }) => isOpen,
+                selectSchema: (_, { schema }) => schema !== null,
+            },
+        ],
+    }),
     selectors(({ actions }) => ({
         contents: [
             (s) => [
