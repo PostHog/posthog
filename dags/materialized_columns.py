@@ -13,12 +13,10 @@ from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, HostInfo
 
-K = TypeVar("K")
-V = TypeVar("V")
-
 
 K1 = TypeVar("K1")
 K2 = TypeVar("K2")
+V = TypeVar("V")
 
 
 def join_mappings(mappings: Mapping[K1, Mapping[K2, V]]) -> Mapping[K2, Mapping[K1, V]]:
